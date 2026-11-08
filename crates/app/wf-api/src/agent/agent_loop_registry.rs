@@ -21,8 +21,8 @@ pub use history::{
 };
 pub use summary::{
     count, derive_title_from_messages, ensure_loop_title, get_status, has, list_by_status,
-    normalize_title, statistics, summaries, summary, summary_matches_directory, update_status,
-    update_title,
+    normalize_title, statistics, statistics_in, summaries, summary, summary_matches_directory,
+    update_status, update_title,
 };
 pub use timeline::{context_evolution, execution_timeline, variable_history};
 pub use types::{
@@ -256,7 +256,8 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        };
+        
+            directory: None,};
         storage.agent_execution.save(&record).await.unwrap();
 
         let ctx = Arc::new(ApiContext::new(

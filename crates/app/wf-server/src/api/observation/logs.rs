@@ -3,7 +3,7 @@
 //! one run; the global route reads across runs with an optional execution
 //! filter.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -112,9 +112,14 @@ fn parse_event_types(
 )]
 pub(crate) async fn handle_execution_logs(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Query(query): Query<ExecutionLogsQuery>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
         Err(message) => return err(InvalidParams::validation(message)).into_response(),
@@ -157,6 +162,7 @@ pub(crate) async fn handle_execution_logs(
 )]
 pub(crate) async fn handle_query_logs(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Query(query): Query<QueryLogsQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
@@ -178,7 +184,21 @@ pub(crate) async fn handle_query_logs(
         .await
     {
         Ok((entries, _)) => {
-            let window = entries.into_iter().map(LogEntryDoc::from).collect();
+            let ids: Vec<String> = entries
+                .iter()
+                .filter_map(|entry| entry.execution_id.clone())
+                .collect();
+            let visible = crate::directory::visible_execution_ids(&state.ctx, &scope, ids).await;
+            let window = entries
+                .into_iter()
+                .filter(|entry| {
+                    entry
+                        .execution_id
+                        .as_ref()
+                        .is_some_and(|id| visible.contains(id))
+                })
+                .map(LogEntryDoc::from)
+                .collect();
             ok_cursor_page(window, limit, offset).into_response()
         }
         Err(e) => crate::envelope::error_response(e),

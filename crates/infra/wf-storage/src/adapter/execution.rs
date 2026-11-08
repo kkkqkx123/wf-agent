@@ -16,6 +16,9 @@ pub struct WorkflowExecutionListOptions {
     /// Sort by execution start time; true sorts newest first.
     /// Absent preserves backend default order.
     pub order_desc: Option<bool>,
+    /// Restrict to one owning business directory. `None` applies no
+    /// directory predicate; unowned records never match a concrete value.
+    pub directory_filter: Option<String>,
 }
 
 impl From<WorkflowExecutionListOptions> for QueryFilter {
@@ -32,6 +35,9 @@ impl From<WorkflowExecutionListOptions> for QueryFilter {
         }
         if let Some(value) = opts.workflow_id_filter {
             filter.add_op(FilterOp::Eq("workflowId".into(), value));
+        }
+        if let Some(value) = opts.directory_filter {
+            filter.add_op(FilterOp::Eq("directory".into(), value));
         }
         match (opts.started_from, opts.started_to) {
             (Some(from), Some(to)) => {

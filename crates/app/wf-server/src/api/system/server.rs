@@ -102,10 +102,7 @@ pub(crate) struct MigrationStatusView {
     version: u32,
 }
 
-
-
-static SERVER_STOPPING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static SERVER_STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Mark the process as stopping so `/server/status` stays observable
 /// through the graceful-shutdown window. Embedders may call this before
@@ -368,9 +365,10 @@ fn cached_projects(state: &ApiState) -> Vec<ProjectEntry> {
         .cached_keys()
         .into_iter()
         .map(|directory| {
-            let project = crate::directory::discover_project(std::path::Path::new(&directory));
+            let project =
+                wf_common::workspace::discover_project_root(std::path::Path::new(&directory));
             ProjectEntry {
-                project_id: crate::directory::project_id_for(&project),
+                project_id: wf_common::workspace::project_id_for(&project),
                 directory,
             }
         })
@@ -384,7 +382,9 @@ fn cached_projects(state: &ApiState) -> Vec<ProjectEntry> {
     responses((status = 200, description = "Revalidated projects", body = crate::envelope::ApiEnvelope<ProjectsView>)),
     security(("api_key" = []))
 )]
-pub(crate) async fn handle_server_projects_refresh(State(state): State<ApiState>) -> impl IntoResponse {
+pub(crate) async fn handle_server_projects_refresh(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     // No persisted project table: refresh re-reads the validated directory
     // cache so equivalent spellings collapse to the same stable id.
     ok(ProjectsView {

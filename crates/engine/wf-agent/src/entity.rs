@@ -93,6 +93,10 @@ pub struct AgentLoopEntity {
     steering_inputs: tokio::sync::Mutex<Vec<RuntimeInput>>,
     /// Buffered follow-up inputs (injected when the run would otherwise stop).
     followup_inputs: tokio::sync::Mutex<Vec<RuntimeInput>>,
+    /// Canonical business directory that created the run, stamped at spawn
+    /// and copied into the persisted record. `None` marks engine-origin
+    /// runs without a requesting directory.
+    directory: std::sync::RwLock<Option<String>>,
 }
 
 impl AgentLoopEntity {
@@ -132,6 +136,7 @@ impl AgentLoopEntity {
             append_mode: tokio::sync::Mutex::new(AgentAppendMode::Followup),
             steering_inputs: tokio::sync::Mutex::new(Vec::new()),
             followup_inputs: tokio::sync::Mutex::new(Vec::new()),
+            directory: std::sync::RwLock::new(None),
         }
     }
 
@@ -175,6 +180,21 @@ impl AgentLoopEntity {
     pub fn with_model(mut self, model: String) -> Self {
         self.model = model;
         self
+    }
+
+    /// Stamp the owning business directory at spawn. The persisted record
+    /// copies this value, so ownership follows the run, not later edits.
+    pub fn with_directory(self, directory: Option<String>) -> Self {
+        *self.directory.write().expect("entity directory lock") = directory;
+        self
+    }
+
+    /// Owning business directory, if the run was created with one.
+    pub fn directory(&self) -> Option<String> {
+        self.directory
+            .read()
+            .expect("entity directory lock")
+            .clone()
     }
 
     pub fn with_tool_call_protocol(mut self, format: ToolCallProtocolConfig) -> Self {

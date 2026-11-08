@@ -360,7 +360,8 @@ mod tests {
                 options: Some(partial_options),
                 version: None,
                 debug: None,
-            },
+            
+                directory: None,},
         )
         .await
         .expect("partial run completes");
@@ -425,7 +426,8 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        };
+        
+            directory: None,};
 
         let item = ApiRecoveryExecutor
             .recover_execution(&ctx, &record)

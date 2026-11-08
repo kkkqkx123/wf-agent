@@ -84,7 +84,12 @@ pub(crate) async fn params_from_body(
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
     // Launching without a directory is rejected: the run would otherwise
     // touch a workspace the client never named.
-    crate::directory::require_scope_dir(scope)?;
+    let scope = crate::directory::require_scope(scope)?;
+    // An explicit file scope narrows the sandbox; it must not escape the
+    // request directory (and the allowlist behind it).
+    if let Some(explicit) = body.file_scope.as_ref() {
+        crate::directory::check_explicit_file_scope(scope, explicit)?;
+    }
     // Server is the single washing point: raw client text is cleaned here
     // before the blank check so ANSI-only messages are rejected as empty.
     let message = wf_types::message::sanitize_user_text(&body.message);
@@ -146,9 +151,7 @@ pub(crate) async fn params_from_body(
     let config = wf_api::AgentLoopConfig {
         // The request directory anchors the run only when the body
         // carries no explicit file scope, so explicit values always win.
-        file_scope: body
-            .file_scope
-            .or_else(|| scope.as_ref().map(scope_file_scope)),
+        file_scope: body.file_scope.or_else(|| Some(scope_file_scope(scope))),
         agent_id: wf_api::Id::from(agent_id),
         model,
         max_iterations: body.max_iterations,
@@ -227,6 +230,9 @@ pub(crate) async fn params_from_body(
         }
         params.input.conversation.push(receipt_message);
     }
+    // Ownership follows the requesting directory, not the sandbox shape:
+    // an explicit narrower file scope never moves the stamp.
+    params.directory = Some(scope.directory.to_string_lossy().into_owned());
     Ok(params)
 }
 
@@ -323,8 +329,13 @@ pub(crate) async fn handle_stream_loop(
 )]
 pub(crate) async fn handle_pause_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
+
     match wf_api::agent::agent_execution::pause(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => session_error_response(e),
@@ -346,8 +357,13 @@ pub(crate) async fn handle_pause_loop(
 )]
 pub(crate) async fn handle_resume_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
+
     match wf_api::agent::agent_execution::resume(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => session_error_response(e),
@@ -369,8 +385,13 @@ pub(crate) async fn handle_resume_loop(
 )]
 pub(crate) async fn handle_cancel_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
+
     match wf_api::agent::agent_execution::cancel(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => session_error_response(e),
@@ -410,9 +431,14 @@ pub(crate) struct SetAppendModeBody {
 )]
 pub(crate) async fn handle_append_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<AppendAgentLoopBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
+
     match wf_api::agent::agent_execution::append(
         &state.ctx,
         &path.id,
@@ -443,9 +469,14 @@ pub(crate) async fn handle_append_loop(
 )]
 pub(crate) async fn handle_set_append_mode_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<SetAppendModeBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
+
     match wf_api::agent::agent_execution::set_append_mode(&state.ctx, &path.id, &body.mode).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => session_error_response(e),
@@ -465,8 +496,13 @@ pub(crate) async fn handle_set_append_mode_loop(
 )]
 pub(crate) async fn handle_convert_pending_to_steering_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
+
     match wf_api::agent::agent_execution::convert_pending_to_steering(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => session_error_response(e),
@@ -504,6 +540,9 @@ pub(crate) async fn handle_fork_loop(
     Path(path): Path<IdPath>,
     Json(body): Json<ForkLoopBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
     let checkpoint_id = match body.checkpoint_id {
         Some(id) => id,
         None => match latest_restorable_checkpoint(&state.ctx, &path.id).await {
@@ -516,7 +555,11 @@ pub(crate) async fn handle_fork_loop(
         Err(e) => return session_error_response(e),
     };
     match wf_api::agent::agent_execution::resume_from_checkpoint(
-        &state.ctx, &path.id, &checkpoint_id, run_params, false,
+        &state.ctx,
+        &path.id,
+        &checkpoint_id,
+        run_params,
+        false,
     )
     .await
     {
@@ -552,7 +595,16 @@ pub(crate) async fn handle_transfer_loop(
     Path(path): Path<IdPath>,
     Json(body): Json<ForkLoopBody>,
 ) -> impl IntoResponse {
-    handle_fork_loop(State(state), Extension(scope), Path(path), Json(ForkLoopBody { checkpoint_id: body.checkpoint_id, run: body.run })).await
+    handle_fork_loop(
+        State(state),
+        Extension(scope),
+        Path(path),
+        Json(ForkLoopBody {
+            checkpoint_id: body.checkpoint_id,
+            run: body.run,
+        }),
+    )
+    .await
 }
 
 /// Share a loop as a read-only view without duplicating storage.
@@ -569,11 +621,18 @@ pub(crate) async fn handle_transfer_loop(
 )]
 pub(crate) async fn handle_share_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return session_error_response(e);
+    }
     match wf_api::agent::agent_loop_registry::summary(&state.ctx, &path.id).await {
-        Ok(Some(summary)) => ok(serde_json::json!({ "shared": true, "loop": summary })).into_response(),
-        Ok(None) => crate::envelope::session_not_found(format!("session [{}] not found", path.id)).into_response(),
+        Ok(Some(summary)) => {
+            ok(serde_json::json!({ "shared": true, "loop": summary })).into_response()
+        }
+        Ok(None) => crate::envelope::session_not_found(format!("session [{}] not found", path.id))
+            .into_response(),
         Err(e) => session_error_response(e),
     }
 }
@@ -628,4 +687,3 @@ fn inbox_conflict_response(e: wf_api::ApiError) -> axum::response::Response {
         _ => session_error_response(e),
     }
 }
-

@@ -623,7 +623,11 @@ pub(crate) async fn handle_latest_session_anchor(
     State(state): State<ApiState>,
     Query(query): Query<LatestSessionAnchorQuery>,
 ) -> impl IntoResponse {
-    let Some(directory) = query.directory.as_deref().map(str::trim).filter(|d| !d.is_empty())
+    let Some(directory) = query
+        .directory
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
     else {
         return match wf_api::agent::agent_message::latest_session_anchor(&state.ctx).await {
             Ok(anchor) => ok(anchor).into_response(),

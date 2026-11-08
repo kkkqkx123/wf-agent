@@ -174,7 +174,8 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
                 options: Some(options),
                 version: None,
                 debug: None,
-            },
+            
+                directory: None,},
         )
         .await
         .expect("partial run completes");
@@ -266,7 +267,8 @@ async fn kill_restart_without_checkpoint_is_skipped() {
 
                 rerun_of: None,
                 debug: None,
-            })
+            
+                directory: None,})
             .await
             .unwrap();
     }
@@ -331,7 +333,8 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
                 options: Some(options),
                 version: None,
                 debug: None,
-            },
+            
+                directory: None,},
         )
         .await
         .expect("partial run completes");
@@ -379,7 +382,8 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
 
             rerun_of: None,
             debug: None,
-        })
+        
+            directory: None,})
         .await
         .unwrap();
 

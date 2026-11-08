@@ -37,6 +37,12 @@
 		type SettingsBackup,
 	} from '#lib/services/portability';
 	import { cn } from '#lib/ui/cn';
+import {
+	fetchServerDirectories,
+	resolveDirectory,
+	setDirectory,
+	validateDirectoryFormat,
+} from '#lib/api/client';
 	import { t, message } from '#lib/i18n';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 
@@ -146,8 +152,53 @@
 	let unsavedBusy = $state(false);
 	let pendingNavUrl = $state<string | null>(null);
 
+	let dirInput = $state('');
+	let dirError = $state<string | null>(null);
+	let dirSaving = $state(false);
+	let dirAllowedRoots = $state<string[] | null>(null);
+	let dirKnown = $state(false);
+
+	async function loadServerDirectories(): Promise<void> {
+		const state = await fetchServerDirectories();
+		if (!state) return;
+		dirKnown = true;
+		dirAllowedRoots = state.allowedRoots;
+	}
+
+	function saveDirectory(): void {
+		dirError = null;
+		const trimmed = dirInput.trim();
+		if (trimmed.length === 0) {
+			setDirectory(undefined);
+			window.location.reload();
+			return;
+		}
+		const problem = validateDirectoryFormat(trimmed);
+		if (problem) {
+			dirError = problem;
+			return;
+		}
+		dirSaving = true;
+		try {
+			setDirectory(trimmed);
+		} catch (error) {
+			dirError = error instanceof Error ? error.message : String(error);
+			dirSaving = false;
+			return;
+		}
+		window.location.reload();
+	}
+
+	function clearDirectory(): void {
+		dirError = null;
+		setDirectory(undefined);
+		window.location.reload();
+	}
+
 	onMount(() => {
 		void behavior.load();
+		dirInput = resolveDirectory() ?? '';
+		void loadServerDirectories();
 		const guardUnload = (event: BeforeUnloadEvent): void => {
 			if (behavior.dirty) event.preventDefault();
 		};
@@ -625,6 +676,45 @@
 				</PageState>
 			{:else}
 				<div class="space-y-3">
+					<Card
+						title={t('page.settings.serverDirectory')}
+						description={t('page.settings.serverDirectoryDesc')}
+					>
+						<label for="server-directory" class="block text-caption text-muted-foreground">
+							{t('page.settings.serverDirectory')}
+						</label>
+						<input
+							id="server-directory"
+							type="text"
+							bind:value={dirInput}
+							placeholder={t('page.settings.serverDirectoryPlaceholder')}
+							class="mt-1 w-full max-w-md rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+						/>
+						{#if dirError}
+							<p class="mt-2 text-caption text-destructive">{dirError}</p>
+						{/if}
+						<p class="mt-2 text-caption text-muted-foreground">
+							{#if dirKnown}
+								{#if dirAllowedRoots !== null && dirAllowedRoots.length > 0}
+									{t('page.settings.serverDirectoryAllowed', {
+										roots: dirAllowedRoots.join(', '),
+									})}
+								{:else}
+									{t('page.settings.serverDirectoryAllowAny')}
+								{/if}
+							{:else}
+								{t('page.settings.serverDirectoryUnavailable')}
+							{/if}
+						</p>
+						<div class="mt-3 flex gap-2">
+							<Button size="sm" disabled={dirSaving} onclick={saveDirectory}>
+								{t('common.save')}
+							</Button>
+							<Button size="sm" variant="outline" onclick={clearDirectory}>
+								{t('page.settings.serverDirectoryClear')}
+							</Button>
+						</div>
+					</Card>
 					<Card title={t('page.settings.shell')}>
 						<Switch
 							checked={preferences.sidebarCollapsed}

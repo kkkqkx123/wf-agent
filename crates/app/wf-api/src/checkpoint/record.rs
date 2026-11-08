@@ -571,7 +571,8 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        };
+        
+            directory: None,};
         ctx.workflow_execution.save(&execution).await.unwrap();
         let unrelated = WorkflowExecution {
             id: "ex-other".into(),

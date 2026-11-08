@@ -23,6 +23,7 @@ fn workflow_record(id: &str) -> WorkflowExecution {
 
         rerun_of: None,
         debug: None,
+        directory: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn agent_record(id: &str) -> AgentExecution {
         hierarchy: None,
 
         rerun_of: None,
+        directory: None,
     }
 }
 

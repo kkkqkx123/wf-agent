@@ -219,10 +219,7 @@ pub(crate) async fn handle_event_health(State(state): State<ApiState>) -> impl I
         Ok(health) => {
             let mut body = serde_json::to_value(health).unwrap_or(serde_json::Value::Null);
             if let serde_json::Value::Object(ref mut map) = body {
-                map.insert(
-                    "sse".to_string(),
-                    super::events::sse_transport_stats(),
-                );
+                map.insert("sse".to_string(), super::events::sse_transport_stats());
                 map.insert("ws".to_string(), crate::ws::ws_transport_stats());
             }
             ok(body).into_response()

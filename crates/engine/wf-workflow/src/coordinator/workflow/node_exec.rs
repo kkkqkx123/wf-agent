@@ -220,6 +220,9 @@ impl WorkflowCoordinator {
                     )
                     .await
                     {
+                        // Borrowed: the closure is reused for the
+                        // non-timeout path below, so it must not move here.
+                        #[allow(clippy::needless_borrows_for_generic_args)]
                         Ok(handler_result) => break handler_result.map_err(&panic_failure),
                         Err(_) => continue,
                     }

@@ -1,12 +1,13 @@
 //! Agent loop CRUD and status handlers (transport adapters over
 //! `wf-api::agent`).
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::directory::DirectoryScope;
 use crate::envelope::{err, error_response, ok};
 use crate::extract::IdPath;
 use crate::paged::{fetch_size, ok_page, resolve_page_fields};
@@ -38,16 +39,48 @@ pub(crate) struct ListLoopsQuery {
 )]
 pub(crate) async fn handle_list_loops(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<ListLoopsQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
+    // Ownership is decided per session through the summary chain, so the
+    // storage page is bypassed: fetch all status matches, keep visible
+    // sessions, then slice the requested page.
     let options = wf_api::AgentLoopListOptions {
-        offset: Some(offset),
-        limit: Some(fetch_size(limit)),
+        offset: None,
+        limit: None,
         status_filter: query.status,
     };
     match wf_api::agent::list_agent_loops(&state.ctx.storage, Some(options)).await {
-        Ok(loops) => ok_page(loops, limit, offset).into_response(),
+        Ok(loops) => {
+            let mut visible = Vec::new();
+            for meta in loops {
+                // Pure metadata without any execution record is
+                // template-like (no transcript) and stays visible to all;
+                // anything with a run history is ownership-filtered.
+                let owned = match wf_api::agent::agent_loop_registry::summary(
+                    &state.ctx,
+                    &meta.id.to_string(),
+                )
+                .await
+                {
+                    Ok(Some(summary)) => {
+                        crate::directory::check_owner(&scope, summary.directory.as_deref())
+                    }
+                    Ok(None) => true,
+                    Err(_) => false,
+                };
+                if owned {
+                    visible.push(meta);
+                }
+            }
+            let window = visible
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -89,8 +122,13 @@ pub(crate) async fn handle_save_loop(
 )]
 pub(crate) async fn handle_get_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = loop_owner(&state, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     match wf_api::agent::get_agent_loop(&state.ctx.storage, &path.id).await {
         Ok(loop_def) => ok(loop_def).into_response(),
         Err(e) => error_response(e),
@@ -113,9 +151,14 @@ pub(crate) async fn handle_get_loop(
 )]
 pub(crate) async fn handle_update_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(mut loop_def): Json<wf_api::AgentLoopStorageMetadata>,
 ) -> impl IntoResponse {
+    if let Err(e) = loop_owner(&state, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     loop_def.id = wf_api::Id::from(path.id.clone());
     match wf_api::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
         Ok(()) => ok(path.id).into_response(),
@@ -137,8 +180,13 @@ pub(crate) async fn handle_update_loop(
 )]
 pub(crate) async fn handle_delete_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = loop_owner(&state, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     match wf_api::agent::delete_agent_loop(&state.ctx.storage, &path.id).await {
         Ok(deleted) => {
             let _ = wf_api::agent::agent_message::delete_by_agent_loop(&state.ctx, &path.id).await;
@@ -170,9 +218,14 @@ pub(crate) struct UpdateLoopStatusBody {
 )]
 pub(crate) async fn handle_update_loop_status(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<UpdateLoopStatusBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = loop_owner(&state, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     match wf_api::agent::update_agent_loop_status(&state.ctx.storage, &path.id, &body.status).await
     {
         Ok(()) => ok(()).into_response(),
@@ -194,8 +247,13 @@ pub(crate) async fn handle_update_loop_status(
 )]
 pub(crate) async fn handle_loop_status(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = loop_owner(&state, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     match wf_api::agent::agent_execution::status(&state.ctx, &path.id).await {
         Ok(status) => ok(status).into_response(),
         Err(e) => error_response(e),
@@ -221,12 +279,18 @@ pub(crate) async fn handle_loop_status(
 )]
 pub(crate) async fn handle_loop_status_transition(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<UpdateLoopStatusBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = loop_owner(&state, &scope, &path.id).await {
+        return error_response(e);
+    }
     let status = match parse_execution_status(&body.status) {
         Ok(status) => status,
-        Err(message) => return err(crate::envelope::InvalidParams::validation(message)).into_response(),
+        Err(message) => {
+            return err(crate::envelope::InvalidParams::validation(message)).into_response()
+        }
     };
     match wf_api::agent::agent_loop_registry::update_status(&state.ctx, &path.id, status).await {
         Ok(()) => ok(()).into_response(),
@@ -287,5 +351,26 @@ pub(crate) async fn handle_cleanup_completed(State(state): State<ApiState>) -> i
     match wf_api::agent::agent_loop_registry::cleanup_completed(&state.ctx).await {
         Ok(count) => ok(count).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+/// Ownership gate for one loop session through the summary chain: unknown
+/// ids and directory mismatches both fail as not-found.
+async fn loop_owner(
+    state: &ApiState,
+    scope: &Option<DirectoryScope>,
+    id: &str,
+) -> Result<(), wf_api::ApiError> {
+    let directory = match wf_api::agent::agent_loop_registry::summary(&state.ctx, id).await {
+        Ok(Some(summary)) => summary.directory,
+        // Pure metadata without any execution record carries no
+        // transcript and stays visible to all.
+        Ok(None) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if crate::directory::check_owner(scope, directory.as_deref()) {
+        Ok(())
+    } else {
+        Err(wf_api::ApiError::not_found("agent_loop", id))
     }
 }

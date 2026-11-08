@@ -710,7 +710,8 @@ pub(crate) async fn handle_event_stream(
     // behind is disconnected and counted, keeping one stuck connection
     // from growing memory without bound. Reconnect with the opaque `since`
     // cursor to replay the bounded retained window.
-    let (mut overflow_tx, overflow_rx) = futures::channel::mpsc::channel::<wf_types::events::BaseEvent>(256);
+    let (mut overflow_tx, overflow_rx) =
+        futures::channel::mpsc::channel::<wf_types::events::BaseEvent>(256);
     tokio::spawn(async move {
         let mut sub = sub;
         while let Some(event) = sub.next().await {

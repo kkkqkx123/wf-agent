@@ -43,6 +43,9 @@ pub struct ChatTurnParams {
     pub images: Vec<wf_types::message::UserImageInput>,
     /// Session anchor. Absent starts a new chat session.
     pub session_id: Option<String>,
+    /// Canonical business directory the turn was sent from. Stamped onto
+    /// the persisted session record; `None` keeps the turn unowned.
+    pub directory: Option<String>,
 }
 
 /// Run one chat turn and stream it.
@@ -70,6 +73,7 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
         return Err(ApiError::Validation("chat turn requires a message".into()));
     }
     let session_id = resolve_session_id(params.session_id.as_deref());
+    let directory = params.directory.clone();
     let history = crate::agent::agent_message::conversation_history(ctx, &session_id, None).await?;
     // The conversation of a session is ordered by the stored timestamps, and
     // the messages of one turn can share a millisecond. The turn therefore
@@ -119,7 +123,15 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
     let started_at = wf_common::now();
     let driver = tokio::spawn(async move {
         let outcome = drive_turn(&mut provider_stream, &mut session, &tx).await;
-        finish_turn(&storage, &session_id, &profile_id, started_at, &outcome).await;
+        finish_turn(
+            &storage,
+            &session_id,
+            &profile_id,
+            started_at,
+            &outcome,
+            directory,
+        )
+        .await;
         let event = match &outcome {
             TurnOutcome::Completed { answer, .. } => {
                 persist_messages(&storage, &session_id, &session, ledger_base, injected).await;
@@ -338,18 +350,31 @@ async fn finish_turn(
     profile_id: &str,
     started_at: i64,
     outcome: &TurnOutcome,
+    directory: Option<String>,
 ) {
     let (status, error) = match outcome {
         TurnOutcome::Completed { .. } => (ExecutionStatus::Completed, None),
         TurnOutcome::Failed { error } => (ExecutionStatus::Failed, Some(error.clone())),
         TurnOutcome::Interrupted { reason } => (ExecutionStatus::Cancelled, Some(reason.clone())),
     };
-    // The session keeps the start time of its first turn, so the record
-    // spans the whole conversation rather than the last turn.
-    let session_started_at = match storage.agent_execution.load(session_id).await {
-        Ok(Some(record)) => record.started_at,
-        _ => started_at,
-    };
+    // The session keeps the start time and the owning directory of its
+    // first turn, so the record spans the whole conversation rather than
+    // the last turn, and a workspace switch mid-session cannot reassign
+    // earlier turns to the new directory.
+    let existing = storage
+        .agent_execution
+        .load(session_id)
+        .await
+        .ok()
+        .flatten();
+    let session_started_at = existing
+        .as_ref()
+        .map(|record| record.started_at)
+        .unwrap_or(started_at);
+    let directory = existing
+        .as_ref()
+        .and_then(|record| record.directory.clone())
+        .or(directory);
     let record = AgentExecution {
         id: Id::from(session_id.to_string()),
         definition_id: Id::from(CHAT_SESSION_DEFINITION_ID.to_string()),
@@ -370,6 +395,7 @@ async fn finish_turn(
         hierarchy: None,
 
         rerun_of: None,
+        directory,
     };
     if let Err(err) = storage.agent_execution.save(&record).await {
         tracing::warn!(
@@ -450,6 +476,7 @@ mod tests {
                 message: message.to_string(),
                 images: Vec::new(),
                 session_id: session_id.map(str::to_string),
+                directory: None,
             },
         )
         .await
@@ -581,6 +608,7 @@ mod tests {
                 message: "hi".to_string(),
                 images: Vec::new(),
                 session_id: None,
+                directory: None,
             },
         )
         .await
@@ -628,6 +656,7 @@ mod tests {
                 message: "   ".to_string(),
                 images: Vec::new(),
                 session_id: Some("chat-session".to_string()),
+                directory: None,
             },
         )
         .await
@@ -648,6 +677,7 @@ mod tests {
                 message: "hi".to_string(),
                 images: Vec::new(),
                 session_id: Some("chat-session".to_string()),
+                directory: None,
             },
         )
         .await

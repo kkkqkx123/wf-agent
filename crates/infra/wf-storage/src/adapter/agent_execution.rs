@@ -18,6 +18,9 @@ pub struct AgentExecutionListOptions {
     /// Sort by execution start time; true sorts newest first.
     /// Absent preserves backend default order.
     pub order_desc: Option<bool>,
+    /// Restrict to one owning business directory. `None` applies no
+    /// directory predicate; unowned records never match a concrete value.
+    pub directory_filter: Option<String>,
 }
 
 impl From<AgentExecutionListOptions> for QueryFilter {
@@ -37,6 +40,9 @@ impl From<AgentExecutionListOptions> for QueryFilter {
         }
         if let Some(value) = opts.execution_type_filter {
             filter.add_op(FilterOp::Eq("executionType".into(), value));
+        }
+        if let Some(value) = opts.directory_filter {
+            filter.add_op(FilterOp::Eq("directory".into(), value));
         }
         match (opts.started_from, opts.started_to) {
             (Some(from), Some(to)) => {

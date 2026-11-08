@@ -4,7 +4,7 @@
 //! pull path reads this route instead of aggregating the history, artifact
 //! and audit endpoints on its own.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -37,9 +37,14 @@ pub(crate) struct ExecutionBundleQuery {
 )]
 pub(crate) async fn handle_execution_bundle(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Query(query): Query<ExecutionBundleQuery>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     match wf_api::execution_bundle::export_bundle(
         &state.ctx,
         &path.id,
@@ -95,7 +100,8 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        };
+        
+            directory: None,};
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 

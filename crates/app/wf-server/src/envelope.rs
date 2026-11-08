@@ -173,8 +173,7 @@ pub(crate) fn session_error_response(e: wf_api::ApiError) -> Response {
             session_not_found(format!("session [{id}] not found"))
         }
         wf_api::ApiError::Execution {
-            category:
-                wf_api::ApiErrorCategory::Conflict | wf_api::ApiErrorCategory::Cancelled,
+            category: wf_api::ApiErrorCategory::Conflict | wf_api::ApiErrorCategory::Cancelled,
             message,
             ..
         } => session_busy(message.clone()),

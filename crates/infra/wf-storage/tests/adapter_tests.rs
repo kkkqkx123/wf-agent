@@ -55,6 +55,7 @@ fn make_exec(i: u32) -> wf_types::WorkflowExecution {
         hierarchy: None,
         rerun_of: None,
         debug: None,
+        directory: None,
     }
 }
 

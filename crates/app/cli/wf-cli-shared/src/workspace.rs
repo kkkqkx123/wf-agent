@@ -13,6 +13,8 @@
 
 use std::path::PathBuf;
 
+pub use wf_common::workspace::discover_project_root;
+
 use crate::args::Cli;
 
 /// Environment entry pinning the business directory. Wins over the process
@@ -69,70 +71,16 @@ pub fn canonical_workspace_dir(raw: &PathBuf) -> Result<PathBuf, String> {
             return Err(format!("directory does not exist: {}", raw.display()));
         }
     }
-    std::fs::canonicalize(raw).map_err(|e| format!("cannot resolve directory {}: {e}", raw.display()))
+    std::fs::canonicalize(raw)
+        .map_err(|e| format!("cannot resolve directory {}: {e}", raw.display()))
 }
 
 /// Adopt the workspace as the process working directory so local file
 /// access (completion, mentions, keymaps) observes the same root that
 /// requests announce. Idempotent for the already-current directory.
 pub fn adopt_workspace_dir(dir: &PathBuf) -> Result<(), String> {
-    std::env::set_current_dir(dir).map_err(|e| format!("cannot enter directory {}: {e}", dir.display()))
-}
-
-/// Find the owning project root for worktree placement: nearest ancestor
-/// (inclusive) carrying a version-control marker, else the directory
-/// itself. A `.git` file marks a linked worktree, so its `gitdir` pointer
-/// is followed back to the main checkout; an unreadable pointer keeps the
-/// worktree directory itself.
-pub fn discover_project_root(dir: &std::path::Path) -> PathBuf {
-    let mut current = dir.to_path_buf();
-    loop {
-        let dot_git = current.join(".git");
-        if dot_git.is_dir() {
-            return current;
-        }
-        if dot_git.is_file() {
-            if let Some(main) = main_checkout_for(&current, &dot_git) {
-                return main;
-            }
-            return current;
-        }
-        if current.join(".hg").exists() {
-            return current;
-        }
-        match current.parent() {
-            Some(parent) => current = parent.to_path_buf(),
-            None => return dir.to_path_buf(),
-        }
-    }
-}
-
-/// Main checkout owning a linked worktree: parse the `.git` file `gitdir`
-/// pointer and, when it points inside a `worktrees` directory, return the
-/// checkout holding that administrative directory.
-fn main_checkout_for(worktree: &std::path::Path, dot_git: &std::path::Path) -> Option<PathBuf> {
-    let content = std::fs::read_to_string(dot_git).ok()?;
-    let gitdir = content.strip_prefix("gitdir:")?.trim();
-    if gitdir.is_empty() {
-        return None;
-    }
-    let gitdir = if std::path::Path::new(gitdir).is_absolute() {
-        PathBuf::from(gitdir)
-    } else {
-        worktree.join(gitdir)
-    };
-    let mut current = gitdir.as_path();
-    while let Some(name) = current.file_name().and_then(|n| n.to_str()) {
-        if name == "worktrees" {
-            let dot = current.parent()?;
-            if dot.file_name().and_then(|n| n.to_str()) != Some(".git") {
-                return None;
-            }
-            return dot.parent().map(std::path::Path::to_path_buf);
-        }
-        current = current.parent()?;
-    }
-    None
+    std::env::set_current_dir(dir)
+        .map_err(|e| format!("cannot enter directory {}: {e}", dir.display()))
 }
 
 /// Create a new git worktree of the owning project, keeping the caller's
@@ -162,7 +110,9 @@ pub fn ensure_worktree(dir: &std::path::Path, name: Option<&str>) -> Result<Path
         .map(str::to_string)
         .unwrap_or_else(|| format!("run-{}", wf_common::generate_id()));
     if stem.contains('/') || stem.contains('\\') || stem == "." || stem == ".." {
-        return Err(format!("invalid --worktree name '{stem}': use a plain directory name"));
+        return Err(format!(
+            "invalid --worktree name '{stem}': use a plain directory name"
+        ));
     }
     let target = sibling.join(format!(
         "{}-worktrees",
@@ -236,7 +186,8 @@ mod tests {
 
     #[test]
     fn canonical_rejects_missing_and_files() {
-        let err = canonical_workspace_dir(&PathBuf::from("/definitely/not/here-wf-test")).unwrap_err();
+        let err =
+            canonical_workspace_dir(&PathBuf::from("/definitely/not/here-wf-test")).unwrap_err();
         assert!(err.contains("does not exist"), "{err}");
         let file = std::env::temp_dir().join("wf-workspace-file-probe");
         std::fs::write(&file, "x").unwrap();
@@ -273,27 +224,6 @@ mod tests {
         let dir = tempfile_like_dir();
         assert!(ensure_worktree(&dir, Some("x")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn linked_worktree_resolves_to_main_checkout() {
-        let root = tempfile_like_dir();
-        std::fs::create_dir(root.join(".git")).unwrap();
-        let canonical_root = root.canonicalize().unwrap();
-        let worktree = tempfile_like_dir();
-        let gitdir = canonical_root
-            .join(".git")
-            .join("worktrees")
-            .join("linked");
-        std::fs::write(
-            worktree.join(".git"),
-            format!("gitdir: {}", gitdir.display()),
-        )
-        .unwrap();
-        let canonical_worktree = worktree.canonicalize().unwrap();
-        assert_eq!(discover_project_root(&canonical_worktree), canonical_root);
-        let _ = std::fs::remove_dir_all(&root);
-        let _ = std::fs::remove_dir_all(&worktree);
     }
 
     fn tempfile_like_dir() -> PathBuf {

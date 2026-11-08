@@ -293,9 +293,23 @@ pub async fn get_status(
 
 /// Agent loop statistics: total count and per-status breakdown.
 pub async fn statistics(ctx: &ApiContext) -> ApiResult<AgentLoopStatistics> {
+    statistics_in(ctx, None).await
+}
+
+/// Agent loop statistics scoped to one directory: `Some` keeps only
+/// sessions stamped with that directory, `None` keeps only unowned ones.
+pub async fn statistics_in(
+    ctx: &ApiContext,
+    filter: Option<&AgentLoopFilter>,
+) -> ApiResult<AgentLoopStatistics> {
     let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
     let mut total = 0;
     for summary in all_summaries(ctx).await {
+        if let Some(filter) = filter {
+            if !filter_matches(&summary, filter) {
+                continue;
+            }
+        }
         total += 1;
         *by_status
             .entry(status_str(&summary.status).to_string())
@@ -411,6 +425,11 @@ fn filter_matches(summary: &AgentLoopSummary, filter: &AgentLoopFilter) -> bool 
             }
         }
     }
+    if let Some(wanted) = filter.directory.as_deref() {
+        if !crate::entity::execution::owner_visible(summary.directory.as_deref(), Some(wanted)) {
+            return false;
+        }
+    }
     if let Some(query) = filter.query.as_deref() {
         let needle = query.trim().to_lowercase();
         if !needle.is_empty() {
@@ -452,10 +471,12 @@ pub async fn live_summary(entity: &wf_agent::entity::AgentLoopEntity) -> AgentLo
         profile_id: Some(entity.model().to_string()),
         parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
         title: None,
-        directory: entity
-            .effective_config()
-            .and_then(|config| config.file_scope.as_ref())
-            .and_then(|scope| scope.workdir.clone()),
+        directory: entity.directory().or_else(|| {
+            entity
+                .effective_config()
+                .and_then(|config| config.file_scope.as_ref())
+                .and_then(|scope| scope.workdir.clone())
+        }),
     }
 }
 
@@ -480,11 +501,13 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
             .as_ref()
             .and_then(|h| h.parent_execution_id()),
         title: None,
-        directory: record
-            .loop_config
-            .as_ref()
-            .and_then(|config| config.file_scope.as_ref())
-            .and_then(|scope| scope.workdir.clone()),
+        directory: record.directory.clone().or_else(|| {
+            record
+                .loop_config
+                .as_ref()
+                .and_then(|config| config.file_scope.as_ref())
+                .and_then(|scope| scope.workdir.clone())
+        }),
     }
 }
 

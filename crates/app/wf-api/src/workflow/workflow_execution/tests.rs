@@ -339,7 +339,8 @@ async fn executes_workflow_and_queries_status() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("workflow should complete");
@@ -415,7 +416,8 @@ async fn persisted_execution_readable_after_restart() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("workflow completes");
@@ -476,7 +478,8 @@ async fn rejects_unknown_workflow() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect_err("unknown workflow must fail");
@@ -497,7 +500,8 @@ async fn checkpoint_create_and_restore_roundtrip() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("workflow completes");
@@ -546,7 +550,8 @@ async fn restore_checkpoint_then_resume_continues_from_breakpoint() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("full run completes");
@@ -563,7 +568,8 @@ async fn restore_checkpoint_then_resume_continues_from_breakpoint() {
             options: Some(partial_options),
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("partial run completes");
@@ -618,7 +624,8 @@ async fn resume_returns_resumed_execution_result() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("workflow completes");
@@ -659,7 +666,8 @@ async fn execution_summaries_project_persisted_records() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("workflow completes");
@@ -752,7 +760,8 @@ async fn restore_relinks_depth_root_and_children() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("workflow completes");
@@ -793,7 +802,8 @@ async fn executes_pinned_version_instead_of_current_definition() {
             input: Some(serde_json::json!({"greeting": "pinned"})),
             options: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("pinned version executes from the saved snapshot");
@@ -811,7 +821,8 @@ async fn executes_pinned_version_instead_of_current_definition() {
             input: None,
             options: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await;
     assert!(unknown.is_err(), "unknown version must not execute");
@@ -824,7 +835,8 @@ async fn executes_pinned_version_instead_of_current_definition() {
             input: None,
             options: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await;
     assert!(
@@ -858,7 +870,8 @@ async fn rerun_links_new_execution_to_source() {
             input: Some(serde_json::json!({"greeting": "again"})),
             options: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("first run should complete");
@@ -916,7 +929,8 @@ async fn debug_marker_persists_and_rerun_preserves_it() {
             input: None,
             options: None,
             debug: Some(true),
-        },
+        
+            directory: None,},
     )
     .await
     .expect("debug run should complete");

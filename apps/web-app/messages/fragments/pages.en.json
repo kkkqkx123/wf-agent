@@ -618,5 +618,12 @@
 	"page.executions.conversationSeedJson": "Conversation seed (JSON array, optional)",
 	"page.executions.maxIterationsOptional": "Max iterations (optional)",
 	"page.executions.tokenLimitOptional": "Token limit (optional)",
-	"page.settings.backupSummary": "Appearance ({theme}, {density}), {count} shortcut overrides, server behavior (page {page})"
+	"page.settings.backupSummary": "Appearance ({theme}, {density}), {count} shortcut overrides, server behavior (page {page})",
+	"page.settings.serverDirectory": "Server workspace directory",
+	"page.settings.serverDirectoryAllowAny": "Server allows any explicit directory.",
+	"page.settings.serverDirectoryAllowed": "Server allows: {roots}",
+	"page.settings.serverDirectoryClear": "Clear",
+	"page.settings.serverDirectoryDesc": "Absolute path sent as x-wf-directory with every request. Empty means directory-less mode: workspace features reject requests instead of guessing.",
+	"page.settings.serverDirectoryPlaceholder": "/srv/wf/projects/acme",
+	"page.settings.serverDirectoryUnavailable": "Server directory state is unreachable; saving still applies the typed path."
 }

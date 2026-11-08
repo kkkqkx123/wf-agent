@@ -113,7 +113,10 @@ pub fn with_directory_query(path: &str, directory: Option<&str>) -> String {
         return path.to_string();
     };
     let separator = if path.contains('?') { '&' } else { '?' };
-    format!("{path}{separator}{DIRECTORY_QUERY_PARAM}={}", encode_directory(dir))
+    format!(
+        "{path}{separator}{DIRECTORY_QUERY_PARAM}={}",
+        encode_directory(dir)
+    )
 }
 
 /// Percent-encode a directory the way browsers encode a header value for
@@ -833,10 +836,7 @@ impl WfClient {
     }
 
     /// List PTY sessions, optionally persistent workspace terminals only.
-    pub async fn list_ptys(
-        &self,
-        persistent_only: bool,
-    ) -> ClientResult<serde_json::Value> {
+    pub async fn list_ptys(&self, persistent_only: bool) -> ClientResult<serde_json::Value> {
         let path = if persistent_only {
             "/api/v1/pty?persistent_only=true".to_string()
         } else {
@@ -963,8 +963,8 @@ mod tests {
     fn directory_defaults_to_none_and_ignores_blanks() {
         let cfg = ClientConfig::resolve(None, None);
         assert_eq!(cfg.directory(), None);
-        let cfg = ClientConfig::new("http://127.0.0.1:3000")
-            .with_directory(Some("   ".to_string()));
+        let cfg =
+            ClientConfig::new("http://127.0.0.1:3000").with_directory(Some("   ".to_string()));
         assert_eq!(cfg.directory(), None);
         let cfg = ClientConfig::resolve_with_directory(None, None, Some("/repo".to_string()));
         assert_eq!(cfg.directory(), Some("/repo"));
@@ -972,8 +972,7 @@ mod tests {
 
     #[test]
     fn directory_travels_on_the_shared_client() {
-        let client =
-            WfClient::from_remote_with_directory(None, None, Some("/repo".to_string()));
+        let client = WfClient::from_remote_with_directory(None, None, Some("/repo".to_string()));
         assert_eq!(client.directory(), Some("/repo"));
         assert_eq!(
             client.with_directory_query("/api/v1/events/stream"),

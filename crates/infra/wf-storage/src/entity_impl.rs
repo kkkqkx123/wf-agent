@@ -131,6 +131,7 @@ impl Entity for wf_types::WorkflowExecution {
             &[
                 ("status", json!(self.status)),
                 ("workflowId", json!(self.workflow_id)),
+                ("directory", json!(self.directory)),
             ],
         )
     }
@@ -197,6 +198,7 @@ impl Entity for wf_types::AgentExecution {
                 ("status", json!(self.status)),
                 ("currentIteration", json!(self.current_iteration)),
                 ("toolCallCount", json!(self.tool_call_count)),
+                ("directory", json!(self.directory)),
             ],
         )
     }

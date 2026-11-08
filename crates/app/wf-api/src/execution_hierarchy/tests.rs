@@ -75,7 +75,8 @@ fn workflow_record(id: &str, hierarchy: Option<ExecutionHierarchy>) -> wf_types:
 
         rerun_of: None,
         debug: None,
-    }
+    
+        directory: None,}
 }
 
 fn agent_record(id: &str, hierarchy: Option<ExecutionHierarchy>) -> wf_types::AgentExecution {
@@ -96,7 +97,8 @@ fn agent_record(id: &str, hierarchy: Option<ExecutionHierarchy>) -> wf_types::Ag
         hierarchy,
 
         rerun_of: None,
-    }
+    
+        directory: None,}
 }
 
 #[tokio::test]

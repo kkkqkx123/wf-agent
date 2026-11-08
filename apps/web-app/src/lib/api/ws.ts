@@ -1,4 +1,4 @@
-import { API_BASE_URL, resolveApiKey } from '#lib/api/client';
+import { API_BASE_URL, resolveApiKey, resolveDirectory } from '#lib/api/client';
 import type { EventRecord } from '#lib/types/models';
 import type { StreamState } from '#lib/api/sse';
 
@@ -79,9 +79,13 @@ function toEventRecord(wire: WsWireEvent): EventRecord | null {
 
 function wsUrl(): string {
 	const key = resolveApiKey();
+	const directory = resolveDirectory();
 	const base = API_BASE_URL.replace(/^http/, 'ws');
 	const params = new URLSearchParams();
 	if (key) params.set('api_key', key);
+	// Same directory scope as the REST and SSE channels so the directory
+	// middleware validates every transport identically.
+	if (directory) params.set('directory', directory);
 	const suffix = params.toString();
 	return `${base}/api/v1/ws${suffix ? `?${suffix}` : ''}`;
 }

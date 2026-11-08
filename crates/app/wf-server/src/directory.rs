@@ -8,9 +8,11 @@
 //! `directory` query parameter covers channels that cannot set headers
 //! (event streams, websocket upgrades).
 //!
-//! There is deliberately no server-side default workspace. A request
-//! without a directory is never silently bound anywhere: workspace-bound
-//! handlers reject it and global handlers ignore it. Silence here would
+//! There is no implicit server-side default workspace: a directory-less
+//! request is never silently bound to the server's own working directory.
+//! Workspace-bound handlers reject it and global handlers ignore it,
+//! unless the operator explicitly configured a single-machine default
+//! (`DirectoryContext::with_default`, `--directory`). Silence here would
 //! mean operating in a directory the client never named, so absence
 //! fails loud at the handler instead of falling back.
 //!
@@ -19,8 +21,8 @@
 //! for routing. The per-directory entry cache only memoizes validated
 //! scopes; it never invents them.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -30,6 +32,7 @@ use axum::http::{HeaderMap, Request};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
+use wf_common::workspace::{discover_project_root, project_id_for};
 use wf_config::env::{env_parse_list, EnvValue};
 
 /// Request header carrying the business directory. Wins over the query
@@ -44,11 +47,6 @@ pub const DIRECTORY_QUERY_PARAM: &str = "directory";
 /// (comma-separated absolute paths). Wins over the file layer; empty means
 /// only the default project root is served.
 pub const DIRECTORY_ROOTS_ENV_VAR: &str = "WF_DIRECTORY_ROOTS";
-
-/// Marker files identifying a version-controlled project root. A `.git`
-/// entry may be a file (linked worktree), so the discovery walk checks
-/// file versus directory instead of assuming a directory.
-const PROJECT_MARKERS: &[&str] = &[".git", ".hg"];
 
 /// Idle time after which a cached directory entry is evicted on the next
 /// resolve. Live executions never depend on the cache, so eviction only
@@ -256,78 +254,6 @@ pub fn canonicalize_dir(raw: &str) -> Result<PathBuf, DirectoryError> {
     std::fs::canonicalize(&path).map_err(|_| DirectoryError::NotFound(trimmed.to_string()))
 }
 
-/// Find the owning project root: nearest ancestor (inclusive) carrying a
-/// version-control marker, or the directory itself when absent. A `.git`
-/// file marks a linked worktree: the worktree's project is the main
-/// checkout it was created from, resolved through the `gitdir` pointer
-/// without spawning any process.
-pub fn discover_project(directory: &Path) -> PathBuf {
-    let mut current = directory.to_path_buf();
-    loop {
-        for marker in PROJECT_MARKERS {
-            let candidate = current.join(marker);
-            if *marker == ".git" {
-                if candidate.is_dir() {
-                    return current;
-                }
-                if candidate.is_file() {
-                    return main_checkout_for(&current, &candidate)
-                        .unwrap_or_else(|| current.clone());
-                }
-            } else if candidate.exists() {
-                return current;
-            }
-        }
-        match current.parent() {
-            Some(parent) => current = parent.to_path_buf(),
-            None => return directory.to_path_buf(),
-        }
-    }
-}
-
-/// Main checkout owning a linked worktree: parse the `.git` file's
-/// `gitdir` pointer and, when it points inside a `worktrees` directory,
-/// return the checkout holding that administrative directory. Returns
-/// `None` when the pointer is unreadable or already points at the main
-/// checkout, letting the caller keep the worktree directory itself.
-fn main_checkout_for(worktree: &Path, dot_git: &Path) -> Option<PathBuf> {
-    let content = std::fs::read_to_string(dot_git).ok()?;
-    let gitdir = content.strip_prefix("gitdir:")?.trim();
-    if gitdir.is_empty() {
-        return None;
-    }
-    let gitdir = if std::path::Path::new(gitdir).is_absolute() {
-        PathBuf::from(gitdir)
-    } else {
-        worktree.join(gitdir)
-    };
-    let mut current = gitdir.as_path();
-    while let Some(name) = current.file_name().and_then(|n| n.to_str()) {
-        if name == "worktrees" {
-            // `<main>/.git/worktrees/<name>` -> `<main>/.git` -> `<main>`.
-            let dot = current.parent()?;
-            if dot.file_name().and_then(|n| n.to_str()) != Some(".git") {
-                return None;
-            }
-            return dot.parent().map(Path::to_path_buf);
-        }
-        current = current.parent()?;
-    }
-    None
-}
-
-/// Stable id for a canonical project path. FNV-1a over the path bytes
-/// stays identical across restarts so cached project entries keep their
-/// identity without a persisted table.
-pub fn project_id_for(project: &Path) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in project.to_string_lossy().as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
-}
-
 /// Resolve one raw directory value (or its absence) to a validated scope.
 /// `None` input yields `None`: there is no default workspace, so a
 /// directory-less request carries no scope and workspace-bound handlers
@@ -345,7 +271,7 @@ pub fn resolve_scope(
             directory.to_string_lossy().into_owned(),
         ));
     }
-    let project = discover_project(&directory);
+    let project = discover_project_root(&directory);
     let project_id = project_id_for(&project);
     Ok(Some(DirectoryScope {
         directory,
@@ -368,6 +294,10 @@ pub struct DirectoryContext {
     config: DirectoryConfig,
     entries: dashmap::DashMap<String, CachedEntry>,
     ready: AtomicBool,
+    /// Single-machine default workspace: directory-less requests resolve
+    /// to this prevalidated scope instead of failing. `None` keeps the
+    /// fail-loud behavior for multi-tenant serving.
+    default: Option<DirectoryScope>,
 }
 
 impl DirectoryContext {
@@ -376,7 +306,38 @@ impl DirectoryContext {
             config,
             entries: dashmap::DashMap::new(),
             ready: AtomicBool::new(true),
+            default: None,
         }
+    }
+
+    /// Build a context with a single-machine default workspace. The
+    /// directory is validated once here (existence, directory shape,
+    /// allowlist) with project discovery precomputed, so startup fails
+    /// fast on a typo instead of failing every directory-less request.
+    pub fn with_default(config: DirectoryConfig, directory: &Path) -> Result<Self, DirectoryError> {
+        let canonical = canonicalize_dir(directory.to_string_lossy().as_ref())?;
+        if !config.allows(&canonical) {
+            return Err(DirectoryError::Forbidden(
+                canonical.to_string_lossy().into_owned(),
+            ));
+        }
+        let project = discover_project_root(&canonical);
+        let project_id = project_id_for(&project);
+        Ok(Self {
+            config,
+            entries: dashmap::DashMap::new(),
+            ready: AtomicBool::new(true),
+            default: Some(DirectoryScope {
+                directory: canonical,
+                project,
+                project_id,
+            }),
+        })
+    }
+
+    /// The configured default workspace, if any.
+    pub fn default_scope(&self) -> Option<&DirectoryScope> {
+        self.default.as_ref()
     }
 
     /// Flip the serving gate. Embedders mark the context not ready while
@@ -395,6 +356,8 @@ impl DirectoryContext {
     /// only refresh the idle clock, misses validate fully and populate the
     /// entry. Idle entries are swept once the cache grows past its
     /// threshold; every entry revalidates from disk after eviction.
+    /// A directory-less request resolves to the configured default
+    /// workspace when one exists, and to no scope otherwise.
     pub fn resolve(
         &self,
         headers: &HeaderMap,
@@ -402,7 +365,7 @@ impl DirectoryContext {
     ) -> Result<Option<DirectoryScope>, DirectoryError> {
         let raw = extract_raw(headers, query);
         let Some(raw) = raw else {
-            return Ok(None);
+            return Ok(self.default.clone());
         };
         let directory = canonicalize_dir(&raw)?;
         if !self.config.allows(&directory) {
@@ -422,7 +385,7 @@ impl DirectoryContext {
             self.sweep_idle();
             return Ok(Some(hit));
         }
-        let project = discover_project(&directory);
+        let project = discover_project_root(&directory);
         let project_id = project_id_for(&project);
         let scope = DirectoryScope {
             directory,
@@ -506,13 +469,19 @@ impl DirectoryContext {
 /// Whether a target path stays inside the request scope. Canonicalizes
 /// best-effort so equivalent spellings compare equal; unresolvable paths
 /// fall back to lexical prefix comparison and fail closed.
-pub(crate) fn ensure_path_owned(scope: &DirectoryScope, target: &Path) -> Result<(), DirectoryError> {
-    let anchor = std::fs::canonicalize(&scope.directory).unwrap_or_else(|_| scope.directory.clone());
+pub(crate) fn ensure_path_owned(
+    scope: &DirectoryScope,
+    target: &Path,
+) -> Result<(), DirectoryError> {
+    let anchor =
+        std::fs::canonicalize(&scope.directory).unwrap_or_else(|_| scope.directory.clone());
     let owned = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     if owned == anchor || owned.starts_with(&anchor) {
         return Ok(());
     }
-    Err(DirectoryError::Forbidden(owned.to_string_lossy().into_owned()))
+    Err(DirectoryError::Forbidden(
+        owned.to_string_lossy().into_owned(),
+    ))
 }
 
 pub(crate) async fn directory_middleware(
@@ -549,14 +518,170 @@ pub(crate) fn scope_dir(scope: &Option<DirectoryScope>) -> Option<&Path> {
     scope.as_ref().map(|scope| scope.directory.as_path())
 }
 
-/// Read the request directory, rejecting directory-less requests.
-/// Workspace-bound handlers use this instead of guessing: operating in a
-/// directory the client never named is never acceptable, so absence fails
-/// loud here rather than falling back to any server-side path.
-pub(crate) fn require_scope_dir(scope: &Option<DirectoryScope>) -> Result<&Path, wf_api::ApiError> {
+/// Validate a client-supplied explicit file scope against the request
+/// directory. Every absolute prefix and workdir must stay inside the
+/// directory the client named: the request directory already passed the
+/// allowlist, so containment here makes the allowlist a real ceiling
+/// instead of a hint the body can override. Relative forms only pass
+/// lexical validation (no escapes); they resolve against the execution
+/// workdir inside the engine.
+pub(crate) fn check_explicit_file_scope(
+    scope: &DirectoryScope,
+    file_scope: &wf_types::config::file_scope::ExecutionFileScope,
+) -> Result<(), wf_api::ApiError> {
+    use wf_types::config::file_scope::{scope_path_contains, validate_scope_path};
+    let root = scope.directory.to_string_lossy().into_owned();
+    let check_paths =
+        |field: &str, paths: &Option<Vec<String>>| -> Result<(), wf_api::ApiError> {
+            let Some(paths) = paths else {
+                return Ok(());
+            };
+            for path in paths {
+                validate_scope_path(path, field).map_err(wf_api::ApiError::Validation)?;
+                if path.starts_with('/') && !scope_path_contains(&root, path) {
+                    return Err(wf_api::ApiError::Validation(format!(
+                        "{field} '{path}' is outside the request directory {}",
+                        scope.directory.display()
+                    )));
+                }
+            }
+            Ok(())
+        };
+    check_paths("read_prefixes", &file_scope.read_prefixes)?;
+    check_paths("write_prefixes", &file_scope.write_prefixes)?;
+    check_paths("checkpoint_prefixes", &file_scope.checkpoint_prefixes)?;
+    if let Some(workdir) = file_scope.workdir.as_deref() {
+        validate_scope_path(workdir, "workdir").map_err(wf_api::ApiError::Validation)?;
+        if workdir.starts_with('/') && !scope_path_contains(&root, workdir) {
+            return Err(wf_api::ApiError::Validation(format!(
+                "workdir '{workdir}' is outside the request directory {}",
+                scope.directory.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Symmetric ownership check between the request scope and the directory
+/// stamped on an execution record at creation.
+/// - Unowned record (`None`) is visible only to directory-less requests.
+/// - Owned record is visible only to a request naming the same directory
+///   (canonical comparison with a trimmed-string fallback).
+/// - Every mismatch is invisible (callers map it to not-found, never to
+///   forbidden, so directories cannot be probed as an oracle).
+pub(crate) fn check_owner(scope: &Option<DirectoryScope>, directory: Option<&str>) -> bool {
+    match (
+        scope.as_ref(),
+        directory.map(str::trim).filter(|d| !d.is_empty()),
+    ) {
+        (None, None) => true,
+        (Some(request), Some(stored)) => {
+            wf_common::workspace::same_directory(&request.directory.to_string_lossy(), stored)
+        }
+        _ => false,
+    }
+}
+
+/// Ownership gate for execution by-id operations. A wrong directory is
+/// indistinguishable from a wrong id: both surface as not-found, never as
+/// forbidden, so directories cannot be probed as an oracle.
+pub(crate) fn require_owner(
+    scope: &Option<DirectoryScope>,
+    directory: Option<&str>,
+    entity_type: &str,
+    id: &str,
+) -> Result<(), wf_api::ApiError> {
+    if check_owner(scope, directory) {
+        Ok(())
+    } else {
+        Err(wf_api::ApiError::not_found(entity_type, id))
+    }
+}
+
+/// Ownership gate for one workflow execution: unknown ids and directory
+/// mismatches both fail as not-found before the handler touches the run.
+pub(crate) async fn require_workflow_owner(
+    ctx: &wf_api::ApiContext,
+    scope: &Option<DirectoryScope>,
+    id: &str,
+) -> Result<(), wf_api::ApiError> {
+    let owner = wf_api::workflow::execution::execution_owner(ctx, id).await?;
+    let Some(directory) = owner else {
+        return Err(wf_api::ApiError::not_found("execution", id));
+    };
+    require_owner(scope, directory.as_deref(), "execution", id)
+}
+
+/// Ownership gate for one agent loop execution: unknown ids and directory
+/// mismatches both fail as not-found before the handler touches the run.
+pub(crate) async fn require_agent_owner(
+    ctx: &wf_api::ApiContext,
+    scope: &Option<DirectoryScope>,
+    id: &str,
+) -> Result<(), wf_api::ApiError> {
+    let owner = wf_api::agent::agent_execution::execution_owner(ctx, id).await?;
+    let Some(directory) = owner else {
+        return Err(wf_api::ApiError::execution_not_found(id));
+    };
+    if check_owner(scope, directory.as_deref()) {
+        Ok(())
+    } else {
+        Err(wf_api::ApiError::execution_not_found(id))
+    }
+}
+
+/// Ownership gate for one execution of either engine. Unknown ids and
+/// directory mismatches both fail as not-found before the handler reads
+/// the run.
+pub(crate) async fn require_execution_owner(
+    ctx: &wf_api::ApiContext,
+    scope: &Option<DirectoryScope>,
+    id: &str,
+) -> Result<(), wf_api::ApiError> {
+    match wf_api::resolve_execution(ctx, id).await {
+        Ok(wf_api::ExecutionDomain::Workflow) => require_workflow_owner(ctx, scope, id).await,
+        Ok(wf_api::ExecutionDomain::AgentLoop) => require_agent_owner(ctx, scope, id).await,
+        Err(e) => Err(e),
+    }
+}
+
+/// Visible subset of execution ids for scan-style reads (log / artifact /
+/// search result pages). Unknown ids fail closed. Callers pass the distinct
+/// ids of one page so ownership loads stay proportional to the page.
+pub(crate) async fn visible_execution_ids(
+    ctx: &wf_api::ApiContext,
+    scope: &Option<DirectoryScope>,
+    ids: impl IntoIterator<Item = String>,
+) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    let mut seen = HashSet::new();
+    let mut visible = HashSet::new();
+    for id in ids {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if require_execution_owner(ctx, scope, &id).await.is_ok() {
+            visible.insert(id);
+        }
+    }
+    visible
+}
+
+/// Owning directory of the request as an owned string for filters and
+/// stamps. `None` scopes (directory-less requests) stay `None`, matching
+/// the unowned-only rule.
+pub(crate) fn scope_dir_string(scope: &Option<DirectoryScope>) -> Option<String> {
     scope
         .as_ref()
-        .map(|scope| scope.directory.as_path())
+        .map(|scope| scope.directory.to_string_lossy().into_owned())
+}
+
+/// Read the request scope, rejecting directory-less requests.
+pub(crate) fn require_scope(
+    scope: &Option<DirectoryScope>,
+) -> Result<&DirectoryScope, wf_api::ApiError> {
+    scope
+        .as_ref()
         .ok_or_else(|| wf_api::ApiError::Validation("request directory is required".to_string()))
 }
 
@@ -648,65 +773,117 @@ mod tests {
     }
 
     #[test]
-    fn project_discovery_walks_to_vcs_root() {
-        let root = temp_dir("wf-dir-project");
-        std::fs::create_dir(root.path().join(".git")).unwrap();
-        let nested = root.path().join("a").join("b");
-        std::fs::create_dir_all(&nested).unwrap();
-        assert_eq!(
-            discover_project(&nested),
-            root.path()
-                .canonicalize()
-                .unwrap_or_else(|_| root.path().to_path_buf())
+    fn default_workspace_serves_directory_less_requests() {
+        let dir = temp_dir("wf-dir-default");
+        let config = config_with(&[]);
+        let ctx = DirectoryContext::with_default(config, dir.path()).unwrap();
+        let scope = ctx.resolve(&HeaderMap::new(), None).unwrap().unwrap();
+        assert_eq!(scope.directory, dir.path().canonicalize().unwrap());
+        assert_eq!(ctx.default_scope(), Some(&scope));
+    }
+
+    #[test]
+    fn default_workspace_rejects_unserved_directory() {
+        let allowed = temp_dir("wf-dir-allowed");
+        let denied = temp_dir("wf-dir-denied");
+        let config = config_with(&[allowed.path().to_path_buf()]);
+        assert!(DirectoryContext::with_default(config, denied.path()).is_err());
+    }
+
+    #[test]
+    fn explicit_directory_wins_over_default() {
+        let fallback = temp_dir("wf-dir-fallback");
+        let explicit = temp_dir("wf-dir-explicit");
+        let config = config_with(&[]);
+        let ctx = DirectoryContext::with_default(config, fallback.path()).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            DIRECTORY_HEADER,
+            explicit
+                .path()
+                .to_string_lossy()
+                .to_string()
+                .parse()
+                .unwrap(),
         );
+        let scope = ctx.resolve(&headers, None).unwrap().unwrap();
+        assert_eq!(scope.directory, explicit.path().canonicalize().unwrap());
     }
 
     #[test]
-    fn project_discovery_falls_back_to_self() {
-        let dir = temp_dir("wf-dir-plain");
-        let canonical = dir.path().canonicalize().unwrap();
-        assert_eq!(discover_project(&canonical), canonical);
+    fn explicit_scope_inside_directory_passes() {
+        let dir = temp_dir("wf-dir-scope-ok");
+        let config = config_with(&[]);
+        let ctx = DirectoryContext::with_default(config, dir.path()).unwrap();
+        let scope = ctx.default_scope().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let file_scope = wf_types::config::file_scope::ExecutionFileScope {
+            read_prefixes: Some(vec![root.join("src").to_string_lossy().into_owned()]),
+            write_prefixes: Some(vec![root.to_string_lossy().into_owned()]),
+            checkpoint_prefixes: None,
+            workdir: Some(root.to_string_lossy().into_owned()),
+            enabled: None,
+        };
+        assert!(check_explicit_file_scope(scope, &file_scope).is_ok());
     }
 
     #[test]
-    fn project_discovery_resolves_linked_worktree_to_main() {
-        let root = temp_dir("wf-dir-main");
-        std::fs::create_dir(root.path().join(".git")).unwrap();
-        let canonical_root = root
+    fn explicit_scope_outside_directory_fails() {
+        let dir = temp_dir("wf-dir-scope-fence");
+        let other = temp_dir("wf-dir-scope-other");
+        let config = config_with(&[]);
+        let ctx = DirectoryContext::with_default(config, dir.path()).unwrap();
+        let scope = ctx.default_scope().unwrap();
+        let outside = other.path().canonicalize().unwrap();
+        let file_scope = wf_types::config::file_scope::ExecutionFileScope {
+            read_prefixes: Some(vec![outside.to_string_lossy().into_owned()]),
+            write_prefixes: None,
+            checkpoint_prefixes: None,
+            workdir: None,
+            enabled: None,
+        };
+        assert!(check_explicit_file_scope(scope, &file_scope).is_err());
+    }
+
+    #[test]
+    fn explicit_scope_sibling_prefix_fails() {
+        let dir = temp_dir("wf-dir-scope-sib");
+        let config = config_with(&[]);
+        let ctx = DirectoryContext::with_default(config, dir.path()).unwrap();
+        let scope = ctx.default_scope().unwrap();
+        let root = dir
             .path()
             .canonicalize()
-            .unwrap_or_else(|_| root.path().to_path_buf());
-        let worktree = temp_dir("wf-dir-linked");
-        let gitdir = canonical_root
-            .join(".git")
-            .join("worktrees")
-            .join("linked");
-        std::fs::write(
-            worktree.path().join(".git"),
-            format!("gitdir: {}", gitdir.display()),
-        )
-        .unwrap();
-        let canonical_worktree = worktree
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| worktree.path().to_path_buf());
-        assert_eq!(discover_project(&canonical_worktree), canonical_root);
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let file_scope = wf_types::config::file_scope::ExecutionFileScope {
+            read_prefixes: Some(vec![format!("{root}-sibling")]),
+            write_prefixes: None,
+            checkpoint_prefixes: None,
+            workdir: None,
+            enabled: None,
+        };
+        assert!(check_explicit_file_scope(scope, &file_scope).is_err());
     }
 
     #[test]
-    fn project_discovery_keeps_unreadable_git_file() {
-        let dir = temp_dir("wf-dir-gitfile");
-        std::fs::write(dir.path().join(".git"), "not-a-gitdir-pointer").unwrap();
-        let canonical = dir.path().canonicalize().unwrap();
-        assert_eq!(discover_project(&canonical), canonical);
-    }
-
-    #[test]
-    fn project_id_is_stable() {
-        let dir = temp_dir("wf-dir-id");
-        let canonical = dir.path().canonicalize().unwrap();
-        assert_eq!(project_id_for(&canonical), project_id_for(&canonical));
-        assert_eq!(project_id_for(&canonical).len(), 16);
+    fn owner_check_is_symmetric() {
+        let dir = temp_dir("wf-dir-owner");
+        let other = temp_dir("wf-dir-owner-other");
+        let config = config_with(&[]);
+        let ctx = DirectoryContext::with_default(config, dir.path()).unwrap();
+        let scope = ctx.resolve(&HeaderMap::new(), None).ok().flatten();
+        let root = dir.path().canonicalize().unwrap();
+        let root = root.to_string_lossy().into_owned();
+        let foreign = other.path().canonicalize().unwrap();
+        let foreign = foreign.to_string_lossy().into_owned();
+        assert!(check_owner(&None, None));
+        assert!(check_owner(&scope, Some(&root)));
+        assert!(!check_owner(&scope, None));
+        assert!(!check_owner(&None, Some(&root)));
+        assert!(!check_owner(&scope, Some(&foreign)));
+        assert!(!check_owner(&scope, Some("")));
     }
 
     #[test]
@@ -752,11 +929,11 @@ mod tests {
 
     #[test]
     fn missing_scope_fails_loud() {
-        assert!(require_scope_dir(&None).is_err());
+        assert!(require_scope(&None).is_err());
         let dir = temp_dir("wf-dir-require");
         let scope = resolve_scope(Some(dir.path().to_str().unwrap()), &config_with(&[])).unwrap();
         assert_eq!(
-            require_scope_dir(&scope).unwrap(),
+            require_scope(&scope).unwrap().directory,
             dir.path().canonicalize().unwrap()
         );
     }

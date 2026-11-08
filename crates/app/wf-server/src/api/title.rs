@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -45,8 +45,15 @@ pub(crate) fn routes() -> Router<ApiState> {
 )]
 pub(crate) async fn handle_chat_title(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Json(body): Json<ChatTitleBody>,
 ) -> impl IntoResponse {
+    if let Err(e) =
+        crate::directory::require_agent_owner(&state.ctx, &scope, &body.session_id.clone()).await
+    {
+        return error_response(e);
+    }
+
     let params = wf_api::title::TitleParams {
         session_id: body.session_id,
         profile_id: body.profile_id,
@@ -71,9 +78,14 @@ pub(crate) async fn handle_chat_title(
 )]
 pub(crate) async fn handle_loop_title(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<LoopTitleBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     let params = wf_api::title::TitleParams {
         session_id: path.id,
         profile_id: body.profile_id,

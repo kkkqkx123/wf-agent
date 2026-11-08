@@ -144,6 +144,7 @@ pub async fn build_workflow_execution(
 
         rerun_of: None,
         debug,
+        directory: entity.directory(),
     }
 }
 

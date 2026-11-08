@@ -52,6 +52,11 @@ pub struct WorkflowExecution {
     /// never reads it for budgets or scheduling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub debug: Option<bool>,
+    /// Canonical business directory that created the run. `None` marks
+    /// legacy records and engine-origin runs that predate ownership
+    /// stamping; the server boundary treats them as unowned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
 }
 
 impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
@@ -109,6 +114,7 @@ impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
             fork_join_context,
             hierarchy: snapshot.hierarchy,
             debug: None,
+            directory: None,
         }
     }
 }

@@ -71,7 +71,8 @@ async fn degrades_gracefully_without_live_state() {
 
         rerun_of: None,
         debug: None,
-    };
+    
+        directory: None,};
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
     let view = workflow_execution_get_state(&ctx, "exec-p").await.unwrap();
@@ -318,7 +319,8 @@ async fn deep_analysis_degrades_to_persisted() {
 
         rerun_of: None,
         debug: None,
-    };
+    
+        directory: None,};
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
     let context = workflow_execution_get_execution_context(&ctx, "exec-deep")

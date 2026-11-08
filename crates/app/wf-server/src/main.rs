@@ -36,6 +36,12 @@ struct Args {
     #[arg(long)]
     static_dir: Option<PathBuf>,
 
+    /// Single-machine default workspace: directory-less requests resolve
+    /// to this directory instead of failing. Absent keeps the fail-loud
+    /// behavior for multi-tenant serving.
+    #[arg(long)]
+    directory: Option<PathBuf>,
+
     /// Storage backend spec: memory | sqlite:<path> | sqlite | postgres:<conn>
     #[arg(long)]
     storage: Option<String>,
@@ -144,20 +150,45 @@ async fn main() {
 
     let metrics_registry = runtime.metrics().map(|m| m.registry().clone());
 
-    // Multi-directory serving: no server-side default workspace exists.
-    // Every workspace-bound request names its directory; the allowlist
-    // gates explicit directories, and directory-less requests fail loud
-    // at the handler instead of binding anywhere silently.
-    let dirs = Arc::new(wf_server::directory::DirectoryContext::new(
-        server_config.directory.clone(),
-    ));
+    // Multi-directory serving: every workspace-bound request names its
+    // directory; the allowlist gates explicit directories, and
+    // directory-less requests fail loud at the handler unless the
+    // operator pinned a single-machine default with `--directory`.
+    let dirs = Arc::new(match args.directory.as_deref() {
+        Some(default) => {
+            match wf_server::directory::DirectoryContext::with_default(
+                server_config.directory.clone(),
+                default,
+            ) {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    eprintln!("invalid --directory {}: {e}", default.display());
+                    std::process::exit(2);
+                }
+            }
+        }
+        None => wf_server::directory::DirectoryContext::new(server_config.directory.clone()),
+    });
     info!(
         allowed_roots = server_config.directory.allowed_roots.len(),
         cached_directories = dirs.entry_count(),
+        default_directory = dirs
+            .default_scope()
+            .map(|scope| scope.directory.to_string_lossy().into_owned())
+            .unwrap_or_default(),
         "directory scope ready"
     );
 
     let addr = server_config.bind_addr;
+    // An empty allowlist on a non-loopback socket serves every path the
+    // process can read to any key holder. Flag the fail-open default so
+    // remote deployments pin `allowed_roots` instead of discovering it.
+    if server_config.directory.allowed_roots.is_empty() && !addr.ip().is_loopback() {
+        tracing::warn!(
+            %addr,
+            "serving without a directory allowlist on a non-loopback address; set allowed_roots to bound the served paths"
+        );
+    }
 
     let handle = if let Some(registry) = metrics_registry.clone() {
         info!(%addr, "starting wf-server with metrics");

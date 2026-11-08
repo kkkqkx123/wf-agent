@@ -146,6 +146,10 @@ pub struct WorkflowExecutionEntity {
     /// Final result of the execution, written on completion (both sync and
     /// spawned paths). `None` until the execution settles.
     output: Arc<tokio::sync::RwLock<Option<Value>>>,
+    /// Canonical business directory that created the run, stamped at spawn
+    /// and copied into the persisted record. `None` marks engine-origin
+    /// runs without a requesting directory.
+    directory: std::sync::RwLock<Option<String>>,
 }
 
 impl WorkflowExecutionEntity {
@@ -168,6 +172,7 @@ impl WorkflowExecutionEntity {
             hierarchy,
             execution_type: None,
             output: Arc::new(tokio::sync::RwLock::new(None)),
+            directory: std::sync::RwLock::new(None),
         }
     }
 
@@ -207,6 +212,21 @@ impl WorkflowExecutionEntity {
 
     pub fn workflow_version(&self) -> Option<wf_types::Version> {
         self.workflow_version.clone()
+    }
+
+    /// Stamp the owning business directory at spawn. The persisted record
+    /// copies this value, so ownership follows the run, not later edits.
+    pub fn with_directory(self, directory: Option<String>) -> Self {
+        *self.directory.write().expect("entity directory lock") = directory;
+        self
+    }
+
+    /// Owning business directory, if the run was created with one.
+    pub fn directory(&self) -> Option<String> {
+        self.directory
+            .read()
+            .expect("entity directory lock")
+            .clone()
     }
 
     pub fn variables(&self) -> &Arc<DashMap<String, Value>> {

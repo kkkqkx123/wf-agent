@@ -22,12 +22,19 @@ pub struct AgentExecutionFilter {
     pub started_from: Option<i64>,
     /// Inclusive upper bound on the execution start time (ms epoch).
     pub started_to: Option<i64>,
+    /// Owning business directory the request is scoped to. `Some` keeps
+    /// only runs stamped with that directory; `None` (directory-less
+    /// request) keeps only unowned runs.
+    pub directory: Option<String>,
 }
 
 /// Execution summary of an agent loop.
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentExecutionSummary {
     pub execution_id: String,
+    /// Owning business directory, if the run was created with one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
     /// Which executor produced the run. Live loops always report `Agent`;
     /// persisted records carry their stored executor.
     pub execution_type: ExecutionType,
@@ -60,6 +67,7 @@ pub async fn summaries(
         execution_type_filter: f.execution_type.as_ref().map(|t| t.as_str().to_string()),
         started_from: f.started_from,
         started_to: f.started_to,
+        directory_filter: f.directory.clone(),
         ..AgentExecutionListOptions::default()
     });
     let persisted = ctx
@@ -100,12 +108,17 @@ pub async fn summaries(
             parent_execution_id,
             rerun_of: record.rerun_of.clone().map(|id| id.to_string()),
             definition_id,
+            directory: record.directory.clone(),
         });
     }
     records.sort_by_key(|r| std::cmp::Reverse(r.start_time));
 
     if let Some(filter) = filter {
+        let wanted = filter.directory.as_deref();
         records.retain(|r| {
+            if !crate::entity::execution::owner_visible(r.directory.as_deref(), wanted) {
+                return false;
+            }
             if let Some(execution_type) = &filter.execution_type {
                 if &r.execution_type != execution_type {
                     return false;
@@ -237,6 +250,7 @@ async fn live_records(
                 parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
                 rerun_of: None,
                 definition_id: Some(entity.definition_id().to_string()),
+                directory: entity.directory(),
             });
         }
     }

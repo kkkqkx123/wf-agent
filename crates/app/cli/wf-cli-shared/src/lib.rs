@@ -339,8 +339,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     let owned_cli;
     let cli = match worktree {
         Some(name) => {
-            let base = crate::workspace::resolve_workspace_dir(cli)
-                .map_err(CliError::Arguments)?;
+            let base = crate::workspace::resolve_workspace_dir(cli).map_err(CliError::Arguments)?;
             let target = crate::workspace::ensure_worktree(
                 &base,
                 (!name.trim().is_empty()).then_some(name.as_str()),

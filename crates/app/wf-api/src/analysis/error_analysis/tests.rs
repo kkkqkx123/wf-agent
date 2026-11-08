@@ -148,7 +148,8 @@ async fn degrades_to_persisted_plain_errors() {
 
         rerun_of: None,
         debug: None,
-    };
+    
+        directory: None,};
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
     let stats = workflow_error_stats(&ctx, "exec-p2").await.unwrap();
@@ -179,7 +180,8 @@ async fn similar_errors_clusters_by_message() {
 
         rerun_of: None,
         debug: None,
-    };
+    
+        directory: None,};
     let failed2 = wf_types::WorkflowExecution {
         id: "exec-b".into(),
         workflow_id: "wf-b".into(),
@@ -201,7 +203,8 @@ async fn similar_errors_clusters_by_message() {
 
         rerun_of: None,
         debug: None,
-    };
+    
+        directory: None,};
     ctx.storage.workflow_execution.save(&failed).await.unwrap();
     ctx.storage.workflow_execution.save(&failed2).await.unwrap();
 

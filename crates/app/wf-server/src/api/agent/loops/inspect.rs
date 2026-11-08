@@ -2,7 +2,7 @@
 //! history, timeline, variable history, context evolution and execution
 //! path.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use utoipa::IntoParams;
@@ -56,6 +56,7 @@ pub(crate) struct LoopSummariesQuery {
 )]
 pub(crate) async fn handle_loop_summaries(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Query(query): Query<LoopSummariesQuery>,
 ) -> impl IntoResponse {
     let status = match query
@@ -74,6 +75,11 @@ pub(crate) async fn handle_loop_summaries(
         tags: None,
         created_at_range: None,
         query: query.q,
+        // The request scope is authoritative: the query directory can only
+        // narrow further, never widen across directories.
+        directory: scope
+            .as_ref()
+            .map(|scope| scope.directory.to_string_lossy().into_owned()),
     };
     match wf_api::agent::agent_loop_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(mut summaries) => {

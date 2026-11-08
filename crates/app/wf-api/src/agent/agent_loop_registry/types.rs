@@ -19,6 +19,10 @@ pub struct AgentLoopFilter {
     pub created_at_range: Option<(Option<i64>, Option<i64>)>,
     /// Substring match over id and title (case-insensitive).
     pub query: Option<String>,
+    /// Owning business directory the request is scoped to. `Some` keeps
+    /// only sessions stamped with that directory; `None` means no
+    /// directory constraint at this layer.
+    pub directory: Option<String>,
 }
 
 /// Digest of an agent loop execution.

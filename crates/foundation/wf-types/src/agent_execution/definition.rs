@@ -42,6 +42,11 @@ pub struct AgentExecution {
     pub permanently_failed_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hierarchy: Option<crate::execution::ExecutionHierarchy>,
+    /// Canonical business directory that created the run. `None` marks
+    /// legacy records and engine-origin runs (triggers) that predate
+    /// ownership stamping; the server boundary treats them as unowned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
 }
 
 impl From<AgentStateSnapshot> for AgentExecution {
@@ -66,6 +71,7 @@ impl From<AgentStateSnapshot> for AgentExecution {
             loop_config: snapshot.loop_config,
             permanently_failed_tools: snapshot.permanently_failed_tools,
             hierarchy: snapshot.hierarchy,
+            directory: None,
         }
     }
 }

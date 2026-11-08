@@ -53,8 +53,7 @@ use crate::router::ApiState;
 /// Interval between protocol `Ping` frames keeping the connection alive.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
-static WS_CLIENTS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+static WS_CLIENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Snapshot of live WebSocket connections for health reporting.
 pub(crate) fn ws_transport_stats() -> serde_json::Value {
@@ -85,7 +84,8 @@ async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body>) {
-    if let Err(message) = authenticate_connection(&state.config.auth, &state.config.cors, &request) {
+    if let Err(message) = authenticate_connection(&state.config.auth, &state.config.cors, &request)
+    {
         tracing::warn!(target: "wf_server", %message, "websocket connection rejected");
         let mut socket = socket;
         let _ = socket

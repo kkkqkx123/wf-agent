@@ -448,16 +448,48 @@ pub async fn statistics(
     ctx: &ApiContext,
     agent_loop_id: Option<&str>,
 ) -> ApiResult<AgentCheckpointStatistics> {
+    statistics_in(ctx, agent_loop_id, None).await
+}
+
+/// Checkpoint statistics scoped to one directory: `Some` keeps checkpoints
+/// whose loop is stamped with that directory, `None` keeps checkpoints of
+/// unowned loops. Unknown loops fail closed under a scope and count as
+/// unowned without one, matching execution listing.
+pub async fn statistics_in(
+    ctx: &ApiContext,
+    agent_loop_id: Option<&str>,
+    directory: Option<&str>,
+) -> ApiResult<AgentCheckpointStatistics> {
     let all = match agent_loop_id {
         Some(id) => list(ctx, id).await?,
         None => global_checkpoints(ctx).await?,
     };
+    let mut checkpoints = all;
+    if agent_loop_id.is_none() {
+        let mut kept = Vec::with_capacity(checkpoints.len());
+        for checkpoint in checkpoints {
+            let owner = super::agent_execution::execution_owner(ctx, &checkpoint.entity_id)
+                .await?
+                .flatten();
+            let visible = match (directory, owner.as_deref()) {
+                (Some(want), Some(have)) => {
+                    wf_common::workspace::same_directory(have, want)
+                }
+                (Some(_), None) => false,
+                (None, _) => owner.is_none(),
+            };
+            if visible {
+                kept.push(checkpoint);
+            }
+        }
+        checkpoints = kept;
+    }
     let mut stats = AgentCheckpointStatistics {
-        total: all.len(),
+        total: checkpoints.len(),
         ..AgentCheckpointStatistics::default()
     };
     let mut blob_total = 0u64;
-    for checkpoint in all {
+    for checkpoint in &checkpoints {
         let type_name = match checkpoint.checkpoint_type {
             CheckpointType::Full => "full",
             CheckpointType::Delta => "delta",
@@ -531,7 +563,6 @@ fn parse_checkpoint_status(
     }
 }
 
-
 /// Latest non-seed checkpoint id for forking or transfer without copying
 /// product storage. Seed marks are skipped so a fresh loop without real
 /// progress reports missing instead of forking an empty seed.
@@ -543,9 +574,7 @@ pub async fn latest_restorable_checkpoint_id(
         .list_by_entity(agent_loop_id)
         .await
         .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
-    all.retain(|meta| {
-        !wf_checkpoint::coordinator::base::is_seed_marked(&meta.custom_fields)
-    });
+    all.retain(|meta| !wf_checkpoint::coordinator::base::is_seed_marked(&meta.custom_fields));
     all.into_iter()
         .max_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)))
         .map(|meta| meta.id)
@@ -721,7 +750,8 @@ mod tests {
             permanently_failed_tools: None,
             hierarchy: None,
             rerun_of: None,
-        };
+        
+            directory: None,};
         ctx.storage.agent_execution.save(&record).await.unwrap();
         let err = create(&ctx, "loop-eph", None).await.unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));

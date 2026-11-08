@@ -3,7 +3,7 @@
 //! shape for a workflow run and an agent loop; sections the owning engine
 //! does not record come back empty rather than absent.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -281,9 +281,14 @@ impl From<execution_history::ExecutionHistoryView> for HistoryDoc {
 )]
 pub(crate) async fn handle_history(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Query(query): Query<HistoryQuery>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     let sections = match ExecutionHistorySections::parse(query.include.as_deref()) {
         Ok(sections) => sections,
         Err(e) => return error_response(e),
@@ -337,7 +342,8 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        };
+        
+            directory: None,};
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 

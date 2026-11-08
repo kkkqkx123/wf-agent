@@ -3,7 +3,7 @@
 //! answers what a single execution recorded rather than how it relates to
 //! others.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -178,8 +178,13 @@ pub(crate) struct SubtreeQuery {
 )]
 pub(crate) async fn handle_hierarchy(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     match execution_hierarchy::hierarchy(&state.ctx, &path.id).await {
         Ok(view) => ok(HierarchyDoc::from(view)).into_response(),
         Err(e) => error_response(e),
@@ -197,9 +202,14 @@ pub(crate) async fn handle_hierarchy(
 )]
 pub(crate) async fn handle_subtree(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Query(query): Query<SubtreeQuery>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     let (limit, offset) =
         match crate::paged::resolve_cursor_page(query.limit, query.cursor.as_deref()) {
             Ok(page) => page,
@@ -247,7 +257,8 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        };
+        
+            directory: None,};
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 

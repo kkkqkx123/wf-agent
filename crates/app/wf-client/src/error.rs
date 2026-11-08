@@ -110,7 +110,12 @@ where
                 ClientError::Unauthorized
             } else if status == 404 {
                 ClientError::NotFound(status.to_string())
-            } else if status == 403 || status == 409 || status == 429 || status == 503 || status == 504 {
+            } else if status == 403
+                || status == 409
+                || status == 429
+                || status == 503
+                || status == 504
+            {
                 ClientError::Remote {
                     code: status_remote_code(status).to_string(),
                     message: format!("unexpected HTTP {status}"),
@@ -137,7 +142,8 @@ pub fn map_typed_error(err: progenitor_client::Error<crate::models::ErrorRespons
             }
             if status == 404 {
                 match body.error.code.as_str() {
-                    "SESSION_NOT_FOUND" | "LOCATION_NOT_FOUND" | "TICKET_INVALID" | "SESSION_BUSY" => {
+                    "SESSION_NOT_FOUND" | "LOCATION_NOT_FOUND" | "TICKET_INVALID"
+                    | "SESSION_BUSY" => {
                         return ClientError::Remote {
                             code: body.error.code,
                             message: body.error.message,

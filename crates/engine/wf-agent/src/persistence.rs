@@ -86,6 +86,7 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
             Some(failed_tools)
         },
         hierarchy,
+        directory: entity.directory(),
         loop_config: effective.clone(),
         context: Some(AgentRuntimeConfig {
             profile_id: Some(entity.model().to_string()),

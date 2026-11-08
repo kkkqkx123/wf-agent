@@ -16,6 +16,25 @@ pub async fn save_execution(
     Ok(())
 }
 
+/// Owning directory stamped on a workflow execution, if the execution is
+/// known. Live entities win over persisted records. `None` means no such
+/// execution; `Some(None)` marks an unowned one (legacy or engine-origin).
+pub async fn execution_owner(
+    ctx: &ApiContext,
+    id: &str,
+) -> crate::ApiResult<Option<Option<String>>> {
+    if let Some(entity) = ctx.workflow_execution(id) {
+        return Ok(Some(entity.directory()));
+    }
+    Ok(ctx
+        .storage
+        .workflow_execution
+        .load(id)
+        .await
+        .map_err(crate::infra::error::ApiError::from)?
+        .map(|record| record.directory))
+}
+
 pub async fn get_execution(ctx: &ApiContext, id: &str) -> crate::ApiResult<WorkflowExecution> {
     ctx.storage
         .workflow_execution

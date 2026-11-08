@@ -122,7 +122,8 @@ async fn workflow_save_get_execute_status() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("execute workflow");
@@ -150,7 +151,8 @@ async fn workflow_stream_ends_with_completed() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("start stream");
@@ -198,7 +200,8 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("execute workflow");
@@ -275,7 +278,8 @@ async fn checkpoint_chain_respects_node_config_via_api() {
             options: None,
             version: None,
             debug: None,
-        },
+        
+            directory: None,},
     )
     .await
     .expect("execute workflow");

@@ -25,8 +25,7 @@ pub async fn run(cli: &Cli) -> CliResult<()> {
     } else {
         "cwd"
     };
-    let workspace =
-        workspace::resolve_workspace_dir(cli).map_err(CliError::Arguments)?;
+    let workspace = workspace::resolve_workspace_dir(cli).map_err(CliError::Arguments)?;
     let in_workspace = Cli {
         directory: Some(workspace.clone()),
         directory_arg: None,

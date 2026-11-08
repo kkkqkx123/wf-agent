@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::directory::scope_dir_string as scope_dir;
 use crate::envelope::{error_response, ok};
 use crate::extract::{DefIdPath, IdPath, ListQuery};
 use crate::paged::{
@@ -150,6 +151,7 @@ fn parse_execution_type_opt(
 )]
 pub(crate) async fn handle_agent_executions(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Query(query): Query<AgentExecutionsQuery>,
 ) -> impl IntoResponse {
     let order_desc = match parse_order(query.order.as_deref()) {
@@ -180,6 +182,7 @@ pub(crate) async fn handle_agent_executions(
         execution_type,
         started_from: query.started_from,
         started_to: query.started_to,
+        directory: scope_dir(&scope),
     };
     match wf_api::agent::agent_execution_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(mut summaries) => {
@@ -210,6 +213,7 @@ pub(crate) async fn handle_agent_executions(
 )]
 pub(crate) async fn handle_agent_executions_count(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Query(query): Query<AgentExecutionsCountQuery>,
 ) -> impl IntoResponse {
     let status = match parse_status_opt(query.status.as_deref()) {
@@ -232,6 +236,7 @@ pub(crate) async fn handle_agent_executions_count(
         execution_type,
         started_from: query.started_from,
         started_to: query.started_to,
+        directory: scope_dir(&scope),
     };
     match wf_api::agent::agent_execution_registry::count_filtered(&state.ctx, Some(&filter)).await {
         Ok(count) => ok(AgentExecutionCountView { count }).into_response(),
@@ -253,8 +258,12 @@ pub(crate) async fn handle_agent_executions_count(
 )]
 pub(crate) async fn handle_get_agent_execution(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::agent::get_agent_execution(&state.ctx.storage, &path.id).await {
         Ok(execution) => ok(execution).into_response(),
         Err(e) => error_response(e),
@@ -275,8 +284,12 @@ pub(crate) async fn handle_get_agent_execution(
 )]
 pub(crate) async fn handle_delete_agent_execution(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::agent::delete_agent_execution(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
@@ -297,6 +310,7 @@ pub(crate) async fn handle_delete_agent_execution(
 )]
 pub(crate) async fn handle_executions_by_definition(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<DefIdPath>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
@@ -305,6 +319,9 @@ pub(crate) async fn handle_executions_by_definition(
         Ok(executions) => {
             let window = executions
                 .into_iter()
+                .filter(|execution| {
+                    crate::directory::check_owner(&scope, execution.directory.as_deref())
+                })
                 .skip(offset as usize)
                 .take(fetch_size(limit) as usize)
                 .collect();
@@ -326,8 +343,15 @@ pub(crate) async fn handle_executions_by_definition(
 )]
 pub(crate) async fn handle_execution_statistics(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_execution_registry::execution_statistics(&state.ctx).await {
+    let filter = wf_api::agent::agent_loop_registry::AgentLoopFilter {
+        directory: scope
+            .as_ref()
+            .map(|scope| scope.directory.to_string_lossy().into_owned()),
+        ..Default::default()
+    };
+    match wf_api::agent::agent_loop_registry::statistics_in(&state.ctx, Some(&filter)).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
     }
@@ -347,6 +371,7 @@ pub(crate) async fn handle_execution_statistics(
 )]
 pub(crate) async fn handle_executions_by_status(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<crate::extract::StatusPath>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
@@ -365,6 +390,7 @@ pub(crate) async fn handle_executions_by_status(
         &state.ctx,
         Some(&wf_api::AgentExecutionFilter {
             status: Some(status),
+            directory: scope_dir(&scope),
             ..Default::default()
         }),
     )
@@ -414,10 +440,14 @@ async fn ensure_agent_domain(
 )]
 pub(crate) async fn handle_create_checkpoint(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<CreateCheckpointBody>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
     match wf_api::agent::agent_checkpoint::create(&state.ctx, &path.id, body.description).await {
@@ -441,10 +471,14 @@ pub(crate) async fn handle_create_checkpoint(
 )]
 pub(crate) async fn handle_list_checkpoints(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
     let (limit, offset) = resolve_page(&query);
@@ -476,9 +510,13 @@ pub(crate) async fn handle_list_checkpoints(
 )]
 pub(crate) async fn handle_restore_checkpoint(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<crate::extract::IdCidPath>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
     if let Err(e) = wf_api::checkpoint::ensure_checkpoint_domain(
@@ -569,6 +607,12 @@ pub(crate) async fn handle_resume_checkpoint(
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     let in_place = body.mode == ResumeCheckpointMode::InPlace;
     let run_params = match super::loops::params_from_body(&state, &scope, body.run).await {
         Ok(params) => params,
@@ -604,9 +648,13 @@ pub(crate) async fn handle_resume_checkpoint(
 )]
 pub(crate) async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
     match wf_api::agent::agent_checkpoint::chain(&state.ctx, &path.id).await {
@@ -629,9 +677,13 @@ pub(crate) async fn handle_checkpoint_chain(
 )]
 pub(crate) async fn handle_delete_checkpoints(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
     match wf_api::agent::agent_checkpoint::delete_for(&state.ctx, &path.id).await {
@@ -656,9 +708,13 @@ pub(crate) async fn handle_delete_checkpoints(
 )]
 pub(crate) async fn handle_delete_checkpoint(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<crate::extract::IdCidPath>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
     match wf_api::agent::agent_checkpoint::delete_single(&state.ctx, &path.id, &path.cid).await {
@@ -680,8 +736,13 @@ pub(crate) async fn handle_delete_checkpoint(
 )]
 pub(crate) async fn handle_checkpoint_statistics(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_checkpoint::statistics(&state.ctx, None).await {
+    let directory = scope
+        .as_ref()
+        .map(|scope| scope.directory.to_string_lossy().into_owned());
+    match wf_api::agent::agent_checkpoint::statistics_in(&state.ctx, None, directory.as_deref())
+        .await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
     }

@@ -63,6 +63,9 @@ pub struct AgentLoopCoordinator {
     /// Per-run loop id injected by the caller; a fresh id is generated when
     /// absent. `config.agent_id` only identifies the agent definition.
     agent_loop_id: Option<Id>,
+    /// Canonical business directory that created the run, stamped onto the
+    /// built entity. `None` marks engine-origin runs without one.
+    directory: Option<String>,
     /// Parent execution id linked onto the built entity (child run of a
     /// parent agent/workflow). The sole parent channel alongside
     /// `parent_hierarchy_manager`; the input context carries no parentage.
@@ -112,6 +115,7 @@ impl AgentLoopCoordinator {
             entity_registry: None,
             state_manager: None,
             agent_loop_id: None,
+            directory: None,
             parent_execution_id: None,
             parent_hierarchy_manager: None,
             hook_handler_registry: None,
@@ -232,6 +236,12 @@ impl AgentLoopCoordinator {
     /// for every run, so `config.agent_id` never doubles as the loop id.
     pub fn with_agent_loop_id(mut self, agent_loop_id: Id) -> Self {
         self.agent_loop_id = Some(agent_loop_id);
+        self
+    }
+
+    /// Stamp the owning business directory onto the built entity.
+    pub fn with_directory(mut self, directory: Option<String>) -> Self {
+        self.directory = directory;
         self
     }
 

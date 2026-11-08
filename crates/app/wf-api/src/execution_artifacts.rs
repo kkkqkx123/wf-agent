@@ -325,7 +325,8 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        };
+        
+            directory: None,};
         ctx.storage.workflow_execution.save(&record).await.unwrap();
 
         let entries = artifacts_for_execution(&ctx, "wf-run-1").await.unwrap();

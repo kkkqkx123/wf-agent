@@ -3,7 +3,7 @@
 //! this route merges the sides for callers that do not care which executor
 //! owns a run, and the detail route below answers for one id across engines.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -104,6 +104,7 @@ fn parse_filter(
     definition_id: Option<String>,
     started_from: Option<i64>,
     started_to: Option<i64>,
+    directory: Option<String>,
 ) -> Result<UnifiedExecutionFilter, String> {
     let status = match status {
         None => None,
@@ -125,6 +126,7 @@ fn parse_filter(
         definition_id,
         started_from,
         started_to,
+        directory,
     })
 }
 
@@ -143,6 +145,7 @@ pub(crate) struct UnifiedExecutionCountView {
 )]
 pub(crate) async fn handle_unified_executions(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Query(query): Query<UnifiedExecutionsQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
@@ -155,6 +158,9 @@ pub(crate) async fn handle_unified_executions(
         query.definition_id.clone(),
         query.started_from,
         query.started_to,
+        scope
+            .as_ref()
+            .map(|scope| scope.directory.to_string_lossy().into_owned()),
     ) {
         Ok(filter) => filter,
         Err(message) => return err(InvalidParams::validation(message)).into_response(),
@@ -186,6 +192,7 @@ pub(crate) async fn handle_unified_executions(
 )]
 pub(crate) async fn handle_unified_executions_count(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Query(query): Query<UnifiedExecutionsCountQuery>,
 ) -> impl IntoResponse {
     let filter = match parse_filter(
@@ -194,6 +201,9 @@ pub(crate) async fn handle_unified_executions_count(
         query.definition_id.clone(),
         query.started_from,
         query.started_to,
+        scope
+            .as_ref()
+            .map(|scope| scope.directory.to_string_lossy().into_owned()),
     ) {
         Ok(filter) => filter,
         Err(message) => return err(InvalidParams::validation(message)).into_response(),
@@ -259,8 +269,12 @@ impl From<wf_api::execution_listing::UnifiedExecutionDetail> for UnifiedExecutio
 )]
 pub(crate) async fn handle_unified_execution(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
     match wf_api::execution_listing::get_unified_detail(&state.ctx, &path.id).await {
         Ok(detail) => crate::envelope::ok(UnifiedExecutionDetailDoc::from(detail)).into_response(),
         Err(e) => crate::envelope::error_response(e),

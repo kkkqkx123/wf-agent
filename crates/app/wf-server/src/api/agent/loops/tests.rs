@@ -44,9 +44,9 @@ fn test_scope() -> Option<crate::directory::DirectoryScope> {
     let directory = std::env::temp_dir()
         .canonicalize()
         .unwrap_or_else(|_| std::env::temp_dir());
-    let project = crate::directory::discover_project(&directory);
+    let project = wf_common::workspace::discover_project_root(&directory);
     Some(crate::directory::DirectoryScope {
-        project_id: crate::directory::project_id_for(&project),
+        project_id: wf_common::workspace::project_id_for(&project),
         project,
         directory,
     })

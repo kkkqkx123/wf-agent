@@ -138,6 +138,7 @@ impl AgentLoopCoordinator {
             .or_else(|| self.agent_loop_id.clone())
             .unwrap_or_else(|| Id::from(wf_common::generate_id()));
         let mut entity = AgentLoopEntity::new(agent_loop_id)
+            .with_directory(self.directory.clone())
             .with_definition_id(config.agent_id.clone())
             .with_hooks(hooks)
             .with_model(config.model.clone());

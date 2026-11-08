@@ -87,8 +87,10 @@ pub(crate) async fn handle_list_trigger_executions(
         Some(raw) => match raw.parse::<wf_types::TriggerExecutionOutcome>() {
             Ok(outcome) => Some(outcome),
             Err(e) => {
-                return crate::envelope::err(crate::envelope::InvalidParams::validation(e.to_string()))
-                    .into_response()
+                return crate::envelope::err(crate::envelope::InvalidParams::validation(
+                    e.to_string(),
+                ))
+                .into_response()
             }
         },
     };
@@ -333,7 +335,6 @@ pub(crate) async fn handle_trigger_history(
     }
 }
 
-
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct SystemTasksView {
     trigger_executions: usize,
@@ -359,7 +360,9 @@ pub(crate) async fn handle_system_tasks(State(state): State<ApiState>) -> impl I
     .await
     .map(|rows| rows.len())
     .unwrap_or(0);
-    let loops = wf_api::agent::agent_loop_registry::count(&state.ctx).await.unwrap_or(0);
+    let loops = wf_api::agent::agent_loop_registry::count(&state.ctx)
+        .await
+        .unwrap_or(0);
     let workflows = wf_api::workflow::execution::count_executions(&state.ctx, None)
         .await
         .unwrap_or(0) as usize;

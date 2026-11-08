@@ -45,9 +45,9 @@ pub struct ServerConfig {
     /// Web frontend build directory served with SPA fallback; `None`
     /// disables static hosting (API-only mode).
     pub static_dir: Option<PathBuf>,
-    /// Directory allowlist for multi-directory serving. Empty serves only
-    /// the default project root; every explicit request directory must
-    /// fall inside one of these roots.
+    /// Directory allowlist for multi-directory serving. Empty permits every
+    /// validated explicit directory; a non-empty list restricts serving to
+    /// the listed roots.
     pub directory: DirectoryConfig,
 }
 

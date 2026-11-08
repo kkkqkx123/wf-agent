@@ -37,7 +37,7 @@ impl ManualClock {
     pub fn advance(&self, delta_ms: i64) {
         self.state
             .current_ms
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
                 Some(current.saturating_add(delta_ms))
             })
             .expect("saturating add always succeeds");

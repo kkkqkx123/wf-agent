@@ -43,6 +43,18 @@ impl std::fmt::Display for ExecutionDomain {
     }
 }
 
+/// Symmetric ownership visibility between a stamped record directory and
+/// the requesting directory: owned records match only the same directory,
+/// unowned records match only directory-less requests. Every mismatch is
+/// invisible by contract; callers map it to not-found.
+pub fn owner_visible(record: Option<&str>, wanted: Option<&str>) -> bool {
+    match (record.map(str::trim).filter(|d| !d.is_empty()), wanted) {
+        (None, None) => true,
+        (Some(stored), Some(directory)) => wf_common::workspace::same_directory(stored, directory),
+        _ => false,
+    }
+}
+
 /// Whether the id exists in the agent-loop domain, probed only when the
 /// cheaper layers (live registry, persisted record) found nothing: live
 /// registry, persisted record, then the checkpoint record store filtered by
@@ -215,7 +227,8 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        };
+        
+            directory: None,};
         ctx.storage.workflow_execution.save(&record).await.unwrap();
     }
 

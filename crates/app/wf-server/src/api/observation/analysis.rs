@@ -104,8 +104,13 @@ pub(crate) fn routes() -> Router<ApiState> {
 )]
 pub(crate) async fn handle_progress(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     match wf_api::analysis::progress::get_progress(&state.ctx, &path.id).await {
         Ok(progress) => ok(progress).into_response(),
         Err(e) => error_response(e),
@@ -237,8 +242,13 @@ pub(crate) async fn handle_llm_metrics(State(state): State<ApiState>) -> impl In
 )]
 pub(crate) async fn handle_execution_llm_metrics(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+
     match wf_api::analysis::llm_metrics::execution_token_usage(&state.ctx, &path.id).await {
         Ok(Some(usage)) => ok(usage).into_response(),
         Ok(None) => error_response(wf_api::ApiError::not_found("llm_usage", &path.id)),

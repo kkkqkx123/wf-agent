@@ -851,16 +851,19 @@ pub async fn check_predecessor_unchanged<M>(
     manager: &M,
     entity_id: &str,
     expected_id: Option<&str>,
-) -> Result<(), Option<CheckpointStorageMetadata>>
+) -> Result<(), Box<Option<CheckpointStorageMetadata>>>
 where
     M: CheckpointStateManager,
 {
-    let current = manager.get_latest(entity_id).await.map_err(|_| None)?;
+    let current = manager
+        .get_latest(entity_id)
+        .await
+        .map_err(|_| Box::new(None))?;
     let current_id = current.as_ref().map(|m| m.id.as_str());
     if current_id == expected_id {
         Ok(())
     } else {
-        Err(current)
+        Err(Box::new(current))
     }
 }
 

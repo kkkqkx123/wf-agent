@@ -54,6 +54,10 @@ pub struct ExecuteWorkflowParams {
     /// Debug marker for direct subworkflow runs. Metadata only; the engine
     /// never reads it for budgets or scheduling.
     pub debug: Option<bool>,
+    /// Canonical business directory that created the run. Stamped onto the
+    /// live entity and the persisted record; `None` marks engine-origin
+    /// runs without a requesting directory.
+    pub directory: Option<String>,
 }
 
 /// Load the workflow definition an execution runs against.
@@ -199,7 +203,7 @@ pub async fn execute(
             .await?;
     let hooks = hooks_for_definition(&definition);
     let version = params.version.clone().or(definition.version.clone());
-    let entity = spawn_entity(ctx, &params.workflow_id, version);
+    let entity = spawn_entity(ctx, &params.workflow_id, version, params.directory.clone());
     entity.set_debug_run(params.debug);
     let options = resolve_options(
         ctx,
@@ -240,6 +244,8 @@ pub async fn rerun(
         input: source.input.clone(),
         options: None,
         debug: source.debug,
+        // Ownership follows the lineage, not the requesting directory.
+        directory: source.directory.clone(),
     };
     let output = execute(ctx, params).await?;
     if let Ok(Some(mut record)) = ctx
@@ -281,7 +287,7 @@ pub async fn stream(
             .await?;
     let hooks = hooks_for_definition(&definition);
     let version = params.version.clone().or(definition.version.clone());
-    let entity = spawn_entity(&ctx, &params.workflow_id, version);
+    let entity = spawn_entity(&ctx, &params.workflow_id, version, params.directory.clone());
     entity.set_debug_run(params.debug);
     let execution_id = entity.id().clone();
     let (stream, sink) =
@@ -522,6 +528,7 @@ fn spawn_entity(
     ctx: &ApiContext,
     workflow_id: &str,
     version: Option<wf_types::Version>,
+    directory: Option<String>,
 ) -> Arc<WorkflowExecutionEntity> {
     let execution_id = wf_common::generate_id();
     let entity = Arc::new(
@@ -529,7 +536,8 @@ fn spawn_entity(
             wf_types::Id::from(execution_id.clone()),
             wf_types::Id::from(workflow_id.to_string()),
         )
-        .with_workflow_version(version),
+        .with_workflow_version(version)
+        .with_directory(directory),
     );
     let _ = ctx
         .workflow_executions

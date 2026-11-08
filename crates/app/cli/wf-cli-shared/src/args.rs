@@ -150,7 +150,9 @@ impl Cli {
             return Err("--history-file and --no-history are mutually exclusive".to_string());
         }
         if self.directory.is_some() && self.directory_arg.is_some() {
-            return Err("--directory and the positional DIRECTORY are mutually exclusive".to_string());
+            return Err(
+                "--directory and the positional DIRECTORY are mutually exclusive".to_string(),
+            );
         }
         if self.command.is_some() && self.directory_arg.is_some() {
             return Err("the positional DIRECTORY applies to interactive forms; use --directory with subcommands".to_string());
@@ -896,7 +898,9 @@ mod tests {
     fn directory_flag_and_positional_parse() {
         let cli = parse(&["--directory", "/tmp"]).unwrap();
         assert_eq!(
-            cli.directory.as_deref().map(|p| p.to_string_lossy().to_string()),
+            cli.directory
+                .as_deref()
+                .map(|p| p.to_string_lossy().to_string()),
             Some("/tmp".into())
         );
         assert!(cli.directory_arg.is_none());

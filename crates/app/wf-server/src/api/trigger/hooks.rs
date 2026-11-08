@@ -67,7 +67,11 @@ pub(crate) async fn handle_webhook_fire(
     Json(body): Json<serde_json::Value>,
 ) -> Response {
     let Some(template) = state.ctx.registries.trigger_templates.get(&name) else {
-        return err(InvalidParams::validation(format!("unknown webhook '{}'", name))).into_response();
+        return err(InvalidParams::validation(format!(
+            "unknown webhook '{}'",
+            name
+        )))
+        .into_response();
     };
     let spec_value = template
         .metadata

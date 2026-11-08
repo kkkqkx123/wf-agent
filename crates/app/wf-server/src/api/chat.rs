@@ -6,13 +6,14 @@
 
 pub(crate) mod starters;
 
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::response::Response;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::directory::{scope_dir, DirectoryScope};
 use crate::envelope::error_response;
 use crate::router::ApiState;
 use crate::sse::{execution_frames, sse_response};
@@ -58,6 +59,7 @@ pub struct ChatRunBody {
 )]
 pub(crate) async fn handle_chat_stream(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Json(body): Json<ChatRunBody>,
 ) -> Response {
     let attachments = body.attachments.unwrap_or_default();
@@ -72,6 +74,7 @@ pub(crate) async fn handle_chat_stream(
         message,
         images: body.images.unwrap_or_default(),
         session_id: body.session_id,
+        directory: scope_dir(&scope).map(|dir| dir.to_string_lossy().into_owned()),
     };
     match wf_api::chat::stream(&state.ctx, params).await {
         Ok(stream) => sse_response(execution_frames(stream)),

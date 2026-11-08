@@ -11,6 +11,7 @@ pub mod shutdown;
 pub mod template;
 pub mod ticker;
 pub mod time;
+pub mod workspace;
 
 pub use error::CommonError;
 pub use error_chain::ErrorPattern;

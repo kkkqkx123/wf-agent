@@ -222,7 +222,6 @@ fn check_owned(scope: &Option<DirectoryScope>, rel: &str) -> Option<Response> {
     }
 }
 
-
 #[utoipa::path(get, path = "/api/v1/fs/list", operation_id = "get_fs_list", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Directory listing", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_list(
     State(state): State<ApiState>,

@@ -12,11 +12,15 @@ pub async fn resume_from_checkpoint(
     ctx: &ApiContext,
     agent_loop_id: &str,
     checkpoint_id: &str,
-    params: RunAgentLoopParams,
+    mut params: RunAgentLoopParams,
     in_place: bool,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
     use wf_checkpoint::CheckpointStateManager;
 
+    // Ownership follows the lineage, not the requesting directory.
+    if let Ok(Some(source)) = ctx.storage.agent_execution.load(agent_loop_id).await {
+        params.directory = source.directory.clone();
+    }
     gate_agent_config(ctx, &params.config)?;
     let state_manager =
         wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());

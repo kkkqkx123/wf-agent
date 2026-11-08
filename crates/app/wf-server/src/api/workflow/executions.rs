@@ -111,19 +111,36 @@ pub struct ExecuteBody {
     pub(crate) debug: Option<bool>,
 }
 
+/// Execution creation inputs derived from the request: engine options
+/// plus the stamped owning directory. The stamp is always the request
+/// directory itself, never the (possibly narrower) explicit file scope.
 fn execution_options(
     body: &ExecuteBody,
     scope: &Option<DirectoryScope>,
-) -> Result<Option<wf_types::workflow_execution::WorkflowExecutionOptions>, wf_api::ApiError> {
+) -> Result<
+    (
+        Option<wf_types::workflow_execution::WorkflowExecutionOptions>,
+        Option<String>,
+    ),
+    wf_api::ApiError,
+> {
     // Launching without a directory is rejected: the execution would
     // otherwise run in a workspace the client never named.
-    crate::directory::require_scope_dir(scope)?;
+    let scope = crate::directory::require_scope(scope)?;
     // The request directory anchors the execution only when the body
-    // carries no explicit file scope, so explicit values always win.
+    // carries no explicit file scope. An explicit scope is validated
+    // against the request directory so it narrows the sandbox instead
+    // of escaping it (and the allowlist behind it).
+    if let Some(explicit) = body.file_scope.as_ref() {
+        crate::directory::check_explicit_file_scope(scope, explicit)?;
+    }
     let file_scope = body
         .file_scope
         .clone()
-        .or_else(|| scope.as_ref().map(scope_file_scope));
+        .or_else(|| Some(scope_file_scope(scope)));
+    // Ownership follows the requesting directory, not the sandbox shape:
+    // an explicit narrower file scope never moves the stamp.
+    let directory = Some(scope.directory.to_string_lossy().into_owned());
     let has_runtime = body.max_steps.is_some()
         || body.timeout.is_some()
         || body.max_execution_time.is_some()
@@ -134,10 +151,10 @@ fn execution_options(
         || body.loop_max_iterations_cap.is_some()
         || file_scope.is_some();
     if !has_runtime {
-        return Ok(None);
+        return Ok((None, directory));
     }
-    Ok(Some(
-        wf_types::workflow_execution::WorkflowExecutionOptions {
+    Ok((
+        Some(wf_types::workflow_execution::WorkflowExecutionOptions {
             file_scope,
             input: None,
             max_steps: body.max_steps,
@@ -148,7 +165,8 @@ fn execution_options(
             max_pause_duration: body.max_pause_duration,
             max_navigation_multiplier: body.max_navigation_multiplier,
             loop_max_iterations_cap: body.loop_max_iterations_cap,
-        },
+        }),
+        directory,
     ))
 }
 
@@ -178,7 +196,7 @@ pub(crate) async fn handle_execute_workflow(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let options = match execution_options(&body, &scope) {
+    let (options, directory) = match execution_options(&body, &scope) {
         Ok(options) => options,
         Err(e) => return error_response(e),
     };
@@ -188,6 +206,7 @@ pub(crate) async fn handle_execute_workflow(
         input: body.input,
         options,
         debug: body.debug,
+        directory,
     };
     match wf_api::workflow::workflow_execution::execute(&state.ctx, params).await {
         Ok(output) => ok(ExecuteView {
@@ -218,7 +237,7 @@ pub(crate) async fn handle_execute_stream(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> Response {
-    let options = match execution_options(&body, &scope) {
+    let (options, directory) = match execution_options(&body, &scope) {
         Ok(options) => options,
         Err(e) => return error_response(e),
     };
@@ -228,6 +247,7 @@ pub(crate) async fn handle_execute_stream(
         input: body.input,
         options,
         debug: body.debug,
+        directory,
     };
     let (execution_id, stream) =
         match wf_api::workflow::workflow_execution::stream(state.ctx, params).await {
@@ -267,7 +287,7 @@ pub(crate) async fn handle_execute_background(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let options = match execution_options(&body, &scope) {
+    let (options, directory) = match execution_options(&body, &scope) {
         Ok(options) => options,
         Err(e) => return error_response(e),
     };
@@ -277,6 +297,7 @@ pub(crate) async fn handle_execute_background(
         input: body.input,
         options,
         debug: body.debug,
+        directory,
     };
     // `stream` spawns the driver detached from this request and hands back
     // the id immediately. Draining the stream in a server task keeps the
@@ -369,6 +390,7 @@ fn parse_status_opt(status: Option<&str>) -> Result<Option<String>, String> {
 )]
 pub(crate) async fn handle_list_executions(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
     let order_desc = match parse_order(query.order.as_deref()) {
@@ -386,6 +408,9 @@ pub(crate) async fn handle_list_executions(
         }
     };
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
+    let directory = scope
+        .as_ref()
+        .map(|scope| scope.directory.to_string_lossy().into_owned());
     let options = WorkflowExecutionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -394,9 +419,18 @@ pub(crate) async fn handle_list_executions(
         started_from: query.started_from,
         started_to: query.started_to,
         order_desc,
+        directory_filter: directory,
     };
     match wf_api::workflow::list_executions(&state.ctx, Some(options)).await {
-        Ok(executions) => ok_page(executions, limit, offset).into_response(),
+        Ok(executions) => {
+            let visible: Vec<_> = executions
+                .into_iter()
+                .filter(|execution| {
+                    crate::directory::check_owner(&scope, execution.directory.as_deref())
+                })
+                .collect();
+            ok_page(visible, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -411,6 +445,7 @@ pub(crate) async fn handle_list_executions(
 )]
 pub(crate) async fn handle_count_executions(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<CountExecutionsQuery>,
 ) -> impl IntoResponse {
     let status_filter = match parse_status_opt(query.status.as_deref()) {
@@ -420,6 +455,9 @@ pub(crate) async fn handle_count_executions(
                 .into_response()
         }
     };
+    let directory = scope
+        .as_ref()
+        .map(|scope| scope.directory.to_string_lossy().into_owned());
     let options = WorkflowExecutionListOptions {
         offset: None,
         limit: None,
@@ -428,7 +466,23 @@ pub(crate) async fn handle_count_executions(
         started_from: query.started_from,
         started_to: query.started_to,
         order_desc: None,
+        directory_filter: directory,
     };
+    // Directory-less requests cannot express "missing directory" in the
+    // storage filter, so they count the unowned subset in Rust instead of
+    // seeing owned runs.
+    if scope.is_none() {
+        return match wf_api::workflow::list_executions(&state.ctx, Some(options)).await {
+            Ok(executions) => {
+                let count = executions
+                    .iter()
+                    .filter(|execution| execution.directory.is_none())
+                    .count() as u64;
+                ok(ExecutionCountView { count }).into_response()
+            }
+            Err(e) => error_response(e),
+        };
+    }
     match wf_api::workflow::execution::count_executions(&state.ctx, Some(options)).await {
         Ok(count) => ok(ExecutionCountView { count }).into_response(),
         Err(e) => error_response(e),
@@ -445,8 +499,12 @@ pub(crate) async fn handle_count_executions(
 )]
 pub(crate) async fn handle_get_execution(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::get_execution(&state.ctx, &path.id).await {
         Ok(execution) => ok(execution).into_response(),
         Err(e) => error_response(e),
@@ -463,8 +521,12 @@ pub(crate) async fn handle_get_execution(
 )]
 pub(crate) async fn handle_delete_execution(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::delete_execution(&state.ctx, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
@@ -481,8 +543,12 @@ pub(crate) async fn handle_delete_execution(
 )]
 pub(crate) async fn handle_pause(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::workflow_execution::pause(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
@@ -499,8 +565,12 @@ pub(crate) async fn handle_pause(
 )]
 pub(crate) async fn handle_resume(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::workflow_execution::resume(&state.ctx, &path.id).await {
         Ok(output) => ok(ExecuteView {
             execution_id: output.execution_id.to_string(),
@@ -521,8 +591,12 @@ pub(crate) async fn handle_resume(
 )]
 pub(crate) async fn handle_cancel(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::workflow_execution::cancel(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
@@ -542,8 +616,12 @@ pub(crate) async fn handle_cancel(
 )]
 pub(crate) async fn handle_rerun(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::resolve_execution(&state.ctx, &path.id).await {
         Ok(wf_api::ExecutionDomain::Workflow) => {}
         Ok(wf_api::ExecutionDomain::AgentLoop) => {
@@ -573,8 +651,12 @@ pub(crate) async fn handle_rerun(
 )]
 pub(crate) async fn handle_status(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::workflow_execution::status(&state.ctx, &path.id).await {
         Ok(status) => ok(status).into_response(),
         Err(e) => error_response(e),
@@ -604,9 +686,13 @@ pub(crate) struct TriggerHistoryQuery {
 )]
 pub(crate) async fn handle_trigger_history(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Query(query): Query<TriggerHistoryQuery>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::trigger::execution::execution_history(
         &state.ctx.storage,
         &path.id,
@@ -637,8 +723,12 @@ pub(crate) async fn handle_trigger_history(
 )]
 pub(crate) async fn handle_list_workflow_agent_loops(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::list_agent_loops(&state.ctx, &path.id).await {
         Ok(loops) => ok(loops).into_response(),
         Err(e) => error_response(e),
@@ -656,9 +746,13 @@ pub(crate) async fn handle_list_workflow_agent_loops(
 )]
 pub(crate) async fn handle_append_workflow_agent_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdSnakeNodePath>,
     Json(body): Json<AppendAgentLoopBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::append_to_agent_loop(
         &state.ctx,
         &path.id,
@@ -685,9 +779,13 @@ pub(crate) async fn handle_append_workflow_agent_loop(
 )]
 pub(crate) async fn handle_set_workflow_agent_loop_append_mode(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdSnakeNodePath>,
     Json(body): Json<SetAppendModeBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::set_agent_loop_append_mode(
         &state.ctx,
         &path.id,
@@ -711,8 +809,12 @@ pub(crate) async fn handle_set_workflow_agent_loop_append_mode(
 )]
 pub(crate) async fn handle_convert_workflow_agent_loop_pending(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdSnakeNodePath>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::workflow::convert_pending_to_steering(&state.ctx, &path.id, &path.node_id).await {
         Ok(()) => ok(serde_json::json!({})).into_response(),
         Err(e) => error_response(e),

@@ -618,5 +618,12 @@
 	"page.executions.conversationSeedJson": "对话种子（JSON 数组，可选）",
 	"page.executions.maxIterationsOptional": "最大迭代次数（可选）",
 	"page.executions.tokenLimitOptional": "Token 上限（可选）",
-	"page.settings.backupSummary": "外观（{theme}、{density}），{count} 个快捷键覆盖，服务器行为（第 {page} 页）"
+	"page.settings.backupSummary": "外观（{theme}、{density}），{count} 个快捷键覆盖，服务器行为（第 {page} 页）",
+	"page.settings.serverDirectory": "服务端工作区目录",
+	"page.settings.serverDirectoryAllowAny": "服务端允许任意显式目录。",
+	"page.settings.serverDirectoryAllowed": "服务端允许：{roots}",
+	"page.settings.serverDirectoryClear": "清除",
+	"page.settings.serverDirectoryDesc": "随每个请求以 x-wf-directory 发送的绝对路径。留空表示无目录模式：工作区功能将拒绝请求，而不会猜测目录。",
+	"page.settings.serverDirectoryPlaceholder": "/srv/wf/projects/acme",
+	"page.settings.serverDirectoryUnavailable": "无法读取服务端目录状态；保存仍会应用手工输入的路径。"
 }

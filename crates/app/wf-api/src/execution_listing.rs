@@ -37,6 +37,10 @@ pub struct UnifiedExecutionFilter {
     pub started_from: Option<i64>,
     /// Inclusive upper bound on the execution start time (ms epoch).
     pub started_to: Option<i64>,
+    /// Owning business directory the request is scoped to. `Some` keeps
+    /// only runs stamped with that directory; `None` (directory-less
+    /// request) keeps only unowned runs.
+    pub directory: Option<String>,
 }
 
 /// One run in the unified listing, regardless of owning engine.
@@ -89,9 +93,14 @@ pub async fn list_unified(
             started_from: f.started_from,
             started_to: f.started_to,
             order_desc: Some(true),
+            directory_filter: f.directory.clone(),
             ..crate::WorkflowExecutionListOptions::default()
         });
-        let records = crate::workflow::execution::list_executions(ctx, options).await?;
+        let mut records = crate::workflow::execution::list_executions(ctx, options).await?;
+        let wanted = filter.as_ref().and_then(|f| f.directory.as_deref());
+        records.retain(|record| {
+            crate::entity::execution::owner_visible(record.directory.as_deref(), wanted)
+        });
         for record in records {
             merged.push(UnifiedExecutionSummary {
                 execution_id: record.id.to_string(),
@@ -123,6 +132,7 @@ pub async fn list_unified(
             agent_id: f.definition_id.clone(),
             started_from: f.started_from,
             started_to: f.started_to,
+            directory: f.directory.clone(),
         });
         let summaries = agent_execution_registry::summaries(ctx, agent_filter.as_ref()).await?;
         for summary in summaries {
@@ -320,7 +330,8 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        };
+        
+            directory: None,};
         ctx.storage.workflow_execution.save(&record).await.unwrap();
     }
 
@@ -357,7 +368,8 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        };
+        
+            directory: None,};
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 

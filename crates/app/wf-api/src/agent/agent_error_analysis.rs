@@ -381,7 +381,8 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        };
+        
+            directory: None,};
         ctx.storage.agent_execution.save(&record).await.unwrap();
 
         let records = get_execution_error_records(&ctx, "exec-p").await.unwrap();

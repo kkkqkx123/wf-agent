@@ -6,6 +6,8 @@ use wf_agent::entity::AgentLoopEntity;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 
+use wf_storage::adapter::base::BaseStorageAdapter;
+
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
 
@@ -34,6 +36,10 @@ pub struct RunAgentLoopParams {
     /// With a handler registered every tool call the policy routes to a
     /// human is answered by it; policy denials never reach it.
     pub approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
+    /// Canonical business directory that created the run. Stamped onto the
+    /// live entity and the persisted record; `None` marks engine-origin
+    /// runs without a requesting directory.
+    pub directory: Option<String>,
 }
 
 impl RunAgentLoopParams {
@@ -45,6 +51,7 @@ impl RunAgentLoopParams {
             agent_loop_id: None,
             approval_options: None,
             approval_handler: None,
+            directory: None,
         }
     }
 }
@@ -105,7 +112,7 @@ pub(crate) fn coordinator_for(
     params: &RunAgentLoopParams,
     execution_id: Option<&str>,
 ) -> AgentLoopCoordinator {
-    let mut coordinator = coordinator(ctx);
+    let mut coordinator = coordinator(ctx).with_directory(params.directory.clone());
     if let Some(options) = params.approval_options.clone() {
         coordinator = coordinator.with_approval_options(options);
     }
@@ -135,6 +142,26 @@ pub(crate) fn live_entity(
 ) -> crate::infra::error::ApiResult<Arc<AgentLoopEntity>> {
     ctx.agent_loop(agent_loop_id)
         .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
+}
+
+/// Owning directory stamped on an agent loop execution, if the execution is
+/// known. Live entities win over persisted records (chat sessions persist
+/// only as records). `None` means no such execution; `Some(None)` marks
+/// an unowned one (legacy, trigger-fired, or directory-less chat).
+pub async fn execution_owner(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> crate::infra::error::ApiResult<Option<Option<String>>> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        return Ok(Some(entity.directory()));
+    }
+    Ok(ctx
+        .storage
+        .agent_execution
+        .load(agent_loop_id)
+        .await
+        .map_err(crate::infra::error::ApiError::from)?
+        .map(|record| record.directory))
 }
 
 pub(crate) fn gate_agent_input(

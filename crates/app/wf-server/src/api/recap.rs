@@ -9,7 +9,7 @@
 //! and in-progress turns are not rejected: the read is snapshot-only and
 //! frontend throttling (at most once per turn) owns the rate.
 
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -63,8 +63,15 @@ pub(crate) fn routes() -> Router<ApiState> {
 )]
 pub(crate) async fn handle_chat_recap(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Json(body): Json<ChatRecapBody>,
 ) -> impl IntoResponse {
+    if let Err(e) =
+        crate::directory::require_agent_owner(&state.ctx, &scope, &body.session_id.clone()).await
+    {
+        return error_response(e);
+    }
+
     let params = wf_api::recap::RecapParams {
         session_id: body.session_id,
         profile_id: body.profile_id,
@@ -89,9 +96,14 @@ pub(crate) async fn handle_chat_recap(
 )]
 pub(crate) async fn handle_loop_recap(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<LoopRecapBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
+
     let params = wf_api::recap::RecapParams {
         session_id: path.id,
         profile_id: body.profile_id,
@@ -128,6 +140,7 @@ mod tests {
         // with a success envelope instead of an error bubble.
         let silent = handle_chat_recap(
             State(state.clone()),
+            Extension(None),
             Json(ChatRecapBody {
                 session_id: "missing".to_string(),
                 profile_id: "mock".to_string(),
@@ -139,6 +152,7 @@ mod tests {
         // Blank profile is caller misuse and reports a validation error.
         let invalid = handle_loop_recap(
             State(state),
+            Extension(None),
             Path(IdPath {
                 id: "session-1".to_string(),
             }),

@@ -194,7 +194,8 @@ async fn llm_reasoning_path_extracts_attempt_chain() {
 
         rerun_of: None,
         debug: None,
-    };
+    
+        directory: None,};
     ctx.storage
         .workflow_execution
         .save(&persisted)

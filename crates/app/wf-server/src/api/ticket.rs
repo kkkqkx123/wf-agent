@@ -119,8 +119,7 @@ pub(crate) fn is_auth_exempt_request(uri: &Uri) -> bool {
 }
 
 fn is_pairing_connect_request(uri: &Uri) -> bool {
-    uri.path() == "/api/v1/server/connect"
-        || uri.path().starts_with("/api/v1/server/connect/")
+    uri.path() == "/api/v1/server/connect" || uri.path().starts_with("/api/v1/server/connect/")
 }
 
 /// Whether a request is a stream handshake that presents a ticket instead of

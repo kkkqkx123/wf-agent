@@ -150,9 +150,9 @@ impl TuiApp {
         self.tasks.push(tokio::spawn(async move {
             let result: Result<Vec<crate::session_list::RecentSession>, String> = async {
                 let data: serde_json::Value = client
-                    .get_json(&client.with_directory_query(
-                        wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES,
-                    ))
+                    .get_json(
+                        &client.with_directory_query(wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES),
+                    )
                     .await
                     .map_err(|err| err.to_string())?;
                 let mut items = data

@@ -71,6 +71,20 @@ impl AgentLoopCoordinator {
         }
         let (filtered, trailing) =
             wf_execution_shared::agent_prompt::split_trailing_dynamic_tail(conversation.to_vec());
+        // Explicit pure chat run exposes no tools: keep the stripped
+        // history as-is instead of resolving an empty pool to all
+        // registered tools.
+        if config
+            .available_tool_names
+            .as_ref()
+            .is_some_and(|pool| pool.is_empty())
+            && config.initial_tool_names.is_empty()
+            && config.discoverable_tool_names.is_empty()
+        {
+            let mut normalized = filtered;
+            normalized.extend(trailing);
+            return normalized;
+        }
         let activated_tools: std::collections::HashSet<String> =
             config.activated_tool_names.iter().cloned().collect();
         // Exposure overrides are intentionally empty here, matching the per-turn
@@ -252,10 +266,7 @@ impl AgentLoopCoordinator {
             let empty_tools: Vec<String> = Vec::new();
             let snapshot_resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
                 registry: &self.tool_registry,
-                available_names: config
-                    .available_tool_names
-                    .as_ref()
-                    .unwrap_or(&empty_tools),
+                available_names: config.available_tool_names.as_ref().unwrap_or(&empty_tools),
                 initial_names: &config.initial_tool_names,
                 discoverable_names: &config.discoverable_tool_names,
                 hidden_names: &config.hidden_tool_names,
@@ -263,9 +274,9 @@ impl AgentLoopCoordinator {
                 activated_tools: &activated_for_snapshot,
                 exposure_overrides: &std::collections::HashMap::new(),
             });
-            entity.set_tool_snapshot(
-                crate::tool_snapshot::ToolSnapshot::from_resolution(&snapshot_resolution),
-            );
+            entity.set_tool_snapshot(crate::tool_snapshot::ToolSnapshot::from_resolution(
+                &snapshot_resolution,
+            ));
         }
 
         // Loop-boundary history normalization: the inbound conversation

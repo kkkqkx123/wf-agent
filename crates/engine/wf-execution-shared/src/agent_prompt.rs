@@ -598,16 +598,6 @@ pub fn tool_change_message(content: String) -> wf_types::message::Message {
     message
 }
 
-/// Replace any existing tool change tail with a fresh notice. Refresh
-/// replaces instead of appending so repeated updates stay idempotent.
-pub fn refresh_tool_change_announcement(
-    conversation: &mut Vec<wf_types::message::Message>,
-    content: String,
-) {
-    conversation.retain(|m| !is_tool_change_message(m));
-    conversation.push(tool_change_message(content));
-}
-
 /// Leading stable system message carrying the cacheable header.
 pub fn stable_system_message(content: String) -> wf_types::message::Message {
     wf_types::message::Message::system_text(content)
@@ -669,20 +659,35 @@ pub struct ExposureArtifacts {
 /// Resolve exposure once and render the `general` description plus the
 /// discoverable metadata block from that single resolution. Assembly-time
 /// overrides and activations stay empty; per-turn resolution owns those.
+/// `None` available means unset (inherit-all); `Some` empty with empty
+/// initial and discoverable means an explicit pure chat run with no tools.
 pub fn build_exposure_artifacts(
     env: &PromptEnvironment,
     tool_call_protocol: Option<&wf_types::llm::ToolCallProtocolConfig>,
-    available_tool_names: &[String],
+    available_tool_names: Option<&[String]>,
     initial_tool_names: &[String],
     discoverable_tool_names: &[String],
     hidden_tool_names: &[String],
     enable_general_tool: Option<bool>,
 ) -> ExposureArtifacts {
+    // Explicit pure chat run renders no blocks instead of resolving an
+    // empty pool to all registered tools.
+    if available_tool_names.is_some_and(|names| names.is_empty())
+        && initial_tool_names.is_empty()
+        && discoverable_tool_names.is_empty()
+    {
+        return ExposureArtifacts {
+            general_description: None,
+            discoverable_metadata_block: None,
+        };
+    }
+    let empty_pool: &[String] = &[];
+    let available_view = available_tool_names.unwrap_or(empty_pool);
     let metadata_options = wf_tools::discoverable_metadata_options(tool_call_protocol);
     let exposure_resolution = env.tool_registry.map(|registry| {
         wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry,
-            available_names: available_tool_names,
+            available_names: available_view,
             initial_names: initial_tool_names,
             discoverable_names: discoverable_tool_names,
             hidden_names: hidden_tool_names,

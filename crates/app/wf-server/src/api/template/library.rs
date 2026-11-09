@@ -256,7 +256,6 @@ pub(crate) async fn handle_clone_template(
         wf_api::workflow::clone_workflow(&state.ctx, &path.id, new_id)
             .await
             .map(|id| id.to_string())
-            .map_err(Into::into)
     } else {
         Err(wf_api::ApiError::Validation(format!(
             "unknown template kind for clone: {}",

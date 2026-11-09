@@ -11,10 +11,11 @@ use crate::tool_router::ToolRouter;
 /// Build the LLM request for one agent iteration.
 ///
 /// Single request construction point shared by blocking and streaming
-/// iteration modes. The visible tool set is recomputed per turn through the
-/// tool router (whitelist + exposure layers + formal activation), so every
-/// iteration observes the latest tool availability without ever mutating
-/// the schema through runtime blocks (KV-cache friendly). Sampling
+/// iteration modes. The visible tool set resolves per turn from the
+/// whitelist, exposure layers and formal activation, then renders from the
+/// loop-entry frozen snapshot so background registry drift never reshapes
+/// the schema mid-run; runtime blocks never mutate the schema either
+/// (KV-cache friendly). Sampling
 /// parameters are deliberately not hardcoded here: they come from the
 /// referenced profile's `parameters` and are merged by the gateway.
 ///
@@ -110,20 +111,28 @@ pub async fn build_agent_request(
                 .iter()
                 .filter_map(|name| by_name.get(name).cloned())
                 .collect();
+            let frozen_gated: Vec<wf_types::tool::Tool> = snapshot
+                .gated_names
+                .iter()
+                .filter_map(|name| by_name.get(name).cloned())
+                .collect();
+            let frozen_hidden: Vec<wf_types::tool::Tool> = snapshot
+                .hidden_names
+                .iter()
+                .filter_map(|name| by_name.get(name).cloned())
+                .collect();
             let general_present = by_name.contains_key(GENERAL_TOOL_NAME);
             frozen_exposure = Some(wf_tools::tool_exposure::ExposureResolution {
                 visible: frozen_visible,
                 discoverable: frozen_discoverable,
-                gated: Vec::new(),
-                hidden: Vec::new(),
+                gated: frozen_gated,
+                hidden: frozen_hidden,
                 general_enabled: snapshot.general_enabled && general_present,
             });
             if let Some(text) = crate::tool_snapshot::render_tool_change_text(&diff, &[], &[]) {
-                messages.push(
-                    wf_execution_shared::agent_prompt::tool_change_message(format!(
-                        "{text}\nDrift is pending adoption at the next loop boundary."
-                    )),
-                );
+                messages.push(wf_execution_shared::agent_prompt::tool_change_message(
+                    format!("{text}\nDrift is pending adoption at the next loop boundary."),
+                ));
             }
         }
     }

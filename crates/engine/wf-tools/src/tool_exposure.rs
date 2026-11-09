@@ -3,7 +3,7 @@
 //! [`resolve_tool_exposure`] computes the tool buckets (visible /
 //! discoverable / gated / hidden) and the `general` tool exposure decision
 //! from one shared set of inputs. Both the per-turn schema assembly
-//! (wf-agent `build_tool_router`) and the agent-loop discoverable metadata
+//! (wf-agent `ToolRouter`) and the agent-loop discoverable metadata
 //! injection (wf-workflow `AGENT_LOOP` handler assembly) consume this
 //! function, so the two can never drift apart: the injected metadata always
 //! describes exactly the tools the assembled schema exposes, and vice versa.
@@ -128,7 +128,10 @@ pub fn resolve_tool_exposure(input: ExposureInput<'_>) -> ExposureResolution {
     let mut general_enabled = input
         .enable_general_tool
         .unwrap_or(!discoverable.is_empty());
-    if general_enabled && !pool_empty && !input.available_names.iter().any(|n| n == GENERAL_TOOL_NAME) {
+    if general_enabled
+        && !pool_empty
+        && !input.available_names.iter().any(|n| n == GENERAL_TOOL_NAME)
+    {
         general_enabled = false;
     }
     if general_enabled {
@@ -386,7 +389,7 @@ mod tests {
             &[
                 "alpha".to_string(),
                 "web_search".to_string(),
-                "general".to_string()
+                "general".to_string(),
             ],
             &["alpha".to_string()],
             &["web_search".to_string()],
@@ -749,7 +752,7 @@ mod tests {
             &[
                 "alpha".to_string(),
                 "beta_db".to_string(),
-                "general".to_string()
+                "general".to_string(),
             ],
             &["alpha".to_string()],
             &[],

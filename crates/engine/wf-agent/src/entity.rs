@@ -71,9 +71,6 @@ pub struct AgentLoopEntity {
     /// renders from this snapshot so background registry drift does not
     /// silently reshape the declaration array mid-run.
     tool_snapshot: std::sync::RwLock<Option<crate::tool_snapshot::ToolSnapshot>>,
-    /// Last announced blocked tool set. Used to refresh the explicit
-    /// do-not-retry notice only when the set actually changes.
-    blocked_snapshot: std::sync::RwLock<Vec<String>>,
     exposure_overrides: Vec<(String, wf_types::tool::ToolExposure)>,
     /// Opt-in per-turn history projection (`build_agent_request` rewrites the
     /// projected history to the current turn's exposure). Default `false`;
@@ -137,7 +134,6 @@ impl AgentLoopEntity {
             hidden_tool_names: Vec::new(),
             available_is_unset: true,
             tool_snapshot: std::sync::RwLock::new(None),
-            blocked_snapshot: std::sync::RwLock::new(Vec::new()),
             exposure_overrides: Vec::new(),
             history_normalization: false,
             timeout_manager: AgentTimeoutManager::new(),
@@ -255,16 +251,6 @@ impl AgentLoopEntity {
     /// Frozen tool membership captured at loop entry, if any.
     pub fn tool_snapshot(&self) -> Option<crate::tool_snapshot::ToolSnapshot> {
         wf_common::lock::read_ok(self.tool_snapshot.read()).clone()
-    }
-
-    /// Last announced blocked tool set.
-    pub fn blocked_snapshot(&self) -> Vec<String> {
-        wf_common::lock::read_ok(self.blocked_snapshot.read()).clone()
-    }
-
-    /// Update the last announced blocked tool set.
-    pub fn set_blocked_snapshot(&self, blocked: Vec<String>) {
-        *wf_common::lock::write_ok(self.blocked_snapshot.write()) = blocked;
     }
 
     /// Tools visible in the initial schema; when absent all available tools

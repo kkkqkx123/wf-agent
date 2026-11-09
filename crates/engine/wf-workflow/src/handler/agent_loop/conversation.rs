@@ -56,10 +56,9 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
     // Consolidated blocked notice: interception keeps the declaration array
     // unchanged, so the loop entry adds one explicit do-not-retry summary
     // for the current blocked set instead of relying on per-event messages.
-    let mut blocked: Vec<String> =
-        wf_agent::visibility::collect_blocked_tools(&ctx.variables)
-            .into_iter()
-            .collect();
+    let mut blocked: Vec<String> = wf_agent::visibility::collect_blocked_tools(&ctx.variables)
+        .into_iter()
+        .collect();
     blocked.sort();
     if !blocked.is_empty() {
         let text = format!(
@@ -74,9 +73,12 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
 
 /// Target-exposure inputs for one loop-boundary normalization: which tools
 /// this loop exposes and how history must be rewritten to match.
+/// `available_is_unset` preserves the unset versus explicit-empty
+/// distinction that a plain empty slice would otherwise erase.
 pub(crate) struct TargetExposure<'a> {
     pub registry: Option<&'a ToolRegistry>,
     pub available: &'a [String],
+    pub available_is_unset: bool,
     pub initial: &'a [String],
     pub discoverable: &'a [String],
     pub hidden: &'a [String],
@@ -107,6 +109,7 @@ pub(crate) fn normalize_conversation_for_target(
     let TargetExposure {
         registry,
         available,
+        available_is_unset,
         initial,
         discoverable,
         hidden,
@@ -118,6 +121,12 @@ pub(crate) fn normalize_conversation_for_target(
     };
     let conversation =
         wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation);
+    // Explicit pure chat run exposes no tools: skip resolution instead of
+    // resolving an empty pool to all registered tools.
+    if !available_is_unset && available.is_empty() && initial.is_empty() && discoverable.is_empty()
+    {
+        return conversation;
+    }
     let activated_tools: std::collections::HashSet<String> = activated.iter().cloned().collect();
     let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
         registry,

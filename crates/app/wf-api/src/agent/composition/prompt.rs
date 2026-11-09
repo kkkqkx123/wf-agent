@@ -19,11 +19,10 @@ pub fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig)
 pub fn attach_exposure_artifacts(env: &PromptEnvironment, config: &mut AgentLoopConfig) {
     // `None` = unset: exposure blocks render against the definition-layer
     // fallback applied earlier, so the empty slice is the right view here.
-    let available_tools = config.available_tool_names.clone().unwrap_or_default();
     let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
         env,
         config.tool_call_protocol.as_ref(),
-        &available_tools,
+        config.available_tool_names.as_deref(),
         &config.initial_tool_names,
         &config.discoverable_tool_names,
         &config.hidden_tool_names,

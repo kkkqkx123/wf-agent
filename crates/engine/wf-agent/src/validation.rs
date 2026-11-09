@@ -548,8 +548,7 @@ fn validate_tool_lists(
     // so entries outside it are rejected instead of filtered silently.
     // Only an unset pool inherits all registered tools.
     if let Some(pool) = config.available_tool_names.as_ref() {
-        let pool_set: std::collections::HashSet<&str> =
-            pool.iter().map(String::as_str).collect();
+        let pool_set: std::collections::HashSet<&str> = pool.iter().map(String::as_str).collect();
         for (field, names) in [
             ("initial_tool_names", &config.initial_tool_names),
             ("discoverable_tool_names", &config.discoverable_tool_names),

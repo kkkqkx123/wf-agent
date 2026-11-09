@@ -102,7 +102,11 @@ impl AgentLoopHandler {
         let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
             &env,
             settings.tool_call_protocol.as_ref(),
-            &settings.available_tool_names,
+            if settings.available_is_unset {
+                None
+            } else {
+                Some(settings.available_tool_names.as_slice())
+            },
             &settings.initial_tool_names,
             &settings.discoverable_tool_names,
             &settings.hidden_tool_names,
@@ -137,6 +141,7 @@ impl AgentLoopHandler {
             &conversation::TargetExposure {
                 registry: ctx.tool_registry.as_deref(),
                 available: &settings.available_tool_names,
+                available_is_unset: settings.available_is_unset,
                 initial: &settings.initial_tool_names,
                 discoverable: &settings.discoverable_tool_names,
                 hidden: &settings.hidden_tool_names,
@@ -150,24 +155,25 @@ impl AgentLoopHandler {
         // tool not registered). Silent non-injection would leave the tools
         // unreachable without explanation.
         if !settings.discoverable_tool_names.is_empty() {
-            let pool_blocks_general =
-                !settings.available_is_unset && !settings.available_tool_names.iter().any(|n| n == "general");
-            let general_registered = ctx.tool_registry.as_deref().is_some_and(|r| {
-                r.list_tools().iter().any(|t| t.name == "general")
-            });
+            let pool_blocks_general = !settings.available_is_unset
+                && !settings.available_tool_names.iter().any(|n| n == "general");
+            let general_registered = ctx
+                .tool_registry
+                .as_deref()
+                .is_some_and(|r| r.list_tools().iter().any(|t| t.name == "general"));
             if pool_blocks_general || !general_registered {
                 let reason = if pool_blocks_general {
                     "the available pool excludes the general proxy"
                 } else {
                     "the general proxy is not registered"
                 };
-                initial_conversation.push(
-                    wf_execution_shared::agent_prompt::tool_change_message(format!(
+                initial_conversation.push(wf_execution_shared::agent_prompt::tool_change_message(
+                    format!(
                         "[Tool Change]\n- Discoverable tools temporarily unreachable ({}): {}",
                         reason,
                         settings.discoverable_tool_names.join(", ")
-                    )),
-                );
+                    ),
+                ));
             }
         }
 
@@ -220,6 +226,31 @@ impl AgentLoopHandler {
             context_strict: None,
             temporary_mode: None,
         };
+
+        // Shared fail-fast gate with the direct agent entry: unknown names,
+        // pool-external entries and contradictory buckets surface here
+        // instead of failing piecemeal at first tool call. Without a tool
+        // registry there is nothing to resolve against, so the check is
+        // skipped exactly like the boundary normalization below.
+        if let Some(registry) = ctx.tool_registry.as_deref() {
+            if let Err(errors) =
+                wf_agent::validation::AgentLoopValidator::validate_or_fail(&loop_config, registry)
+            {
+                let detail = errors
+                    .iter()
+                    .map(|e| format!("{}: {}", e.field, e.message))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Err(crate::error::WorkflowError::ConfigError {
+                    node_id: ctx.node_id.to_string(),
+                    field: errors
+                        .first()
+                        .map(|e| e.field.clone())
+                        .unwrap_or_else(|| "agent_loop".to_string()),
+                    detail,
+                });
+            }
+        }
 
         let loop_input = AgentLoopInput {
             message,

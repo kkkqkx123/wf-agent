@@ -1,7 +1,7 @@
 //! Per-turn tool assembly (single convergence point).
 //!
-//! [`build_tool_router`] computes the visible tool set for one agent
-//! iteration from the whitelist, the exposure layers and the tool discovery
+//! [`ToolRouter`] carries the visible tool set for one agent iteration
+//! assembled from the whitelist, the exposure layers and the tool discovery
 //! state. The computation itself lives in
 //! [`wf_tools::resolve_tool_exposure`] so the agent-loop metadata injection
 //! (wf-workflow `AGENT_LOOP` assembly) consumes the same inputs, filters and
@@ -22,7 +22,7 @@
 //! The `general` tool is appended to the visible set when the discoverable
 //! list is non-empty and not explicitly disabled.
 
-use wf_tools::tool_exposure::{ExposureInput, ExposureResolution};
+use wf_tools::tool_exposure::ExposureResolution;
 
 /// The assembled tool set for one turn.
 #[derive(Debug, Clone, Default)]
@@ -50,12 +50,6 @@ impl From<ExposureResolution> for ToolRouter {
             hidden: resolution.hidden,
         }
     }
-}
-
-/// Assemble the visible tool set for one turn from the shared exposure
-/// resolution (see [`wf_tools::resolve_tool_exposure`] for the semantics).
-pub fn build_tool_router(input: ExposureInput<'_>) -> ToolRouter {
-    wf_tools::resolve_tool_exposure(input).into()
 }
 
 #[cfg(test)]
@@ -103,13 +97,13 @@ mod tests {
     }
 
     #[test]
-    fn test_build_tool_router_delegates_to_shared_resolution() {
+    fn test_router_converts_shared_resolution() {
         let registry = registry_with(vec![
             make_tool("a", "alpha", None),
             make_tool("d", "web_search", None),
             general_tool(),
         ]);
-        let router = build_tool_router(ExposureInput {
+        let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry: &registry,
             available_names: &[
                 "alpha".to_string(),
@@ -123,6 +117,7 @@ mod tests {
             activated_tools: &HashSet::new(),
             exposure_overrides: &HashMap::new(),
         });
+        let router = ToolRouter::from(resolution);
         let visible: Vec<String> = router.visible.iter().map(|t| t.name.clone()).collect();
         assert_eq!(visible, vec!["alpha".to_string(), "general".to_string()]);
         let discoverable: Vec<String> =
@@ -136,7 +131,7 @@ mod tests {
             wf_tools::predefined::rag::RAG_SEARCH.tool_def(),
             general_tool(),
         ]);
-        let router = build_tool_router(ExposureInput {
+        let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry: &registry,
             available_names: &["rag_search".to_string()],
             initial_names: &["rag_search".to_string()],
@@ -146,6 +141,7 @@ mod tests {
             activated_tools: &HashSet::new(),
             exposure_overrides: &HashMap::new(),
         });
+        let router = ToolRouter::from(resolution);
         assert!(router.visible.iter().any(|t| t.name == "rag_search"));
     }
 }

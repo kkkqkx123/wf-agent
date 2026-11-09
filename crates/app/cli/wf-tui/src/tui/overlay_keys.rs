@@ -450,7 +450,7 @@ impl TuiApp {
                 let index = self.session_list.selected().min(len.saturating_sub(1));
                 self.overlay = OverlayMode::None;
                 if self.sessions.switch(index, self.now_ms()) {
-                    self.save_tabs();
+                    self.request_save_tabs();
                 }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
@@ -470,7 +470,7 @@ impl TuiApp {
                     } else {
                         format!("tab {} unpinned", index + 1)
                     });
-                    self.save_tabs();
+                    self.request_save_tabs();
                 }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
@@ -594,7 +594,7 @@ impl TuiApp {
                 self.overlay = OverlayMode::None;
                 if let Some(index) = self.sessions.index_of_execution(&id) {
                     self.sessions.switch(index, self.now_ms());
-                    self.save_tabs();
+                    self.request_save_tabs();
                     self.app
                         .notice
                         .set(format!("switched to tab for {short} — history continues"));

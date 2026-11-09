@@ -114,18 +114,18 @@ impl TuiApp {
                     }
                     Some(KeyAction::TabNext) => {
                         self.sessions.next(self.now_ms());
-                        self.save_tabs();
+                        self.request_save_tabs();
                         true
                     }
                     Some(KeyAction::TabPrev) => {
                         self.sessions.prev(self.now_ms());
-                        self.save_tabs();
+                        self.request_save_tabs();
                         true
                     }
                     Some(KeyAction::TabPick(slot)) => {
                         let index = usize::from(slot).saturating_sub(1);
                         if self.sessions.switch(index, self.now_ms()) {
-                            self.save_tabs();
+                            self.request_save_tabs();
                             true
                         } else {
                             self.app.notice.set(format!("no tab {slot}"));
@@ -148,7 +148,7 @@ impl TuiApp {
                         if !self.sessions.focus_parent(self.now_ms()) {
                             self.app.notice.set("no parent tab".to_string());
                         } else {
-                            self.save_tabs();
+                            self.request_save_tabs();
                         }
                         true
                     }
@@ -156,7 +156,7 @@ impl TuiApp {
                         if !self.sessions.focus_child_first(self.now_ms()) {
                             self.app.notice.set("no child tab".to_string());
                         } else {
-                            self.save_tabs();
+                            self.request_save_tabs();
                         }
                         true
                     }
@@ -164,7 +164,7 @@ impl TuiApp {
                         if !self.sessions.focus_child_next(self.now_ms()) {
                             self.app.notice.set("no child tab".to_string());
                         } else {
-                            self.save_tabs();
+                            self.request_save_tabs();
                         }
                         true
                     }
@@ -172,7 +172,7 @@ impl TuiApp {
                         if !self.sessions.focus_child_prev(self.now_ms()) {
                             self.app.notice.set("no child tab".to_string());
                         } else {
-                            self.save_tabs();
+                            self.request_save_tabs();
                         }
                         true
                     }

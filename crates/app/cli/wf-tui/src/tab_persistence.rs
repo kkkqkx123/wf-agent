@@ -1,4 +1,4 @@
-//! Chat tab persistence: pinned tab metadata across TUI restarts.
+//! Chat tab persistence: tab metadata across TUI restarts.
 //!
 //! Only lightweight metadata is stored (session id, title, pin flag,
 //! parent linkage and display hints). Live controllers are rebuilt on
@@ -12,6 +12,16 @@ use serde::{Deserialize, Serialize};
 
 /// Snapshot version. Kept at 1 during development.
 pub const TABS_SNAPSHOT_VERSION: u32 = 1;
+
+/// Minimum interval between throttled tab snapshot writes. High-frequency
+/// paths only mark the snapshot dirty; the event loop flushes at most
+/// once per interval while state-critical paths save immediately.
+pub const SAVE_DEBOUNCE_MS: u64 = 1_000;
+
+/// Whether a dirty tab snapshot is due for a throttled write.
+pub fn save_due(dirty: bool, now_ms: u64, saved_at_ms: u64) -> bool {
+    dirty && now_ms.saturating_sub(saved_at_ms) >= SAVE_DEBOUNCE_MS
+}
 
 /// File name inside the state directory.
 pub const TABS_FILE_NAME: &str = "tabs.json";
@@ -211,6 +221,14 @@ mod tests {
         assert_eq!(back.tabs.len(), 2);
         assert!(back.tabs[0].pinned);
         assert_eq!(back.tabs[1].parent_id.as_deref(), Some("exec-1"));
+    }
+
+    #[test]
+    fn throttled_save_fires_once_per_interval() {
+        assert!(!save_due(false, 2_000, 0));
+        assert!(!save_due(true, 500, 0));
+        assert!(save_due(true, 1_000, 0));
+        assert!(save_due(true, 2_500, 1_000));
     }
 
     #[test]

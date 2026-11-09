@@ -271,7 +271,7 @@ impl TuiApp {
         {
             if let Some(index) = self.tab_index_at(mouse.column, mouse.row) {
                 if self.sessions.switch(index, self.now_ms()) {
-                    self.save_tabs();
+                    self.request_save_tabs();
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 }
                 return true;

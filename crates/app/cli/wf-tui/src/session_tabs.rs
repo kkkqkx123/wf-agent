@@ -113,6 +113,28 @@ impl SessionTabs {
             .map(|tab| &mut tab.controller)
     }
 
+    /// Mutable active controller only when its holder is attached.
+    /// Lets the shell skip painting a detached tab without a second lookup.
+    pub fn active_mut_if_renderable(&mut self) -> Option<&mut InteractiveController> {
+        let tab = self.tabs.get_mut(self.active)?;
+        if !tab.holder.can_render() {
+            return None;
+        }
+        Some(&mut tab.controller)
+    }
+
+    /// Whether the strip deserves a row: several tabs always qualify,
+    /// while a lone tab only qualifies when it carries visible state
+    /// (pin, stream, custom title) worth surfacing.
+    pub fn wants_strip(&self) -> bool {
+        if self.tabs.len() > 1 {
+            return true;
+        }
+        self.tabs
+            .first()
+            .is_some_and(|tab| tab.pinned || tab.streaming() || !tab.title_is_default)
+    }
+
     pub fn active_tab(&self) -> Option<&SessionTab> {
         self.tabs.get(self.active)
     }
@@ -298,41 +320,6 @@ impl SessionTabs {
             }
         }
         true
-    }
-
-    /// Remove tabs whose execution id is absent from `live`. Returns the
-    /// removed tabs so the caller can shut their controllers down.
-    pub fn prune_missing(&mut self, live: &std::collections::HashSet<String>) -> Vec<SessionTab> {
-        let mut removed = Vec::new();
-        let mut index = 0;
-        while index < self.tabs.len() {
-            let alive = self.tabs[index]
-                .execution_id()
-                .is_some_and(|id| live.contains(id))
-                || self.tabs[index]
-                    .holder
-                    .session_id()
-                    .is_some_and(|id| live.contains(id));
-            if alive {
-                index += 1;
-            } else {
-                removed.push(self.tabs.remove(index));
-                if self.tabs.is_empty() {
-                    self.active = 0;
-                    break;
-                }
-                if index < self.active {
-                    self.active -= 1;
-                } else if self.active >= self.tabs.len() {
-                    self.active = self.tabs.len() - 1;
-                }
-            }
-        }
-        if let Some(active) = self.tabs.get_mut(self.active) {
-            active.holder.reattached();
-            active.controller.note_reattached();
-        }
-        removed
     }
 
     /// Push a tab and focus it.
@@ -543,6 +530,32 @@ mod tests {
         assert_eq!(tabs.active_index(), 0);
         assert!(tabs.focus_child_first(50));
         assert_eq!(tabs.active_index(), 1);
+    }
+
+    #[tokio::test]
+    async fn strip_wants_row_for_several_or_notable_single_tabs() {
+        let mut tabs = SessionTabs::new();
+        assert!(!tabs.wants_strip());
+        tabs.push(test_tab("exec-a", 10).await);
+        assert!(!tabs.wants_strip());
+        assert_eq!(tabs.toggle_pin(0), Some(true));
+        assert!(tabs.wants_strip());
+        assert_eq!(tabs.toggle_pin(0), Some(false));
+        assert!(!tabs.wants_strip());
+        tabs.push(test_tab("exec-b", 20).await);
+        assert!(tabs.wants_strip());
+    }
+
+    #[tokio::test]
+    async fn renderable_follows_holder_attach_state() {
+        let mut tabs = SessionTabs::new();
+        assert!(tabs.active_mut_if_renderable().is_none());
+        tabs.push(test_tab("exec-a", 10).await);
+        assert!(tabs.active_mut_if_renderable().is_some());
+        tabs.detach_all();
+        assert!(tabs.active_mut_if_renderable().is_none());
+        tabs.attach_active();
+        assert!(tabs.active_mut_if_renderable().is_some());
     }
 
     #[test]

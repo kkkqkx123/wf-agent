@@ -18,6 +18,7 @@ mod navigation;
 mod normal_keys;
 mod overlay_keys;
 mod signals;
+mod tab_branch;
 mod tabs;
 
 use std::io;
@@ -120,6 +121,13 @@ pub struct TuiApp {
     /// Live chat session tabs shown on the Interactive screen. The active
     /// tab receives input and paints; background tabs keep streaming.
     sessions: SessionTabs,
+    /// Dirty tab snapshot waiting for a throttled write.
+    tabs_dirty: bool,
+    /// Last throttled tab snapshot write in injectable clock millis.
+    tabs_saved_at_ms: u64,
+    /// Tab strip snapshot of the last painted frame; drives
+    /// change-based redraws for background streaming markers.
+    last_tab_snapshot: Vec<(String, bool, bool)>,
     /// Built-in UI plugins and the slot content they contribute to the
     /// interactive session (see `tui_core::plugin`).
     plugins: PluginHost<SidebarSnapshot>,
@@ -323,6 +331,9 @@ impl TuiApp {
             feedback_rx,
             tasks: Vec::new(),
             sessions: SessionTabs::new(),
+            tabs_dirty: false,
+            tabs_saved_at_ms: 0,
+            last_tab_snapshot: Vec::new(),
             plugins: {
                 let mut plugins = PluginHost::new();
                 let handle = plugins.register(SidebarPlugin);
@@ -462,6 +473,8 @@ impl TuiApp {
         if let Some(session) = self.sessions.active_mut() {
             session.begin_graceful_exit();
         }
+        // Persist the final tab set: throttled writes may still be pending.
+        self.save_tabs();
         while !self.sessions.is_empty() {
             if let Some(tab) = self.sessions.remove(0) {
                 tab.controller.shutdown().await;
@@ -513,13 +526,19 @@ impl TuiApp {
                     let _ = client.rename_agent_loop(&loop_id, &title).await;
                 });
             }
-            if self.sessions.background_streaming() {
+            // Background streams only repaint when the visible strip state
+            // changes (title, streaming marker, pin); the pump above already
+            // advanced every tab, so a steady background needs no new frame.
+            let tab_snapshot = self.sessions.snapshot();
+            if tab_snapshot != self.last_tab_snapshot {
+                self.last_tab_snapshot = tab_snapshot;
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             if self.drain_data() {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             self.ensure_interactive().await?;
+            self.flush_tabs();
             self.request_data(self.app.screen.navigation.current_kind());
             self.request_sidebar_data();
 
@@ -882,7 +901,7 @@ impl TuiApp {
         // more than one chat tab open the top line shows the tab strip.
         let notice = self.app.notice.current_text();
         let on_interactive = self.app.screen.navigation.current_kind() == ScreenKind::Interactive;
-        let show_tabs = on_interactive && self.sessions.len() > 1;
+        let show_tabs = on_interactive && self.sessions.wants_strip();
         let (tab_area, chunks) = if show_tabs {
             let parts = Layout::default()
                 .direction(Direction::Vertical)
@@ -938,7 +957,7 @@ impl TuiApp {
             } else {
                 (chunks[0], None)
             };
-            if let Some(session) = self.sessions.active_mut() {
+            if let Some(session) = self.sessions.active_mut_if_renderable() {
                 session.draw(frame, main_area, &self.theme, scope);
             }
             if let Some(area) = sidebar_area {

@@ -16,16 +16,13 @@
 //!   as a workflow, finally as a file.
 //!
 //! File list is produced by scanning `project_root` (or the current directory
-//! when unavailable) with `globset` filtering and `regex` line parsing reused
-//! from the builder side.
+//! when unavailable) through the shared workspace scan contract.
 
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ratatui::style::Style;
 use ratatui::text::Span;
-use regex::Regex;
-
 use tui_style::theme::{ColorRole, Theme};
 
 /// Kind of a mention interval.
@@ -247,40 +244,21 @@ pub fn parse_attachments(text: &str) -> Vec<AttachmentSpan> {
 }
 
 fn match_attachment_at(rest: &str, base: usize) -> Option<AttachmentSpan> {
-    for kind in [AttachmentKind::Image, AttachmentKind::File] {
-        let prefix = format!("[{}", kind.tag());
-        let Some(tail) = rest.strip_prefix(prefix.as_str()) else {
-            continue;
-        };
-        let tail = tail.strip_prefix(' ').or(Some(tail)).unwrap_or(tail);
-        let digits_end = tail
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(tail.len());
-        if digits_end == 0 {
-            continue;
-        }
-        let digits = &tail[..digits_end];
-        let after = &tail[digits_end..];
-        if !after.starts_with(']') {
-            continue;
-        }
-        let index: usize = digits.parse().ok()?;
-        if index == 0 {
-            continue;
-        }
-        let label = attachment_label(kind, index);
-        let end = base + label.len();
-        if rest.len() < label.len() || !rest.starts_with(label.as_str()) {
-            continue;
-        }
-        return Some(AttachmentSpan {
-            range: base..end,
-            kind,
-            index,
-            label,
-        });
+    let (tag, index, len) = wf_common::mention::staged_placeholder_parts(rest)?;
+    let kind = match tag {
+        "Image" => AttachmentKind::Image,
+        _ => AttachmentKind::File,
+    };
+    let label = attachment_label(kind, index);
+    if rest.len() < len || !rest.starts_with(label.as_str()) {
+        return None;
     }
-    None
+    Some(AttachmentSpan {
+        range: base..base + len,
+        kind,
+        index,
+        label,
+    })
 }
 
 /// Distinct foreground for staged placeholders. Bold sets them apart
@@ -503,39 +481,14 @@ fn parse_file_token(token: &str) -> MentionKind {
 /// Split `file[:#]lines` into path and optional line range.
 ///
 /// Accepts `path`, `path:10`, `path:10-20`, `path#10`, `path#10-20`,
-/// `path:#10`, `path:#10-20`. The path may contain `:` (e.g. Windows drive)
-/// but the last `:`/`#` before digits is the line separator.
+/// `path:#10`, `path:#10-20`. The shared contract owns the parsing so the
+/// composer and the server resolve the same suffixes.
 fn split_file_lines(token: &str) -> Option<(String, Option<(u32, u32)>)> {
-    // Use regex to locate the trailing line suffix.
-    // Pattern: last occurrence of `[:#][#]?digits[-digits]?`
-    // We search from the end.
-    let re = Regex::new(r"^(?P<path>.+?)(?:[:#]#?(?P<start>\d+)(?:-(?P<end>\d+))?)$").ok()?;
-    if let Some(caps) = re.captures(token) {
-        let path = caps
-            .name("path")
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default();
-        if path.is_empty() {
-            return None;
-        }
-        let start: u32 = caps
-            .name("start")
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(0);
-        let end: u32 = caps
-            .name("end")
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(start);
-        if start == 0 {
-            return Some((token.to_string(), None));
-        }
-        if end < start {
-            return Some((path, Some((start, start))));
-        }
-        return Some((path, Some((start, end))));
+    let (path, lines) = wf_common::mention::split_file_range(token);
+    if path.is_empty() {
+        return None;
     }
-    // No line suffix: whole token is path.
-    Some((token.to_string(), None))
+    Some((path, lines))
 }
 
 /// Extract the query fragment for the `@` mention that contains `cursor`.
@@ -621,62 +574,10 @@ pub(crate) fn fuzzy_score(needle: &str, haystack: &str) -> Option<i64> {
 
 /// Scan `project_root` recursively for files, returning relative paths.
 ///
-/// Uses `globset` for hidden filtering and `regex` for ignore patterns reused
-/// from the builder's file scanning. The walk is bounded to avoid excessive IO
-/// in tests: at most 2000 files and depth 8 by default.
+/// The shared contract owns the walk so the composer and the server list
+/// the same candidates with the same ignore rules and bounds.
 pub fn scan_files(project_root: &Path, query: Option<&str>) -> Vec<String> {
-    let mut out = Vec::new();
-    let limit = 2000usize;
-    let max_depth = 8usize;
-    let mut stack: Vec<(PathBuf, usize)> = vec![(project_root.to_path_buf(), 0)];
-    let needle = query.map(|q| q.to_ascii_lowercase());
-    // Simple ignore regex: .git, node_modules, target, .next, dist
-    let ignore_re = Regex::new(r"(?:\.git|node_modules|target|\.next|dist)(?:/|$)").ok();
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > max_depth || out.len() >= limit {
-            continue;
-        }
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(rel) = path
-                .strip_prefix(project_root)
-                .map(|p| p.to_string_lossy().to_string())
-            else {
-                continue;
-            };
-            if let Some(re) = &ignore_re {
-                if re.is_match(&rel) {
-                    continue;
-                }
-            }
-            if path.is_dir() {
-                let emit = match &needle {
-                    Some(q) => rel.to_ascii_lowercase().contains(q.as_str()),
-                    None => true,
-                };
-                if emit && out.len() < limit {
-                    out.push(format!("{rel}/"));
-                }
-                stack.push((path, depth + 1));
-            } else if path.is_file() {
-                if let Some(q) = &needle {
-                    if !rel.to_ascii_lowercase().contains(q.as_str()) {
-                        continue;
-                    }
-                }
-                out.push(rel);
-                if out.len() >= limit {
-                    break;
-                }
-            }
-        }
-    }
-    out.sort();
-    out
+    wf_common::mention::scan_files(project_root, query)
 }
 
 /// Convenience: scan with empty query and no depth limit (tests).

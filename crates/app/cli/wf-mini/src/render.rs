@@ -403,22 +403,7 @@ pub fn highlight_mentions(text: &str, color: bool) -> String {
 
 /// Byte length of a leading `[Image N]` or `[File N]` placeholder.
 fn placeholder_len(rest: &str) -> Option<usize> {
-    for tag in ["[Image ", "[File "] {
-        if let Some(tail) = rest.strip_prefix(tag) {
-            let digits = tail.bytes().take_while(|b| b.is_ascii_digit()).count();
-            if digits == 0 || digits > 6 {
-                continue;
-            }
-            if tail.as_bytes().get(digits) != Some(&b']') {
-                continue;
-            }
-            if tail[..digits].starts_with('0') {
-                continue;
-            }
-            return Some(tag.len() + digits + 1);
-        }
-    }
-    None
+    wf_common::mention::staged_placeholder_len(rest)
 }
 
 #[cfg(test)]

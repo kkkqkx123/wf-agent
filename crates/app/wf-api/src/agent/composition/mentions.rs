@@ -32,7 +32,7 @@ pub async fn resolve_mentions(
     text: &str,
 ) -> (Vec<Message>, Vec<UserImageInput>, Vec<MentionReceipt>) {
     let Ok(re) = regex::Regex::new(
-        r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:#\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?))",
+        r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:[#:]#?\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:[#:]#?\d+(?:-\d+)?)?))",
     ) else {
         return (Vec::new(), Vec::new(), Vec::new());
     };
@@ -173,18 +173,7 @@ pub async fn resolve_mentions(
 }
 
 fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {
-    if let Some((path, range)) = raw.split_once('#') {
-        let (start, end) = if let Some((a, b)) = range.split_once('-') {
-            (a.parse::<u32>().ok(), b.parse::<u32>().ok())
-        } else {
-            (range.parse::<u32>().ok(), None)
-        };
-        let start = start.unwrap_or(1).max(1);
-        let end = end.unwrap_or(start).max(start);
-        (path.to_string(), Some((start, end)))
-    } else {
-        (raw.to_string(), None)
-    }
+    wf_common::mention::split_file_range(raw)
 }
 
 /// Resolve an `@file:` reference pointing at an image file into a
@@ -192,7 +181,7 @@ fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {
 /// files are skipped (the entry validator would reject the turn), and
 /// path traversal outside the workspace root resolves to nothing.
 fn resolve_image_mention(ctx: &ApiContext, raw: &str) -> Option<UserImageInput> {
-    if raw.contains('#') {
+    if wf_common::mention::split_file_range(raw).1.is_some() {
         return None;
     }
     let media = wf_types::message::media_type_for_image_path(raw)?;

@@ -10,10 +10,11 @@ export interface TextRun {
  * `#start-end` line segment, matching the CLI mention grammar.
  */
 /** Canonical `@kind:value` references plus file-path shorthand such as
- *  `@src/main.rs` or `@src/main.rs#10-20`, mirroring the TUI parser so the
- *  two surfaces classify the same input consistently. */
+ *  `@src/main.rs` or `@src/main.rs#10-20`, mirroring the shared workspace
+ *  mention contract. Line ranges use the hash form; a colon suffix stays
+ *  accepted as an alias so both surfaces classify the same input. */
 const MENTION_PATTERN =
-	/@([a-z][a-z0-9_]*):([\w./-]+(?:#\d+(?:-\d+)?)?)|@([\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?)/g;
+	/@([a-z][a-z0-9_]*):([\w./-]+(?:[#:]#?\d+(?:-\d+)?)?)|@([\w./-]*[./][\w./-]*(?:[#:]#?\d+(?:-\d+)?)?)/g;
 
 /** A mention value split into its target and optional 1-based line segment. */
 export interface MentionTarget {
@@ -77,9 +78,11 @@ export function resolveMentionFileTarget(text: string, kind: string): MentionFil
 	return { path, lineStart: target.lineStart, lineEnd: target.lineEnd };
 }
 
-/** Split a reference value into its target and line segment. */
+/** Split a reference value into its target and line segment. The hash form
+ * is canonical; a colon suffix is accepted as an alias through the shared
+ * workspace contract. */
 export function parseMentionValue(raw: string): MentionTarget {
-	const match = /^(.*?)#(\d+)(?:-(\d+))?$/.exec(raw);
+	const match = /^(.*?)[#:]#?(\d+)(?:-(\d+))?$/.exec(raw);
 	if (!match) return { value: raw, lineStart: null, lineEnd: null };
 	const start = Number.parseInt(match[2], 10);
 	const end = match[3] ? Number.parseInt(match[3], 10) : start;

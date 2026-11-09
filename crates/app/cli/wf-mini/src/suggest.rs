@@ -182,7 +182,7 @@ impl SuggestStrategy for MentionStrategy {
         let mut candidates: Vec<String> = Vec::new();
 
         if kind.is_empty() || kind == "file" {
-            for path in scan_files(root, None) {
+            for path in wf_common::mention::scan_files(root, None) {
                 if term.is_empty() || path.to_ascii_lowercase().contains(&term_lower) {
                     candidates.push(if kind.is_empty() {
                         format!("@{path}")
@@ -213,47 +213,6 @@ impl SuggestStrategy for MentionStrategy {
             .into_iter()
             .find(|candidate| candidate.starts_with(buffer) && candidate.len() > buffer.len())
     }
-}
-
-fn scan_files(root: &Path, _query: Option<&str>) -> Vec<String> {
-    let mut out = Vec::new();
-    let limit = 500usize;
-    let max_depth = 6usize;
-    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > max_depth || out.len() >= limit {
-            continue;
-        }
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(rel) = path
-                .strip_prefix(root)
-                .map(|p| p.to_string_lossy().to_string())
-            else {
-                continue;
-            };
-            if rel
-                .split('/')
-                .any(|part| matches!(part, ".git" | "node_modules" | "target" | ".next" | "dist"))
-            {
-                continue;
-            }
-            if path.is_dir() {
-                stack.push((path, depth + 1));
-            } else if path.is_file() {
-                out.push(rel);
-                if out.len() >= limit {
-                    break;
-                }
-            }
-        }
-    }
-    out.sort();
-    out
 }
 
 fn longest_common_prefix(candidates: &[&str]) -> Option<String> {

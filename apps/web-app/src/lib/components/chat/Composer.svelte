@@ -609,9 +609,7 @@
 		file: 0,
 		skill: 2,
 		workflow: 3,
-		wf: 3,
 		agent: 4,
-		agent_loop: 4,
 		tool: 5,
 		script: 6,
 		resource: 7,
@@ -642,9 +640,10 @@
 		const groups: { type: string; items: MentionCandidate[] }[] = [];
 		const seen = new SvelteSet<string>();
 		for (const hit of visibleCandidates) {
-			if (!seen.has(hit.kind)) {
-				seen.add(hit.kind);
-				groups.push({ type: hit.kind, items: [] });
+			const key = hit.kind === 'wf' ? 'workflow' : hit.kind === 'agent_loop' ? 'agent' : hit.kind;
+			if (!seen.has(key)) {
+				seen.add(key);
+				groups.push({ type: key, items: [] });
 			}
 			groups[groups.length - 1].items.push(hit);
 		}

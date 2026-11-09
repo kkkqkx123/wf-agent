@@ -36,7 +36,14 @@ pub async fn search(
     let wants = |kind: &str| {
         kinds
             .as_ref()
-            .map(|list| list.iter().any(|k| k == kind))
+            .map(|list| {
+                list.iter().any(|k| {
+                    k == kind
+                        || wf_common::mention::normalize_mention_kind(k) == kind
+                        || kind == "workflow" && k == "wf"
+                        || kind == "agent_loop" && k == "agent"
+                })
+            })
             .unwrap_or(true)
     };
     if query.is_empty() {
@@ -60,7 +67,7 @@ pub async fn search(
             .as_ref()
             .map(|list| {
                 list.iter()
-                    .filter_map(|kind| match kind.as_str() {
+                    .filter_map(|kind| match wf_common::mention::normalize_mention_kind(kind) {
                         "workflow" => Some(crate::analysis::search::SearchResourceType::Workflow),
                         "execution" => Some(crate::analysis::search::SearchResourceType::Execution),
                         "task" => Some(crate::analysis::search::SearchResourceType::Task),
@@ -68,7 +75,7 @@ pub async fn search(
                             Some(crate::analysis::search::SearchResourceType::Checkpoint)
                         }
                         "event" => Some(crate::analysis::search::SearchResourceType::Event),
-                        "agent_loop" => {
+                        "agent" => {
                             Some(crate::analysis::search::SearchResourceType::AgentLoop)
                         }
                         "message" => Some(crate::analysis::search::SearchResourceType::Message),
@@ -168,7 +175,8 @@ pub async fn search(
             ));
         };
         let root = dir.to_path_buf();
-        let mut files = scan_files(&root, if query.is_empty() { None } else { Some(query) });
+        let mut files =
+            wf_common::mention::scan_files(&root, if query.is_empty() { None } else { Some(query) });
         files.truncate(limit);
         for rel in files {
             let is_dir = rel.ends_with('/');
@@ -216,7 +224,12 @@ pub async fn search(
     }
 
     if let Some(kinds) = &kinds {
-        out.retain(|item| kinds.iter().any(|kind| kind == &item.kind));
+        out.retain(|item| {
+            kinds.iter().any(|kind| {
+                kind == &item.kind
+                    || wf_common::mention::normalize_mention_kind(kind) == item.kind
+            })
+        });
     }
     out.truncate(limit * 8);
     Ok(out)
@@ -224,60 +237,4 @@ pub async fn search(
 
 fn contains_query(text: &str, query: &str) -> bool {
     text.to_lowercase().contains(&query.to_lowercase())
-}
-
-fn scan_files(root: &std::path::Path, query: Option<&str>) -> Vec<String> {
-    let mut out = Vec::new();
-    let limit = 2000usize;
-    let max_depth = 8usize;
-    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
-    let needle = query.map(|q| q.to_ascii_lowercase());
-    let ignore_re = regex::Regex::new(r"(?:\.git|node_modules|target|\.next|dist)(?:/|$)").ok();
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > max_depth || out.len() >= limit {
-            continue;
-        }
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(rel) = path
-                .strip_prefix(root)
-                .map(|p| p.to_string_lossy().to_string())
-            else {
-                continue;
-            };
-            if let Some(re) = &ignore_re {
-                if re.is_match(&rel) {
-                    continue;
-                }
-            }
-            if path.is_dir() {
-                if out.len() < limit {
-                    let emit = match &needle {
-                        Some(q) => rel.to_ascii_lowercase().contains(q.as_str()),
-                        None => true,
-                    };
-                    if emit {
-                        out.push(format!("{rel}/"));
-                    }
-                }
-                stack.push((path, depth + 1));
-            } else if path.is_file() {
-                if let Some(q) = &needle {
-                    if !rel.to_ascii_lowercase().contains(q.as_str()) {
-                        continue;
-                    }
-                }
-                out.push(rel);
-                if out.len() >= limit {
-                    break;
-                }
-            }
-        }
-    }
-    out.sort();
-    out
 }

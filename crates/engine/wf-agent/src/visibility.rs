@@ -35,8 +35,7 @@ impl VariableBackedVisibilityStore {
 
     /// All currently blocked tool names, sorted for stable notices.
     pub fn blocked_tools(&self) -> Vec<String> {
-        let mut blocked: Vec<String> =
-            collect_blocked_tools(&self.variables).into_iter().collect();
+        let mut blocked: Vec<String> = collect_blocked_tools(&self.variables).into_iter().collect();
         blocked.sort();
         blocked
     }
@@ -57,8 +56,7 @@ impl ToolVisibilityStore for VariableBackedVisibilityStore {
     }
 
     fn blocked_tools(&self) -> Vec<String> {
-        let mut blocked: Vec<String> =
-            collect_blocked_tools(&self.variables).into_iter().collect();
+        let mut blocked: Vec<String> = collect_blocked_tools(&self.variables).into_iter().collect();
         blocked.sort();
         blocked
     }

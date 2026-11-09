@@ -237,12 +237,7 @@ fn pool_has_tool(
             names.iter().any(|candidate| candidate == name)
         }
         wf_tools::tool_exposure::AvailablePool::Unset => registry
-            .map(|registry| {
-                registry
-                    .list_tools()
-                    .iter()
-                    .any(|tool| tool.name == name)
-            })
+            .map(|registry| registry.list_tools().iter().any(|tool| tool.name == name))
             .unwrap_or(false),
     }
 }
@@ -257,9 +252,10 @@ fn pool_has_mcp_tools(
             .any(|name| name == "use_mcp" || name.starts_with("mcp_")),
         wf_tools::tool_exposure::AvailablePool::Unset => registry
             .map(|registry| {
-                registry.list_tools().iter().any(|tool| {
-                    tool.name == "use_mcp" || tool.name.starts_with("mcp_")
-                })
+                registry
+                    .list_tools()
+                    .iter()
+                    .any(|tool| tool.name == "use_mcp" || tool.name.starts_with("mcp_"))
             })
             .unwrap_or(false),
     }
@@ -295,8 +291,7 @@ fn build_dynamic_system_context(
         // (see `enrich_system_prompt`) and the static list is skipped so
         // skills are never announced twice. Both paths read the same
         // loader, so skipping loses nothing when nothing is enabled.
-        let progressive_disclosure =
-            pool_has_tool(available, env.tool_registry, "skill");
+        let progressive_disclosure = pool_has_tool(available, env.tool_registry, "skill");
         if !progressive_disclosure {
             if let Some(loader) = env
                 .tool_registry

@@ -5,7 +5,6 @@ use wf_types::message::{Message, MessageRole};
 use wf_types::Id;
 
 use super::AgentLoopCoordinator;
-use crate::coordinator::tool::ToolVisibilityStore;
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
 

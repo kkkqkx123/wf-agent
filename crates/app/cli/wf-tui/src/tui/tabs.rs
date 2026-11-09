@@ -63,7 +63,7 @@ impl TuiApp {
         if self.sessions.len() >= tui_core::screen_data::MAX_CHAT_TABS {
             if let Some(victim) = self.sessions.eviction_victim() {
                 if let Some(tab) = self.sessions.remove(victim) {
-                    tab.controller.shutdown().await;
+                    Self::spawn_shutdown(tab.controller);
                 }
                 self.app
                     .notice
@@ -82,10 +82,21 @@ impl TuiApp {
         self.save_tabs();
     }
 
-    /// Close the tab at `index`, shutting its stream tasks down.
+    /// Shut a removed controller down off the UI path. Aborting needs the
+    /// scheduler to reap the turn and poll tasks, so awaiting it inline
+    /// would stall the frame while a turn is mid-flight. The owned
+    /// controller keeps everything the tasks need alive until they stop,
+    /// and the call sites below share no state with the teardown.
+    fn spawn_shutdown(controller: InteractiveController) {
+        tokio::spawn(async move {
+            controller.shutdown().await;
+        });
+    }
+
+    /// Close the tab at `index`; its stream tasks stop in the background.
     pub(super) async fn close_tab(&mut self, index: usize) {
         if let Some(tab) = self.sessions.remove(index) {
-            tab.controller.shutdown().await;
+            Self::spawn_shutdown(tab.controller);
         }
         self.save_tabs();
         if self.sessions.is_empty() {
@@ -273,7 +284,7 @@ impl TuiApp {
         if self.sessions.len() >= tui_core::screen_data::MAX_CHAT_TABS {
             if let Some(victim) = self.sessions.eviction_victim() {
                 if let Some(tab) = self.sessions.remove(victim) {
-                    tab.controller.shutdown().await;
+                    Self::spawn_shutdown(tab.controller);
                 }
                 self.app
                     .notice
@@ -433,7 +444,7 @@ impl TuiApp {
         for index in victims.into_iter().rev() {
             if self.sessions.get(index).is_some() {
                 if let Some(tab) = self.sessions.remove(index) {
-                    tab.controller.shutdown().await;
+                    Self::spawn_shutdown(tab.controller);
                     count += 1;
                 }
             }

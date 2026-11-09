@@ -190,6 +190,138 @@ pub fn mention_icon(kind: &MentionKind) -> char {
     kind.tone().icon()
 }
 
+/// Staged attachment placeholder kind. Labels stay plain text in the
+/// composer buffer so edits recompute their intervals, mirroring the
+/// `@mention` approach instead of tracking extmarks through edits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachmentKind {
+    Image,
+    File,
+}
+
+impl AttachmentKind {
+    /// Visible label prefix used inside the placeholder brackets.
+    pub fn tag(self) -> &'static str {
+        match self {
+            AttachmentKind::Image => "Image",
+            AttachmentKind::File => "File",
+        }
+    }
+}
+
+/// One staged attachment placeholder with its byte range in the text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachmentSpan {
+    pub range: Range<usize>,
+    pub kind: AttachmentKind,
+    pub index: usize,
+    pub label: String,
+}
+
+/// Visible placeholder label for the nth staged entry (1-based).
+/// The trailing space is added by the inserter, not stored here.
+pub fn attachment_label(kind: AttachmentKind, index: usize) -> String {
+    format!("[{} {}]", kind.tag(), index.max(1))
+}
+
+/// Parse all staged attachment placeholders in `text`.
+/// Only `[Image N]` and `[File N]` with a positive number match so
+/// ordinary bracketed prose never becomes a placeholder.
+pub fn parse_attachments(text: &str) -> Vec<AttachmentSpan> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            let rest = &text[i..];
+            if let Some(span) = match_attachment_at(rest, i) {
+                let end = span.range.end;
+                out.push(span);
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+fn match_attachment_at(rest: &str, base: usize) -> Option<AttachmentSpan> {
+    for kind in [AttachmentKind::Image, AttachmentKind::File] {
+        let prefix = format!("[{}", kind.tag());
+        let Some(tail) = rest.strip_prefix(prefix.as_str()) else {
+            continue;
+        };
+        let tail = tail.strip_prefix(' ').or(Some(tail)).unwrap_or(tail);
+        let digits_end = tail
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(tail.len());
+        if digits_end == 0 {
+            continue;
+        }
+        let digits = &tail[..digits_end];
+        let after = &tail[digits_end..];
+        if !after.starts_with(']') {
+            continue;
+        }
+        let index: usize = digits.parse().ok()?;
+        if index == 0 {
+            continue;
+        }
+        let label = attachment_label(kind, index);
+        let end = base + label.len();
+        if rest.len() < label.len() || !rest.starts_with(label.as_str()) {
+            continue;
+        }
+        return Some(AttachmentSpan {
+            range: base..end,
+            kind,
+            index,
+            label,
+        });
+    }
+    None
+}
+
+/// Distinct foreground for staged placeholders. Bold sets them apart
+/// from the reversed `@mention` spans so the two source channels read
+/// as different kinds at a glance.
+pub fn attachment_style(kind: AttachmentKind) -> Style {
+    use ratatui::style::Modifier;
+    let role = match kind {
+        AttachmentKind::Image => ColorRole::Warning,
+        AttachmentKind::File => ColorRole::Accent,
+    };
+    Theme::dark_default()
+        .style_for_role(role)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// File path carried by file-like mentions for existence checks.
+/// Line ranges are already stripped by the parser, so the path can be
+/// probed directly against the working directory.
+pub fn mention_file_path(kind: &MentionKind) -> Option<&str> {
+    match kind {
+        MentionKind::File { path, .. } => Some(path.as_str()),
+        MentionKind::Directory { path } => Some(path.as_str()),
+        MentionKind::Skill { .. } | MentionKind::Workflow { .. } | MentionKind::Other { .. } => {
+            None
+        }
+    }
+}
+
+/// Mention style with a validity gate. Missing files render dimmed so a
+/// successful reference reads highlighted while a stale one reads muted.
+pub fn mention_style_checked(kind: &MentionKind, valid: bool) -> Style {
+    use ratatui::style::Modifier;
+    let style = mention_style(kind);
+    if valid {
+        style
+    } else {
+        style.add_modifier(Modifier::DIM)
+    }
+}
+
 /// Render `text` as spans, applying the semantic mention style to any
 /// `@mention` interval while preserving `base` for the surrounding text.
 /// Mention ranges come from [`parse_mentions`], so the styling stays in

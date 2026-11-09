@@ -391,7 +391,7 @@ impl NativeSession {
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
                 output::diag_line(
-                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image clear drops them; /attach <path>... stage text files, /attach lists staged, /attach clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
+                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image rm <n> removes one, /image clear drops them; /attach <path>... stage text files, /attach lists staged, /attach rm <n> removes one, /attach clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
                 );
                 CommandAction::Continue
             }
@@ -861,14 +861,20 @@ impl NativeSession {
         match args {
             ImageArgs::List => {
                 if self.staged_images.is_empty() {
-                    output::diag_line("no staged images (usage: /image <path-or-url>...)");
+                    output::diag_line(
+                        "no staged images (usage: /image <path-or-url>... | /image rm <n>)",
+                    );
                 } else {
                     for (index, image) in self.staged_images.iter().enumerate() {
-                        output::diag_line(&format!(
+                        let line = format!(
                             "[{}] {} ({})",
                             index + 1,
                             image.media_type.as_deref().unwrap_or("image"),
                             wf_cli_shared::turn::describe_user_image(image)
+                        );
+                        output::diag_line(&crate::render::highlight_mentions(
+                            &line,
+                            self.display.stderr_color,
                         ));
                     }
                 }
@@ -884,6 +890,17 @@ impl NativeSession {
             ImageArgs::Clear => {
                 self.staged_images.clear();
                 output::diag_line("staged images cleared");
+            }
+            ImageArgs::Remove(index) => {
+                if index == 0 || index > self.staged_images.len() {
+                    output::diag_line(&format!(
+                        "no staged image {index} (1..={})",
+                        self.staged_images.len()
+                    ));
+                } else {
+                    self.staged_images.remove(index - 1);
+                    output::diag_line(&format!("removed staged image {index}"));
+                }
             }
             ImageArgs::Stage(paths) => {
                 match wf_cli_shared::turn::load_user_image_specs(&paths, self.staged_image_detail) {
@@ -922,13 +939,19 @@ impl NativeSession {
         match args {
             AttachArgs::List => {
                 if self.staged_attachments.is_empty() {
-                    output::diag_line("no staged files (usage: /attach <path>...)");
+                    output::diag_line(
+                        "no staged files (usage: /attach <path>... | /attach rm <n>)",
+                    );
                 } else {
                     for (index, attachment) in self.staged_attachments.iter().enumerate() {
-                        output::diag_line(&format!(
+                        let line = format!(
                             "[{}] {}",
                             index + 1,
                             wf_cli_shared::turn::describe_user_attachment(attachment)
+                        );
+                        output::diag_line(&crate::render::highlight_mentions(
+                            &line,
+                            self.display.stderr_color,
                         ));
                     }
                 }
@@ -940,6 +963,17 @@ impl NativeSession {
             AttachArgs::Clear => {
                 self.staged_attachments.clear();
                 output::diag_line("staged files cleared");
+            }
+            AttachArgs::Remove(index) => {
+                if index == 0 || index > self.staged_attachments.len() {
+                    output::diag_line(&format!(
+                        "no staged file {index} (1..={})",
+                        self.staged_attachments.len()
+                    ));
+                } else {
+                    self.staged_attachments.remove(index - 1);
+                    output::diag_line(&format!("removed staged file {index}"));
+                }
             }
             AttachArgs::Stage(paths) => {
                 let specs: Vec<std::path::PathBuf> =

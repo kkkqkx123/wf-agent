@@ -441,6 +441,7 @@ impl InteractiveController {
                 }
                 CKey::Delete if !key.ctrl && !key.alt => {
                     self.footer.composer.delete_forward();
+                    self.prune_staged_to_composer();
                     self.sync_mention_route();
                     return InteractiveAction::Continue;
                 }
@@ -515,6 +516,7 @@ impl InteractiveController {
             CKey::Backspace if !key.ctrl && !key.alt => {
                 if route == FooterRoute::Mention {
                     self.footer.composer.backspace();
+                    self.prune_staged_to_composer();
                     self.sync_mention_route();
                 } else {
                     self.panel_filter_backspace();
@@ -767,6 +769,22 @@ impl InteractiveController {
                 } else if trimmed == "clear" {
                     let notice = self.clear_staged_images();
                     self.footer.show_notice(notice);
+                } else if let Some(target) = trimmed
+                    .strip_prefix("rm")
+                    .map(str::trim)
+                    .filter(|rest| !rest.is_empty() && !rest.contains(' '))
+                    .or_else(|| {
+                        trimmed
+                            .strip_prefix("remove")
+                            .map(str::trim)
+                            .filter(|rest| !rest.is_empty() && !rest.contains(' '))
+                    })
+                {
+                    let notice = match target.parse::<usize>() {
+                        Ok(index) => self.remove_staged_image_at(index),
+                        Err(_) => "usage: /image [rm <n> | clear]".to_string(),
+                    };
+                    self.footer.show_notice(notice);
                 } else {
                     let specs: Vec<String> =
                         trimmed.split_whitespace().map(str::to_string).collect();
@@ -792,6 +810,22 @@ impl InteractiveController {
                     self.footer.show_notice(lines.join(" | "));
                 } else if trimmed == "clear" {
                     let notice = self.clear_staged_attachments();
+                    self.footer.show_notice(notice);
+                } else if let Some(target) = trimmed
+                    .strip_prefix("rm")
+                    .map(str::trim)
+                    .filter(|rest| !rest.is_empty() && !rest.contains(' '))
+                    .or_else(|| {
+                        trimmed
+                            .strip_prefix("remove")
+                            .map(str::trim)
+                            .filter(|rest| !rest.is_empty() && !rest.contains(' '))
+                    })
+                {
+                    let notice = match target.parse::<usize>() {
+                        Ok(index) => self.remove_staged_attachment_at(index),
+                        Err(_) => "usage: session.attach [rm <n> | clear]".to_string(),
+                    };
                     self.footer.show_notice(notice);
                 } else {
                     let specs: Vec<String> =

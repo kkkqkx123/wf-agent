@@ -487,9 +487,13 @@ pub struct InteractiveController {
     /// Image specs staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts leaves them staged.
     staged_images: Vec<wf_types::message::UserImageInput>,
+    /// Visible placeholder labels aligned with `staged_images`.
+    staged_image_labels: Vec<String>,
     /// Text files staged for the next turn. Taken when the turn starts;
     /// staged through the session attach panel route.
     staged_attachments: Vec<wf_types::message::UserTextAttachment>,
+    /// Visible placeholder labels aligned with `staged_attachments`.
+    staged_attachment_labels: Vec<String>,
     /// Render detail applied to newly staged images. Empty means default.
     staged_image_detail: Option<wf_types::message::ImageDetail>,
     /// Key resolution table for the footer panel routes.
@@ -747,7 +751,9 @@ impl InteractiveController {
             model_override: None,
             session_context: serde_json::Map::new(),
             staged_images: Vec::new(),
+            staged_image_labels: Vec::new(),
             staged_attachments: Vec::new(),
+            staged_attachment_labels: Vec::new(),
             staged_image_detail: None,
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
@@ -883,23 +889,42 @@ impl InteractiveController {
 
     /// Stage local paths or remote URLs for the next turn. Failures leave
     /// the existing stage untouched; the combined stage is validated.
+    /// Success inserts one visible `[Image N]` placeholder per new entry
+    /// at the composer cursor, mirroring the opencode attach flow.
     pub fn stage_tui_images(&mut self, specs: &[String]) -> String {
         match wf_cli_shared::turn::load_user_image_specs(specs, self.staged_image_detail) {
             Err(err) => format!("cannot stage images: {err}"),
             Ok(loaded) => {
                 let mut combined = self.staged_images.clone();
-                combined.extend(loaded);
+                combined.extend(loaded.clone());
                 match wf_types::message::validate_user_images(&combined) {
                     Err(reason) => {
                         format!("cannot stage images: {reason} (stage unchanged)")
                     }
                     Ok(()) => {
-                        let added = combined.len() - self.staged_images.len();
+                        let base = self.next_image_index();
+                        let labels: Vec<String> = loaded
+                            .iter()
+                            .enumerate()
+                            .map(|(offset, _)| {
+                                tui_components::mention::attachment_label(
+                                    tui_components::mention::AttachmentKind::Image,
+                                    base + offset,
+                                )
+                            })
+                            .collect();
+                        for label in &labels {
+                            self.footer.composer.insert_attachment_label(label);
+                        }
                         self.staged_images = combined;
+                        self.staged_image_labels.extend(labels.clone());
+                        self.sync_mention_route();
                         format!(
-                            "staged {added} image{} ({} total, sent with the next turn)",
-                            if added == 1 { "" } else { "s" },
-                            self.staged_images.len()
+                            "staged {} image{} ({} total, {} inserted, sent with the next turn)",
+                            loaded.len(),
+                            if loaded.len() == 1 { "" } else { "s" },
+                            self.staged_images.len(),
+                            labels.join(" "),
                         )
                     }
                 }
@@ -907,39 +932,184 @@ impl InteractiveController {
         }
     }
 
-    /// Drop staged images without sending them.
+    /// Drop staged images without sending them. Placeholders leave the
+    /// composer together with their payloads so no orphan label remains.
     pub fn clear_staged_images(&mut self) -> String {
+        let labels = std::mem::take(&mut self.staged_image_labels);
         self.staged_images.clear();
+        self.footer.composer.remove_attachment_labels(&labels);
+        self.sync_mention_route();
         "staged images cleared".to_string()
     }
 
     /// Drop staged text files without sending them.
     pub fn clear_staged_attachments(&mut self) -> String {
+        let labels = std::mem::take(&mut self.staged_attachment_labels);
         self.staged_attachments.clear();
+        self.footer.composer.remove_attachment_labels(&labels);
+        self.sync_mention_route();
         "staged files cleared".to_string()
+    }
+
+    /// Next image placeholder number: one past the current maximum so
+    /// deleted middle numbers never collide with fresh stages.
+    fn next_image_index(&self) -> usize {
+        self.staged_image_labels
+            .iter()
+            .filter_map(|label| parse_placeholder_index(label, "Image"))
+            .max()
+            .unwrap_or(self.staged_image_labels.len())
+            + 1
+    }
+
+    /// Next file placeholder number, same collision rule as images.
+    fn next_attachment_index(&self) -> usize {
+        self.staged_attachment_labels
+            .iter()
+            .filter_map(|label| parse_placeholder_index(label, "File"))
+            .max()
+            .unwrap_or(self.staged_attachment_labels.len())
+            + 1
+    }
+
+    /// Drop staged payloads whose placeholders no longer occur in the
+    /// composer buffer. Called after every edit that can remove a label
+    /// so deleting `[Image N]` frees its bytes like the opencode extmark.
+    pub fn prune_staged_to_composer(&mut self) {
+        let content = self.footer.composer.content().to_string();
+        let mut kept_images = Vec::new();
+        let mut kept_image_labels = Vec::new();
+        for (image, label) in self
+            .staged_images
+            .iter()
+            .cloned()
+            .zip(self.staged_image_labels.iter().cloned())
+        {
+            if content.contains(label.as_str()) {
+                kept_images.push(image);
+                kept_image_labels.push(label);
+            }
+        }
+        self.staged_images = kept_images;
+        self.staged_image_labels = kept_image_labels;
+        let mut kept_files = Vec::new();
+        let mut kept_file_labels = Vec::new();
+        for (file, label) in self
+            .staged_attachments
+            .iter()
+            .cloned()
+            .zip(self.staged_attachment_labels.iter().cloned())
+        {
+            if content.contains(label.as_str()) {
+                kept_files.push(file);
+                kept_file_labels.push(label);
+            }
+        }
+        self.staged_attachments = kept_files;
+        self.staged_attachment_labels = kept_file_labels;
+    }
+
+    /// Take staged payloads for a turn, clearing labels alongside so the
+    /// next draft starts without orphan placeholders.
+    pub fn take_staged_for_turn(
+        &mut self,
+    ) -> (
+        Vec<wf_types::message::UserImageInput>,
+        Vec<wf_types::message::UserTextAttachment>,
+    ) {
+        self.staged_image_labels.clear();
+        self.staged_attachment_labels.clear();
+        (
+            std::mem::take(&mut self.staged_images),
+            std::mem::take(&mut self.staged_attachments),
+        )
+    }
+
+    /// Whether pasted text is solely existing image paths (one per line or
+    /// whitespace separated, quotes stripped). Terminal drag-drop lands as
+    /// such text; staging it mirrors the opencode image paste branch.
+    pub fn paste_image_specs(text: &str) -> Option<Vec<String>> {
+        let mut specs = Vec::new();
+        for token in text.split_whitespace() {
+            let trimmed = token.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.starts_with("http://")
+                || trimmed.starts_with("https://")
+                || trimmed.starts_with("data:")
+            {
+                specs.push(trimmed.to_string());
+                continue;
+            }
+            let path = std::path::Path::new(trimmed);
+            if !path.exists() || !path.is_file() {
+                return None;
+            }
+            wf_types::message::media_type_for_image_path(trimmed)?;
+            specs.push(trimmed.to_string());
+        }
+        (!specs.is_empty()).then_some(specs)
+    }
+
+    /// Word at a composer click cell for double-click copy. A mention
+    /// returns its whole `@` text and a placeholder returns its label
+    /// with a resolvable description so the clipboard never carries an
+    /// opaque number alone.
+    pub fn composer_word_at_cell(&self, col: u16, row: u16) -> Option<String> {
+        let area = self.last_input_area?;
+        let byte = self.footer.composer.byte_at_input_cell(area, col, row)?;
+        if let Some(semantic) = self.footer.composer.semantic_text_at(byte) {
+            if !semantic.trim().is_empty() {
+                return Some(self.expand_placeholder_copy(&semantic));
+            }
+        }
+        let (text, display_col) = self
+            .footer
+            .composer
+            .visual_text_at_input_cell(area, col, row)?;
+        crate::interactive::mouse_hit::word_at_col(&text, display_col)
     }
 
     /// Stage text files for the next turn. Loading reuses the headless
     /// attach reader so truncation markers and limits agree; failures
-    /// leave the existing stage untouched.
+    /// leave the existing stage untouched. Success inserts one visible
+    /// `[File N]` placeholder per new entry at the composer cursor.
     pub fn stage_tui_attachments(&mut self, specs: &[String]) -> String {
         let paths: Vec<std::path::PathBuf> = specs.iter().map(std::path::PathBuf::from).collect();
         match wf_cli_shared::turn::load_user_attachment_specs(&paths) {
             Err(err) => format!("cannot stage files: {err}"),
             Ok(loaded) => {
                 let mut combined = self.staged_attachments.clone();
-                combined.extend(loaded);
+                combined.extend(loaded.clone());
                 match wf_types::message::validate_user_attachments(&combined) {
                     Err(reason) => {
                         format!("cannot stage files: {reason} (stage unchanged)")
                     }
                     Ok(()) => {
-                        let added = combined.len() - self.staged_attachments.len();
+                        let base = self.next_attachment_index();
+                        let labels: Vec<String> = loaded
+                            .iter()
+                            .enumerate()
+                            .map(|(offset, _)| {
+                                tui_components::mention::attachment_label(
+                                    tui_components::mention::AttachmentKind::File,
+                                    base + offset,
+                                )
+                            })
+                            .collect();
+                        for label in &labels {
+                            self.footer.composer.insert_attachment_label(label);
+                        }
                         self.staged_attachments = combined;
+                        self.staged_attachment_labels.extend(labels.clone());
+                        self.sync_mention_route();
                         format!(
-                            "staged {added} file{} ({} total, sent with the next turn)",
-                            if added == 1 { "" } else { "s" },
-                            self.staged_attachments.len()
+                            "staged {} file{} ({} total, {} inserted, sent with the next turn)",
+                            loaded.len(),
+                            if loaded.len() == 1 { "" } else { "s" },
+                            self.staged_attachments.len(),
+                            labels.join(" "),
                         )
                     }
                 }
@@ -1163,19 +1333,94 @@ impl InteractiveController {
         self.footer.composer.set_cursor(byte)
     }
 
-    /// Word at a composer click cell for double-click copy.
-    pub fn composer_word_at_cell(&self, col: u16, row: u16) -> Option<String> {
-        let area = self.last_input_area?;
-        let (text, display_col) = self
-            .footer
-            .composer
-            .visual_text_at_input_cell(area, col, row)?;
-        crate::interactive::mouse_hit::word_at_col(&text, display_col)
-    }
-
     /// Full composer buffer for triple-click copy.
     pub fn composer_text(&self) -> String {
         self.footer.composer.content().to_string()
+    }
+
+    /// Clipboard text for the whole composer buffer. Every staged
+    /// placeholder expands to its label plus a resolvable description
+    /// while mentions stay verbatim, so cross-session pastes keep meaning.
+    pub fn composer_copy_text(&self) -> String {
+        self.expanded_composer_copy_text()
+    }
+
+    /// Expand one copied token when it matches a staged placeholder.
+    /// Orphan labels stay verbatim; mentions are never rewritten here.
+    fn expand_placeholder_copy(&self, token: &str) -> String {
+        if let Some(describe) = self.describe_placeholder(token) {
+            return format!("{token} ({describe})");
+        }
+        token.to_string()
+    }
+
+    /// Expand every staged placeholder in the buffer for clipboard use.
+    /// Submit and history paths keep the raw buffer plus vectors.
+    fn expanded_composer_copy_text(&self) -> String {
+        let mut text = self.footer.composer.content().to_string();
+        for span in self.footer.composer.attachment_spans() {
+            let label = text[span.range.clone()].to_string();
+            if let Some(describe) = self.describe_placeholder(&label) {
+                let expanded = format!("{label} ({describe})");
+                text = text.replacen(label.as_str(), expanded.as_str(), 1);
+            }
+        }
+        text
+    }
+
+    /// Human description behind a staged placeholder label, if staged.
+    fn describe_placeholder(&self, label: &str) -> Option<String> {
+        if let Some(pos) = self.staged_image_labels.iter().position(|l| l == label) {
+            return self
+                .staged_images
+                .get(pos)
+                .map(wf_cli_shared::turn::describe_user_image);
+        }
+        if let Some(pos) = self
+            .staged_attachment_labels
+            .iter()
+            .position(|l| l == label)
+        {
+            return self
+                .staged_attachments
+                .get(pos)
+                .map(wf_cli_shared::turn::describe_user_attachment);
+        }
+        None
+    }
+
+    /// Remove one staged image by its 1-based list number. The matching
+    /// placeholder leaves the composer together with its payload.
+    pub fn remove_staged_image_at(&mut self, index: usize) -> String {
+        if index == 0 || index > self.staged_images.len() {
+            return format!("no staged image {index} (1..={})", self.staged_images.len());
+        }
+        let at = index - 1;
+        self.staged_images.remove(at);
+        let label = self.staged_image_labels.remove(at);
+        self.footer
+            .composer
+            .remove_attachment_labels(std::slice::from_ref(&label));
+        self.sync_mention_route();
+        format!("removed staged image {index} {label}")
+    }
+
+    /// Remove one staged text file by its 1-based list number.
+    pub fn remove_staged_attachment_at(&mut self, index: usize) -> String {
+        if index == 0 || index > self.staged_attachments.len() {
+            return format!(
+                "no staged file {index} (1..={})",
+                self.staged_attachments.len()
+            );
+        }
+        let at = index - 1;
+        self.staged_attachments.remove(at);
+        let label = self.staged_attachment_labels.remove(at);
+        self.footer
+            .composer
+            .remove_attachment_labels(std::slice::from_ref(&label));
+        self.sync_mention_route();
+        format!("removed staged file {index} {label}")
     }
 
     /// Current transcript drag selection, if a content drag is in progress.
@@ -1533,6 +1778,17 @@ impl InteractiveController {
             animation_cells: self.has_anim_cells(),
         }
     }
+}
+
+/// Placeholder number inside `[Image N]` or `[File N]` labels.
+fn parse_placeholder_index(label: &str, tag: &str) -> Option<usize> {
+    let inner = label.strip_prefix('[')?.strip_suffix(']')?;
+    let (kind, number) = inner.split_once(' ')?;
+    if kind != tag {
+        return None;
+    }
+    let index: usize = number.trim().parse().ok()?;
+    (index > 0).then_some(index)
 }
 
 #[cfg(test)]

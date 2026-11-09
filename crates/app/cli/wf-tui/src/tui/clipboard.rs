@@ -150,10 +150,11 @@ impl TuiApp {
         self.queue_selection_copy(word)
     }
 
-    /// Copy the whole composer buffer.
+    /// Copy the whole composer buffer. Placeholders expand to their
+    /// descriptions so the clipboard stays resolvable outside the session.
     pub(super) fn copy_composer_text(&mut self) -> bool {
         let text = match self.sessions.active() {
-            Some(session) => session.composer_text(),
+            Some(session) => session.composer_copy_text(),
             None => return false,
         };
         if text.trim().is_empty() {

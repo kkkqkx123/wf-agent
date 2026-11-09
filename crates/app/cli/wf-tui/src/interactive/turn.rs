@@ -554,10 +554,7 @@ impl InteractiveController {
 
         let tx = self.tx.clone();
         let client = self.client.clone();
-        let staged = self.staged_images.clone();
-        self.staged_images.clear();
-        let staged_attachments = self.staged_attachments.clone();
-        self.staged_attachments.clear();
+        let (staged, staged_attachments) = self.take_staged_for_turn();
         if !staged.is_empty() {
             self.footer.show_notice(format!(
                 "sending {} staged image{} with this turn",

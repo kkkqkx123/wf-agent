@@ -501,7 +501,9 @@ impl InteractiveController {
             height: area.height,
         };
         let style = crate::footer::theme_style(theme, crate::transcript::Role::Default);
-        composer.render(inner, frame.buffer_mut(), style);
+        composer.render_with_file_check(inner, frame.buffer_mut(), style, &|path| {
+            std::path::Path::new(path).exists()
+        });
         let buf = frame.buffer_mut();
         buf.set_string(area.x, area.y, "> ", style);
         for row in 1..area.height {

@@ -29,7 +29,10 @@ use ratatui::style::{Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::mention::{mention_style, parse_mentions, Mention, MentionKind};
+use crate::mention::{
+    attachment_style, mention_file_path, mention_style_checked, parse_attachments, parse_mentions,
+    AttachmentSpan, Mention, MentionKind,
+};
 
 /// Bound of the prompt history ring (aligned with the opencode 200-entry
 /// cap; consecutive duplicates are skipped in `submit`).
@@ -251,6 +254,16 @@ impl Composer {
         self.leave_browsing();
         self.suppressed = true;
         self.prefer_col = None;
+        if let Some(range) = self.semantic_range_ending_at(self.cursor) {
+            self.buf.drain(range.clone());
+            self.cursor = range.start;
+            // A trailing space after a completed mention or placeholder
+            // belongs to the unit, matching the insert trailing space.
+            if self.buf[self.cursor..].starts_with(' ') {
+                self.buf.drain(self.cursor..self.cursor + 1);
+            }
+            return;
+        }
         if let Some((len, _)) = self.grapheme_before() {
             self.buf.drain(self.cursor - len..self.cursor);
             self.cursor -= len;
@@ -265,8 +278,96 @@ impl Composer {
         self.leave_browsing();
         self.suppressed = true;
         self.prefer_col = None;
+        if let Some(range) = self.semantic_range_starting_at(self.cursor) {
+            let mut end = range.end;
+            if self.buf[end..].starts_with(' ') {
+                end += 1;
+            }
+            self.buf.drain(range.start..end);
+            self.cursor = range.start;
+            return;
+        }
         if let Some((len, _)) = self.grapheme_after() {
             self.buf.drain(self.cursor..self.cursor + len);
+        }
+    }
+
+    /// Delete the word or semantic unit before the cursor. Mentions and
+    /// staged placeholders count as one unit so a single chord clears
+    /// the whole reference.
+    pub fn delete_prev_word(&mut self) {
+        if self.search.is_some() {
+            self.search_backspace();
+            return;
+        }
+        self.leave_browsing();
+        self.suppressed = true;
+        self.prefer_col = None;
+        if let Some(range) = self.semantic_range_ending_at(self.cursor) {
+            self.buf.drain(range.clone());
+            self.cursor = range.start;
+            if self.buf[self.cursor..].starts_with(' ') {
+                self.buf.drain(self.cursor..self.cursor + 1);
+            }
+            return;
+        }
+        let start = word_start_before(&self.buf, self.cursor);
+        if start < self.cursor {
+            self.buf.drain(start..self.cursor);
+            self.cursor = start;
+        }
+    }
+
+    /// Delete to the end of the current line, used by the kill-line chord.
+    /// A semantic unit straddling the cursor is removed whole so the
+    /// line kill never leaves a half reference behind.
+    pub fn delete_to_end_of_line(&mut self) {
+        if self.search.is_some() {
+            return;
+        }
+        self.leave_browsing();
+        self.suppressed = true;
+        self.prefer_col = None;
+        if let Some(range) = self.semantic_range_starting_at(self.cursor) {
+            let mut end = range.end;
+            if self.buf[end..].starts_with(' ') {
+                end += 1;
+            }
+            self.buf.drain(range.start..end);
+            self.cursor = range.start;
+            // Fall through to clear the rest of the line as well.
+        }
+        let cursor = self.cursor;
+        let tail = &self.buf[cursor..];
+        let line_end = tail
+            .find('\n')
+            .map(|pos| cursor + pos)
+            .unwrap_or(self.buf.len());
+        if line_end > cursor {
+            self.buf.drain(cursor..line_end);
+        }
+    }
+
+    /// Delete the word or semantic unit at the cursor.
+    pub fn delete_next_word(&mut self) {
+        if self.search.is_some() {
+            return;
+        }
+        self.leave_browsing();
+        self.suppressed = true;
+        self.prefer_col = None;
+        if let Some(range) = self.semantic_range_starting_at(self.cursor) {
+            let mut end = range.end;
+            if self.buf[end..].starts_with(' ') {
+                end += 1;
+            }
+            self.buf.drain(range.start..end);
+            self.cursor = range.start;
+            return;
+        }
+        let end = word_end_after(&self.buf, self.cursor);
+        if end > self.cursor {
+            self.buf.drain(self.cursor..end);
         }
     }
 
@@ -840,6 +941,113 @@ impl Composer {
         parse_mentions(&self.buf)
     }
 
+    /// All staged attachment placeholders in the buffer.
+    pub fn attachment_spans(&self) -> Vec<AttachmentSpan> {
+        parse_attachments(&self.buf)
+    }
+
+    /// Semantic unit ending at or containing `cursor`: a mention or a
+    /// staged placeholder. Backspace removes the whole unit so a
+    /// reference never lingers half deleted.
+    fn semantic_range_ending_at(&self, cursor: usize) -> Option<Range<usize>> {
+        for m in parse_mentions(&self.buf) {
+            if cursor > m.range.start && cursor <= m.range.end {
+                return Some(m.range);
+            }
+            if cursor == m.range.end + 1 && self.buf[m.range.end..].starts_with(' ') {
+                return Some(m.range);
+            }
+        }
+        for span in parse_attachments(&self.buf) {
+            if cursor > span.range.start && cursor <= span.range.end {
+                return Some(span.range);
+            }
+            if cursor == span.range.end + 1 && self.buf[span.range.end..].starts_with(' ') {
+                return Some(span.range);
+            }
+        }
+        None
+    }
+
+    /// Semantic unit starting at or containing `cursor` for forward delete.
+    fn semantic_range_starting_at(&self, cursor: usize) -> Option<Range<usize>> {
+        for m in parse_mentions(&self.buf) {
+            if cursor >= m.range.start && cursor < m.range.end {
+                return Some(m.range);
+            }
+        }
+        for span in parse_attachments(&self.buf) {
+            if cursor >= span.range.start && cursor < span.range.end {
+                return Some(span.range);
+            }
+        }
+        None
+    }
+
+    /// Text for semantic copy at `byte`: the whole mention including the
+    /// leading `@`, or the whole staged placeholder label. Plain positions
+    /// fall back to a whitespace delimited word so double-click keeps its
+    /// historic behavior outside references.
+    pub fn semantic_text_at(&self, byte: usize) -> Option<String> {
+        let byte = byte.min(self.buf.len());
+        for m in parse_mentions(&self.buf) {
+            if byte >= m.range.start && byte < m.range.end {
+                return Some(self.buf[m.range].to_string());
+            }
+        }
+        for span in parse_attachments(&self.buf) {
+            if byte >= span.range.start && byte < span.range.end {
+                return Some(self.buf[span.range].to_string());
+            }
+        }
+        let (start, end) = word_bounds_around(&self.buf, byte);
+        if start < end {
+            return Some(self.buf[start..end].to_string());
+        }
+        None
+    }
+
+    /// Insert a staged placeholder label at the cursor with a trailing
+    /// space, mirroring the mention completion spacing.
+    pub fn insert_attachment_label(&mut self, label: &str) {
+        if self.search.is_some() {
+            return;
+        }
+        self.leave_browsing();
+        self.suppressed = false;
+        self.prefer_col = None;
+        let insert = if label.ends_with(' ') {
+            label.to_string()
+        } else {
+            format!("{label} ")
+        };
+        self.buf.insert_str(self.cursor, &insert);
+        self.cursor += insert.len();
+    }
+
+    /// Remove every occurrence of `labels` from the buffer, collapsing a
+    /// following space when present so clearing a stage leaves no gaps.
+    pub fn remove_attachment_labels(&mut self, labels: &[String]) {
+        if labels.is_empty() || self.buf.is_empty() {
+            return;
+        }
+        for label in labels {
+            while let Some(pos) = self.buf.find(label.as_str()) {
+                let mut end = pos + label.len();
+                if self.buf[end..].starts_with(' ') {
+                    end += 1;
+                }
+                self.buf.drain(pos..end);
+                if self.cursor > pos {
+                    self.cursor = self.cursor.saturating_sub(end - pos).max(pos);
+                }
+            }
+        }
+        self.cursor = self.cursor.min(self.buf.len());
+        self.scroll_x.set(0);
+        self.prefer_col = None;
+    }
+
     /// Query for the mention under the cursor, if any (text after `@` up to
     /// cursor). Used to drive the `@` filter popup.
     pub fn mention_query(&self) -> Option<String> {
@@ -862,10 +1070,22 @@ impl Composer {
     }
 
     /// Render wrapped rows into `area`, keeping the cursor row visible.
-    /// Mention intervals are highlighted with a reversed style so `@file`
-    /// ranges are visually distinct from plain text. The ghost suffix only
-    /// shows on the last row while the cursor sits at the buffer end.
+    /// Mentions render reversed, staged placeholders render bold, and
+    /// the ghost suffix only shows on the last row at the buffer end.
     pub fn render(&self, area: Rect, buf: &mut Buffer, style: Style) {
+        self.render_with_file_check(area, buf, style, &|_| true);
+    }
+
+    /// Render with a file existence probe. File-like mentions missing on
+    /// disk render dimmed so successful references read highlighted.
+    /// Attachment placeholders always render bold and never dim.
+    pub fn render_with_file_check(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        style: Style,
+        file_exists: &dyn Fn(&str) -> bool,
+    ) {
         let width = area.width.max(1);
         for row in 0..area.height {
             buf.set_string(
@@ -894,13 +1114,8 @@ impl Composer {
                 .min(rows.len() - visible)
         };
         let mention_ranges = self.mention_ranges();
-        let ghost = if self.is_at_end() {
-            self.ghost()
-                .map(|suffix| suffix.split('\n').next().unwrap_or("").to_string())
-                .filter(|line| !line.is_empty())
-        } else {
-            None
-        };
+        let attachment_spans = self.attachment_spans();
+        let ghost = self.ghost_for_render();
         for (slot, row) in rows.iter().skip(start).take(visible).enumerate() {
             let y = area.y + slot as u16;
             let mut col: u16 = 0;
@@ -913,23 +1128,40 @@ impl Composer {
                 if col + w > width {
                     break;
                 }
+                if let Some(span) = attachment_spans
+                    .iter()
+                    .find(|s| byte_offset >= s.range.start && byte_offset < s.range.end)
+                {
+                    let g_style = style.patch(attachment_style(span.kind));
+                    buf.set_string(area.x + col, y, grapheme, g_style);
+                    col += w;
+                    byte_offset += grapheme.len();
+                    active = None;
+                    continue;
+                }
                 let mention_kind = mention_ranges
                     .iter()
                     .find(|(r, _)| byte_offset >= r.start && byte_offset < r.end)
                     .map(|(_, kind)| kind);
                 let g_style = match mention_kind {
                     Some(kind) => {
-                        // Resolve the tone style once per mention range instead
-                        // of per grapheme.
+                        let valid = match mention_file_path(kind) {
+                            Some(path) => file_exists(path),
+                            None => true,
+                        };
                         let mention_fg = match &active {
                             Some((current, cached)) if current == kind => *cached,
                             _ => {
-                                let computed = mention_style(kind);
+                                let computed = mention_style_checked(kind, valid);
                                 active = Some((kind.clone(), computed));
                                 computed
                             }
                         };
-                        style.patch(mention_fg).add_modifier(Modifier::REVERSED)
+                        if valid {
+                            style.patch(mention_fg).add_modifier(Modifier::REVERSED)
+                        } else {
+                            style.patch(mention_fg)
+                        }
                     }
                     None => {
                         active = None;
@@ -955,6 +1187,15 @@ impl Composer {
                 }
             }
         }
+    }
+
+    fn ghost_for_render(&self) -> Option<String> {
+        if !self.is_at_end() {
+            return None;
+        }
+        self.ghost()
+            .map(|suffix| suffix.split('\n').next().unwrap_or("").to_string())
+            .filter(|line| !line.is_empty())
     }
 
     /// Grapheme immediately before the cursor: `(byte_len, display_width)`.
@@ -1127,6 +1368,113 @@ fn search_query_push(buf: &mut String, cursor: &mut usize, c: char) {
 fn search_query_pop(buf: &mut String, cursor: &mut usize) {
     buf.pop();
     *cursor = buf.len();
+}
+
+/// Byte range of the whitespace delimited word around `byte`.
+fn word_bounds_around(text: &str, byte: usize) -> (usize, usize) {
+    let byte = byte.min(text.len());
+    let bytes = text.as_bytes();
+    let is_space = |b: u8| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r';
+    if byte < text.len() && is_space(bytes[byte]) {
+        return (byte, byte);
+    }
+    let mut start = byte;
+    while start > 0 {
+        let prev = start - 1;
+        if !text.is_char_boundary(prev) {
+            start -= 1;
+            continue;
+        }
+        if is_space(bytes[prev]) {
+            break;
+        }
+        start = prev;
+    }
+    let mut end = byte;
+    while end < text.len() {
+        if is_space(bytes[end]) {
+            break;
+        }
+        let next = end + 1;
+        if next < text.len() && !text.is_char_boundary(next) {
+            end += 1;
+            continue;
+        }
+        end = next;
+        if end < text.len() && !text.is_char_boundary(end) {
+            continue;
+        }
+    }
+    (start, end)
+}
+
+/// Byte offset where the previous word starts, treating `@mention` and
+/// staged placeholders as atomic units.
+fn word_start_before(text: &str, cursor: usize) -> usize {
+    let cursor = cursor.min(text.len());
+    let bytes = text.as_bytes();
+    let mut pos = cursor;
+    while pos > 0 && (bytes[pos - 1] == b' ' || bytes[pos - 1] == b'\t' || bytes[pos - 1] == b'\n')
+    {
+        pos -= 1;
+    }
+    if pos == 0 {
+        return 0;
+    }
+    for m in parse_mentions(text) {
+        if m.range.end == pos || (m.range.start < pos && pos <= m.range.end) {
+            return m.range.start;
+        }
+    }
+    for span in parse_attachments(text) {
+        if span.range.end == pos || (span.range.start < pos && pos <= span.range.end) {
+            return span.range.start;
+        }
+    }
+    let mut start = pos;
+    while start > 0 {
+        let prev = start - 1;
+        if !text.is_char_boundary(prev) {
+            start = prev;
+            continue;
+        }
+        if bytes[prev] == b' ' || bytes[prev] == b'\t' || bytes[prev] == b'\n' {
+            break;
+        }
+        start = prev;
+    }
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    start
+}
+
+/// Byte offset where the next word ends.
+fn word_end_after(text: &str, cursor: usize) -> usize {
+    let cursor = cursor.min(text.len());
+    let bytes = text.as_bytes();
+    let mut pos = cursor;
+    while pos < text.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t' || bytes[pos] == b'\n') {
+        pos += 1;
+    }
+    for m in parse_mentions(text) {
+        if m.range.start == pos || (m.range.start <= pos && pos < m.range.end) {
+            return m.range.end;
+        }
+    }
+    for span in parse_attachments(text) {
+        if span.range.start == pos || (span.range.start <= pos && pos < span.range.end) {
+            return span.range.end;
+        }
+    }
+    let mut end = pos;
+    while end < text.len() && bytes[end] != b' ' && bytes[end] != b'\t' && bytes[end] != b'\n' {
+        end += 1;
+        while end < text.len() && !text.is_char_boundary(end) {
+            end += 1;
+        }
+    }
+    end
 }
 
 /// Truncate `text` to at most `width` columns on grapheme boundaries.

@@ -81,6 +81,8 @@ pub enum ImageArgs {
     List,
     /// Drop staged images.
     Clear,
+    /// Remove one staged image by 1-based list number.
+    Remove(usize),
     /// Stage these paths for the next turn.
     Stage(Vec<String>),
 }
@@ -92,8 +94,18 @@ pub enum AttachArgs {
     List,
     /// Drop staged text files.
     Clear,
+    /// Remove one staged file by 1-based list number.
+    Remove(usize),
     /// Stage these paths for the next turn.
     Stage(Vec<String>),
+}
+
+/// Parse a single removal target after `rm` or `remove`.
+fn parse_remove_target(rest: &[&str]) -> Option<usize> {
+    match rest {
+        [raw] => raw.parse::<usize>().ok().filter(|index| *index > 0),
+        _ => None,
+    }
 }
 
 /// Split an optional leading `--node <id>` (or `--node=<id>`) flag from
@@ -287,6 +299,9 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 Some(SlashCommand::Image(ImageArgs::List))
             } else if rest == ["clear"] {
                 Some(SlashCommand::Image(ImageArgs::Clear))
+            } else if matches!(rest.as_slice(), ["rm", _] | ["remove", _]) {
+                parse_remove_target(&rest[1..])
+                    .map(|index| SlashCommand::Image(ImageArgs::Remove(index)))
             } else {
                 Some(SlashCommand::Image(ImageArgs::Stage(
                     rest.iter().map(|item| (*item).to_string()).collect(),
@@ -307,6 +322,9 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 Some(SlashCommand::Attach(AttachArgs::List))
             } else if rest == ["clear"] {
                 Some(SlashCommand::Attach(AttachArgs::Clear))
+            } else if matches!(rest.as_slice(), ["rm", _] | ["remove", _]) {
+                parse_remove_target(&rest[1..])
+                    .map(|index| SlashCommand::Attach(AttachArgs::Remove(index)))
             } else {
                 Some(SlashCommand::Attach(AttachArgs::Stage(
                     rest.iter().map(|item| (*item).to_string()).collect(),
@@ -506,6 +524,25 @@ mod tests {
             Some(SlashCommand::ImageDetail(Some("high".to_string())))
         );
         assert_eq!(parse_command("/image-detail a b"), None);
+    }
+
+    #[test]
+    fn parses_staged_remove_commands() {
+        assert_eq!(
+            parse_command("/image rm 2"),
+            Some(SlashCommand::Image(ImageArgs::Remove(2)))
+        );
+        assert_eq!(
+            parse_command("/image remove 1"),
+            Some(SlashCommand::Image(ImageArgs::Remove(1)))
+        );
+        assert_eq!(
+            parse_command("/attach rm 3"),
+            Some(SlashCommand::Attach(AttachArgs::Remove(3)))
+        );
+        assert_eq!(parse_command("/image rm 0"), None);
+        assert_eq!(parse_command("/image rm x"), None);
+        assert_eq!(parse_command("/attach rm 0"), None);
     }
 
     #[test]

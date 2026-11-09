@@ -352,6 +352,75 @@ pub fn render_styled(src: &str) -> String {
     out
 }
 
+/// Highlight `@mention` and staged `[Image N]` / `[File N]` tokens in
+/// read-only diagnostic text. Mentions render cyan and placeholders
+/// render bold yellow so staged references read apart from plain words.
+/// Returns the input verbatim when `color` is false, so piped output and
+/// `strip_terminal_escapes` round-trips stay clean. Never applied to the
+/// editable prompt buffer, only to settled diagnostic lines.
+pub fn highlight_mentions(text: &str, color: bool) -> String {
+    if !color || text.is_empty() {
+        return text.to_string();
+    }
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'@' {
+            let mut end = i + 1;
+            while end < bytes.len() {
+                let b = bytes[end];
+                if b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' || b == b'@' {
+                    break;
+                }
+                end += 1;
+            }
+            if end > i + 1 {
+                let token = &text[i..end];
+                out.push_str(&token.with(Color::Cyan).to_string());
+                i = end;
+                continue;
+            }
+        }
+        if bytes[i] == b'[' {
+            let rest = &text[i..];
+            if let Some(len) = placeholder_len(rest) {
+                let token = &text[i..i + len];
+                let mut style = ContentStyle::new();
+                style.foreground_color = Some(Color::Yellow);
+                style.attributes.set(Attribute::Bold);
+                out.push_str(&StyledContent::new(style, token).to_string());
+                i += len;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().expect("non-empty tail");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// Byte length of a leading `[Image N]` or `[File N]` placeholder.
+fn placeholder_len(rest: &str) -> Option<usize> {
+    for tag in ["[Image ", "[File "] {
+        if let Some(tail) = rest.strip_prefix(tag) {
+            let digits = tail.bytes().take_while(|b| b.is_ascii_digit()).count();
+            if digits == 0 || digits > 6 {
+                continue;
+            }
+            if tail.as_bytes().get(digits) != Some(&b']') {
+                continue;
+            }
+            if tail[..digits].starts_with('0') {
+                continue;
+            }
+            return Some(tag.len() + digits + 1);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,6 +508,25 @@ mod tests {
             "[x] done\n[ ] todo"
         );
         assert_eq!(render_plain_text("~~gone~~"), "gone");
+    }
+
+    #[test]
+    fn highlight_marks_mentions_and_placeholders() {
+        let styled = highlight_mentions("see @file:src/main.rs and [Image 1]", true);
+        assert!(styled.contains("@file:src/main.rs"), "{styled:?}");
+        assert!(styled.contains("[Image 1]"), "{styled:?}");
+        assert!(styled.contains("\x1b["), "{styled:?}");
+        assert_eq!(
+            strip_terminal_escapes(&styled),
+            "see @file:src/main.rs and [Image 1]"
+        );
+    }
+
+    #[test]
+    fn highlight_returns_plain_without_color() {
+        let text = "see @file:a.rs and [File 2]";
+        assert_eq!(highlight_mentions(text, false), text);
+        assert!(!highlight_mentions(text, false).contains("\x1b["));
     }
 
     #[test]

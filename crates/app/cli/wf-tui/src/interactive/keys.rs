@@ -299,6 +299,11 @@ impl InteractiveController {
         if normalized.is_empty() {
             return false;
         }
+        if let Some(specs) = Self::paste_image_specs(&normalized) {
+            let notice = self.stage_tui_images(&specs);
+            self.footer.show_notice(notice);
+            return true;
+        }
         self.footer.composer.insert_text(&normalized);
         self.sync_mention_route();
         true
@@ -519,12 +524,29 @@ impl InteractiveController {
             CKey::Char('r') | CKey::Char('R') if key.ctrl && !key.alt => {
                 self.footer.composer.begin_search();
             }
+            CKey::Backspace if key.alt && !key.ctrl => {
+                self.footer.composer.delete_prev_word();
+                self.prune_staged_to_composer();
+                self.sync_mention_route();
+            }
             CKey::Backspace => {
                 self.footer.composer.backspace();
+                self.prune_staged_to_composer();
                 self.sync_mention_route();
             }
             CKey::Delete => {
                 self.footer.composer.delete_forward();
+                self.prune_staged_to_composer();
+                self.sync_mention_route();
+            }
+            CKey::Char('d') | CKey::Char('D') if key.alt && !key.ctrl => {
+                self.footer.composer.delete_next_word();
+                self.prune_staged_to_composer();
+                self.sync_mention_route();
+            }
+            CKey::Char('k') | CKey::Char('K') if key.ctrl && !key.alt => {
+                self.footer.composer.delete_to_end_of_line();
+                self.prune_staged_to_composer();
                 self.sync_mention_route();
             }
             CKey::Left => self.footer.composer.move_left(),

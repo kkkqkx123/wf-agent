@@ -58,10 +58,6 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/agent-definitions/{id}/validate",
             post(handle_validate_agent_template),
         )
-        .route(
-            "/agent-definitions/{id}/clone",
-            post(handle_clone_agent_definition),
-        )
 }
 
 // ── agent definitions ─────────────────────────────────────────────
@@ -488,33 +484,6 @@ pub(crate) async fn handle_validate_agent_template(
     .await
     {
         Ok(warnings) => ok(warnings).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-#[derive(Deserialize, ToSchema)]
-pub(crate) struct CloneAgentDefinitionBody {
-    new_name: Option<String>,
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/agent-definitions/{id}/clone",
-    tag = "agent",
-    params(IdPath),
-    request_body = CloneAgentDefinitionBody,
-    responses((status = 200, description = "Cloned agent definition with its library view", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("api_key" = []))
-)]
-pub(crate) async fn handle_clone_agent_definition(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-    Json(body): Json<CloneAgentDefinitionBody>,
-) -> impl IntoResponse {
-    let new_name = body.new_name.unwrap_or_default();
-    match wf_api::template::template_library::clone_agent_template(&state.ctx, &path.id, &new_name)
-        .await
-    {
-        Ok(template) => ok(template).into_response(),
         Err(e) => error_response(e),
     }
 }

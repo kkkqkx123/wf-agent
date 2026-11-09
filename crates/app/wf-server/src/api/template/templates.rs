@@ -1,6 +1,5 @@
-//! Template domain: node / trigger template CRUD with export-import. Agent
-//! trigger / agent template query surfaces live in `template/queries` and
-//! the shared template library in `template/library`.
+//! Template domain: node / trigger template CRUD with export-import. The
+//! shared template library lives in `template/library`.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;

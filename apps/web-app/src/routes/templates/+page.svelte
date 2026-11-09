@@ -23,7 +23,6 @@
 		listTemplates,
 		recordTemplateUsage,
 	} from '#lib/services/templates';
-	import { cloneWorkflow } from '#lib/services/workflows';
 	import type { Template, TemplateKind } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatNumber } from '#lib/utils/format';
@@ -115,10 +114,9 @@
 
 	async function runClone(row: Template): Promise<void> {
 		try {
-			const newId =
-				row.kind === 'workflow'
-					? await cloneWorkflow(row.id)
-					: await cloneTemplate(row.id, row.kind, `${row.name} (copy)`);
+			// Every kind clones through the unified library endpoint, which
+			// answers the new entry id; no per-kind branching is needed.
+			const newId = await cloneTemplate(row.id, row.kind, `${row.name} (copy)`);
 			void recordTemplateUsage(row.id).catch(() => undefined);
 			toasts.success(t('page.templates.cloned'));
 			await reload();

@@ -123,6 +123,8 @@ export function registerWorkflows(router: MockRouter): void {
 		});
 	});
 
+	// Canonical workflow clone answers the new workflow id directly.
+	router.on('POST', '/api/v1/workflows/{id}/clone', (params) => `${params.id}-clone`);
 	// Preview has no concurrent editors, so the workflow lock is always free.
 	router.on('GET', '/api/v1/workflows/{id}/lock', () => null);
 	router.on('POST', '/api/v1/workflows/{id}/lock/acquire', (_p, _q, body) => ({

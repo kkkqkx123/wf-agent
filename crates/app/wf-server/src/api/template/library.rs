@@ -268,5 +268,3 @@ pub(crate) async fn handle_clone_template(
         Err(e) => error_response(e),
     }
 }
-
-// ── library registry (workflow / agent templates) ────────────────

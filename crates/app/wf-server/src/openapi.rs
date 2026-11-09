@@ -132,7 +132,6 @@ use utoipa::OpenApi;
         crate::api::agent::definitions::handle_publish_agent_template,
         crate::api::agent::definitions::handle_unpublish_agent_template,
         crate::api::agent::definitions::handle_validate_agent_template,
-        crate::api::agent::definitions::handle_clone_agent_definition,
         crate::api::agent::variables::handle_recent_messages,
         crate::api::agent::variables::handle_dedupe_messages,
         crate::api::agent::variables::handle_search_messages,

@@ -47,19 +47,8 @@ pub fn parse_import<T: serde::de::DeserializeOwned>(json: &str) -> ApiResult<T> 
     serde_json::from_str(json).map_err(ApiError::from)
 }
 
-/// Agent template filter: the shared basic fields plus the runtime
-/// profile binding an agent definition may carry.
-#[derive(Debug, Clone, Default)]
-pub struct AgentTemplateFilter {
-    pub name: Option<String>,
-    pub category: Option<String>,
-    pub tags: Option<Vec<String>>,
-    pub author: Option<String>,
-    pub profile_type: Option<String>,
-}
-
-/// Basic template filter fields shared by the agent-template filter and the
-/// template-library filter (name / category / tags / author). This is the
+/// Basic template filter fields shared by the agent-definition and
+/// template-library listings (name / category / tags / author). This is the
 /// single matching semantic for every template kind; server query types
 /// delegate here instead of reimplementing substring and tag matching.
 #[derive(Debug, Clone, Default)]

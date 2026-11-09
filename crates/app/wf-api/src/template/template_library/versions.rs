@@ -1,4 +1,3 @@
-use wf_core::registry::Registry;
 use wf_storage::adapter::agent::AgentStorageAdapter;
 
 use crate::infra::context::ApiContext;
@@ -10,9 +9,9 @@ pub async fn list_agent_template_versions(
     ctx: &ApiContext,
     id: &str,
 ) -> ApiResult<Vec<wf_types::agent::AgentDefinition>> {
-    if !ctx.registries.agent_templates.has(id) {
-        return Err(not_found("agent_template", id));
-    }
+    // Versions are stored rows: storage existence alone allows the read so
+    // a missing registry view cannot hide saved versions.
+    load_definition(ctx, id).await?;
     ctx.storage
         .agent
         .list_versions(id)

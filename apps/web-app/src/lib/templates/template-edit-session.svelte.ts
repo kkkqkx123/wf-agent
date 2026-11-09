@@ -11,7 +11,6 @@ import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
 import {
-	cloneWorkflow,
 	createWorkflow,
 	deleteWorkflow,
 	replaceWorkflow,
@@ -499,10 +498,13 @@ export class TemplateEditController {
 		const detail = this.detail;
 		if (!kind || !detail) return;
 		try {
-			const newId =
-				kind === 'workflow'
-					? await cloneWorkflow(detail.template.id)
-					: await cloneTemplate(detail.template.id, kind, `${detail.template.name} (copy)`);
+			// Every kind clones through the unified library endpoint, which
+			// answers the new entry id; no per-kind branching is needed.
+			const newId = await cloneTemplate(
+				detail.template.id,
+				kind,
+				`${detail.template.name} (copy)`,
+			);
 			void recordTemplateUsage(detail.template.id).catch(() => undefined);
 			toasts.success('Template cloned');
 			await goto(resolve('/templates/[kind]/[id]', { kind, id: newId }));

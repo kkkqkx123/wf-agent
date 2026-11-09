@@ -180,8 +180,8 @@ pub enum TemplateSub {
         /// Path to template file.
         #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
         file: String,
-        /// Template kind (workflow, agent).
-        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent"])]
+        /// Template kind (workflow, agent, node, trigger).
+        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent","node","trigger"])]
         kind: String,
         /// Input format (json, toml, auto).
         #[arg(long, value_name = "FORMAT", default_value = "json", value_parser = ["json","toml","auto"])]
@@ -192,8 +192,8 @@ pub enum TemplateSub {
         /// Template id.
         #[arg(value_name = "ID")]
         id: String,
-        /// Template kind (workflow, agent).
-        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent"])]
+        /// Template kind (workflow, agent, node, trigger).
+        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent","node","trigger"])]
         kind: String,
     },
     /// Agent definition version actions.

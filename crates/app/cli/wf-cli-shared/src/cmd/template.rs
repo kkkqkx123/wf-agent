@@ -93,6 +93,38 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             let path = Path::new(file);
             let fmt = resolve_format(path, format);
             match kind.to_ascii_lowercase().as_str() {
+                "node" => {
+                    let template = load_raw_template(path, &fmt)?;
+                    let id = template
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    client
+                        .post_json::<_, serde_json::Value>("/api/v1/templates/node", &template)
+                        .await?;
+                    let data = serde_json::json!({"registered": id, "kind": "node"});
+                    render_envelope(
+                        cli.output,
+                        OutputEnvelope::success("template-register", data).with_entity(id),
+                    )
+                }
+                "trigger" => {
+                    let template = load_raw_template(path, &fmt)?;
+                    let id = template
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    client
+                        .post_json::<_, serde_json::Value>("/api/v1/templates/trigger", &template)
+                        .await?;
+                    let data = serde_json::json!({"registered": id, "kind": "trigger"});
+                    render_envelope(
+                        cli.output,
+                        OutputEnvelope::success("template-register", data).with_entity(id),
+                    )
+                }
                 "agent" => {
                     let template = load_agent_template(path, &fmt)?;
                     let id = template
@@ -134,6 +166,26 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             }
         }
         TemplateSub::Delete { id, kind } => match kind.to_ascii_lowercase().as_str() {
+            "node" => {
+                let _: serde_json::Value = client
+                    .delete_json(&format!("/api/v1/templates/node/{id}"))
+                    .await?;
+                let data = serde_json::json!({"deleted": id, "kind": "node"});
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("template-delete", data).with_entity(id.clone()),
+                )
+            }
+            "trigger" => {
+                let _: serde_json::Value = client
+                    .delete_json(&format!("/api/v1/templates/trigger/{id}"))
+                    .await?;
+                let data = serde_json::json!({"deleted": id, "kind": "trigger"});
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("template-delete", data).with_entity(id.clone()),
+                )
+            }
             "agent" => {
                 let envelope = client
                     .generated()
@@ -202,6 +254,19 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 OutputEnvelope::success("template-rollback", data).with_entity(id.clone()),
             )
         }
+    }
+}
+
+fn load_raw_template(path: &Path, fmt: &str) -> CliResult<serde_json::Value> {
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        CliError::Configuration(format!("read file {} failed: {e}", path.display()))
+    })?;
+    if fmt == "toml" {
+        toml::from_str::<serde_json::Value>(&content)
+            .map_err(|e| CliError::Arguments(format!("invalid TOML in {}: {e}", path.display())))
+    } else {
+        serde_json::from_str::<serde_json::Value>(&content)
+            .map_err(|e| CliError::Arguments(format!("invalid JSON in {}: {e}", path.display())))
     }
 }
 

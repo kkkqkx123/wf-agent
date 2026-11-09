@@ -46,4 +46,13 @@ export function registerTemplates(router: MockRouter): void {
 	router.on('POST', '/api/v1/workflows/{id}/unpublish', (params) => params.id);
 	router.on('POST', '/api/v1/agent-definitions/{id}/publish', (params) => params.id);
 	router.on('POST', '/api/v1/agent-definitions/{id}/unpublish', (params) => params.id);
+	// Unified instantiation clone answers the new entry id plus its kind
+	// for every kind, matching the backend envelope shape.
+	router.on('POST', '/api/v1/templates/library/{id}/clone', (params, _query, body) => {
+		const kind =
+			body && typeof body === 'object' && typeof body.kind === 'string'
+				? body.kind
+				: 'workflow';
+		return { id: `${params.id}-clone`, kind };
+	});
 }

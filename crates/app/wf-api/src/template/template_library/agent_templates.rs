@@ -221,26 +221,28 @@ pub async fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate)
 }
 
 pub async fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
-    ctx.storage
+    let deleted = ctx
+        .storage
         .agent
         .delete(id)
         .await
         .map_err(crate::ApiError::from)?;
-    ctx.registries
-        .agent_templates
-        .unregister(id)
-        .map(|_| ())
-        .ok_or_else(|| not_found("agent_template", id))?;
+    if !deleted {
+        return Err(not_found("agent_template", id));
+    }
+    // Registry is a composed view: a missing view must not fail a
+    // storage-backed delete.
+    let _ = ctx.registries.agent_templates.unregister(id);
     let _ = ctx.storage.template_usage.delete(id).await;
     Ok(())
 }
 
-/// Replace an agent template in place; errors with `NotFound` when the id
-/// is not registered.
+/// Replace an agent template in place. The stored row is the gate: a
+/// definition that was never stored cannot be updated. A missing registry
+/// view is rebuilt by the persist path, so storage existence alone allows
+/// the write.
 pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
-    if !ctx.registries.agent_templates.has(&template.id) {
-        return Err(not_found("agent_template", &template.id.to_string()));
-    }
+    load_definition(ctx, &template.id).await?;
     validate_agent_template_definition(ctx, template)
         .await
         .map(|_| ())?;

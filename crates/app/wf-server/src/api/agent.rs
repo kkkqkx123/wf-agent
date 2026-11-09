@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod definitions;
 pub mod drafts;
 pub mod executions;
 pub mod graphs;

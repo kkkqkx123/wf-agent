@@ -94,6 +94,7 @@ fn agent_template(id: &str, category: &str) -> AgentTemplate {
                 author: Some("author-x".into()),
                 tags: Some(vec!["tag-b".into()]),
                 category: Some(category.into()),
+                ..Default::default()
             }),
             created_at: now(),
             updated_at: now(),

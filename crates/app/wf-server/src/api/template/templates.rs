@@ -694,16 +694,14 @@ mod tests {
             "/api/v1/templates/trigger/drafts/missing",
             "/api/v1/templates/node/missing/versions/v1",
             "/api/v1/templates/trigger/missing/versions/v1",
-            "/api/v1/templates/library/workflows/missing",
-            "/api/v1/templates/library/agents/missing",
+            "/api/v1/agent-definitions/missing",
         ] {
             let response = send(ctx.clone(), uri).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
-        // The library registries are queryable even when empty.
+        // The definition registries are queryable even when empty.
         for uri in [
-            "/api/v1/templates/library/workflows",
-            "/api/v1/templates/library/agents",
+            "/api/v1/agent-definitions",
             "/api/v1/templates/node/drafts",
             "/api/v1/templates/trigger/drafts",
             "/api/v1/templates/node/missing/versions",

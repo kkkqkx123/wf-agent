@@ -33,23 +33,17 @@ export function registerTemplates(router: MockRouter): void {
 	router.on('GET', '/api/v1/templates/trigger/{id}', () => {
 		return camelToSnakeDeep(templates.find((t) => t.kind === 'trigger') ?? undefined);
 	});
-	router.on('GET', '/api/v1/templates/library/workflows/{id}', () => {
-		const template = templates.find((t) => t.kind === 'workflow');
-		// The library lists published entries only, so the sample entry is
-		// published.
-		return camelToSnakeDeep({ ...template, is_published: true });
-	});
-	router.on('GET', '/api/v1/templates/library/agents/{id}', () => {
+	router.on('GET', '/api/v1/agent-definitions/{id}', () => {
 		return camelToSnakeDeep(templates.find((t) => t.kind === 'agent') ?? undefined);
 	});
 	// Template imports return a stable preview id; exports return empty payloads.
 	router.on('POST', '/api/v1/templates/node/import', () => 'preview-template-id');
 	router.on('POST', '/api/v1/templates/trigger/import', () => 'preview-template-id');
-	router.on('POST', '/api/v1/templates/library/workflows/import', () => 'preview-template-id');
-	router.on('POST', '/api/v1/templates/library/agents/import', () => 'preview-template-id');
-	router.on('GET', '/api/v1/templates/library/workflows/{id}/export', () => ({}));
-	router.on('GET', '/api/v1/templates/library/agents/{id}/export', () => ({}));
-	// Publishing answers with the workflow id it acted on.
-	router.on('POST', '/api/v1/templates/library/workflows/{id}/publish', (params) => params.id);
-	router.on('POST', '/api/v1/templates/library/workflows/{id}/unpublish', (params) => params.id);
+	router.on('POST', '/api/v1/agent-definitions/import', () => 'preview-template-id');
+	router.on('GET', '/api/v1/agent-definitions/{id}/export', () => ({}));
+	// Publishing answers with the definition id it acted on.
+	router.on('POST', '/api/v1/workflows/{id}/publish', (params) => params.id);
+	router.on('POST', '/api/v1/workflows/{id}/unpublish', (params) => params.id);
+	router.on('POST', '/api/v1/agent-definitions/{id}/publish', (params) => params.id);
+	router.on('POST', '/api/v1/agent-definitions/{id}/unpublish', (params) => params.id);
 }

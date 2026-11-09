@@ -334,11 +334,11 @@ export async function promoteDefinitionDraft(
 
 // ── versions ─────────────────────────────────────────────────────
 
+/** A saved agent version is a bare definition; every other kind wraps
+ * one in a template-shaped row. */
 function toVersion(kind: DefinitionKind, value: unknown, index: number): DefinitionVersion {
 	const row = isRecord(value) ? value : {};
-	// A workflow version is a definition; an agent version is a template
-	// wrapping one.
-	const definition = kind === 'agent' ? row.definition : row;
+	const definition = kind === 'agent' ? row : (row.definition ?? row);
 	const payload = isRecord(definition) ? definition : {};
 	const version =
 		typeof payload.version === 'string' && payload.version ? payload.version : `v${index + 1}`;
@@ -368,7 +368,7 @@ export async function listDefinitionVersions(
 		);
 	} else if (kind === 'agent') {
 		data = await call<unknown>(
-			client.GET('/api/v1/templates/library/agents/{id}/versions', {
+			client.GET('/api/v1/agent-definitions/{id}/versions', {
 				params: { path: { id } },
 			}),
 		);
@@ -404,7 +404,7 @@ export async function getDefinitionVersion(
 		);
 	} else if (kind === 'agent') {
 		data = await call<unknown>(
-			client.GET('/api/v1/templates/library/agents/{id}/versions/{version}', {
+			client.GET('/api/v1/agent-definitions/{id}/versions/{version}', {
 				params: { path: { id, version } },
 			}),
 		);
@@ -442,7 +442,7 @@ export async function rollbackDefinition(
 	}
 	if (kind === 'agent') {
 		await call<unknown>(
-			client.POST('/api/v1/templates/library/agents/{id}/rollback', {
+			client.POST('/api/v1/agent-definitions/{id}/rollback', {
 				params: { path: { id } },
 				body: { version },
 			}),

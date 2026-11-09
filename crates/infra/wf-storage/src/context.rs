@@ -1,10 +1,10 @@
 use crate::adapter::adapter_impls::{
-    AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage,
-    AgentTemplateStorage, CheckpointStorage, MessageStorage, MetricsStorage, NodeDraftStorage,
-    NodeTemplateStorage, PricingRuleStorage, ScriptStorage, TaskStorage, TemplateUsageStorage,
-    ToolDefinitionStorage, ToolStorage, TriggerDraftStorage, TriggerExecutionStorage,
-    TriggerTemplateStorage, UserInteractionStorage, VariableStorage, WorkflowDraftStorage,
-    WorkflowExecutionStorage, WorkflowStorage,
+    AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, AgentStorage,
+    CheckpointStorage, MessageStorage, MetricsStorage, NodeDraftStorage, NodeTemplateStorage,
+    PricingRuleStorage, ScriptStorage, TaskStorage, TemplateUsageStorage, ToolDefinitionStorage,
+    ToolStorage, TriggerDraftStorage, TriggerExecutionStorage, TriggerTemplateStorage,
+    UserInteractionStorage, VariableStorage, WorkflowDraftStorage, WorkflowExecutionStorage,
+    WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
@@ -288,10 +288,10 @@ define_storage_entities!(
     "agent_profile",
     AgentProfileStorage,
     EntityIndexes::NONE,
-    AgentTemplate,
-    agent_template,
-    "agent_template",
-    AgentTemplateStorage,
+    Agent,
+    agent,
+    "agent",
+    AgentStorage,
     EntityIndexes::NONE,
     AgentDraft,
     agent_draft,

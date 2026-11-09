@@ -153,7 +153,11 @@ export interface TemplateDetail {
 	version: string | null;
 }
 
-/** Full template entry plus a pretty-printed definition for preview/edit. */
+/** Full template entry plus a pretty-printed definition for preview/edit.
+ *
+ * Agent entries come from the agent definition surface as composed
+ * views; workflow entries come from the workflow surface as bare
+ * definitions and are normalised here. */
 export async function getTemplateDetail(id: string, kind: TemplateKind): Promise<TemplateDetail> {
 	let raw: unknown;
 	if (kind === 'node') {
@@ -168,18 +172,19 @@ export async function getTemplateDetail(id: string, kind: TemplateKind): Promise
 		);
 	} else if (kind === 'agent') {
 		raw = await call<unknown>(
-			client.GET('/api/v1/templates/library/agents/{id}', {
+			client.GET('/api/v1/agent-definitions/{id}', {
 				params: { path: { id } },
 			}),
 		);
 	} else {
 		raw = await call<unknown>(
-			client.GET('/api/v1/templates/library/workflows/{id}', {
-				params: { path: { id } },
-			}),
+			client.GET('/api/v1/workflows/{id}', { params: { path: { id } } }),
 		);
 	}
 	requireData(raw, `Template ${describeCoordinate({ kind, id })}`);
+	if (kind === 'workflow') {
+		return workflowDefinitionDetail(id, raw);
+	}
 	const record = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
 	const definition = record.definition ?? raw;
 	return {
@@ -209,10 +214,47 @@ export async function getTemplateDetail(id: string, kind: TemplateKind): Promise
 	};
 }
 
+/** A workflow definition normalised to the template shape the detail views
+ * consume. Library facts travel in the definition metadata, so the
+ * composed view is rebuilt here instead of fetched. */
+function workflowDefinitionDetail(id: string, raw: unknown): TemplateDetail {
+	const record = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+	const metadata =
+		record.metadata && typeof record.metadata === 'object'
+			? (record.metadata as Record<string, unknown>)
+			: {};
+	const tags = Array.isArray(metadata.tags) ? (metadata.tags as string[]) : [];
+	const template: Template = {
+		id: typeof record.id === 'string' ? record.id : id,
+		name: typeof record.name === 'string' ? record.name : id,
+		kind: 'workflow',
+		category: typeof metadata.category === 'string' ? metadata.category : '',
+		description: typeof record.description === 'string' ? record.description : '',
+		usage: 0,
+		featured: false,
+		tags,
+		enabled: undefined,
+		isPublic: typeof metadata.is_public === 'boolean' ? metadata.is_public : undefined,
+		isSystem: typeof metadata.is_system === 'boolean' ? metadata.is_system : undefined,
+		published: typeof metadata.published === 'boolean' ? metadata.published : undefined,
+		author: typeof metadata.author === 'string' ? metadata.author : null,
+	};
+	return {
+		template,
+		raw,
+		definitionJson: JSON.stringify(raw ?? null, null, 2),
+		version:
+			typeof record.version === 'string' && record.version ? record.version : null,
+	};
+}
+
 /**
  * Save a template entry. Node and trigger kinds upsert through their own
- * routes; workflow and agent kinds register on create and replace in place
- * on update. Update failures surface directly without rollback.
+ * routes; the agent kind writes through the agent definition surface.
+ * Workflow saves go through the workflow service, which splits create and
+ * replace; the workflow branch here maps a template-shaped payload onto
+ * those definition endpoints for callers that only know templates.
+ * Update failures surface directly without rollback.
  */
 export async function saveTemplate(
 	kind: TemplateKind,
@@ -252,15 +294,15 @@ export async function saveTemplate(
 	const saved =
 		kind === 'agent'
 			? await call<string>(
-					client.PUT('/api/v1/templates/library/agents/{id}', {
+					client.PUT('/api/v1/agent-definitions/{id}', {
 						params: { path: { id } },
 						body,
 					}),
 				)
 			: await call<string>(
-					client.PUT('/api/v1/templates/library/workflows/{id}', {
+					client.PUT('/api/v1/workflows/{id}', {
 						params: { path: { id } },
-						body,
+						body: (body.definition ?? body) as Record<string, unknown>,
 					}),
 				);
 	const result = saved ?? id;
@@ -274,8 +316,15 @@ async function registerLibraryTemplate(
 ): Promise<string> {
 	const saved =
 		kind === 'agent'
-			? await call<string>(client.POST('/api/v1/templates/library/agents', { body }))
-			: await call<string>(client.POST('/api/v1/templates/library/workflows', { body }));
+			? await call<string>(client.POST('/api/v1/agent-definitions', { body }))
+			: await call<string>(
+				client.POST('/api/v1/workflows', {
+					body: { ...(body.definition ?? body), id: body.id ?? undefined } as Record<
+						string,
+						unknown
+					>,
+				}),
+			);
 	if (!saved) throw new Error(`Template registration returned no id for ${kind}`);
 	return saved;
 }
@@ -283,14 +332,14 @@ async function registerLibraryTemplate(
 async function deleteLibraryTemplate(kind: 'agent' | 'workflow', id: string): Promise<void> {
 	if (kind === 'agent') {
 		await call<unknown>(
-			client.DELETE('/api/v1/templates/library/agents/{id}', {
+			client.DELETE('/api/v1/agent-definitions/{id}', {
 				params: { path: { id } },
 			}),
 		);
 		return;
 	}
 	await call<unknown>(
-		client.DELETE('/api/v1/templates/library/workflows/{id}', {
+		client.DELETE('/api/v1/workflows/{id}', {
 			params: { path: { id } },
 		}),
 	);
@@ -341,10 +390,10 @@ export async function importTemplate(kind: TemplateKind, json: string): Promise<
 	}
 	const saved = await call<string>(
 		kind === 'workflow'
-			? client.POST('/api/v1/templates/library/workflows/import', {
+			? client.POST('/api/v1/workflows/import', {
 					body: { json },
 				})
-			: client.POST('/api/v1/templates/library/agents/import', {
+			: client.POST('/api/v1/agent-definitions/import', {
 					body: { json },
 				}),
 	);
@@ -361,10 +410,40 @@ export async function exportTemplate(kind: TemplateKind, id: string): Promise<vo
 		);
 		return;
 	}
-	const segment = kind === 'agent' ? 'agents' : 'workflows';
+	if (kind === 'agent') {
+		await downloadFile(
+			`/api/v1/agent-definitions/${encodeURIComponent(id)}/export?download=true`,
+			`${kind}-template-${id}.json`,
+		);
+		return;
+	}
 	await downloadFile(
-		`/api/v1/templates/library/${segment}/${encodeURIComponent(id)}/export?download=true`,
+		`/api/v1/workflows/${encodeURIComponent(id)}/export?download=true`,
 		`${kind}-template-${id}.json`,
+	);
+}
+
+/**
+ * Publish an agent definition. The published mark is written to the
+ * stored definition, so it stays published across a restart.
+ */
+export async function publishAgentTemplate(id: string): Promise<void> {
+	await call<string>(
+		client.POST('/api/v1/agent-definitions/{id}/publish', {
+			params: { path: { id } },
+		}),
+	);
+}
+
+/**
+ * Remove the published mark from an agent definition. The definition
+ * itself stays where it is and keeps running.
+ */
+export async function unpublishAgentTemplate(id: string): Promise<void> {
+	await call<string>(
+		client.POST('/api/v1/agent-definitions/{id}/unpublish', {
+			params: { path: { id } },
+		}),
 	);
 }
 

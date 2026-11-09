@@ -98,6 +98,7 @@ pub fn pi_coding_agent_template() -> AgentTemplate {
                     "assistant".into(),
                 ]),
                 category: Some("general".into()),
+                ..Default::default()
             }),
             created_at: t,
             updated_at: t,

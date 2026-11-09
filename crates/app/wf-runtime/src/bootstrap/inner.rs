@@ -271,30 +271,31 @@ impl Runtime {
 
         register_llm_config(&llm_gateway, &config.llm)?;
 
-        // Hydrate persisted agent templates into the runtime registry so
-        // templates created through the API survive restarts. Predefined
-        // and plugin-owned entries keep their registry version.
+        // Hydrate persisted agent definitions into the runtime registry so
+        // agents created through the API survive restarts. The registry
+        // holds composed library views; predefined and plugin-owned entries
+        // keep their registry version.
         if let Some(storage_ctx) = storage_manager.shared_context() {
-            if let Ok(templates) = storage_ctx.agent_template.list(None).await {
+            if let Ok(definitions) = storage_ctx.agent.list(None).await {
                 let mut restored = 0usize;
-                for template in templates {
-                    let key = template.id.to_string();
+                for definition in definitions {
+                    let key = definition.id.to_string();
                     if !registries.agent_templates.has(&key) {
-                        if let Err(e) = registries
-                            .agent_templates
-                            .register(key, std::sync::Arc::new(template))
-                        {
-                            warn!(error = %e, "hydrate persisted agent template skipped");
+                        if let Err(e) = registries.agent_templates.register(
+                            key,
+                            std::sync::Arc::new(wf_api::template::template_library::library_entry(
+                                &registries,
+                                &definition,
+                            )),
+                        ) {
+                            warn!(error = %e, "hydrate persisted agent skipped");
                         } else {
                             restored += 1;
                         }
                     }
                 }
                 if restored > 0 {
-                    info!(
-                        "Restored {} persisted agent template(s) from storage",
-                        restored
-                    );
+                    info!("Restored {} persisted agent(s) from storage", restored);
                 }
             }
             // Hydrate persisted workflows into the runtime registry so tool

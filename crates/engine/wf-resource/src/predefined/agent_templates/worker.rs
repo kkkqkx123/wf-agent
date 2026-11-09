@@ -89,6 +89,7 @@ pub fn worker_agent_template() -> AgentTemplate {
                 author: Some("system".into()),
                 tags: Some(vec!["builtin".into(), "worker".into()]),
                 category: Some("general".into()),
+                ..Default::default()
             }),
             created_at: t,
             updated_at: t,

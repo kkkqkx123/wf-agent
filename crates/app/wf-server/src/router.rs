@@ -83,6 +83,7 @@ pub fn api_router_with_dirs(
         .merge(api::workflow::drafts::routes())
         // agent loop + profiles + decision surface
         .merge(api::agent::profiles::routes())
+        .merge(api::agent::definitions::routes())
         .merge(api::agent::loops::routes())
         .merge(api::agent::executions::routes())
         .merge(api::agent::graphs::routes())

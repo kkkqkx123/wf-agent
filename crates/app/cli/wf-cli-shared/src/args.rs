@@ -13,7 +13,7 @@ pub use crate::args_execution::ExecutionSub;
 pub use crate::args_llm::{LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmProxySub, LlmTemplateSub};
 pub use crate::args_observe::{AnalysisSub, AuditSub, EventSub, MetricsSub};
 pub use crate::args_remote::RemoteSub;
-pub use crate::args_tooling::{ScriptSub, TemplateSub, ToolSub, TriggerSub};
+pub use crate::args_tooling::{ScriptSub, TemplateSub, TemplateVersionSub, ToolSub, TriggerSub};
 pub use crate::args_workflow::{WorkflowSub, WorkflowVersionSub};
 
 /// wf-agent command line interface: headless run, mini and full TUI modes.

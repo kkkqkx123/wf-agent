@@ -5,7 +5,7 @@ use crate::Id;
 use crate::Timestamp;
 use crate::Version;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct AgentMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
@@ -13,6 +13,19 @@ pub struct AgentMetadata {
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Whether the agent is published to the template library. Unset reads
+    /// as unpublished, so pre-existing definitions keep their visibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<bool>,
+    /// Whether anyone may use the agent from the template library.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_public: Option<bool>,
+    /// Whether the agent is a system fixture rather than a user entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_system: Option<bool>,
+    /// Whether the agent may run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

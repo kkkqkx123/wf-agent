@@ -74,6 +74,7 @@ pub fn explorer_agent_template() -> AgentTemplate {
                 author: Some("system".into()),
                 tags: Some(vec!["builtin".into(), "explorer".into()]),
                 category: Some("exploration".into()),
+                ..Default::default()
             }),
             created_at: t,
             updated_at: t,

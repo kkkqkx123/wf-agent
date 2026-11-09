@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::args::{Cli, TemplateSub};
+use crate::args::{Cli, TemplateSub, TemplateVersionSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
@@ -101,10 +101,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                         .unwrap_or("")
                         .to_string();
                     client
-                        .post_json::<_, serde_json::Value>(
-                            "/api/v1/templates/library/agents",
-                            &template,
-                        )
+                        .post_json::<_, serde_json::Value>("/api/v1/agent-definitions", &template)
                         .await?;
                     let data = serde_json::json!({"registered": id, "kind": "agent"});
                     render_envelope(
@@ -119,11 +116,14 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
+                    // The definition surface owns workflow rows; a template
+                    // file carries the definition inside the wrapper.
+                    let definition = template
+                        .get("definition")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     client
-                        .post_json::<_, serde_json::Value>(
-                            "/api/v1/templates/library/workflows",
-                            &template,
-                        )
+                        .post_json::<_, serde_json::Value>("/api/v1/workflows", &definition)
                         .await?;
                     let data = serde_json::json!({"registered": id, "kind": "workflow"});
                     render_envelope(
@@ -149,15 +149,15 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
             _ => {
-                // A workflow template is the user's own workflow, published:
-                // removing it from the library leaves the workflow in place.
-                let envelope = client
-                    .generated()
-                    .handle_delete_workflow_template(id)
-                    .await
-                    .map_err(wf_client::client::into_typed_client_error)?;
-                let _: serde_json::Value =
-                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+                // Removing a workflow from the library leaves the workflow
+                // in place: the published mark is cleared through the
+                // definition surface.
+                let _: serde_json::Value = client
+                    .post_json(
+                        &format!("/api/v1/workflows/{id}/unpublish"),
+                        &serde_json::json!({}),
+                    )
+                    .await?;
                 let data = serde_json::json!({"removed_from_library": id, "kind": "workflow"});
                 render_envelope(
                     cli.output,
@@ -165,6 +165,43 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
         },
+        TemplateSub::Version { sub } => match sub {
+            TemplateVersionSub::List { id } => {
+                let data: serde_json::Value = client
+                    .get_json(&format!("/api/v1/agent-definitions/{id}/versions"))
+                    .await?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("template-version-list", data).with_entity(id.clone()),
+                )
+            }
+            TemplateVersionSub::Show { id, version } => {
+                let data: serde_json::Value = client
+                    .get_json(&format!(
+                        "/api/v1/agent-definitions/{id}/versions/{version}"
+                    ))
+                    .await?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("template-version-show", data)
+                        .with_entity(format!("{id}:{version}")),
+                )
+            }
+        },
+        TemplateSub::Rollback { id, version } => {
+            let body = serde_json::json!({ "version": version });
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/agent-definitions/{id}/rollback"),
+                    &body,
+                )
+                .await?;
+            let data = serde_json::json!({"agentDefinitionId": id, "rolledBackTo": version});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("template-rollback", data).with_entity(id.clone()),
+            )
+        }
     }
 }
 

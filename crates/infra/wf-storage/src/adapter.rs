@@ -1,9 +1,9 @@
 pub mod adapter_impls;
+pub mod agent;
 pub mod agent_draft;
 pub mod agent_execution;
 pub mod agent_loop;
 pub mod agent_profile;
-pub mod agent_template;
 pub mod base;
 pub mod checkpoint;
 pub mod execution;
@@ -28,11 +28,11 @@ pub mod workflow;
 pub mod workflow_draft;
 
 pub use adapter_impls::*;
+pub use agent::*;
 pub use agent_draft::*;
 pub use agent_execution::*;
 pub use agent_loop::*;
 pub use agent_profile::*;
-pub use agent_template::*;
 pub use base::*;
 pub use checkpoint::*;
 pub use execution::*;

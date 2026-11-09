@@ -196,6 +196,41 @@ pub enum TemplateSub {
         #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent"])]
         kind: String,
     },
+    /// Agent definition version actions.
+    Version {
+        /// Version action.
+        #[command(subcommand)]
+        sub: TemplateVersionSub,
+    },
+    /// Roll an agent definition back to one of its saved versions.
+    Rollback {
+        /// Agent definition id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Version label to roll back to.
+        #[arg(value_name = "VERSION")]
+        version: String,
+    },
+}
+
+/// Agent definition version subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TemplateVersionSub {
+    /// List versions of an agent definition.
+    List {
+        /// Agent definition id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show a specific version.
+    Show {
+        /// Agent definition id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Version label.
+        #[arg(value_name = "VERSION")]
+        version: String,
+    },
 }
 
 /// Trigger subcommands: template registry plus the firing ledger.

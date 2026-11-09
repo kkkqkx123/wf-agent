@@ -72,9 +72,10 @@ pub struct TemplateFilter {
 // ── workflow templates ──────────────────────────────────────────
 
 pub use agent_templates::{
-    delete_agent_template, get_agent_template, list_agent_templates, publish_agent_template,
-    register_agent_template, unpublish_agent_template, update_agent_template,
-    validate_agent_template_definition,
+    delete_agent_template, get_agent_template, library_entry, library_facts, list_agent_templates,
+    publish_agent_template, register_agent_template, unpublish_agent_template,
+    update_agent_definition, update_agent_template, validate_agent_template_definition,
+    AgentLibraryFacts,
 };
 pub use clone::clone_agent_template;
 pub use discovery::{

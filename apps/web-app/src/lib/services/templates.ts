@@ -32,9 +32,11 @@ export {
 	isRunnableTemplate,
 	listFeaturedTemplates,
 	listTemplates,
+	publishAgentTemplate,
 	publishWorkflowTemplate,
 	recordTemplateUsage,
 	saveTemplate,
+	unpublishAgentTemplate,
 	unpublishWorkflowTemplate,
 	type TemplateDetail,
 } from '#lib/services/template-library';

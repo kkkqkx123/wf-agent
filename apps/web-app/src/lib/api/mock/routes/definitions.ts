@@ -35,29 +35,19 @@ const AGENT_VERSIONS = [
 		id: 'triage-agent',
 		name: 'Triage agent',
 		description: 'Reads an incident and proposes the next action.',
-		definition: {
-			id: 'triage-agent',
-			name: 'Triage agent',
-			description: 'Reads an incident and proposes the next action.',
-			version: '0.4.0',
-			config: { system_prompt_template_id: 'incident-triage' },
-			created_at: FIXTURE_EPOCH,
-			updated_at: FIXTURE_EPOCH,
-		},
+		version: '0.4.0',
+		config: { system_prompt_template_id: 'incident-triage' },
+		created_at: FIXTURE_EPOCH,
+		updated_at: FIXTURE_EPOCH,
 	},
 	{
 		id: 'triage-agent',
 		name: 'Triage agent',
 		description: 'Reads an incident and proposes the next action.',
-		definition: {
-			id: 'triage-agent',
-			name: 'Triage agent',
-			description: 'Reads an incident and proposes the next action.',
-			version: '0.3.0',
-			config: { system_prompt_template_id: 'incident-triage' },
-			created_at: FIXTURE_EPOCH,
-			updated_at: FIXTURE_EPOCH,
-		},
+		version: '0.3.0',
+		config: { system_prompt_template_id: 'incident-triage' },
+		created_at: FIXTURE_EPOCH,
+		updated_at: FIXTURE_EPOCH,
 	},
 ];
 
@@ -124,13 +114,13 @@ export function registerDefinitions(router: MockRouter): void {
 	router.on('DELETE', '/api/v1/agents/drafts/{id}', () => true);
 
 	// ---------- agent versions ----------
-	router.on('GET', '/api/v1/templates/library/agents/{id}/versions', () =>
+	router.on('GET', '/api/v1/agent-definitions/{id}/versions', () =>
 		camelToSnakeDeep(AGENT_VERSIONS),
 	);
-	router.on('GET', '/api/v1/templates/library/agents/{id}/versions/{version}', () =>
-		camelToSnakeDeep(AGENT_VERSIONS[0].definition),
+	router.on('GET', '/api/v1/agent-definitions/{id}/versions/{version}', () =>
+		camelToSnakeDeep(AGENT_VERSIONS[0]),
 	);
-	router.on('POST', '/api/v1/templates/library/agents/{id}/rollback', () => ({}));
+	router.on('POST', '/api/v1/agent-definitions/{id}/rollback', () => ({}));
 
 	// ---------- agent edit lock ----------
 	// Preview has no concurrent editors, so the lease is always free until

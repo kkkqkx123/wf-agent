@@ -157,33 +157,22 @@ pub fn validate_agent_definition(
     Ok(result.warnings)
 }
 
-/// Formal save of an agent definition into the template registry.
-/// Shape plus reference closure must pass; warnings allow registration.
-/// The template is persisted before being registered so restarts keep it.
+/// Formal save of an agent definition: shape plus reference closure must
+/// pass; warnings allow registration. The definition row is persisted
+/// before its registry view is refreshed so restarts keep it.
 pub async fn save_agent_template(
     ctx: &ApiContext,
     definition: &wf_types::agent::AgentDefinition,
 ) -> crate::ApiResult<Vec<wf_types::ValidationError>> {
     let warnings = validate_agent_definition(ctx, definition)?;
-    let template = wf_types::agent::AgentTemplate {
-        id: definition.id.clone(),
-        name: definition.name.clone(),
-        description: definition.description.clone().unwrap_or_default(),
-        definition: definition.clone(),
-        template_category: None,
-        template_tags: None,
-        is_public: None,
-        is_system: None,
-        enabled: None,
-        is_published: None,
-    };
     ctx.storage
-        .agent_template
-        .save(&template)
+        .agent
+        .save(definition)
         .await
         .map_err(crate::ApiError::from)?;
+    let entry = crate::template::template_library::library_entry(&ctx.registries, definition);
     ctx.registries
-        .upsert_agent_template(template)
+        .upsert_agent_template(entry)
         .map_err(crate::ApiError::Conflict)?;
     Ok(warnings)
 }

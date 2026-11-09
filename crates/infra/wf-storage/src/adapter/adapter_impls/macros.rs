@@ -1,8 +1,8 @@
+use crate::adapter::agent::AgentListOptions;
 use crate::adapter::agent_draft::AgentDraftListOptions;
 use crate::adapter::agent_execution::AgentExecutionListOptions;
 use crate::adapter::agent_loop::AgentLoopListOptions;
 use crate::adapter::agent_profile::AgentProfileListOptions;
-use crate::adapter::agent_template::AgentTemplateListOptions;
 use crate::adapter::checkpoint::CheckpointListOptions;
 use crate::adapter::execution::WorkflowExecutionListOptions;
 use crate::adapter::message::MessageListOptions;
@@ -68,9 +68,9 @@ make_base_adapter!(
     ToolDefinitionListOptions
 );
 make_base_adapter!(
-    AgentTemplateStorage,
-    wf_types::agent::AgentTemplate,
-    AgentTemplateListOptions
+    AgentStorage,
+    wf_types::agent::AgentDefinition,
+    AgentListOptions
 );
 make_base_adapter!(
     ScriptStorage,

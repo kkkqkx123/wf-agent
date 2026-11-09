@@ -39,24 +39,6 @@ impl Entity for wf_types::agent::AgentDefinition {
     }
 }
 
-impl Entity for wf_types::agent::AgentTemplate {
-    type Metadata = Value;
-
-    fn entity_id(&self) -> &str {
-        &self.id
-    }
-
-    fn entity_type() -> &'static str {
-        "agent_template"
-    }
-
-    fn metadata(&self) -> Self::Metadata {
-        serde_json::json!({
-            "name": self.name,
-        })
-    }
-}
-
 /// Metadata keys shared by both execution record types.
 ///
 /// The hierarchy is stored forward-only as one materialised path: an execution

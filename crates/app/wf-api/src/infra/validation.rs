@@ -97,9 +97,9 @@ pub async fn build_validation_context(ctx: &ApiContext) -> ValidationContext {
     for id in ctx.registries.agent_templates.list() {
         agent_ids.insert(id.clone());
     }
-    if let Ok(stored) = ctx.storage.agent_template.list(None).await {
-        for template in &stored {
-            agent_ids.insert(template.id.to_string());
+    if let Ok(stored) = ctx.storage.agent.list(None).await {
+        for definition in &stored {
+            agent_ids.insert(definition.id.to_string());
         }
     }
 

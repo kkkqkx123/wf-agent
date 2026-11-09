@@ -1,5 +1,5 @@
 use wf_core::registry::Registry;
-use wf_storage::adapter::agent_template::AgentTemplateStorageAdapter;
+use wf_storage::adapter::agent::AgentStorageAdapter;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiResult};
@@ -9,12 +9,12 @@ use super::*;
 pub async fn list_agent_template_versions(
     ctx: &ApiContext,
     id: &str,
-) -> ApiResult<Vec<wf_types::agent::AgentTemplate>> {
+) -> ApiResult<Vec<wf_types::agent::AgentDefinition>> {
     if !ctx.registries.agent_templates.has(id) {
         return Err(not_found("agent_template", id));
     }
     ctx.storage
-        .agent_template
+        .agent
         .list_versions(id)
         .await
         .map_err(crate::ApiError::from)
@@ -24,9 +24,9 @@ pub async fn get_agent_template_version(
     ctx: &ApiContext,
     id: &str,
     version: &str,
-) -> ApiResult<wf_types::agent::AgentTemplate> {
+) -> ApiResult<wf_types::agent::AgentDefinition> {
     ctx.storage
-        .agent_template
+        .agent
         .load_version(id, version)
         .await
         .map_err(crate::ApiError::from)?
@@ -37,17 +37,17 @@ pub async fn save_agent_template_version(
     ctx: &ApiContext,
     id: &str,
     version: &str,
-    template: &wf_types::agent::AgentTemplate,
+    definition: &wf_types::agent::AgentDefinition,
 ) -> ApiResult<()> {
     ctx.storage
-        .agent_template
-        .save_version(id, version, template)
+        .agent
+        .save_version(id, version, definition)
         .await
         .map_err(crate::ApiError::from)
 }
 
 pub async fn rollback_agent_template(ctx: &ApiContext, id: &str, version: &str) -> ApiResult<()> {
-    let template = get_agent_template_version(ctx, id, version).await?;
+    let definition = get_agent_template_version(ctx, id, version).await?;
     if let Ok(current) = get_agent_template(ctx, id) {
         let base = current
             .definition
@@ -61,15 +61,15 @@ pub async fn rollback_agent_template(ctx: &ApiContext, id: &str, version: &str) 
         };
         let _ = ctx
             .storage
-            .agent_template
-            .save_version(id, &label, &current)
+            .agent
+            .save_version(id, &label, &current.definition)
             .await;
     }
-    update_agent_template(ctx, &template).await?;
+    update_agent_definition(ctx, &definition).await?;
     Ok(())
 }
 
-/// Delete one version snapshot; the formal template is untouched.
+/// Delete one version snapshot; the formal definition is untouched.
 pub async fn delete_agent_template_version(
     ctx: &ApiContext,
     id: &str,
@@ -77,7 +77,7 @@ pub async fn delete_agent_template_version(
 ) -> ApiResult<bool> {
     get_agent_template_version(ctx, id, version).await?;
     ctx.storage
-        .agent_template
+        .agent
         .delete_version(id, version)
         .await
         .map_err(crate::ApiError::from)?;

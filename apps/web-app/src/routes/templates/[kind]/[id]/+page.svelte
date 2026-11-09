@@ -16,7 +16,9 @@
 	import DefinitionCapabilities from '#lib/components/domain/DefinitionCapabilities.svelte';
 	import {
 		getTemplateDetail,
+		publishAgentTemplate,
 		publishWorkflowTemplate,
+		unpublishAgentTemplate,
 		unpublishWorkflowTemplate,
 		type TemplateDetail,
 	} from '#lib/services/templates';
@@ -174,27 +176,33 @@
 		return () => window.removeEventListener('beforeunload', onBeforeUnload);
 	});
 
-	/**
-	 * Publish the workflow to the library or take it back out of it. The
+	/** Publish the definition to the library or take it back out of it. The
 	 * published mark belongs to the definition, so the entry is re-read
-	 * afterwards to show the state that was stored.
-	 */
+	 * afterwards to show the state that was stored. */
 	async function runTogglePublish(): Promise<void> {
 		const id = routeIdParam;
-		if (!id || kind !== 'workflow' || publishBusy) return;
+		if (!id || (kind !== 'workflow' && kind !== 'agent') || publishBusy) return;
 		publishBusy = true;
 		try {
 			if (published) {
-				await unpublishWorkflowTemplate(id);
+				if (kind === 'agent') {
+					await unpublishAgentTemplate(id);
+				} else {
+					await unpublishWorkflowTemplate(id);
+				}
 				toasts.success(t('page.templateDetail.unpublished'));
 			} else {
-				await publishWorkflowTemplate(id);
+				if (kind === 'agent') {
+					await publishAgentTemplate(id);
+				} else {
+					await publishWorkflowTemplate(id);
+				}
 				toasts.success(t('page.templateDetail.published'));
 			}
 			// The address carries the view the user is on; re-reading it
 			// keeps that view instead of dropping back to the preview.
 			const viewParam = parseListParams(page.url as unknown as URL).tab;
-			await loadDetail('workflow', id, isView(viewParam) ? viewParam : 'preview');
+			await loadDetail(kind, id, isView(viewParam) ? viewParam : 'preview');
 		} catch (e) {
 			toasts.error(
 				t('page.templateDetail.publishFailed'),
@@ -244,7 +252,7 @@
 					Insert as {controller.insertNodeType}
 				</Button>
 			{/if}
-			{#if kind === 'workflow' && !isNew && detail}
+			{#if (kind === 'workflow' || kind === 'agent') && !isNew && detail}
 				<Button
 					variant="outline"
 					size="sm"

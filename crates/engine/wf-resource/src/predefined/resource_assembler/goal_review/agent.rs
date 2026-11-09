@@ -63,6 +63,7 @@ pub fn goal_review_executor() -> AgentTemplate {
                 author: Some("system".into()),
                 tags: Some(vec!["goal-review".into(), "executor".into()]),
                 category: Some("code-review".into()),
+                ..Default::default()
             }),
             created_at: t,
             updated_at: t,
@@ -130,6 +131,7 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                 author: Some("system".into()),
                 tags: Some(vec!["goal-review".into(), "reviewer".into()]),
                 category: Some("code-review".into()),
+                ..Default::default()
             }),
             created_at: t,
             updated_at: t,

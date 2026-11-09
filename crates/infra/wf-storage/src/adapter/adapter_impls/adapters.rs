@@ -2,11 +2,11 @@ use super::macros::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
+use crate::adapter::agent::AgentStorageAdapter;
 use crate::adapter::agent_draft::AgentDraftStorageAdapter;
 use crate::adapter::agent_execution::AgentExecutionStorageAdapter;
 use crate::adapter::agent_loop::AgentLoopStorageAdapter;
 use crate::adapter::agent_profile::AgentProfileStorageAdapter;
-use crate::adapter::agent_template::AgentTemplateStorageAdapter;
 use crate::adapter::base::BaseStorageAdapter;
 use crate::adapter::checkpoint::CheckpointStorageAdapter;
 use crate::adapter::execution::WorkflowExecutionStorageAdapter;
@@ -94,23 +94,23 @@ impl<S: Store + StoreExt> WorkflowStorageAdapter for WorkflowStorage<S> {
     }
 }
 
-// ─── AgentTemplateStorageAdapter (version support) ───
+// ─── AgentStorageAdapter (version support) ───
 
-impl<S: Store + StoreExt> AgentTemplateStorageAdapter for AgentTemplateStorage<S> {
+impl<S: Store + StoreExt> AgentStorageAdapter for AgentStorage<S> {
     async fn save_version(
         &self,
         agent_id: &str,
         version: &str,
-        template: &wf_types::agent::AgentTemplate,
+        definition: &wf_types::agent::AgentDefinition,
     ) -> Result<(), StorageError> {
         let composite_id = format!("{}:v{}", agent_id, version);
-        let data = serde_json::to_vec(template)?;
+        let data = serde_json::to_vec(definition)?;
         let metadata = serde_json::json!({
-            "entityType": "agent_template",
+            "entityType": "agent_definition",
             "agentId": agent_id,
             "version": version,
             "compressed": false,
-            "name": template.name,
+            "name": definition.name,
         });
         self.store().save(&composite_id, &data, &metadata).await
     }
@@ -118,7 +118,7 @@ impl<S: Store + StoreExt> AgentTemplateStorageAdapter for AgentTemplateStorage<S
     async fn list_versions(
         &self,
         agent_id: &str,
-    ) -> Result<Vec<wf_types::agent::AgentTemplate>, StorageError> {
+    ) -> Result<Vec<wf_types::agent::AgentDefinition>, StorageError> {
         let prefix = format!("{}:v", agent_id);
         let filter = QueryFilter::new().with_id_prefix(&prefix);
         self.entity_store.list(Some(&filter)).await
@@ -128,7 +128,7 @@ impl<S: Store + StoreExt> AgentTemplateStorageAdapter for AgentTemplateStorage<S
         &self,
         agent_id: &str,
         version: &str,
-    ) -> Result<Option<wf_types::agent::AgentTemplate>, StorageError> {
+    ) -> Result<Option<wf_types::agent::AgentDefinition>, StorageError> {
         let composite_id = format!("{}:v{}", agent_id, version);
         self.entity_store.load(&composite_id).await
     }

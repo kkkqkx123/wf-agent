@@ -279,20 +279,24 @@ async fn snapshot_workflow_version(ctx: &ApiContext, id: &str) {
     let _ = crate::workflow::version::save_workflow_version(ctx, id, &label, &current).await;
 }
 
-/// Snapshot the formal agent template in place, so the promotion can be
+/// Snapshot the formal agent definition in place, so the promotion can be
 /// undone.
 async fn snapshot_agent_version(ctx: &ApiContext, id: &str) {
-    let Ok(current) = crate::template::template_library::get_agent_template(ctx, id) else {
+    let Ok(view) = crate::template::template_library::get_agent_template(ctx, id) else {
         return;
     };
-    let label = current
+    let label = view
         .definition
         .version
         .clone()
         .unwrap_or_else(|| format!("pre-promote-{}", wf_common::now()));
-    let _ =
-        crate::template::template_library::save_agent_template_version(ctx, id, &label, &current)
-            .await;
+    let _ = crate::template::template_library::save_agent_template_version(
+        ctx,
+        id,
+        &label,
+        &view.definition,
+    )
+    .await;
 }
 
 /// Snapshot the formal node template in place, so the promotion can be

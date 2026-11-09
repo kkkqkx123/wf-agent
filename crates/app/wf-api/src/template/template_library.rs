@@ -71,6 +71,7 @@ pub struct TemplateFilter {
 
 // ── workflow templates ──────────────────────────────────────────
 
+pub(crate) use agent_templates::load_definition;
 pub use agent_templates::{
     delete_agent_template, get_agent_template, library_entry, library_facts, list_agent_templates,
     publish_agent_template, register_agent_template, unpublish_agent_template,

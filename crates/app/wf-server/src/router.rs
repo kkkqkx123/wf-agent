@@ -126,7 +126,7 @@ pub fn api_router_with_dirs(
         .merge(api::template::trigger_drafts::routes())
         .merge(api::template::trigger_versions::routes())
         .merge(api::template::locks::routes())
-        .merge(api::template::queries::routes())
+        // template library (unified discovery + instantiation)
         .merge(api::template::library::routes())
         // entity domain (low-level storage CRUD + interactions + skills)
         .merge(api::entity::messages::routes())

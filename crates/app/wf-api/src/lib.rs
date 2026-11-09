@@ -140,10 +140,10 @@ pub use query::{
     ExportFormat, FilterCriteria, FilterExpression, FilterOperator, PaginationOptions,
     QueryBuilder, SortOptions,
 };
-pub use template::agent_template::AgentTemplateFilter;
 pub use template::builder::NodeTemplateBuilder;
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};
+pub use template::AgentTemplateFilter;
 pub use trigger::builder::TriggerTemplateBuilder;
 pub use trigger::template::{AgentTriggerTemplateFilter, AgentTriggerTemplateSummary};
 pub use trigger::validation::TriggerValidator;

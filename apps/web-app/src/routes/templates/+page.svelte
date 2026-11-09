@@ -23,7 +23,7 @@
 		listTemplates,
 		recordTemplateUsage,
 	} from '#lib/services/templates';
-	import { cloneWorkflow, listWorkflows } from '#lib/services/workflows';
+	import { cloneWorkflow } from '#lib/services/workflows';
 	import type { Template, TemplateKind } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatNumber } from '#lib/utils/format';
@@ -67,8 +67,9 @@
 	let importBusy = $state(false);
 
 	async function reload(): Promise<void> {
-		// Clones and imports re-read after the write; keep old cards on
-		// screen while the refetch runs.
+		// Browse-only discovery: the unified library is the single source
+		// of cards. Definitions that were never published are managed on
+		// their own domain pages, never merged in here.
 		const background = templates.length > 0;
 		if (background) {
 			refreshing = true;
@@ -77,28 +78,12 @@
 			listError = null;
 		}
 		try {
-			const [all, featured, workflowPage] = await Promise.all([
+			const [all, featured] = await Promise.all([
 				listTemplates({ kind: 'all' }),
 				listFeaturedTemplates(),
-				listWorkflows({ limit: 200 }).catch(() => ({ items: [], total: 0 })),
 			]);
 			featuredIds = new Set(featured.map((t) => t.id));
-			const seen = new Set(all.map((t) => `${t.kind}:${t.id}`));
-			const workflowTemplates: Template[] = workflowPage.items
-				.filter((w) => !seen.has(`workflow:${w.id}`))
-				.map((w) => ({
-					id: w.id,
-					name: w.name,
-					kind: 'workflow' as const,
-					category: w.category,
-					description: w.description,
-					usage: 0,
-					featured: featuredIds.has(w.id),
-					tags: w.tags,
-					published: w.published,
-					author: w.author,
-				}));
-			templates = [...all, ...workflowTemplates].map((t) => ({
+			templates = all.map((t) => ({
 				...t,
 				featured: t.featured || featuredIds.has(t.id),
 			}));

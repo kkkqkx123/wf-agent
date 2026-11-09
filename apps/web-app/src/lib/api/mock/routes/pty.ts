@@ -27,7 +27,7 @@ export function registerPty(router: MockRouter): void {
 		const only = String((query as Record<string, unknown>).persistent_only ?? '').toLowerCase();
 		const sessions = listSessions();
 		if (only === 'true' || only === '1') {
-			return (sessions as Array<Record<string, unknown>>).filter((s) => s.persistent === true);
+			return (sessions as unknown as Array<Record<string, unknown>>).filter((s) => s.persistent === true);
 		}
 		return sessions;
 	});

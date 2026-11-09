@@ -48,9 +48,8 @@ pub async fn save_agent_template_version(
 
 pub async fn rollback_agent_template(ctx: &ApiContext, id: &str, version: &str) -> ApiResult<()> {
     let definition = get_agent_template_version(ctx, id, version).await?;
-    if let Ok(current) = get_agent_template(ctx, id) {
+    if let Ok(current) = load_definition(ctx, id).await {
         let base = current
-            .definition
             .version
             .clone()
             .unwrap_or_else(|| format!("pre-rollback-{}", version));
@@ -59,11 +58,7 @@ pub async fn rollback_agent_template(ctx: &ApiContext, id: &str, version: &str) 
             Ok(_) => format!("{}-{}", base, wf_common::now()),
             Err(other) => return Err(other),
         };
-        let _ = ctx
-            .storage
-            .agent
-            .save_version(id, &label, &current.definition)
-            .await;
+        let _ = ctx.storage.agent.save_version(id, &label, &current).await;
     }
     update_agent_definition(ctx, &definition).await?;
     Ok(())

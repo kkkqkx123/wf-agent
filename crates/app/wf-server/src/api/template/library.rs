@@ -233,18 +233,20 @@ pub(crate) async fn handle_clone_template(
     Json(body): Json<CloneTemplateBody>,
 ) -> impl IntoResponse {
     let new_name = body.new_name.unwrap_or_default();
-    let result: Result<serde_json::Value, wf_api::ApiError> = if body.kind == "agent" {
+    // Every kind answers the new entry id; the envelope below adds the
+    // kind, so callers never branch on the payload shape.
+    let result: Result<String, wf_api::ApiError> = if body.kind == "agent" {
         wf_api::template::template_library::clone_agent_template(&state.ctx, &path.id, &new_name)
             .await
-            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+            .map(|t| t.id.to_string())
     } else if body.kind == "node" {
         wf_api::template::node_template::clone_template(&state.ctx, &path.id, &new_name)
             .await
-            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+            .map(|t| t.id.to_string())
     } else if body.kind == "trigger" {
         wf_api::trigger::template::clone_template(&state.ctx, &path.id, &new_name)
             .await
-            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+            .map(|t| t.id.to_string())
     } else if body.kind == "workflow" {
         let new_id = if new_name.is_empty() {
             None
@@ -253,7 +255,7 @@ pub(crate) async fn handle_clone_template(
         };
         wf_api::workflow::clone_workflow(&state.ctx, &path.id, new_id)
             .await
-            .map(|id| serde_json::json!({"id": id}))
+            .map(|id| id.to_string())
             .map_err(Into::into)
     } else {
         Err(wf_api::ApiError::Validation(format!(
@@ -262,7 +264,7 @@ pub(crate) async fn handle_clone_template(
         )))
     };
     match result {
-        Ok(template) => ok(template).into_response(),
+        Ok(id) => ok(serde_json::json!({"id": id, "kind": body.kind})).into_response(),
         Err(e) => error_response(e),
     }
 }

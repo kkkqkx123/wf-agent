@@ -126,6 +126,9 @@
 
 	// Version runs are created in the execution workbench: this panel
 	// only deep-links there with the definition and version prefilled.
+	// Fragments cannot run on their own, so only executable definitions
+	// offer the jump.
+	const canRunVersion = $derived(kind === 'workflow' || kind === 'agent');
 	async function goToVersionRun(): Promise<void> {
 		if (!runTarget) return;
 		const target =
@@ -276,7 +279,7 @@
 		</div>
 	</Card>
 	<Card title={t('domain.versions.runTitle')}>
-		{#if kind === 'workflow'}
+		{#if canRunVersion}
 			<div class="flex flex-wrap items-end gap-2">
 				<Select
 					bind:value={runTarget}

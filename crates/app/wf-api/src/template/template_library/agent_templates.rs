@@ -138,22 +138,22 @@ async fn validate_definition(ctx: &ApiContext, definition: &AgentDefinition) -> 
         .map(|_| ())
 }
 
-/// Replace the persisted definition of a registered agent in place.
-/// Used by publish, unpublish and rollback, which mutate the definition
-/// rather than a caller-supplied template.
+/// Replace the persisted definition of an agent in place. The stored row
+/// is the gate: a definition that was never stored cannot be updated.
+/// A missing registry view is rebuilt by the persist path, so storage
+/// existence alone allows the write.
 pub async fn update_agent_definition(
     ctx: &ApiContext,
     definition: &AgentDefinition,
 ) -> ApiResult<()> {
-    if !ctx.registries.agent_templates.has(&definition.id) {
-        return Err(not_found("agent_template", &definition.id.to_string()));
-    }
+    load_definition(ctx, &definition.id).await?;
     validate_definition(ctx, definition).await?;
     persist_definition(ctx, definition).await
 }
 
-/// Load the persisted definition behind a registered agent.
-async fn load_definition(ctx: &ApiContext, id: &str) -> ApiResult<AgentDefinition> {
+/// Load the persisted definition behind an agent. Crate-visible so
+/// version rollback snapshots the stored row rather than the registry view.
+pub(crate) async fn load_definition(ctx: &ApiContext, id: &str) -> ApiResult<AgentDefinition> {
     ctx.storage
         .agent
         .load(id)

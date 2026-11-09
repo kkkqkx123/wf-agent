@@ -13,6 +13,8 @@
 		promoteDefinitionDraft,
 		validateDefinitionDraft,
 	} from '#lib/services/definitions';
+	import { getWorkflowGraph } from '#lib/services/workflows';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import type { DefinitionDraft, DefinitionKind, DefinitionVersion } from '#lib/types/models';
@@ -33,6 +35,8 @@
 
 	let drafts = $state<DefinitionDraft[]>([]);
 	let versions = $state<DefinitionVersion[]>([]);
+	let nodes = $state<DisplayNode[]>([]);
+	let edges = $state<DisplayEdge[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 
@@ -46,6 +50,36 @@
 			]);
 			drafts = loadedDrafts;
 			versions = loadedVersions;
+			// Only a workflow has a graph to diff; other kinds compare
+			// the fields that changed.
+			if (kind === 'workflow') {
+				try {
+					const graph = await getWorkflowGraph(definitionId);
+					// The workflow service speaks graph nodes and edges;
+				// the diff view speaks display nodes and edges.
+					nodes = graph.nodes.map((node) => ({
+						id: node.id,
+						label: node.label,
+						kind: node.kind,
+						status: node.status,
+						iteration: node.iteration,
+					}));
+					edges = graph.edges.map((edge) => ({
+						id: edge.id,
+						source: edge.from,
+						target: edge.to,
+						label: edge.label,
+						kind: edge.kind,
+						taken: edge.taken,
+					}));
+				} catch {
+					nodes = [];
+					edges = [];
+				}
+			} else {
+				nodes = [];
+				edges = [];
+			}
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : t('domain.definition.loadFailed');
 		} finally {
@@ -152,8 +186,8 @@
 			{kind}
 			{definitionId}
 			{versions}
-			nodes={[]}
-			edges={[]}
+			{nodes}
+			{edges}
 			onchanged={() => void load()}
 		/>
 

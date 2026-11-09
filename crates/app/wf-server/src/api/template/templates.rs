@@ -661,12 +661,7 @@ mod tests {
         for uri in [
             "/api/v1/templates/node",
             "/api/v1/templates/trigger",
-            "/api/v1/templates/agent-trigger",
-            "/api/v1/templates/agent-trigger/summaries",
-            "/api/v1/templates/agent",
-            "/api/v1/templates/agent/summaries",
-            "/api/v1/templates/agent/featured",
-            "/api/v1/templates/agent/popular",
+            "/api/v1/agent-definitions",
             "/api/v1/templates/library",
             "/api/v1/templates/library/featured",
             "/api/v1/templates/library/popular",

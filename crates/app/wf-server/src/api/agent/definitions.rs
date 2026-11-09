@@ -21,10 +21,6 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_list_agent_templates).post(handle_register_agent_template),
         )
         .route(
-            "/agent-definitions/count",
-            get(handle_count_agent_templates),
-        )
-        .route(
             "/agent-definitions/import",
             post(handle_import_agent_template),
         )
@@ -176,47 +172,6 @@ pub(crate) async fn handle_list_agent_templates(
                 })
                 .collect();
             ok(page_registry(filtered, query.limit, query.offset)).into_response()
-        }
-        Err(e) => error_response(e),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/agent-definitions/count",
-    tag = "agent",
-    params(RegistryListQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::template::templates::TemplateCountView>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("api_key" = []))
-)]
-pub(crate) async fn handle_count_agent_templates(
-    State(state): State<ApiState>,
-    Query(query): Query<RegistryListQuery>,
-) -> impl IntoResponse {
-    match wf_api::template::template_library::list_agent_templates(&state.ctx) {
-        Ok(templates) => {
-            let count = templates
-                .iter()
-                .filter(|t| {
-                    let category = t.template_category.as_deref().or_else(|| {
-                        t.definition
-                            .metadata
-                            .as_ref()
-                            .and_then(|m| m.category.as_deref())
-                    });
-                    let tags = t
-                        .template_tags
-                        .as_ref()
-                        .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref()));
-                    let author = t
-                        .definition
-                        .metadata
-                        .as_ref()
-                        .and_then(|m| m.author.as_deref());
-                    query.matches(&t.name, category, tags.map(|v| v.as_slice()), author)
-                })
-                .count();
-            ok(crate::api::template::templates::TemplateCountView { count }).into_response()
         }
         Err(e) => error_response(e),
     }

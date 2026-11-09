@@ -1,4 +1,5 @@
 import { client } from '#lib/api/client';
+import type { components } from '#lib/api/schema';
 import { call, extractCursorPage, extractPage, requireData } from '#lib/api/envelope';
 import type { CursorPageResult, PageResult } from '#lib/api/envelope';
 import type {
@@ -759,7 +760,7 @@ export interface ForkLoopInput extends RunLoopInput {
     checkpointId?: string;
 }
 
-function forkBody(input: ForkLoopInput): Record<string, unknown> {
+function forkBody(input: ForkLoopInput): components['schemas']['ForkLoopBody'] {
     const message = assertAgentMessage(input.message);
     const model = assertAgentModel(input.model);
     const fileScope = assertFileScope(input.fileScope ?? null);

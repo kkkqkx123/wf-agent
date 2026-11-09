@@ -150,31 +150,29 @@ impl AgentLoopHandler {
             },
         );
 
-        // Explicit notice when discoverable tools exist but the general
-        // proxy cannot be injected (closed pool without `general` or the
-        // tool not registered). Silent non-injection would leave the tools
-        // unreachable without explanation.
-        if !settings.discoverable_tool_names.is_empty() {
-            let pool_blocks_general = !settings.available_is_unset
-                && !settings.available_tool_names.iter().any(|n| n == "general");
-            let general_registered = ctx
-                .tool_registry
-                .as_deref()
-                .is_some_and(|r| r.list_tools().iter().any(|t| t.name == "general"));
-            if pool_blocks_general || !general_registered {
-                let reason = if pool_blocks_general {
-                    "the available pool excludes the general proxy"
-                } else {
-                    "the general proxy is not registered"
-                };
-                initial_conversation.push(wf_execution_shared::agent_prompt::tool_change_message(
-                    format!(
-                        "[Tool Change]\n- Discoverable tools temporarily unreachable ({}): {}",
-                        reason,
-                        settings.discoverable_tool_names.join(", ")
-                    ),
-                ));
-            }
+        // Consolidated blocked notice: interception keeps the declaration
+        // array unchanged, so the loop entry adds one explicit do-not-retry
+        // summary for the current blocked set. Unreachable-discoverable and
+        // activation notices are owned by the coordinator merge, which
+        // covers every entry path. The notice is a user-role tail message,
+        // so it stays next to the latest input without churning the
+        // system prefix.
+        let mut blocked: Vec<String> = wf_agent::visibility::collect_blocked_tools(&ctx.variables)
+            .into_iter()
+            .collect();
+        blocked.sort();
+        if !blocked.is_empty()
+            && !(settings.available_tool_names.is_empty()
+                && settings.initial_tool_names.is_empty()
+                && settings.discoverable_tool_names.is_empty()
+                && !settings.available_is_unset)
+        {
+            initial_conversation.push(wf_execution_shared::agent_prompt::tool_change_message(
+                format!(
+                    "[Tool Change]\n- Blocked tools (declared but not executable, do not retry): {}",
+                    blocked.join(", ")
+                ),
+            ));
         }
 
         let message = settings.input_text.clone();
@@ -230,8 +228,8 @@ impl AgentLoopHandler {
         // Shared fail-fast gate with the direct agent entry: unknown names,
         // pool-external entries and contradictory buckets surface here
         // instead of failing piecemeal at first tool call. Without a tool
-        // registry there is nothing to resolve against, so the check is
-        // skipped exactly like the boundary normalization below.
+        // registry only the registry-free shape checks run, so blank
+        // names, duplicates and pool-external entries still fail fast.
         if let Some(registry) = ctx.tool_registry.as_deref() {
             if let Err(errors) =
                 wf_agent::validation::AgentLoopValidator::validate_or_fail(&loop_config, registry)
@@ -250,6 +248,20 @@ impl AgentLoopHandler {
                     detail,
                 });
             }
+        } else if let Err(errors) = wf_agent::validation::validate_or_fail_syntax(&loop_config) {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(crate::error::WorkflowError::ConfigError {
+                node_id: ctx.node_id.to_string(),
+                field: errors
+                    .first()
+                    .map(|e| e.field.clone())
+                    .unwrap_or_else(|| "agent_loop".to_string()),
+                detail,
+            });
         }
 
         let loop_input = AgentLoopInput {

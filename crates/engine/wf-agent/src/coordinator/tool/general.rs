@@ -70,7 +70,7 @@ impl GeneralToolContext {
         };
         let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry: self.ctx.registry.as_ref(),
-            available_names: self.entity.available_tool_names(),
+            available: self.entity.available_pool(),
             initial_names: self.entity.initial_tool_names(),
             discoverable_names: self.entity.discoverable_tool_names(),
             hidden_names: self.entity.hidden_tool_names(),

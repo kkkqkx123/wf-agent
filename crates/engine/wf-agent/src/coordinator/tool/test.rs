@@ -481,7 +481,7 @@ async fn test_visibility_gate_blocks_tool() {
 
     assert_eq!(executed.load(Ordering::SeqCst), 0);
     assert_eq!(messages.len(), 1);
-    assert!(text_of(&messages[0]).contains("not visible"));
+    assert!(text_of(&messages[0]).contains("do not retry"));
 }
 
 fn mock_failing_registry() -> Arc<ToolRegistry> {
@@ -1084,7 +1084,7 @@ async fn test_general_blocked_tool_rejected_by_pipeline() {
     assert!(
         denied
             .get("error")
-            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("not visible"))),
+            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("do not retry"))),
         "visibility denial: {denied}"
     );
 }

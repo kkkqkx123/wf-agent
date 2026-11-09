@@ -105,11 +105,11 @@ mod tests {
         ]);
         let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry: &registry,
-            available_names: &[
+            available: wf_tools::AvailablePool::Explicit(&[
                 "alpha".to_string(),
                 "web_search".to_string(),
                 "general".to_string(),
-            ],
+            ]),
             initial_names: &["alpha".to_string()],
             discoverable_names: &["web_search".to_string()],
             hidden_names: &[],
@@ -133,7 +133,7 @@ mod tests {
         ]);
         let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry: &registry,
-            available_names: &["rag_search".to_string()],
+            available: wf_tools::AvailablePool::Explicit(&["rag_search".to_string()]),
             initial_names: &["rag_search".to_string()],
             discoverable_names: &[],
             hidden_names: &[],

@@ -51,6 +51,9 @@ fn registered_echo_tool() -> Arc<ToolRegistry> {
 
 #[tokio::test]
 async fn agent_loop_runs_mock_driven_iterations() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",

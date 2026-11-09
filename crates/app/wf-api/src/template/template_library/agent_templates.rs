@@ -237,12 +237,14 @@ pub async fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> 
     Ok(())
 }
 
-/// Replace an agent template in place. The stored row is the gate: a
-/// definition that was never stored cannot be updated. A missing registry
-/// view is rebuilt by the persist path, so storage existence alone allows
-/// the write.
+/// Replace an agent template in place. Either a registry view or a stored
+/// row proves the template exists: registry-seeded templates carry no
+/// stored row yet, while a missing registry view is rebuilt by the persist
+/// path, so each source alone allows the write.
 pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
-    load_definition(ctx, &template.id).await?;
+    if !ctx.registries.agent_templates.has(&template.id) {
+        load_definition(ctx, &template.id).await?;
+    }
     validate_agent_template_definition(ctx, template)
         .await
         .map(|_| ())?;

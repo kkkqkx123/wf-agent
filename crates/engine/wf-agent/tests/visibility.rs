@@ -149,7 +149,7 @@ async fn blocked_tool_is_rejected_without_execution() {
     let texts = tool_texts(&output.conversation);
     assert_eq!(texts.len(), 1);
     assert!(
-        texts[0].contains("not visible") || texts[0].contains("unavailable"),
+        texts[0].contains("do not retry") || texts[0].contains("blocked"),
         "visibility denial surfaces in the tool message: {}",
         texts[0]
     );

@@ -291,7 +291,7 @@ pub use wf_tools::tool_description_generator::{
     DescriptionStyle, DiscoverableMetadataOptions, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
 };
 pub use wf_tools::tool_exposure::{
-    is_tool_callable, resolve_tool_exposure, ExposureInput, ExposureResolution,
+    is_tool_callable, resolve_tool_exposure, AvailablePool, ExposureInput, ExposureResolution,
 };
 pub use wf_tools::tool_schema_formatter::ToolSchemaFormatter;
 

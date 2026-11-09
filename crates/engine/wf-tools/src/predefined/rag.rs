@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn exposure_keeps_tool_directly_visible() {
-        use crate::tool_exposure::{resolve_tool_exposure, ExposureInput};
+        use crate::tool_exposure::{resolve_tool_exposure, AvailablePool, ExposureInput};
         use std::collections::HashSet;
         let registry = ToolRegistry::new();
         register(&registry, &RagToolConfig::default()).expect("register");
@@ -384,7 +384,7 @@ mod tests {
         let empty_overrides = HashMap::new();
         let resolution = resolve_tool_exposure(ExposureInput {
             registry: &registry,
-            available_names: &available,
+            available: AvailablePool::Explicit(&available),
             initial_names: &[],
             discoverable_names: &empty_names,
             hidden_names: &empty_names,

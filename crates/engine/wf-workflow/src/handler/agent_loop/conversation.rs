@@ -37,38 +37,11 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
         }
     }
 
-    // Import `tool_visibility` system announcements (TOOL_VISIBILITY node
-    // tail messages) so formal activation is visible in the agent loop.
-    let announcements: Vec<Message> =
-        message_context::get_context(&ctx.variables, message_context::DEFAULT_CONTEXT_ID)
-            .into_iter()
-            .filter(|m| {
-                m.role == wf_types::message::MessageRole::System
-                    && m.metadata
-                        .as_ref()
-                        .and_then(|meta| meta.get("type"))
-                        .map(|t| t == &Value::String("tool_visibility".to_string()))
-                        .unwrap_or(false)
-            })
-            .collect();
-    conversation.extend(announcements);
-
-    // Consolidated blocked notice: interception keeps the declaration array
-    // unchanged, so the loop entry adds one explicit do-not-retry summary
-    // for the current blocked set instead of relying on per-event messages.
-    let mut blocked: Vec<String> = wf_agent::visibility::collect_blocked_tools(&ctx.variables)
-        .into_iter()
-        .collect();
-    blocked.sort();
-    if !blocked.is_empty() {
-        let text = format!(
-            "[Tool Change]\n- Blocked tools (declared but not executable, do not retry): {}",
-            blocked.join(", ")
-        );
-        conversation.push(wf_execution_shared::agent_prompt::tool_change_message(text));
-    }
-
-    conversation
+    // Clear-then-write: stale tool announcements never survive a loop
+    // boundary. Formal activation still flows through the activated-tool
+    // variables into the merged loop-entry notice, and interception
+    // through the blocked-tool variables read by the handler.
+    wf_execution_shared::agent_prompt::strip_tool_announcements(conversation)
 }
 
 /// Target-exposure inputs for one loop-boundary normalization: which tools
@@ -117,10 +90,13 @@ pub(crate) fn normalize_conversation_for_target(
         activated,
     } = exposure;
     let Some(registry) = registry else {
-        return wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation);
+        return wf_execution_shared::agent_prompt::strip_tool_announcements(
+            wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation),
+        );
     };
-    let conversation =
-        wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation);
+    let conversation = wf_execution_shared::agent_prompt::strip_tool_announcements(
+        wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation),
+    );
     // Explicit pure chat run exposes no tools: skip resolution instead of
     // resolving an empty pool to all registered tools.
     if !available_is_unset && available.is_empty() && initial.is_empty() && discoverable.is_empty()
@@ -128,9 +104,14 @@ pub(crate) fn normalize_conversation_for_target(
         return conversation;
     }
     let activated_tools: std::collections::HashSet<String> = activated.iter().cloned().collect();
+    let pool = if *available_is_unset {
+        wf_tools::AvailablePool::Unset
+    } else {
+        wf_tools::AvailablePool::Explicit(available)
+    };
     let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
         registry,
-        available_names: available,
+        available: pool,
         initial_names: initial,
         discoverable_names: discoverable,
         hidden_names: hidden,

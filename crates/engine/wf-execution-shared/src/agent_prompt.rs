@@ -587,15 +587,32 @@ pub fn split_trailing_dynamic_tail(
     (filtered, trailing)
 }
 
-/// Tail system message carrying an explicit tool change notice. Marked so
-/// stable header checks skip it and transcripts can filter it.
+/// Tail user message carrying an explicit tool change notice. User role
+/// keeps the notice next to the latest input on the wire: system messages
+/// are merged into the leading system block by the gateway, while user
+/// messages stay at the tail, so the system prefix keeps its byte
+/// stability. Marked so stable header checks skip it and transcripts can
+/// filter it.
 pub fn tool_change_message(content: String) -> wf_types::message::Message {
-    let mut message = wf_types::message::Message::system_text(content);
+    let mut message = wf_types::message::Message::user_text(content);
     message.metadata = Some(HashMap::from([(
         "type".to_string(),
         Value::String(TOOL_CHANGE_MESSAGE_TYPE.to_string()),
     )]));
     message
+}
+
+/// Drop stale tool announcements (`tool_change` and `tool_visibility`)
+/// from imported history so cross-instance imports never accumulate old
+/// notices. Loop entry recomputes a fresh notice from the current
+/// variables and target exposure after this filter.
+pub fn strip_tool_announcements(
+    conversation: Vec<wf_types::message::Message>,
+) -> Vec<wf_types::message::Message> {
+    conversation
+        .into_iter()
+        .filter(|m| !is_tool_change_message(m) && !is_tool_visibility_message(m))
+        .collect()
 }
 
 /// Leading stable system message carrying the cacheable header.
@@ -681,13 +698,11 @@ pub fn build_exposure_artifacts(
             discoverable_metadata_block: None,
         };
     }
-    let empty_pool: &[String] = &[];
-    let available_view = available_tool_names.unwrap_or(empty_pool);
     let metadata_options = wf_tools::discoverable_metadata_options(tool_call_protocol);
     let exposure_resolution = env.tool_registry.map(|registry| {
         wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry,
-            available_names: available_view,
+            available: wf_tools::AvailablePool::from_option(available_tool_names),
             initial_names: initial_tool_names,
             discoverable_names: discoverable_tool_names,
             hidden_names: hidden_tool_names,

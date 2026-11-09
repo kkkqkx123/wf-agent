@@ -46,7 +46,7 @@ pub use tool_description_generator::{
     DescriptionStyle, DiscoverableMetadataOptions, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
 };
 pub use tool_exposure::{
-    check_direct_tool_callable, is_tool_callable, resolve_tool_exposure, ExposureInput,
-    ExposureResolution,
+    check_direct_tool_callable, declaration_fingerprint, fingerprint_declarations,
+    is_tool_callable, resolve_tool_exposure, AvailablePool, ExposureInput, ExposureResolution,
 };
 pub use tool_schema_formatter::ToolSchemaFormatter;

@@ -78,7 +78,7 @@ pub async fn build_agent_request(
 
     let exposure = wf_tools::resolve_tool_exposure(ExposureInput {
         registry: tool_registry,
-        available_names: entity.available_tool_names(),
+        available: entity.available_pool(),
         initial_names: entity.initial_tool_names(),
         discoverable_names: entity.discoverable_tool_names(),
         hidden_names: entity.hidden_tool_names(),
@@ -86,48 +86,23 @@ pub async fn build_agent_request(
         activated_tools: &activated_tools,
         exposure_overrides: &entity.exposure_overrides().iter().cloned().collect(),
     });
-    // Frozen membership: when the live registry drifted since loop entry,
-    // keep rendering the entry snapshot so the declaration array stays
-    // byte-stable mid-run. Drift is announced explicitly on the per-request
-    // clone instead of silently reshaping the schema; adoption waits for
-    // the next loop boundary. Additions stay pending, removals render as
-    // absent plus a notice, never as silent shrinkage.
+    // Frozen declarations: when the live registry drifted since loop entry,
+    // keep rendering the stored entry declarations so the declaration array
+    // stays byte-stable mid-run, including same-name schema changes. Drift
+    // is announced explicitly on the per-request clone instead of silently
+    // reshaping the schema; adoption waits for the next loop boundary.
+    // Additions stay pending, removals and definition changes render from
+    // the snapshot plus a notice, never as silent shrinkage.
     let mut frozen_exposure: Option<wf_tools::tool_exposure::ExposureResolution> = None;
     if let Some(snapshot) = entity.tool_snapshot() {
         let diff = crate::tool_snapshot::diff_snapshot(&snapshot, &exposure);
         if !diff.is_empty() {
-            let mut by_name: std::collections::HashMap<String, wf_types::tool::Tool> =
-                std::collections::HashMap::new();
-            for tool in tool_registry.list_tools() {
-                by_name.insert(tool.name.clone(), tool);
-            }
-            let frozen_visible: Vec<wf_types::tool::Tool> = snapshot
-                .visible_names
-                .iter()
-                .filter_map(|name| by_name.get(name).cloned())
-                .collect();
-            let frozen_discoverable: Vec<wf_types::tool::Tool> = snapshot
-                .discoverable_names
-                .iter()
-                .filter_map(|name| by_name.get(name).cloned())
-                .collect();
-            let frozen_gated: Vec<wf_types::tool::Tool> = snapshot
-                .gated_names
-                .iter()
-                .filter_map(|name| by_name.get(name).cloned())
-                .collect();
-            let frozen_hidden: Vec<wf_types::tool::Tool> = snapshot
-                .hidden_names
-                .iter()
-                .filter_map(|name| by_name.get(name).cloned())
-                .collect();
-            let general_present = by_name.contains_key(GENERAL_TOOL_NAME);
             frozen_exposure = Some(wf_tools::tool_exposure::ExposureResolution {
-                visible: frozen_visible,
-                discoverable: frozen_discoverable,
-                gated: frozen_gated,
-                hidden: frozen_hidden,
-                general_enabled: snapshot.general_enabled && general_present,
+                visible: snapshot.visible.clone(),
+                discoverable: snapshot.discoverable.clone(),
+                gated: snapshot.gated.clone(),
+                hidden: snapshot.hidden.clone(),
+                general_enabled: snapshot.general_enabled,
             });
             if let Some(text) = crate::tool_snapshot::render_tool_change_text(&diff, &[], &[]) {
                 messages.push(wf_execution_shared::agent_prompt::tool_change_message(

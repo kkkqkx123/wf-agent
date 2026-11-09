@@ -29,6 +29,7 @@ tracing.workspace = true
 reqwest.workspace = true
 rmcp.workspace = true
 dashmap.workspace = true
+blake3.workspace = true
 similar.workspace = true
 unicode-normalization.workspace = true
 futures.workspace = true

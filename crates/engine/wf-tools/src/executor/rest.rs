@@ -282,6 +282,10 @@ pub fn build_full_url(base_url: &str, url: &str, query: Option<&Value>) -> Strin
             pairs.push((key.clone(), value_str));
         }
         if !pairs.is_empty() {
+            // Deterministic key order: `serde_json::Map` iteration order
+            // depends on the `preserve_order` feature, so sort here and
+            // never leak map ordering into request URLs or caches.
+            pairs.sort_by(|a, b| a.0.cmp(&b.0));
             let query_string = pairs
                 .iter()
                 .map(|(k, v)| format!("{}={}", urlencode(k), urlencode(v)))

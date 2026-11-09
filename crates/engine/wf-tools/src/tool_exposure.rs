@@ -29,12 +29,73 @@ use wf_types::tool::{Tool, ToolExposure};
 use crate::general::GENERAL_TOOL_NAME;
 use crate::registry::ToolRegistry;
 
+/// Closed-world available pool for one exposure resolution.
+///
+/// Unset inherits all registered tools; an explicit list (even empty) is
+/// the closed whitelist, so an explicit empty pool exposes no tools
+/// instead of inheriting everything. The enum keeps the distinction at
+/// the type level so no call site can mistake an empty pool for unset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AvailablePool<'a> {
+    Unset,
+    Explicit(&'a [String]),
+}
+
+impl<'a> AvailablePool<'a> {
+    pub fn from_option(names: Option<&'a [String]>) -> Self {
+        match names {
+            None => AvailablePool::Unset,
+            Some(names) => AvailablePool::Explicit(names),
+        }
+    }
+
+    fn allows(&self, tool_name: &str) -> bool {
+        match self {
+            AvailablePool::Unset => true,
+            AvailablePool::Explicit(names) => names.contains(&tool_name.to_string()),
+        }
+    }
+}
+
+/// Stable fingerprint of one tool declaration (name, description and
+/// parameter schema). `serde_json` maps sort keys, so the text is
+/// deterministic across processes, unlike the default hasher.
+pub fn declaration_fingerprint(tool: &Tool) -> String {
+    let params_text = tool
+        .parameters
+        .as_ref()
+        .and_then(|params| serde_json::to_string(params).ok())
+        .unwrap_or_default();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(tool.name.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(tool.description.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(params_text.as_bytes());
+    hasher.update(&[0]);
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Stable fingerprint of a tool bucket. Tools sort by name first so
+/// registry iteration order never leaks into the fingerprint.
+pub fn fingerprint_declarations(tools: &[Tool]) -> String {
+    let mut sorted: Vec<&Tool> = tools.iter().collect();
+    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&(sorted.len() as u64).to_le_bytes());
+    for tool in sorted {
+        hasher.update(declaration_fingerprint(tool).as_bytes());
+        hasher.update(&[0]);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 /// Inputs for one exposure resolution.
 pub struct ExposureInput<'a> {
     pub registry: &'a ToolRegistry,
-    /// Whitelist of tool names (the available pool); empty means all
-    /// registered tools.
-    pub available_names: &'a [String],
+    /// Available pool for this resolution (unset inherits all registered
+    /// tools, explicit is the closed whitelist).
+    pub available: AvailablePool<'a>,
     /// Tools visible in the initial schema. When empty, all available tools
     /// are initially visible.
     pub initial_names: &'a [String],
@@ -93,11 +154,16 @@ pub fn resolve_tool_exposure(input: ExposureInput<'_>) -> ExposureResolution {
     let mut discoverable = Vec::new();
     let mut gated = Vec::new();
     let mut hidden = Vec::new();
-    let pool_empty = input.available_names.is_empty();
     let initial_empty = input.initial_names.is_empty();
 
     for tool in input.registry.list_tools() {
-        if !pool_empty && !input.available_names.contains(&tool.name) {
+        if !input.available.allows(&tool.name) {
+            continue;
+        }
+        // The `general` proxy is owned entirely by the injection block
+        // below: it never sits in the gated bucket waiting for activation,
+        // so the runtime gate and the schema cannot disagree about it.
+        if tool.name == GENERAL_TOOL_NAME {
             continue;
         }
 
@@ -129,8 +195,8 @@ pub fn resolve_tool_exposure(input: ExposureInput<'_>) -> ExposureResolution {
         .enable_general_tool
         .unwrap_or(!discoverable.is_empty());
     if general_enabled
-        && !pool_empty
-        && !input.available_names.iter().any(|n| n == GENERAL_TOOL_NAME)
+        && matches!(input.available, AvailablePool::Explicit(_))
+        && !input.available.allows(GENERAL_TOOL_NAME)
     {
         general_enabled = false;
     }
@@ -277,7 +343,7 @@ mod tests {
 
     fn input<'a>(
         registry: &'a ToolRegistry,
-        available: &'a [String],
+        available: AvailablePool<'a>,
         initial: &'a [String],
         discoverable: &'a [String],
         hidden: &'a [String],
@@ -286,7 +352,7 @@ mod tests {
     ) -> ExposureInput<'a> {
         ExposureInput {
             registry,
-            available_names: available,
+            available,
             initial_names: initial,
             discoverable_names: discoverable,
             hidden_names: hidden,
@@ -305,7 +371,7 @@ mod tests {
         let registry = registry_with(vec![make_tool("a", "alpha", None)]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &[],
@@ -327,7 +393,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "beta".to_string()],
+            AvailablePool::Explicit(&["alpha".to_string(), "beta".to_string()]),
             &[],
             &[],
             &[],
@@ -350,7 +416,11 @@ mod tests {
         // initial = [alpha]; beta/gamma are gated.
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+            AvailablePool::Explicit(&[
+                "alpha".to_string(),
+                "beta".to_string(),
+                "gamma".to_string(),
+            ]),
             &["alpha".to_string()],
             &[],
             &[],
@@ -364,7 +434,11 @@ mod tests {
         let activated: HashSet<String> = ["beta".to_string()].into_iter().collect();
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+            AvailablePool::Explicit(&[
+                "alpha".to_string(),
+                "beta".to_string(),
+                "gamma".to_string(),
+            ]),
             &["alpha".to_string()],
             &[],
             &[],
@@ -386,11 +460,11 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[
+            AvailablePool::Explicit(&[
                 "alpha".to_string(),
                 "web_search".to_string(),
                 "general".to_string(),
-            ],
+            ]),
             &["alpha".to_string()],
             &["web_search".to_string()],
             &[],
@@ -420,7 +494,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "web_search".to_string()],
+            AvailablePool::Explicit(&["alpha".to_string(), "web_search".to_string()]),
             &["alpha".to_string()],
             &["web_search".to_string()],
             &[],
@@ -433,6 +507,46 @@ mod tests {
     }
 
     #[test]
+    fn test_explicit_empty_pool_exposes_nothing() {
+        let registry = registry_with(vec![make_tool("a", "alpha", None), general_tool()]);
+        let empty: Vec<String> = Vec::new();
+        let resolution = resolve_tool_exposure(input(
+            &registry,
+            AvailablePool::Explicit(&empty),
+            &[],
+            &[],
+            &[],
+            &Default::default(),
+            &Default::default(),
+        ));
+        assert!(resolution.visible.is_empty());
+        assert!(resolution.discoverable.is_empty());
+        assert!(resolution.gated.is_empty());
+        assert!(!resolution.general_enabled);
+    }
+
+    #[test]
+    fn test_declaration_fingerprint_is_stable_and_content_sensitive() {
+        let first = fingerprint_declarations(&[
+            make_tool("b", "beta", None),
+            make_tool("a", "alpha", None),
+        ]);
+        let second = fingerprint_declarations(&[
+            make_tool("a", "alpha", None),
+            make_tool("b", "beta", None),
+        ]);
+        assert_eq!(first, second);
+        let mut changed = make_tool("a", "alpha", None);
+        changed.description = "changed".to_string();
+        let third = fingerprint_declarations(&[changed, make_tool("b", "beta", None)]);
+        assert_ne!(first, third);
+        assert_eq!(
+            declaration_fingerprint(&make_tool("a", "alpha", None)),
+            declaration_fingerprint(&make_tool("a", "alpha", None))
+        );
+    }
+
+    #[test]
     fn test_general_disabled_when_explicitly_turned_off() {
         let registry = registry_with(vec![make_tool("d", "web_search", None), general_tool()]);
         let available = vec!["web_search".to_string()];
@@ -442,7 +556,7 @@ mod tests {
         let activated = HashSet::new();
         let mut input = input(
             &registry,
-            &available,
+            AvailablePool::Explicit(&available),
             &empty,
             &discoverable,
             &empty,
@@ -460,7 +574,7 @@ mod tests {
         let registry = registry_with(vec![make_tool("d", "web_search", None)]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["web_search".to_string()],
+            AvailablePool::Explicit(&["web_search".to_string()]),
             &[],
             &["web_search".to_string()],
             &[],
@@ -485,7 +599,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string()],
+            AvailablePool::Explicit(&["alpha".to_string()]),
             &[],
             &["web_search".to_string()],
             &[],
@@ -508,7 +622,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "web_search".to_string()],
+            AvailablePool::Explicit(&["alpha".to_string(), "web_search".to_string()]),
             &[],
             &["web_search".to_string()],
             &["web_search".to_string()],
@@ -529,7 +643,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &[],
@@ -551,7 +665,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["beta".to_string()],
+            AvailablePool::Explicit(&["beta".to_string()]),
             &[],
             &[],
             &[],
@@ -567,7 +681,7 @@ mod tests {
         let registry = registry_with(vec![make_tool("a", "alpha", None)]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &[],
@@ -585,7 +699,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &["beta".to_string()],
@@ -604,7 +718,7 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &[],
@@ -632,7 +746,7 @@ mod tests {
         overrides.insert("alpha".to_string(), ToolExposure::Discoverable);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &[],
@@ -652,7 +766,7 @@ mod tests {
         )]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[],
+            AvailablePool::Unset,
             &[],
             &[],
             &[],
@@ -673,12 +787,12 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[
+            AvailablePool::Explicit(&[
                 "alpha".to_string(),
                 "web_search".to_string(),
                 "write_file".to_string(),
                 "general".to_string(),
-            ],
+            ]),
             &["alpha".to_string()],
             &["web_search".to_string()],
             &[],
@@ -705,13 +819,13 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[
+            AvailablePool::Explicit(&[
                 "alpha".to_string(),
                 "web_search".to_string(),
                 "write_file".to_string(),
                 "secret_admin".to_string(),
                 "general".to_string(),
-            ],
+            ]),
             &["alpha".to_string()],
             &["web_search".to_string()],
             &[],
@@ -749,11 +863,11 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &[
+            AvailablePool::Explicit(&[
                 "alpha".to_string(),
                 "beta_db".to_string(),
                 "general".to_string(),
-            ],
+            ]),
             &["alpha".to_string()],
             &[],
             &[],
@@ -775,7 +889,7 @@ mod tests {
         let activated: HashSet<String> = ["write_file".to_string()].into_iter().collect();
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "write_file".to_string()],
+            AvailablePool::Explicit(&["alpha".to_string(), "write_file".to_string()]),
             &["alpha".to_string()],
             &[],
             &[],

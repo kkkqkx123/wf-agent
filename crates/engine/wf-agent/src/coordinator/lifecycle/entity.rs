@@ -71,6 +71,15 @@ impl AgentLoopCoordinator {
         }
         let (filtered, trailing) =
             wf_execution_shared::agent_prompt::split_trailing_dynamic_tail(conversation.to_vec());
+        // Clear-then-write: stale tool announcements never survive a loop
+        // boundary; the fresh merged notice below carries the current state.
+        let filtered: Vec<Message> = filtered
+            .into_iter()
+            .filter(|m| {
+                !wf_execution_shared::agent_prompt::is_tool_change_message(m)
+                    && !wf_execution_shared::agent_prompt::is_tool_visibility_message(m)
+            })
+            .collect();
         // Explicit pure chat run exposes no tools: keep the stripped
         // history as-is instead of resolving an empty pool to all
         // registered tools.
@@ -92,10 +101,9 @@ impl AgentLoopCoordinator {
         // wires `with_exposure_overrides` yet), so both read the same empty
         // source and cannot drift. Thread a real overrides source through both
         // sites when one appears.
-        let empty_tools: Vec<String> = Vec::new();
         let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry,
-            available_names: config.available_tool_names.as_ref().unwrap_or(&empty_tools),
+            available: wf_tools::AvailablePool::from_option(config.available_tool_names.as_deref()),
             initial_names: &config.initial_tool_names,
             discoverable_names: &config.discoverable_tool_names,
             hidden_names: &config.hidden_tool_names,
@@ -263,10 +271,11 @@ impl AgentLoopCoordinator {
         } else {
             let activated_for_snapshot: std::collections::HashSet<String> =
                 config.activated_tool_names.iter().cloned().collect();
-            let empty_tools: Vec<String> = Vec::new();
             let snapshot_resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
                 registry: &self.tool_registry,
-                available_names: config.available_tool_names.as_ref().unwrap_or(&empty_tools),
+                available: wf_tools::AvailablePool::from_option(
+                    config.available_tool_names.as_deref(),
+                ),
                 initial_names: &config.initial_tool_names,
                 discoverable_names: &config.discoverable_tool_names,
                 hidden_names: &config.hidden_tool_names,
@@ -293,22 +302,54 @@ impl AgentLoopCoordinator {
             entity.conversation().write().await.add_message(msg.clone());
         }
 
-        // Loop-boundary explicit notice for formally activated tools: the
-        // declaration array now carries them directly, so the model does
-        // not have to infer activation from a separate visibility notice.
-        if !config.activated_tool_names.is_empty() {
-            let diff = crate::tool_snapshot::ToolSnapshotDiff::default();
-            if let Some(text) = crate::tool_snapshot::render_tool_change_text(
-                &diff,
-                &config.activated_tool_names,
-                &[],
-            ) {
-                entity
-                    .conversation()
-                    .write()
-                    .await
-                    .add_message(wf_execution_shared::agent_prompt::tool_change_message(text));
+        // Loop-boundary merged tool notice: formally activated tools now
+        // ride the declaration array directly, and discoverable tools with
+        // no usable general proxy are unreachable rather than silently
+        // absent. One user-role tail message keeps the notice next to the
+        // latest input without churning the system prefix.
+        let unreachable_line: Option<String> = if config.discoverable_tool_names.is_empty() {
+            None
+        } else {
+            let pool_blocks_general = config.available_tool_names.as_ref().is_some_and(|pool| {
+                !pool
+                    .iter()
+                    .any(|name| name == wf_tools::general::GENERAL_TOOL_NAME)
+            });
+            let general_registered = self
+                .tool_registry
+                .list_tools()
+                .iter()
+                .any(|tool| tool.name == wf_tools::general::GENERAL_TOOL_NAME);
+            if pool_blocks_general || !general_registered {
+                let reason = if pool_blocks_general {
+                    "the available pool excludes the general proxy"
+                } else {
+                    "the general proxy is not registered"
+                };
+                Some(format!(
+                    "Discoverable tools temporarily unreachable ({}): {}",
+                    reason,
+                    config.discoverable_tool_names.join(", ")
+                ))
+            } else {
+                None
             }
+        };
+        let activated_notice = crate::tool_snapshot::render_tool_change_text(
+            &crate::tool_snapshot::ToolSnapshotDiff::default(),
+            &config.activated_tool_names,
+            &[],
+        );
+        if activated_notice.is_some() || unreachable_line.is_some() {
+            let mut text = activated_notice.unwrap_or_else(|| "[Tool Change]".to_string());
+            if let Some(line) = unreachable_line {
+                text.push_str(&format!("\n- {line}"));
+            }
+            entity
+                .conversation()
+                .write()
+                .await
+                .add_message(wf_execution_shared::agent_prompt::tool_change_message(text));
         }
 
         if config.enable_token_tracking.unwrap_or(true) {

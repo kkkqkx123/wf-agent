@@ -342,7 +342,7 @@ impl ToolExecutionCoordinator {
         };
         wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry: self.tool_registry.as_ref(),
-            available_names: entity.available_tool_names(),
+            available: entity.available_pool(),
             initial_names: entity.initial_tool_names(),
             discoverable_names: entity.discoverable_tool_names(),
             hidden_names: entity.hidden_tool_names(),

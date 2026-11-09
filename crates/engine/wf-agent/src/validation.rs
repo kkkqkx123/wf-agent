@@ -134,6 +134,7 @@ impl AgentLoopValidator {
             validate_hook(hook, &mut issues);
         }
 
+        validate_tool_name_shapes(config, &mut issues);
         validate_tool_lists(config, registry, &mut issues);
 
         if let Some(protocol) = config.tool_call_protocol.as_ref() {
@@ -477,6 +478,101 @@ fn validate_tool_lists(
         }
     }
 
+    validate_tool_list_relations(config, Some(&known), issues);
+}
+
+/// Registry-independent tool list checks: blank names, duplicates within
+/// one list, and pure-chat consistency. Runs without a registry so
+/// misspelled shapes surface even when there is nothing to resolve
+/// against.
+pub fn validate_tool_list_syntax(
+    config: &wf_tools::callback::AgentLoopConfig,
+) -> Vec<ValidationIssue> {
+    let mut issues = Vec::new();
+    validate_tool_name_shapes(config, &mut issues);
+    validate_tool_list_relations(config, None, &mut issues);
+    issues
+}
+
+/// Name shapes shared by both validation paths: blank names, duplicates
+/// within one list, and pure-chat consistency.
+fn validate_tool_name_shapes(
+    config: &wf_tools::callback::AgentLoopConfig,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let empty_tools: Vec<String> = Vec::new();
+    for (field, names) in [
+        (
+            "available_tool_names",
+            config.available_tool_names.as_ref().unwrap_or(&empty_tools),
+        ),
+        ("initial_tool_names", &config.initial_tool_names),
+        ("discoverable_tool_names", &config.discoverable_tool_names),
+        ("hidden_tool_names", &config.hidden_tool_names),
+        ("activated_tool_names", &config.activated_tool_names),
+    ] {
+        for _name in names.iter().filter(|name| name.trim().is_empty()) {
+            issues.push(ValidationIssue::error(
+                field,
+                format!("tool name in '{field}' must not be blank"),
+            ));
+        }
+        let mut sorted: Vec<&str> = names.iter().map(String::as_str).collect();
+        sorted.sort_unstable();
+        let mut previous: Option<&str> = None;
+        for name in sorted {
+            if previous == Some(name) {
+                issues.push(ValidationIssue::error(
+                    field,
+                    format!("tool '{name}' is listed more than once in '{field}'"),
+                ));
+            }
+            previous = Some(name);
+        }
+    }
+    // Explicit empty pool with non-empty initial or discoverable lists is
+    // contradictory: a pure chat run exposes no tools.
+    if config
+        .available_tool_names
+        .as_ref()
+        .is_some_and(|pool| pool.is_empty())
+        && (!config.initial_tool_names.is_empty() || !config.discoverable_tool_names.is_empty())
+    {
+        issues.push(ValidationIssue::error(
+            "available_tool_names",
+            "explicit empty available pool means a pure chat run with no tools; clear initial and discoverable lists or use a non-empty pool",
+        ));
+    }
+}
+
+/// Fail-fast entry for the registry-free path: blank names, duplicates,
+/// contradictory buckets and pool-external entries surface before
+/// execution instead of failing piecemeal at first tool call.
+pub fn validate_or_fail_syntax(
+    config: &wf_tools::callback::AgentLoopConfig,
+) -> Result<Vec<ValidationIssue>, Vec<ValidationIssue>> {
+    let issues = validate_tool_list_syntax(config);
+    let errors: Vec<ValidationIssue> = issues
+        .iter()
+        .filter(|i| i.severity == ValidationSeverity::Error)
+        .cloned()
+        .collect();
+    if errors.is_empty() {
+        Ok(issues)
+    } else {
+        Err(errors)
+    }
+}
+
+/// Bucket relations shared by the registry and registry-free paths:
+/// contradictory buckets, closed-pool subset rules and general proxy
+/// consistency. `known` carries the registered names when a registry is
+/// present; without it every pool-external entry is reported.
+fn validate_tool_list_relations(
+    config: &wf_tools::callback::AgentLoopConfig,
+    known: Option<&std::collections::HashSet<String>>,
+    issues: &mut Vec<ValidationIssue>,
+) {
     // Contradictory visibility: the hidden blocklist wins at resolution
     // time, so a tool listed as both initially visible and hidden would
     // silently disappear from the schema. Report every overlap together
@@ -562,10 +658,13 @@ fn validate_tool_lists(
             outside.sort_unstable();
             outside.dedup();
             for name in outside {
-                // Unknown names already error above; only report pool
-                // misses for registered tools.
-                if !known.contains(name) {
-                    continue;
+                // With a registry, unknown names already error above, so
+                // only pool misses for registered tools are reported here.
+                // Without a registry every pool-external entry is reported.
+                if let Some(known) = known {
+                    if !known.contains(name) {
+                        continue;
+                    }
                 }
                 issues.push(ValidationIssue::error(
                     field,
@@ -806,6 +905,28 @@ mod tests {
     }
 
     #[test]
+    fn test_syntax_check_needs_no_registry() {
+        assert!(validate_or_fail_syntax(&base_config()).is_ok());
+        let outside = AgentLoopConfig {
+            available_tool_names: Some(vec!["alpha".to_string()]),
+            initial_tool_names: vec!["beta".to_string()],
+            ..base_config()
+        };
+        assert!(validate_or_fail_syntax(&outside).is_err());
+        let duplicated = AgentLoopConfig {
+            available_tool_names: Some(vec!["alpha".to_string(), "alpha".to_string()]),
+            ..base_config()
+        };
+        assert!(validate_or_fail_syntax(&duplicated).is_err());
+        let pure_chat_conflict = AgentLoopConfig {
+            available_tool_names: Some(Vec::new()),
+            initial_tool_names: vec!["alpha".to_string()],
+            ..base_config()
+        };
+        assert!(validate_or_fail_syntax(&pure_chat_conflict).is_err());
+    }
+
+    #[test]
     fn test_tool_call_protocol_config_warning() {
         let cfg = ToolCallProtocolConfig {
             format: ToolCallProtocol::Xml,
@@ -980,6 +1101,7 @@ mod tests {
         }
         let config = AgentLoopConfig {
             file_scope: None,
+            available_tool_names: Some(vec!["a_tool".to_string(), "b_tool".to_string()]),
             initial_tool_names: vec!["b_tool".to_string(), "a_tool".to_string()],
             hidden_tool_names: vec!["a_tool".to_string(), "b_tool".to_string()],
             ..base_config()

@@ -234,6 +234,17 @@ impl AgentLoopEntity {
         self.available_is_unset
     }
 
+    /// Available pool view for exposure resolution: unset inherits all
+    /// registered tools, an explicit list (even empty) is the closed
+    /// whitelist.
+    pub fn available_pool(&self) -> wf_tools::tool_exposure::AvailablePool<'_> {
+        if self.available_is_unset {
+            wf_tools::tool_exposure::AvailablePool::Unset
+        } else {
+            wf_tools::tool_exposure::AvailablePool::Explicit(&self.available_tool_names)
+        }
+    }
+
     /// Explicit pure chat run: available pool set to an empty list with no
     /// initial or discoverable tools.
     pub fn is_explicit_no_tools(&self) -> bool {

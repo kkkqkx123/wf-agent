@@ -30,6 +30,8 @@
 
 	let starters = $state<ChatStarter[]>([]);
 	let loading = $state(true);
+	/** Background refetch keeps cards mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 	let error = $state<string | null>(null);
 
 	let query = $state('');
@@ -48,17 +50,28 @@
 	let deleteArmed = $state<string | null>(null);
 	let rowBusy = $state<string | null>(null);
 
-	async function reload(): Promise<void> {
-		loading = true;
-		error = null;
+	async function reload(background = false): Promise<void> {
+		const backgroundRefresh = background && starters.length > 0;
+		if (backgroundRefresh) {
+			refreshing = true;
+		} else {
+			loading = true;
+			error = null;
+		}
 		try {
 			// Admin view: every locale, disabled rows included.
 			starters = await listStarters({ includeDisabled: true });
 		} catch (e) {
-			error = e instanceof Error ? e.message : t('page.starters.loadFailed');
-			starters = [];
+			const message = e instanceof Error ? e.message : t('page.starters.loadFailed');
+			if (backgroundRefresh) {
+				toasts.error(t('page.starters.loadFailed'), message);
+			} else {
+				error = message;
+				starters = [];
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
 		}
 	}
 
@@ -109,10 +122,14 @@
 
 	async function toggleEnabled(starter: ChatStarter, enabled: boolean): Promise<void> {
 		rowBusy = starter.id;
+		// Optimistic flip: the switch already toggled locally, keep the prop
+		// in agreement so the in-flight parent update never snaps it back.
+		starter.enabled = enabled;
 		try {
 			await setStarterEnabled(starter.id, enabled);
-			await reload();
+			await reload(true);
 		} catch (e) {
+			starter.enabled = !enabled;
 			toasts.error(t('page.starters.toggleFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			rowBusy = null;
@@ -192,6 +209,11 @@
 			]}
 		/>
 		<div class="ml-auto flex items-center gap-2">
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button variant="outline" size="sm" onclick={() => (importOpen = true)}>
 				<Icon name="upload" size={13} />

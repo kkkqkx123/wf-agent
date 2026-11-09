@@ -3,55 +3,10 @@ use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_types::events::{BaseEvent, EventType};
-use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
 
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
-use crate::message_context;
-
-/// Build a lightweight tool visibility notification message describing which
-/// tools were added/removed. `unblock` is a formal activation: the tail
-/// system announcement tells the model the tools are now callable directly
-/// (the system prompt prefix stays unchanged, so the LLM prefix cache is
-/// preserved). The wording is templateable via wf-resource
-/// (`tool-visibility.activation` / `tool-visibility.block`); executions
-/// without injected resource registries fall back to the built-in text
-/// (identical wording, so deployments are indistinguishable).
-fn build_visibility_message(
-    regs: Option<&wf_resource::ResourceRegistries>,
-    action: &str,
-    tools: &[String],
-    template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
-) -> String {
-    let template_id = match action {
-        "block" => wf_resource::BLOCK_TEMPLATE_ID,
-        "unblock" => wf_resource::ACTIVATION_TEMPLATE_ID,
-        _ => {
-            let list: Vec<String> = tools.iter().map(|t| format!("- {}", t)).collect();
-            return wf_resource::generic_visibility_text(action, &list.join("\n"));
-        }
-    };
-    let tool_names = if action == "unblock" {
-        tools.join(", ")
-    } else {
-        tools
-            .iter()
-            .map(|t| format!("- {}", t))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let vars = std::collections::HashMap::from([("tool_names".to_string(), tool_names)]);
-    let fallback = wf_resource::render_builtin_visibility_fallback(template_id, &vars)
-        .unwrap_or_else(|| wf_resource::generic_visibility_text(action, &tools.join(", ")));
-    wf_resource::render_visibility_message_with_metrics(
-        regs,
-        template_id,
-        &fallback,
-        &vars,
-        template_metrics,
-    )
-}
 
 fn emit_visibility_event(
     event_bus: Option<&EventBus>,
@@ -149,9 +104,11 @@ impl ToolVisibilityHandler {
                         .insert(format!("__tool_blocked_{}", tool_name), Value::Bool(true));
                 }
             }
-            // unblock = formal activation: clears the block marker, records
+            // unblock = formal activation: clears the block marker and records
             // the activation so the next agent loop seeds the activated-tool
-            // state (gated -> schema) and emits a tail system announcement.
+            // state (gated -> schema). The loop-entry merged notice carries
+            // the model-visible announcement; no per-node message is
+            // written so stale announcements cannot accumulate.
             "unblock" => {
                 for tool_name in &tools {
                     ctx.variables
@@ -173,36 +130,11 @@ impl ToolVisibilityHandler {
             }
         }
 
-        // Record the change in the message context so agents/LLM nodes can
-        // observe it in the conversation (tail system message).
-        let template_metrics = ctx.metrics.as_ref().map(|m| m.template());
-        let template_metrics_ref = template_metrics.as_deref();
-        let content = build_visibility_message(
-            ctx.resource_registries.as_deref(),
-            action,
-            &tools,
-            template_metrics_ref,
-        );
-        message_context::append_context(
-            &ctx.variables,
-            message_context::DEFAULT_CONTEXT_ID,
-            vec![Message {
-                id: wf_types::Id::new(),
-                role: MessageRole::System,
-                content: MessageContentValue::Text(content),
-                timestamp: wf_common::now(),
-                tool_call_id: None,
-                tool_name: None,
-                tool_calls: None,
-                thinking: None,
-                thinking_signature: None,
-                metadata: Some(std::collections::HashMap::from([(
-                    "type".to_string(),
-                    Value::String("tool_visibility".to_string()),
-                )])),
-            }],
-        );
-
+        // No per-node message is written: the next AGENT_LOOP entry
+        // recomputes a fresh merged notice from the current variables and
+        // target exposure after stripping stale announcements. Old
+        // `tool_visibility` messages remain stripped on import for
+        // backward compatibility but are never produced here.
         emit_visibility_event(ctx.event_bus.as_deref(), ctx, action, &tools);
 
         let mut metadata = std::collections::HashMap::new();
@@ -226,24 +158,6 @@ impl ToolVisibilityHandler {
 mod tests {
     use super::*;
     use std::sync::Arc;
-
-    #[test]
-    fn visibility_message_content() {
-        let msg = build_visibility_message(
-            None,
-            "block",
-            &["file_read".to_string(), "shell".to_string()],
-            None,
-        );
-        assert!(msg.contains("file_read"));
-        assert!(msg.contains("shell"));
-        assert!(msg.contains("unavailable"));
-
-        let unblock = build_visibility_message(None, "unblock", &["shell".to_string()], None);
-        assert!(unblock.contains("[Tool Activation]"));
-        assert!(unblock.contains("now available"));
-        assert!(unblock.contains("shell"));
-    }
 
     #[tokio::test]
     async fn visibility_change_recorded_in_context() {
@@ -272,22 +186,14 @@ mod tests {
             &Value::Bool(true)
         );
 
+        // No per-node announcement is written: the loop-entry merged notice
+        // owns the model-visible announcement. Only the variable markers
+        // persist here.
         let context =
             crate::message_context::get_context(&vars, crate::message_context::DEFAULT_CONTEXT_ID);
-        assert_eq!(context.len(), 1, "visibility message must be queryable");
-        assert_eq!(context[0].role, MessageRole::System);
-        let content = match &context[0].content {
-            MessageContentValue::Text(t) => t.clone(),
-            _ => String::new(),
-        };
-        assert!(content.contains("file_read"));
-        assert!(content.contains("shell"));
-        assert!(content.contains("unavailable"));
-
-        let metadata = context[0].metadata.as_ref().expect("metadata");
-        assert_eq!(
-            metadata.get("type"),
-            Some(&Value::String("tool_visibility".to_string()))
+        assert!(
+            context.is_empty(),
+            "tool visibility writes no message context; variables carry the state"
         );
     }
 

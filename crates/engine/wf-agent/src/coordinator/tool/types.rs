@@ -47,6 +47,14 @@ pub struct ToolProgressEvent {
 #[async_trait]
 pub trait ToolVisibilityStore: Send + Sync {
     async fn is_tool_visible(&self, execution_id: &str, tool_name: &str) -> bool;
+
+    /// Currently blocked tool names for loop-entry notices. Runtime
+    /// interception never reshapes the schema, so the entry merge lists
+    /// them explicitly with a do-not-retry line. Defaults to empty for
+    /// stores without a backing variable map.
+    fn blocked_tools(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Optional execution-state snapshot callback invoked around tool

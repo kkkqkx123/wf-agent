@@ -49,12 +49,62 @@ impl<'a> AvailablePool<'a> {
         }
     }
 
+    pub fn is_unset(&self) -> bool {
+        matches!(self, AvailablePool::Unset)
+    }
+
+    pub fn explicit_names(&self) -> Option<&'a [String]> {
+        match self {
+            AvailablePool::Unset => None,
+            AvailablePool::Explicit(names) => Some(names),
+        }
+    }
+
     fn allows(&self, tool_name: &str) -> bool {
         match self {
             AvailablePool::Unset => true,
             AvailablePool::Explicit(names) => names.contains(&tool_name.to_string()),
         }
     }
+}
+
+/// Explicit pure chat run: explicit empty pool with no initial or
+/// discoverable tools exposes nothing. Single predicate so every entry
+/// path classifies pure chat identically instead of repeating the
+/// three-list conjunction.
+pub fn is_explicit_no_tools(
+    available: AvailablePool<'_>,
+    initial_names: &[String],
+    discoverable_names: &[String],
+) -> bool {
+    matches!(available, AvailablePool::Explicit(names) if names.is_empty())
+        && initial_names.is_empty()
+        && discoverable_names.is_empty()
+}
+
+/// Whether the option pool is an explicit empty list (pure chat pool).
+/// `None` (unset) never counts, even with empty initial/discoverable
+/// lists. Used for contradiction checks where the question is only
+/// whether the pool itself is explicitly empty.
+pub fn is_explicit_empty_pool(available: Option<&[String]>) -> bool {
+    matches!(
+        AvailablePool::from_option(available),
+        AvailablePool::Explicit(names) if names.is_empty()
+    )
+}
+
+/// Option-based variant of [`is_explicit_no_tools`] for config-level
+/// `Option<Vec<String>>` pools (`None` means unset, `Some` is explicit).
+pub fn is_explicit_no_tools_option(
+    available: Option<&[String]>,
+    initial_names: &[String],
+    discoverable_names: &[String],
+) -> bool {
+    is_explicit_no_tools(
+        AvailablePool::from_option(available),
+        initial_names,
+        discoverable_names,
+    )
 }
 
 /// Stable fingerprint of one tool declaration (name, description and

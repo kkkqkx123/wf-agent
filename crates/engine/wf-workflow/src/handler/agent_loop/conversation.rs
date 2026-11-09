@@ -11,11 +11,11 @@ use wf_types::message::Message;
 use crate::message_context;
 
 /// Collect the initial conversation: inline `conversation` messages plus all
-/// messages from the named contexts listed in `message_inputs`, plus any
-/// tool-visibility announcement messages appended to the default context
-/// (tail system-message injection for formal tool activation). Volatile tail
-/// lifecycle belongs downstream: exposure normalization and prompt assembly
-/// drop stale tails before the fresh tail is assembled.
+/// messages from the named contexts listed in `message_inputs`. Stale tool
+/// announcements are stripped downstream; formal activation and interception
+/// flow through workflow variables into the coordinator merged notice.
+/// Volatile tail lifecycle belongs downstream: exposure normalization and
+/// prompt assembly drop stale tails before the fresh tail is assembled.
 pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Message> {
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let mut conversation: Vec<Message> = Vec::new();
@@ -99,8 +99,15 @@ pub(crate) fn normalize_conversation_for_target(
     );
     // Explicit pure chat run exposes no tools: skip resolution instead of
     // resolving an empty pool to all registered tools.
-    if !available_is_unset && available.is_empty() && initial.is_empty() && discoverable.is_empty()
-    {
+    if wf_tools::tool_exposure::is_explicit_no_tools_option(
+        if *available_is_unset {
+            None
+        } else {
+            Some(*available)
+        },
+        initial,
+        discoverable,
+    ) {
         return conversation;
     }
     let activated_tools: std::collections::HashSet<String> = activated.iter().cloned().collect();

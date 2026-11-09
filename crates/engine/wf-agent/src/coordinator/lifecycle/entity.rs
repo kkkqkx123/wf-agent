@@ -5,6 +5,7 @@ use wf_types::message::{Message, MessageRole};
 use wf_types::Id;
 
 use super::AgentLoopCoordinator;
+use crate::coordinator::tool::ToolVisibilityStore;
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
 
@@ -83,13 +84,11 @@ impl AgentLoopCoordinator {
         // Explicit pure chat run exposes no tools: keep the stripped
         // history as-is instead of resolving an empty pool to all
         // registered tools.
-        if config
-            .available_tool_names
-            .as_ref()
-            .is_some_and(|pool| pool.is_empty())
-            && config.initial_tool_names.is_empty()
-            && config.discoverable_tool_names.is_empty()
-        {
+        if wf_tools::tool_exposure::is_explicit_no_tools_option(
+            config.available_tool_names.as_deref(),
+            &config.initial_tool_names,
+            &config.discoverable_tool_names,
+        ) {
             let mut normalized = filtered;
             normalized.extend(trailing);
             return normalized;
@@ -303,10 +302,14 @@ impl AgentLoopCoordinator {
         }
 
         // Loop-boundary merged tool notice: formally activated tools now
-        // ride the declaration array directly, and discoverable tools with
-        // no usable general proxy are unreachable rather than silently
-        // absent. One user-role tail message keeps the notice next to the
-        // latest input without churning the system prefix.
+        // ride the declaration array directly, runtime-blocked tools stay
+        // declared but not executable, and discoverable tools with no
+        // usable general proxy are unreachable rather than silently
+        // absent. Blocked names come from the visibility store (workflow
+        // variables), so the workflow handler needs no separate notice
+        // that this clear-then-write normalization would strip. One
+        // user-role tail message keeps the notice next to the latest
+        // input without churning the system prefix.
         let unreachable_line: Option<String> = if config.discoverable_tool_names.is_empty() {
             None
         } else {
@@ -335,10 +338,20 @@ impl AgentLoopCoordinator {
                 None
             }
         };
+        let mut blocked_tools: Vec<String> = self
+            .visibility_store
+            .as_ref()
+            .map(|store| store.blocked_tools())
+            .unwrap_or_default();
+        blocked_tools.sort();
+        blocked_tools.dedup();
+        if entity.is_explicit_no_tools() {
+            blocked_tools.clear();
+        }
         let activated_notice = crate::tool_snapshot::render_tool_change_text(
             &crate::tool_snapshot::ToolSnapshotDiff::default(),
             &config.activated_tool_names,
-            &[],
+            &blocked_tools,
         );
         if activated_notice.is_some() || unreachable_line.is_some() {
             let mut text = activated_notice.unwrap_or_else(|| "[Tool Change]".to_string());

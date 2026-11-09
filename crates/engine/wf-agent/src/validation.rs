@@ -532,10 +532,7 @@ fn validate_tool_name_shapes(
     }
     // Explicit empty pool with non-empty initial or discoverable lists is
     // contradictory: a pure chat run exposes no tools.
-    if config
-        .available_tool_names
-        .as_ref()
-        .is_some_and(|pool| pool.is_empty())
+    if wf_tools::tool_exposure::is_explicit_empty_pool(config.available_tool_names.as_deref())
         && (!config.initial_tool_names.is_empty() || !config.discoverable_tool_names.is_empty())
     {
         issues.push(ValidationIssue::error(

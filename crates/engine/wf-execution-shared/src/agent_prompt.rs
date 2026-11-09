@@ -131,16 +131,11 @@ pub fn assemble_agent_prompt(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     vars: &impl VariableSource,
     env: &PromptEnvironment,
-    available_tool_names: &[String],
+    available: wf_tools::tool_exposure::AvailablePool<'_>,
     working_directory: Option<&str>,
 ) -> AssembledPrompt {
     AssembledPrompt {
-        stable_header: build_stable_header(
-            agent_config,
-            env,
-            available_tool_names,
-            working_directory,
-        ),
+        stable_header: build_stable_header(agent_config, env, available, working_directory),
         volatile_tail: build_volatile_tail(agent_config, vars),
     }
 }
@@ -165,7 +160,7 @@ pub fn normalize_prompt_workdir(raw: Option<&str>) -> Option<String> {
 pub fn build_stable_header(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     env: &PromptEnvironment,
-    available_tool_names: &[String],
+    available: wf_tools::tool_exposure::AvailablePool<'_>,
     working_directory: Option<&str>,
 ) -> Option<String> {
     let template_metrics = env.template_metrics();
@@ -174,14 +169,13 @@ pub fn build_stable_header(
         env.resource_registries,
         template_metrics.as_deref(),
     );
-    let dynamic =
-        build_dynamic_system_context(agent_config, env, available_tool_names, working_directory);
+    let dynamic = build_dynamic_system_context(agent_config, env, available, working_directory);
     let prompt = match (base, dynamic) {
         (Some(sp), Some(block)) => Some(format!("{}\n\n{}", block, sp)),
         (Some(sp), None) => Some(sp),
         (None, block) => block,
     }?;
-    Some(enrich_system_prompt(env, &prompt, available_tool_names))
+    Some(enrich_system_prompt(env, &prompt, available))
 }
 
 fn resolve_configured_system_prompt(
@@ -233,10 +227,48 @@ pub fn resolve_system_prompt_text(
     wf_resource::render_template_for_model(regs, template_id, variables, template_metrics)
 }
 
+fn pool_has_tool(
+    available: wf_tools::tool_exposure::AvailablePool<'_>,
+    registry: Option<&wf_tools::registry::ToolRegistry>,
+    name: &str,
+) -> bool {
+    match available {
+        wf_tools::tool_exposure::AvailablePool::Explicit(names) => {
+            names.iter().any(|candidate| candidate == name)
+        }
+        wf_tools::tool_exposure::AvailablePool::Unset => registry
+            .map(|registry| {
+                registry
+                    .list_tools()
+                    .iter()
+                    .any(|tool| tool.name == name)
+            })
+            .unwrap_or(false),
+    }
+}
+
+fn pool_has_mcp_tools(
+    available: wf_tools::tool_exposure::AvailablePool<'_>,
+    registry: Option<&wf_tools::registry::ToolRegistry>,
+) -> bool {
+    match available {
+        wf_tools::tool_exposure::AvailablePool::Explicit(names) => names
+            .iter()
+            .any(|name| name == "use_mcp" || name.starts_with("mcp_")),
+        wf_tools::tool_exposure::AvailablePool::Unset => registry
+            .map(|registry| {
+                registry.list_tools().iter().any(|tool| {
+                    tool.name == "use_mcp" || tool.name.starts_with("mcp_")
+                })
+            })
+            .unwrap_or(false),
+    }
+}
+
 fn build_dynamic_system_context(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     env: &PromptEnvironment,
-    available_tool_names: &[String],
+    available: wf_tools::tool_exposure::AvailablePool<'_>,
     working_directory: Option<&str>,
 ) -> Option<String> {
     let dyn_cfg = agent_config?.dynamic_context.as_ref()?;
@@ -263,7 +295,8 @@ fn build_dynamic_system_context(
         // (see `enrich_system_prompt`) and the static list is skipped so
         // skills are never announced twice. Both paths read the same
         // loader, so skipping loses nothing when nothing is enabled.
-        let progressive_disclosure = available_tool_names.iter().any(|name| name == "skill");
+        let progressive_disclosure =
+            pool_has_tool(available, env.tool_registry, "skill");
         if !progressive_disclosure {
             if let Some(loader) = env
                 .tool_registry
@@ -314,9 +347,9 @@ fn build_dynamic_system_context(
 fn enrich_system_prompt(
     env: &PromptEnvironment,
     system_prompt: &str,
-    available_tool_names: &[String],
+    available: wf_tools::tool_exposure::AvailablePool<'_>,
 ) -> String {
-    let has_skill_tool = available_tool_names.iter().any(|name| name == "skill");
+    let has_skill_tool = pool_has_tool(available, env.tool_registry, "skill");
     let skill_injected = if has_skill_tool {
         match env
             .tool_registry
@@ -336,9 +369,7 @@ fn enrich_system_prompt(
         system_prompt.to_string()
     };
 
-    let has_mcp_tools = available_tool_names
-        .iter()
-        .any(|name| name == "use_mcp" || name.starts_with("mcp_"));
+    let has_mcp_tools = pool_has_mcp_tools(available, env.tool_registry);
     if !has_mcp_tools {
         return skill_injected;
     }
@@ -689,10 +720,11 @@ pub fn build_exposure_artifacts(
 ) -> ExposureArtifacts {
     // Explicit pure chat run renders no blocks instead of resolving an
     // empty pool to all registered tools.
-    if available_tool_names.is_some_and(|names| names.is_empty())
-        && initial_tool_names.is_empty()
-        && discoverable_tool_names.is_empty()
-    {
+    if wf_tools::tool_exposure::is_explicit_no_tools_option(
+        available_tool_names,
+        initial_tool_names,
+        discoverable_tool_names,
+    ) {
         return ExposureArtifacts {
             general_description: None,
             discoverable_metadata_block: None,
@@ -850,9 +882,13 @@ mod tests {
     fn stable_header_skips_static_skills_when_skill_tool_present() {
         let (dir, registry) = registry_with_one_skill("skill-tool");
         let env = PromptEnvironment::new(None, Some(&registry), None);
-        let header =
-            build_stable_header(Some(&skills_config()), &env, &["skill".to_string()], None)
-                .expect("header");
+        let header = build_stable_header(
+            Some(&skills_config()),
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&["skill".to_string()]),
+            None,
+        )
+        .expect("header");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
             header.contains("Available skills:"),
@@ -868,7 +904,13 @@ mod tests {
     fn stable_header_keeps_static_skills_without_skill_tool() {
         let (dir, registry) = registry_with_one_skill("no-skill-tool");
         let env = PromptEnvironment::new(None, Some(&registry), None);
-        let header = build_stable_header(Some(&skills_config()), &env, &[], None).expect("header");
+        let header = build_stable_header(
+            Some(&skills_config()),
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            None,
+        )
+        .expect("header");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
             header.contains("<skills>"),
@@ -889,7 +931,13 @@ mod tests {
             "system_prompt": "inline",
             "system_prompt_template_id": "missing",
         }));
-        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[], None);
+        let assembled = assemble_agent_prompt(
+            Some(&config),
+            &vars,
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            None,
+        );
         assert_eq!(assembled.stable_header.as_deref(), Some("inline"));
         assert!(assembled.volatile_tail.is_none());
     }
@@ -918,7 +966,13 @@ mod tests {
             "system_prompt_template_id": "tpl-1",
             "system_prompt_template_variables": {"name": "world"},
         }));
-        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[], None);
+        let assembled = assemble_agent_prompt(
+            Some(&config),
+            &vars,
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            None,
+        );
         assert_eq!(assembled.stable_header.as_deref(), Some("hello world"));
     }
 
@@ -930,7 +984,13 @@ mod tests {
             "system_prompt": "base",
             "dynamic_context": {"include_current_time": true},
         }));
-        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[], None);
+        let assembled = assemble_agent_prompt(
+            Some(&config),
+            &vars,
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            None,
+        );
         assert_eq!(assembled.stable_header.as_deref(), Some("base"));
         assert!(assembled.volatile_tail.is_some());
         assert!(assembled.volatile_tail.unwrap().contains("Current time:"));
@@ -944,8 +1004,13 @@ mod tests {
             "system_prompt": "base",
             "dynamic_context": {"include_environment_info": true},
         }));
-        let assembled =
-            assemble_agent_prompt(Some(&config), &vars, &env, &[], Some("/sessions/abc"));
+        let assembled = assemble_agent_prompt(
+            Some(&config),
+            &vars,
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            Some("/sessions/abc"),
+        );
         let header = assembled.stable_header.expect("header");
         assert!(header.contains("Working directory: /sessions/abc"));
         assert!(assembled.volatile_tail.is_none());
@@ -1101,8 +1166,18 @@ mod tests {
         let from_node = build_volatile_tail(Some(&config), &node_ctx).expect("node tail");
         assert_eq!(from_map, from_node);
         let env = PromptEnvironment::empty();
-        let stable_map = build_stable_header(Some(&config), &env, &[], None);
-        let stable_node = build_stable_header(Some(&config), &env, &[], None);
+        let stable_map = build_stable_header(
+            Some(&config),
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            None,
+        );
+        let stable_node = build_stable_header(
+            Some(&config),
+            &env,
+            wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
+            None,
+        );
         assert_eq!(stable_map, stable_node);
         assert!(!stable_map.unwrap().contains("TODO"));
     }

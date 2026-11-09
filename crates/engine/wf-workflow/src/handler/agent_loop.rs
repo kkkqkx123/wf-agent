@@ -90,7 +90,13 @@ impl AgentLoopHandler {
             agent_config,
             &*ctx,
             &env,
-            &settings.available_tool_names,
+            if settings.available_is_unset {
+                wf_tools::tool_exposure::AvailablePool::Unset
+            } else {
+                wf_tools::tool_exposure::AvailablePool::Explicit(
+                    settings.available_tool_names.as_slice(),
+                )
+            },
             wf_execution_shared::agent_prompt::normalize_prompt_workdir(
                 ctx.file_scope
                     .as_ref()
@@ -150,31 +156,12 @@ impl AgentLoopHandler {
             },
         );
 
-        // Consolidated blocked notice: interception keeps the declaration
-        // array unchanged, so the loop entry adds one explicit do-not-retry
-        // summary for the current blocked set. Unreachable-discoverable and
-        // activation notices are owned by the coordinator merge, which
-        // covers every entry path. The notice is a user-role tail message,
-        // so it stays next to the latest input without churning the
-        // system prefix.
-        let mut blocked: Vec<String> = wf_agent::visibility::collect_blocked_tools(&ctx.variables)
-            .into_iter()
-            .collect();
-        blocked.sort();
-        if !blocked.is_empty()
-            && !(settings.available_tool_names.is_empty()
-                && settings.initial_tool_names.is_empty()
-                && settings.discoverable_tool_names.is_empty()
-                && !settings.available_is_unset)
-        {
-            initial_conversation.push(wf_execution_shared::agent_prompt::tool_change_message(
-                format!(
-                    "[Tool Change]\n- Blocked tools (declared but not executable, do not retry): {}",
-                    blocked.join(", ")
-                ),
-            ));
-        }
-
+        // Blocked tools are owned by the coordinator merge (read from the
+        // visibility store wired with the workflow variables): pushing a
+        // separate notice here would be stripped by the coordinator
+        // clear-then-write normalization and would land before the
+        // volatile tail instead of after it. The merged entry notice keeps
+        // the tail order history, volatile tail, merged notice, user task.
         let message = settings.input_text.clone();
         wf_execution_shared::agent_prompt::apply_assembled_prompt(
             &mut initial_conversation,

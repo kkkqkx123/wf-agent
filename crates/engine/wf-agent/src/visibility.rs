@@ -35,7 +35,10 @@ impl VariableBackedVisibilityStore {
 
     /// All currently blocked tool names, sorted for stable notices.
     pub fn blocked_tools(&self) -> Vec<String> {
-        collect_blocked_tools(&self.variables).into_iter().collect()
+        let mut blocked: Vec<String> =
+            collect_blocked_tools(&self.variables).into_iter().collect();
+        blocked.sort();
+        blocked
     }
 
     /// Whether the workflow has blocked the given tool.
@@ -51,6 +54,13 @@ impl VariableBackedVisibilityStore {
 impl ToolVisibilityStore for VariableBackedVisibilityStore {
     async fn is_tool_visible(&self, _execution_id: &str, tool_name: &str) -> bool {
         !self.is_blocked(tool_name)
+    }
+
+    fn blocked_tools(&self) -> Vec<String> {
+        let mut blocked: Vec<String> =
+            collect_blocked_tools(&self.variables).into_iter().collect();
+        blocked.sort();
+        blocked
     }
 }
 

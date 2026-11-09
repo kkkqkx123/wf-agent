@@ -248,10 +248,11 @@ impl AgentLoopEntity {
     /// Explicit pure chat run: available pool set to an empty list with no
     /// initial or discoverable tools.
     pub fn is_explicit_no_tools(&self) -> bool {
-        !self.available_is_unset
-            && self.available_tool_names.is_empty()
-            && self.initial_tool_names.is_empty()
-            && self.discoverable_tool_names.is_empty()
+        wf_tools::tool_exposure::is_explicit_no_tools(
+            self.available_pool(),
+            &self.initial_tool_names,
+            &self.discoverable_tool_names,
+        )
     }
 
     /// Store the frozen tool membership captured at loop entry.

@@ -58,7 +58,9 @@ pub fn attach_prompt_assembly(
         agent_config,
         &input.context,
         env,
-        &config.available_tool_names.clone().unwrap_or_default(),
+        wf_tools::tool_exposure::AvailablePool::from_option(
+            config.available_tool_names.as_deref(),
+        ),
         normalize_prompt_workdir(workdir).as_deref(),
     );
     apply_assembled_prompt(

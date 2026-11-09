@@ -100,8 +100,9 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 

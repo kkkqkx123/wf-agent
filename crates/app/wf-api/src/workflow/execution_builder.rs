@@ -136,8 +136,9 @@ impl ExecutionBuilder {
             options: Some(self.options),
             version: None,
             debug: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         let (execution_id, mut stream) =
             crate::workflow::workflow_execution::stream(ctx.clone(), params).await?;
         let execution_id_filter = execution_id.to_string();
@@ -224,8 +225,9 @@ impl ExecutionBuilder {
                 options: Some(self.options),
                 version: None,
                 debug: None,
-            
-                directory: None,},
+
+                directory: None,
+            },
         )
         .await?;
 

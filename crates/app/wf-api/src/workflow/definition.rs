@@ -776,8 +776,9 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         super::super::execution::save_execution(&ctx, &execution)
             .await
             .unwrap();

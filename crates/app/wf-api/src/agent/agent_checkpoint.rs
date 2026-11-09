@@ -472,9 +472,7 @@ pub async fn statistics_in(
                 .await?
                 .flatten();
             let visible = match (directory, owner.as_deref()) {
-                (Some(want), Some(have)) => {
-                    wf_common::workspace::same_directory(have, want)
-                }
+                (Some(want), Some(have)) => wf_common::workspace::same_directory(have, want),
                 (Some(_), None) => false,
                 (None, _) => owner.is_none(),
             };
@@ -750,8 +748,9 @@ mod tests {
             permanently_failed_tools: None,
             hierarchy: None,
             rerun_of: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         ctx.storage.agent_execution.save(&record).await.unwrap();
         let err = create(&ctx, "loop-eph", None).await.unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));

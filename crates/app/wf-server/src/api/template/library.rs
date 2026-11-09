@@ -341,10 +341,21 @@ pub(crate) async fn handle_clone_template(
         wf_api::trigger::template::clone_template(&state.ctx, &path.id, &new_name)
             .await
             .map(|t| serde_json::to_value(&t).unwrap_or_default())
+    } else if body.kind == "workflow" {
+        let new_id = if new_name.is_empty() {
+            None
+        } else {
+            Some(new_name.as_str())
+        };
+        wf_api::workflow::clone_workflow(&state.ctx, &path.id, new_id)
+            .await
+            .map(|id| serde_json::json!({"id": id}))
+            .map_err(Into::into)
     } else {
-        Err(wf_api::ApiError::Validation(
-            "workflow clone uses POST /api/v1/workflows/{id}/clone".to_string(),
-        ))
+        Err(wf_api::ApiError::Validation(format!(
+            "unknown template kind for clone: {}",
+            body.kind
+        )))
     };
     match result {
         Ok(template) => ok(template).into_response(),
@@ -370,47 +381,25 @@ pub(crate) struct RegistryListQuery {
 }
 
 impl RegistryListQuery {
-    fn tag_list(&self) -> Vec<String> {
-        self.tags
-            .as_deref()
-            .map(|raw| {
-                raw.split(',')
-                    .map(|t| t.trim().to_string())
-                    .filter(|t| !t.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// Delegate to the shared template filter so fragment and library
+    /// listings cannot drift apart. Attribute sources stay with the caller.
+    fn to_basic_filter(&self) -> wf_api::template::BasicTemplateFilter {
+        wf_api::template::BasicTemplateFilter::from_query(
+            self.name.clone(),
+            self.category.clone(),
+            self.tags.as_deref(),
+            self.author.clone(),
+        )
     }
 
-    /// Shared matcher over one entry's display attributes. Callers resolve
-    /// their own attribute sources (template fields with metadata
-    /// fallbacks) before matching.
-    fn matches(&self, name: &str, category: Option<&str>, tags: Option<&[String]>, author: Option<&str>) -> bool {
-        if let Some(filter_name) = self.name.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-            if !name.to_lowercase().contains(&filter_name.to_lowercase()) {
-                return false;
-            }
-        }
-        if let Some(category_filter) = &self.category {
-            if category != Some(category_filter.as_str()) {
-                return false;
-            }
-        }
-        let wanted = self.tag_list();
-        if !wanted.is_empty() {
-            let has_any = tags
-                .map(|existing| wanted.iter().any(|tag| existing.contains(tag)))
-                .unwrap_or(false);
-            if !has_any {
-                return false;
-            }
-        }
-        if let Some(author_filter) = &self.author {
-            if author != Some(author_filter.as_str()) {
-                return false;
-            }
-        }
-        true
+    fn matches(
+        &self,
+        name: &str,
+        category: Option<&str>,
+        tags: Option<&[String]>,
+        author: Option<&str>,
+    ) -> bool {
+        self.to_basic_filter().matches(name, category, tags, author)
     }
 }
 
@@ -442,11 +431,15 @@ pub(crate) async fn handle_list_workflow_templates(
                 .into_iter()
                 .filter(|t| {
                     let category = t.template_category.as_deref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                        t.definition
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.category.as_deref())
                     });
-                    let tags = t.template_tags.as_ref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
-                    });
+                    let tags = t
+                        .template_tags
+                        .as_ref()
+                        .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref()));
                     let author = t
                         .definition
                         .metadata
@@ -479,11 +472,15 @@ pub(crate) async fn handle_count_workflow_templates(
                 .iter()
                 .filter(|t| {
                     let category = t.template_category.as_deref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                        t.definition
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.category.as_deref())
                     });
-                    let tags = t.template_tags.as_ref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
-                    });
+                    let tags = t
+                        .template_tags
+                        .as_ref()
+                        .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref()));
                     let author = t
                         .definition
                         .metadata
@@ -633,11 +630,15 @@ pub(crate) async fn handle_list_agent_templates(
                 .into_iter()
                 .filter(|t| {
                     let category = t.template_category.as_deref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                        t.definition
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.category.as_deref())
                     });
-                    let tags = t.template_tags.as_ref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
-                    });
+                    let tags = t
+                        .template_tags
+                        .as_ref()
+                        .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref()));
                     let author = t
                         .definition
                         .metadata
@@ -670,11 +671,15 @@ pub(crate) async fn handle_count_agent_templates(
                 .iter()
                 .filter(|t| {
                     let category = t.template_category.as_deref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                        t.definition
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.category.as_deref())
                     });
-                    let tags = t.template_tags.as_ref().or_else(|| {
-                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
-                    });
+                    let tags = t
+                        .template_tags
+                        .as_ref()
+                        .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref()));
                     let author = t
                         .definition
                         .metadata
@@ -1054,8 +1059,7 @@ pub(crate) async fn handle_unpublish_agent_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::unpublish_agent_template(&state.ctx, &path.id).await
-    {
+    match wf_api::template::template_library::unpublish_agent_template(&state.ctx, &path.id).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -1079,8 +1083,7 @@ pub(crate) async fn handle_validate_agent_template(
             Err(e) => return error_response(e),
         };
     match wf_api::template::template_library::validate_agent_template_definition(
-        &state.ctx,
-        &template,
+        &state.ctx, &template,
     )
     .await
     {

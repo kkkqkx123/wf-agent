@@ -50862,6 +50862,12 @@
                     "start_time"
                   ],
                   "properties": {
+                    "debug": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "definition_id": {
                       "type": [
                         "string",
@@ -50888,6 +50894,12 @@
                       "type": "string"
                     },
                     "parent_execution_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "rerun_of": {
                       "type": [
                         "string",
                         "null"
@@ -61595,6 +61607,12 @@
           "start_time"
         ],
         "properties": {
+          "debug": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "definition_id": {
             "type": [
               "string",
@@ -61621,6 +61639,12 @@
             "type": "string"
           },
           "parent_execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rerun_of": {
             "type": [
               "string",
               "null"

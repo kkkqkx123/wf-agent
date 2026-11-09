@@ -49,9 +49,11 @@ pub fn parse_import<T: serde::de::DeserializeOwned>(json: &str) -> ApiResult<T> 
 }
 
 /// Basic template filter fields shared by the agent-template filter and the
-/// template-library filter (name / category / tags / author).
+/// template-library filter (name / category / tags / author). This is the
+/// single matching semantic for every template kind; server query types
+/// delegate here instead of reimplementing substring and tag matching.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct BasicTemplateFilter {
+pub struct BasicTemplateFilter {
     pub name: Option<String>,
     pub category: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -59,6 +61,34 @@ pub(crate) struct BasicTemplateFilter {
 }
 
 impl BasicTemplateFilter {
+    /// Build a filter from raw query inputs. A comma-separated tag string
+    /// is split the same way for every caller so fragment and library
+    /// listings share one tag semantic.
+    pub fn from_query(
+        name: Option<String>,
+        category: Option<String>,
+        tags: Option<&str>,
+        author: Option<String>,
+    ) -> Self {
+        Self {
+            name: name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
+            category,
+            tags: Self::parse_tags(tags),
+            author,
+        }
+    }
+
+    /// Split a comma-separated tag string, dropping blanks.
+    pub fn parse_tags(raw: Option<&str>) -> Option<Vec<String>> {
+        raw.map(|tags| {
+            tags.split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
+        .filter(|tags: &Vec<String>| !tags.is_empty())
+    }
+
     /// Apply the filter to one template's matchable attributes. Callers are
     /// responsible for resolving their own attribute sources (e.g. metadata
     /// fallbacks) before matching.
@@ -69,7 +99,12 @@ impl BasicTemplateFilter {
         tags: Option<&[String]>,
         author: Option<&str>,
     ) -> bool {
-        if let Some(filter_name) = &self.name {
+        if let Some(filter_name) = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
+        {
             if !name.to_lowercase().contains(&filter_name.to_lowercase()) {
                 return false;
             }

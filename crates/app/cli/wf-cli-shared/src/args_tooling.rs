@@ -171,6 +171,9 @@ pub enum TemplateSub {
         /// Template id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Template kind (workflow, agent, node, trigger).
+        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent","node","trigger"])]
+        kind: String,
     },
     /// Register a template from a file.
     Register {

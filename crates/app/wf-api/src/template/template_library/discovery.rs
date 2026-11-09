@@ -5,6 +5,17 @@ use crate::infra::error::ApiResult;
 
 use super::*;
 
+/// Shared basic filter for one template-library query. Attribute sources
+/// stay with the caller; matching stays in one place.
+fn basic_filter(filter: &TemplateFilter) -> crate::template::BasicTemplateFilter {
+    crate::template::BasicTemplateFilter::from_query(
+        filter.name.clone(),
+        filter.category.clone(),
+        filter.tags.as_deref().map(|tags| tags.join(",")).as_deref(),
+        filter.author.clone(),
+    )
+}
+
 pub async fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<TemplateSummary>> {
     let mut summaries = Vec::new();
     let include_workflow = filter.kind.is_none_or(|k| k == TemplateKind::Workflow);
@@ -24,12 +35,7 @@ pub async fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<T
         }));
     }
 
-    let basic = crate::template::BasicTemplateFilter {
-        name: filter.name.clone(),
-        category: filter.category.clone(),
-        tags: filter.tags.clone(),
-        author: filter.author.clone(),
-    };
+    let basic = basic_filter(filter);
 
     let include_system = filter.include_system.unwrap_or(false);
     Ok(summaries
@@ -114,12 +120,7 @@ pub async fn query_unified(
         };
         summaries.extend(query(ctx, &library_filter).await?);
     }
-    let basic = crate::template::BasicTemplateFilter {
-        name: filter.name.clone(),
-        category: filter.category.clone(),
-        tags: filter.tags.clone(),
-        author: filter.author.clone(),
-    };
+    let basic = basic_filter(filter);
     if include_node {
         let nodes = ctx.storage.node_template.list(None).await?;
         let usage = super::usage::usage_map(ctx).await?;

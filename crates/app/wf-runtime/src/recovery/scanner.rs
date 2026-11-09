@@ -115,10 +115,9 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        
-     
-        directory: None,
-}
+
+            directory: None,
+        }
     }
 
     #[tokio::test]

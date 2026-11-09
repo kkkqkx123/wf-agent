@@ -25,7 +25,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_list_node_templates).post(handle_save_node_template),
         )
         .route("/templates/node/import", post(handle_import_node_template))
-        .route("/templates/node/batch-delete", post(handle_batch_delete_node_templates))
+        .route(
+            "/templates/node/batch-delete",
+            post(handle_batch_delete_node_templates),
+        )
         .route("/templates/node/count", get(handle_count_node_templates))
         .route(
             "/templates/node/{id}",
@@ -46,12 +49,18 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/templates/trigger/import",
             post(handle_import_trigger_template),
         )
-        .route("/templates/trigger/search", get(handle_search_trigger_templates))
+        .route(
+            "/templates/trigger/search",
+            get(handle_search_trigger_templates),
+        )
         .route(
             "/templates/trigger/batch-delete",
             post(handle_batch_delete_trigger_templates),
         )
-        .route("/templates/trigger/count", get(handle_count_trigger_templates))
+        .route(
+            "/templates/trigger/count",
+            get(handle_count_trigger_templates),
+        )
         .route(
             "/templates/trigger/{id}",
             get(handle_get_trigger_template)

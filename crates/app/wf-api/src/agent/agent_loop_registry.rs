@@ -256,8 +256,9 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         storage.agent_execution.save(&record).await.unwrap();
 
         let ctx = Arc::new(ApiContext::new(

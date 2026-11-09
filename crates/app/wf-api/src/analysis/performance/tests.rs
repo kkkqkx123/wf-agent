@@ -101,8 +101,9 @@ async fn profile_degrades_to_persisted_record() {
 
         rerun_of: None,
         debug: None,
-    
-        directory: None,};
+
+        directory: None,
+    };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
     let profile = profile(&ctx, "exec-perf-p").await.unwrap();
@@ -134,8 +135,9 @@ async fn compare_computes_improvement_rate() {
 
         rerun_of: None,
         debug: None,
-    
-        directory: None,};
+
+        directory: None,
+    };
     ctx.storage
         .workflow_execution
         .save(&record("exec-a", 10000))

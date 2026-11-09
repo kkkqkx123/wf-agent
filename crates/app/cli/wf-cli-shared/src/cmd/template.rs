@@ -16,19 +16,19 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             tags,
             author,
         } => {
-            let kind_param = kind
-                .as_deref()
-                .and_then(|k| match k.to_ascii_lowercase().as_str() {
-                    "workflow" | "agent" => Some(k),
-                    _ => None,
-                });
+            let kind_param = kind.as_deref().map(|k| k.to_ascii_lowercase()).filter(|k| {
+                matches!(
+                    k.as_str(),
+                    "workflow" | "agent" | "node" | "trigger" | "all"
+                )
+            });
             let envelope = client
                 .generated()
                 .handle_query_library(
                     author.as_deref(),
                     category.as_deref(),
                     None,
-                    kind_param,
+                    kind_param.as_deref(),
                     None,
                     tags.as_deref(),
                 )
@@ -38,10 +38,14 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(cli.output, OutputEnvelope::success("template-list", data))
         }
-        TemplateSub::Show { id, kind: _ } => {
+        TemplateSub::Show { id, kind } => {
+            let kind_param = kind
+                .as_deref()
+                .map(|k| k.to_ascii_lowercase())
+                .filter(|k| matches!(k.as_str(), "workflow" | "agent" | "node" | "trigger"));
             let envelope = client
                 .generated()
-                .handle_query_library(None, None, None, Some(id.as_str()), None, None)
+                .handle_query_library(None, None, None, kind_param.as_deref(), None, None)
                 .await
                 .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =
@@ -66,10 +70,11 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 ),
             }
         }
-        TemplateSub::Clone { id } => {
+        TemplateSub::Clone { id, kind } => {
+            let kind_value = kind.to_ascii_lowercase();
             let new_name = format!("{id}-clone");
             let body = wf_client::models::CloneTemplateBody {
-                kind: "workflow".to_string(),
+                kind: kind_value.clone(),
                 new_name: Some(new_name),
             };
             let envelope = client

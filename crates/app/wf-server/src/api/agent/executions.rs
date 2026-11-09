@@ -742,7 +742,8 @@ pub(crate) async fn handle_checkpoint_statistics(
         .as_ref()
         .map(|scope| scope.directory.to_string_lossy().into_owned());
     match wf_api::agent::agent_checkpoint::statistics_in(&state.ctx, None, directory.as_deref())
-        .await {
+        .await
+    {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
     }

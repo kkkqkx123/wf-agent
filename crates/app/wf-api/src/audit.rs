@@ -401,8 +401,9 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         ctx.storage.agent_execution.save(&record).await.unwrap();
 
         let summary = audit_summary(&ctx, "loop-persisted").await.unwrap();

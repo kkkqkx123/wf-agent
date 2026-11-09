@@ -44,8 +44,11 @@ pub(crate) async fn run_with_client(
                         .to_string(),
                 ));
             }
-            let data: serde_json::Value = if *unified {
-                if workflow.is_some() || agent.is_some() {
+            // Unified listing is the default when no engine filter names one:
+            // it covers workflow, agent and chat runs like the web overview.
+            let use_unified = *unified || (workflow.is_none() && agent.is_none());
+            let data: serde_json::Value = if use_unified {
+                if *unified && (workflow.is_some() || agent.is_some()) {
                     return Err(crate::error::CliError::Configuration(
                         "--unified cannot be combined with --workflow or --agent".to_string(),
                     ));

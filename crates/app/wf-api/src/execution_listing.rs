@@ -199,13 +199,58 @@ pub async fn list_unified(
     Ok((page, has_more))
 }
 
+/// Whether an executor supports rerun. Only workflow executions rerun in
+/// place; agent loops fork instead. The unified rerun route and every
+/// frontend control share this predicate so the capability is declared once.
+pub fn supports_rerun(execution_type: ExecutionType) -> bool {
+    matches!(execution_type, ExecutionType::Workflow)
+}
+
+/// Rejection hint for executors without rerun support.
+pub fn rerun_unsupported_hint() -> &'static str {
+    "rerun is only supported for workflow executions; fork the agent loop instead"
+}
+
 /// Count runs matching a filter across both engines.
 pub async fn count_unified(
     ctx: &ApiContext,
     filter: Option<&UnifiedExecutionFilter>,
 ) -> ApiResult<usize> {
-    let (page, _) = list_unified(ctx, filter, usize::MAX, 0).await?;
-    Ok(page.len())
+    let wants_workflow = filter
+        .and_then(|f| f.execution_type)
+        .is_none_or(|t| t == ExecutionType::Workflow);
+    let wants_agent_or_chat = filter
+        .and_then(|f| f.execution_type)
+        .is_none_or(|t| t == ExecutionType::Agent || t == ExecutionType::Chat);
+    if filter.and_then(|f| f.definition_id.as_deref()).is_some() {
+        let (page, _) = list_unified(ctx, filter, usize::MAX, 0).await?;
+        return Ok(page.len());
+    }
+    let mut total = 0usize;
+    if wants_workflow {
+        let options = filter.map(|f| crate::WorkflowExecutionListOptions {
+            status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
+            workflow_id_filter: f.definition_id.clone(),
+            started_from: f.started_from,
+            started_to: f.started_to,
+            order_desc: Some(true),
+            directory_filter: f.directory.clone(),
+            ..crate::WorkflowExecutionListOptions::default()
+        });
+        total += crate::workflow::execution::count_executions(ctx, options).await? as usize;
+    }
+    if wants_agent_or_chat {
+        let agent_filter = filter.map(|f| agent_execution_registry::AgentExecutionFilter {
+            status: f.status.clone(),
+            execution_type: f.execution_type,
+            agent_id: f.definition_id.clone(),
+            started_from: f.started_from,
+            started_to: f.started_to,
+            directory: f.directory.clone(),
+        });
+        total += agent_execution_registry::count_filtered(ctx, agent_filter.as_ref()).await?;
+    }
+    Ok(total)
 }
 
 /// One execution with its real executor attached, for the unified detail
@@ -330,8 +375,9 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
     }
 
@@ -368,8 +414,9 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 

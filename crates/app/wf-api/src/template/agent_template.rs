@@ -22,54 +22,59 @@ pub fn query(
     let all = list_agent_templates(ctx)?;
     Ok(all
         .into_iter()
-        .filter(|t| {
-            let Some(filter) = filter else {
-                return true;
-            };
-            let basic = crate::template::BasicTemplateFilter {
-                name: filter.name.clone(),
-                category: filter.category.clone(),
-                tags: filter.tags.clone(),
-                author: filter.author.clone(),
-            };
-            let category = t.template_category.clone().or_else(|| {
-                t.definition
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.category.clone())
-            });
-            let tags = t
-                .template_tags
-                .clone()
-                .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.clone()));
-            let author = t
-                .definition
-                .metadata
-                .as_ref()
-                .and_then(|m| m.author.as_ref());
-            if !basic.matches(
-                &t.name,
-                category.as_deref(),
-                tags.as_deref(),
-                author.map(String::as_str),
-            ) {
-                return false;
-            }
-            if let Some(profile_type) = &filter.profile_type {
-                let matches = t
-                    .definition
-                    .config
-                    .as_ref()
-                    .and_then(|c| c.profile_id.clone())
-                    .map(|p| p == *profile_type)
-                    .unwrap_or(false);
-                if !matches {
-                    return false;
-                }
-            }
-            true
-        })
+        .filter(|t| template_matches(t, filter))
         .collect())
+}
+
+/// Shared predicate for one agent template. Attribute sources are resolved
+/// here (template fields with metadata fallbacks) before delegating to the
+/// shared basic filter, so query entry points cannot drift apart.
+fn template_matches(t: &AgentTemplate, filter: Option<&AgentTemplateFilter>) -> bool {
+    let Some(filter) = filter else {
+        return true;
+    };
+    let basic = crate::template::BasicTemplateFilter::from_query(
+        filter.name.clone(),
+        filter.category.clone(),
+        filter.tags.as_deref().map(|tags| tags.join(",")).as_deref(),
+        filter.author.clone(),
+    );
+    let category = t.template_category.clone().or_else(|| {
+        t.definition
+            .metadata
+            .as_ref()
+            .and_then(|m| m.category.clone())
+    });
+    let tags = t
+        .template_tags
+        .clone()
+        .or_else(|| t.definition.metadata.as_ref().and_then(|m| m.tags.clone()));
+    let author = t
+        .definition
+        .metadata
+        .as_ref()
+        .and_then(|m| m.author.as_ref());
+    if !basic.matches(
+        &t.name,
+        category.as_deref(),
+        tags.as_deref(),
+        author.map(String::as_str),
+    ) {
+        return false;
+    }
+    if let Some(profile_type) = &filter.profile_type {
+        let matches = t
+            .definition
+            .config
+            .as_ref()
+            .and_then(|c| c.profile_id.clone())
+            .map(|p| p == *profile_type)
+            .unwrap_or(false);
+        if !matches {
+            return false;
+        }
+    }
+    true
 }
 
 pub fn query_by_category(ctx: &ApiContext, category: &str) -> ApiResult<Vec<AgentTemplate>> {

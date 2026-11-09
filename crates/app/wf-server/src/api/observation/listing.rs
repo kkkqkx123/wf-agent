@@ -26,8 +26,14 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/unified-executions/{id}", get(handle_unified_execution))
         .route("/unified-executions/{id}/pause", post(handle_unified_pause))
-        .route("/unified-executions/{id}/resume", post(handle_unified_resume))
-        .route("/unified-executions/{id}/cancel", post(handle_unified_cancel))
+        .route(
+            "/unified-executions/{id}/resume",
+            post(handle_unified_resume),
+        )
+        .route(
+            "/unified-executions/{id}/cancel",
+            post(handle_unified_cancel),
+        )
         .route("/unified-executions/{id}/rerun", post(handle_unified_rerun))
 }
 
@@ -81,6 +87,10 @@ pub(crate) struct UnifiedExecutionDoc {
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    rerun_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    debug: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     parent_execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -96,6 +106,8 @@ impl From<UnifiedExecutionSummary> for UnifiedExecutionDoc {
             end_time: summary.end_time,
             definition_id: summary.definition_id,
             version: summary.version,
+            rerun_of: summary.rerun_of,
+            debug: summary.debug,
             parent_execution_id: summary.parent_execution_id,
             error: summary.error,
         }
@@ -464,8 +476,7 @@ pub(crate) async fn handle_unified_rerun(
         Ok(wf_api::ExecutionDomain::Workflow) => {}
         Ok(wf_api::ExecutionDomain::AgentLoop) => {
             return crate::envelope::error_response(wf_api::ApiError::Validation(
-                "rerun is only supported for workflow executions; fork the agent loop instead"
-                    .to_string(),
+                wf_api::execution_listing::rerun_unsupported_hint().to_string(),
             ));
         }
         Err(e) => return crate::envelope::error_response(e),

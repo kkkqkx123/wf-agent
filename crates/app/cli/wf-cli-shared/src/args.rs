@@ -386,17 +386,17 @@ pub enum Command {
         #[arg(long)]
         exec: Option<String>,
     },
-    /// Workflow management commands (read-only subset).
+    /// Workflow management commands.
     Workflow {
         #[command(subcommand)]
         sub: WorkflowSub,
     },
-    /// Execution management commands (read-only subset).
+    /// Execution management commands.
     Execution {
         #[command(subcommand)]
         sub: ExecutionSub,
     },
-    /// LLM profile management commands (read-only subset).
+    /// LLM profile management commands.
     #[command(name = "llm-profile")]
     LlmProfile {
         #[command(subcommand)]
@@ -420,7 +420,7 @@ pub enum Command {
         #[command(subcommand)]
         sub: LlmProxySub,
     },
-    /// Skill management commands (read-only subset).
+    /// Skill management commands.
     Skill {
         #[command(subcommand)]
         sub: SkillSub,

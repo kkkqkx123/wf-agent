@@ -568,22 +568,21 @@ pub(crate) fn check_explicit_file_scope(
 ) -> Result<(), wf_api::ApiError> {
     use wf_types::config::file_scope::{scope_path_contains, validate_scope_path};
     let root = scope.directory.to_string_lossy().into_owned();
-    let check_paths =
-        |field: &str, paths: &Option<Vec<String>>| -> Result<(), wf_api::ApiError> {
-            let Some(paths) = paths else {
-                return Ok(());
-            };
-            for path in paths {
-                validate_scope_path(path, field).map_err(wf_api::ApiError::Validation)?;
-                if path.starts_with('/') && !scope_path_contains(&root, path) {
-                    return Err(wf_api::ApiError::Validation(format!(
-                        "{field} '{path}' is outside the request directory {}",
-                        scope.directory.display()
-                    )));
-                }
-            }
-            Ok(())
+    let check_paths = |field: &str, paths: &Option<Vec<String>>| -> Result<(), wf_api::ApiError> {
+        let Some(paths) = paths else {
+            return Ok(());
         };
+        for path in paths {
+            validate_scope_path(path, field).map_err(wf_api::ApiError::Validation)?;
+            if path.starts_with('/') && !scope_path_contains(&root, path) {
+                return Err(wf_api::ApiError::Validation(format!(
+                    "{field} '{path}' is outside the request directory {}",
+                    scope.directory.display()
+                )));
+            }
+        }
+        Ok(())
+    };
     check_paths("read_prefixes", &file_scope.read_prefixes)?;
     check_paths("write_prefixes", &file_scope.write_prefixes)?;
     check_paths("checkpoint_prefixes", &file_scope.checkpoint_prefixes)?;

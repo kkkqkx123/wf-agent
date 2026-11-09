@@ -160,10 +160,9 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        
-     
-        directory: None,
-}
+
+            directory: None,
+        }
     }
 
     #[tokio::test]
@@ -323,8 +322,9 @@ mod tests {
 
             rerun_of: None,
             debug: None,
-        
-            directory: None,};
+
+            directory: None,
+        };
         let root = make_execution("root-1", ExecutionStatus::Running);
         // Save child first so scan order alone would recover it first.
         ctx.workflow_execution.save(&child).await.unwrap();

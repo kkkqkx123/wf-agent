@@ -1567,7 +1567,8 @@ mod tests {
             ..metadata
         };
         assert!(
-            validate_config_value_against_metadata(&json!({"when": "contains(a, b)"}), &open).is_empty()
+            validate_config_value_against_metadata(&json!({"when": "contains(a, b)"}), &open)
+                .is_empty()
         );
     }
 

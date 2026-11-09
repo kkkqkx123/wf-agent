@@ -88,8 +88,9 @@ fn make_execution(id: &str, workflow_id: &str) -> wf_types::WorkflowExecution {
 
         rerun_of: None,
         debug: None,
-    
-        directory: None,}
+
+        directory: None,
+    }
 }
 
 #[test]

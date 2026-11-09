@@ -92,8 +92,8 @@ pub async fn register_workflow_template(
     crate::workflow::carry_metadata(stored.as_ref(), &mut definition);
     // Formal save gate, mirroring `save_workflow`: shape plus graph plus
     // reference closure must pass; warnings allow registration.
-    let warnings = crate::workflow::validation::validate_workflow_for_publish(ctx, &definition)
-        .await?;
+    let warnings =
+        crate::workflow::validation::validate_workflow_for_publish(ctx, &definition).await?;
     if !warnings.is_empty() {
         tracing::warn!(
             workflow_id = %template.id,
@@ -144,8 +144,8 @@ pub async fn update_workflow_template(
     let mut definition = template_definition(template, true);
     let stored = ctx.storage.workflow.load(&template.id).await?;
     crate::workflow::carry_metadata(stored.as_ref(), &mut definition);
-    let warnings = crate::workflow::validation::validate_workflow_for_publish(ctx, &definition)
-        .await?;
+    let warnings =
+        crate::workflow::validation::validate_workflow_for_publish(ctx, &definition).await?;
     if !warnings.is_empty() {
         tracing::warn!(
             workflow_id = %template.id,

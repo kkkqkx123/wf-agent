@@ -25,51 +25,55 @@ export function resolveApiKey(): string | undefined {
 	return undefined;
 }
 
-/**
- * Resolve the business directory for multi-directory serving.
- * Build-time value wins, otherwise the workspace panel persists the
- * current repository root. Absent means requests carry no directory and
- * workspace-bound handlers reject them instead of guessing.
- */
-export function resolveDirectory(): string | undefined {
-	const fromEnv = import.meta.env.VITE_API_DIRECTORY as string | undefined;
-	if (fromEnv && fromEnv.length > 0) return fromEnv;
-	if (typeof localStorage !== 'undefined') {
-		const fromStorage = localStorage.getItem('wf.directory');
-		if (fromStorage && fromStorage.length > 0) return fromStorage;
-	}
-	return undefined;
-}
-
-/**
- * Validate a workspace directory spelling before persisting it: it must
- * be a non-empty absolute path. Server membership (allowlist, existence)
- * is checked by `fetchServerDirectories`, not here.
- */
-export function validateDirectoryFormat(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	if (trimmed.length === 0) return 'directory must not be empty';
-	if (!trimmed.startsWith('/')) return 'directory must be absolute';
-	return undefined;
-}
-
-/**
- * Persist the workspace directory after format validation. Empty clears
- * the stored value back to directory-less mode. Throws on invalid
- * spelling so callers surface the problem before any request fails.
- */
-export function setDirectory(raw: string | undefined): string | undefined {
-	if (typeof localStorage === 'undefined') return undefined;
-	const trimmed = (raw ?? '').trim();
-	if (trimmed.length === 0) {
-		localStorage.removeItem('wf.directory');
-		return undefined;
-	}
-	const problem = validateDirectoryFormat(trimmed);
-	if (problem) throw new Error(problem);
-	localStorage.setItem('wf.directory', trimmed);
-	return trimmed;
-}
+import {
+	DIRECTORY_PARAM,
+	TAB_LABEL_PARAM,
+	HOST_PARAM,
+	pinnedDirectory,
+	validateDirectoryFormat,
+	normalizeDirectory,
+	setDirectory,
+	onDirectoryChange,
+	onWorkspaceLabelChange,
+	readRecentDirectories,
+	pushRecentDirectory,
+	directoryNamespace,
+	shortWorkspaceName,
+	shortHostPrefix,
+	resolveTabName,
+	setTabName,
+	resolveHostPrefix,
+	setHostPrefix,
+	buildTabLabel,
+	resolveTabLabel,
+	applyDocumentTitle,
+	resolveDirectory,
+} from './workspace';
+export {
+	DIRECTORY_PARAM,
+	TAB_LABEL_PARAM,
+	HOST_PARAM,
+	pinnedDirectory,
+	validateDirectoryFormat,
+	normalizeDirectory,
+	setDirectory,
+	onDirectoryChange,
+	onWorkspaceLabelChange,
+	readRecentDirectories,
+	pushRecentDirectory,
+	directoryNamespace,
+	shortWorkspaceName,
+	shortHostPrefix,
+	resolveTabName,
+	setTabName,
+	resolveHostPrefix,
+	setHostPrefix,
+	buildTabLabel,
+	resolveTabLabel,
+	applyDocumentTitle,
+	resolveDirectory,
+};
+export type { RecentDirectory } from './workspace';
 
 /** Directory rejection kinds, so the UI can tell a typo from a server
  * that is not configured to serve the path. */
@@ -80,7 +84,10 @@ export type DirectoryProblem = 'not-found' | 'not-served' | 'validation';
  * code says so. `LOCATION_NOT_FOUND` means the path is wrong, `FORBIDDEN`
  * means the allowlist does not serve it.
  */
-export function classifyDirectoryError(body: unknown, status: number): DirectoryProblem | undefined {
+export function classifyDirectoryError(
+	body: unknown,
+	status: number,
+): DirectoryProblem | undefined {
 	const code =
 		typeof body === 'object' && body !== null && 'error' in body
 			? (body as { error?: { code?: unknown } }).error?.code
@@ -97,7 +104,8 @@ export function classifyDirectoryError(body: unknown, status: number): Directory
  * when the request itself fails, so pickers fall back to free input.
  */
 export async function fetchServerDirectories(): Promise<
-	{ allowedRoots: string[]; cached: { directory: string; project: string; projectId: string }[] } | undefined
+	| { allowedRoots: string[]; cached: { directory: string; project: string; projectId: string }[] }
+	| undefined
 > {
 	const { data } = await request('GET', '/api/v1/system/directories');
 	if (typeof data !== 'object' || data === null) return undefined;
@@ -121,7 +129,7 @@ export async function fetchServerDirectories(): Promise<
 							},
 						]
 					: [],
-				)
+			)
 		: [];
 	return { allowedRoots, cached };
 }

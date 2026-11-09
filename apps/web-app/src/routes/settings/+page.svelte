@@ -37,12 +37,21 @@
 		type SettingsBackup,
 	} from '#lib/services/portability';
 	import { cn } from '#lib/ui/cn';
-import {
-	fetchServerDirectories,
-	resolveDirectory,
-	setDirectory,
-	validateDirectoryFormat,
-} from '#lib/api/client';
+	import {
+		fetchServerDirectories,
+		onDirectoryChange,
+		onWorkspaceLabelChange,
+		pinnedDirectory,
+		readRecentDirectories,
+		resolveDirectory,
+		resolveHostPrefix,
+		resolveTabLabel,
+		resolveTabName,
+		setDirectory,
+		setHostPrefix,
+		setTabName,
+		type RecentDirectory,
+	} from '#lib/api/client';
 	import { t, message } from '#lib/i18n';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 
@@ -157,6 +166,11 @@ import {
 	let dirSaving = $state(false);
 	let dirAllowedRoots = $state<string[] | null>(null);
 	let dirKnown = $state(false);
+	let dirPinned = $state<string | undefined>(undefined);
+	let recentDirs = $state<RecentDirectory[]>([]);
+	let tabInput = $state('');
+	let tabPreview = $state('');
+	let hostInput = $state('');
 
 	async function loadServerDirectories(): Promise<void> {
 		const state = await fetchServerDirectories();
@@ -165,45 +179,86 @@ import {
 		dirAllowedRoots = state.allowedRoots;
 	}
 
+	function refreshWorkspaceInputs(): void {
+		dirInput = resolveDirectory() ?? '';
+		tabInput = resolveTabName() ?? '';
+		tabPreview = resolveTabLabel();
+		hostInput = resolveHostPrefix() ?? '';
+		recentDirs = readRecentDirectories();
+	}
+
+	// Switching applies in place: the layout remounts every page under the
+	// new directory instead of reloading the browser tab, so other tabs
+	// pinned to different workspaces are unaffected.
 	function saveDirectory(): void {
 		dirError = null;
-		const trimmed = dirInput.trim();
-		if (trimmed.length === 0) {
-			setDirectory(undefined);
-			window.location.reload();
-			return;
-		}
-		const problem = validateDirectoryFormat(trimmed);
-		if (problem) {
-			dirError = problem;
-			return;
-		}
 		dirSaving = true;
 		try {
-			setDirectory(trimmed);
+			setDirectory(dirInput.trim() ? dirInput : undefined);
+			refreshWorkspaceInputs();
 		} catch (error) {
 			dirError = error instanceof Error ? error.message : String(error);
+		} finally {
 			dirSaving = false;
-			return;
 		}
-		window.location.reload();
 	}
 
 	function clearDirectory(): void {
 		dirError = null;
-		setDirectory(undefined);
-		window.location.reload();
+		try {
+			setDirectory(undefined);
+		} catch (error) {
+			dirError = error instanceof Error ? error.message : String(error);
+		}
+		refreshWorkspaceInputs();
+	}
+
+	function switchRecent(directory: string): void {
+		dirError = null;
+		try {
+			setDirectory(directory);
+		} catch (error) {
+			dirError = error instanceof Error ? error.message : String(error);
+		}
+		refreshWorkspaceInputs();
+	}
+
+	function saveTabName(): void {
+		dirError = null;
+		try {
+			setTabName(tabInput.trim() ? tabInput : undefined);
+		} catch (error) {
+			dirError = error instanceof Error ? error.message : String(error);
+		}
+		refreshWorkspaceInputs();
+	}
+
+	function saveHostPrefix(): void {
+		dirError = null;
+		try {
+			setHostPrefix(hostInput.trim() ? hostInput : undefined);
+		} catch (error) {
+			dirError = error instanceof Error ? error.message : String(error);
+		}
+		refreshWorkspaceInputs();
 	}
 
 	onMount(() => {
 		void behavior.load();
-		dirInput = resolveDirectory() ?? '';
+		dirPinned = pinnedDirectory();
+		refreshWorkspaceInputs();
 		void loadServerDirectories();
+		const offDirectory = onDirectoryChange(() => refreshWorkspaceInputs());
+		const offLabel = onWorkspaceLabelChange(() => refreshWorkspaceInputs());
 		const guardUnload = (event: BeforeUnloadEvent): void => {
 			if (behavior.dirty) event.preventDefault();
 		};
 		window.addEventListener('beforeunload', guardUnload);
-		return () => window.removeEventListener('beforeunload', guardUnload);
+		return () => {
+			window.removeEventListener('beforeunload', guardUnload);
+			offDirectory();
+			offLabel();
+		};
 	});
 
 	beforeNavigate((navigation) => {
@@ -693,6 +748,11 @@ import {
 						{#if dirError}
 							<p class="mt-2 text-caption text-destructive">{dirError}</p>
 						{/if}
+						{#if dirPinned}
+							<p class="mt-2 text-caption text-warning">
+								{t('page.settings.serverDirectoryPinned')}
+							</p>
+						{/if}
 						<p class="mt-2 text-caption text-muted-foreground">
 							{#if dirKnown}
 								{#if dirAllowedRoots !== null && dirAllowedRoots.length > 0}
@@ -707,11 +767,76 @@ import {
 							{/if}
 						</p>
 						<div class="mt-3 flex gap-2">
-							<Button size="sm" disabled={dirSaving} onclick={saveDirectory}>
+							<Button
+								size="sm"
+								disabled={dirSaving || dirPinned !== undefined}
+								onclick={saveDirectory}
+							>
 								{t('common.save')}
 							</Button>
-							<Button size="sm" variant="outline" onclick={clearDirectory}>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={dirPinned !== undefined}
+								onclick={clearDirectory}
+							>
 								{t('page.settings.serverDirectoryClear')}
+							</Button>
+						</div>
+						{#if recentDirs.length > 0}
+							<p class="mt-4 block text-caption text-muted-foreground">
+								{t('page.settings.recentDirectories')}
+							</p>
+							<div class="mt-1 flex max-w-md flex-col gap-1">
+								{#each recentDirs as recent (recent.directory)}
+									<button
+										type="button"
+										disabled={dirPinned !== undefined}
+										onclick={() => switchRecent(recent.directory)}
+										class="truncate rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-left text-body text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+									>
+										{recent.directory}
+									</button>
+								{/each}
+							</div>
+						{/if}
+						<label for="tab-label" class="mt-4 block text-caption text-muted-foreground">
+							{t('page.settings.tabLabel')}
+						</label>
+						<input
+							id="tab-label"
+							type="text"
+							bind:value={tabInput}
+							placeholder={t('page.settings.tabLabelPlaceholder')}
+							class="mt-1 w-full max-w-md rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+						/>
+						<p class="mt-2 text-caption text-muted-foreground">
+							{t('page.settings.tabLabelDesc')}
+							{#if tabPreview}
+								<span class="text-foreground"> {tabPreview}</span>
+							{/if}
+						</p>
+						<div class="mt-3 flex gap-2">
+							<Button size="sm" variant="outline" onclick={saveTabName}>
+								{t('common.save')}
+							</Button>
+						</div>
+						<label for="host-prefix" class="mt-4 block text-caption text-muted-foreground">
+							{t('page.settings.hostPrefix')}
+						</label>
+						<input
+							id="host-prefix"
+							type="text"
+							bind:value={hostInput}
+							placeholder={t('page.settings.hostPrefixPlaceholder')}
+							class="mt-1 w-full max-w-md rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+						/>
+						<p class="mt-2 text-caption text-muted-foreground">
+							{t('page.settings.hostPrefixDesc')}
+						</p>
+						<div class="mt-3 flex gap-2">
+							<Button size="sm" variant="outline" onclick={saveHostPrefix}>
+								{t('common.save')}
 							</Button>
 						</div>
 					</Card>

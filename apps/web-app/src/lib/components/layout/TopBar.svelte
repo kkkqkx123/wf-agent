@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import type { ResolvedPathname } from '$app/types';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
@@ -9,9 +12,55 @@
 	import { ui } from '#lib/stores/ui.svelte';
 	import LanguageSwitcher from './LanguageSwitcher.svelte';
 	import ThemeSwitcher from './ThemeSwitcher.svelte';
+	import { buildListQuery } from '#lib/utils/route';
+	import {
+		onDirectoryChange,
+		onWorkspaceLabelChange,
+		resolveDirectory,
+		resolveTabLabel,
+	} from '#lib/api/workspace';
 	import { t } from '#lib/i18n';
 
 	const activeItem = $derived(navItemFor(page.url.pathname));
+
+	// Active workspace badge: short project name with the full directory
+	// as tooltip. Refreshes on directory and label switches without reload.
+	let workspaceLabel = $state('');
+	let workspaceDir = $state<string | undefined>(undefined);
+
+	function refreshWorkspace(): void {
+		workspaceDir = resolveDirectory();
+		workspaceLabel = resolveTabLabel();
+	}
+
+	onMount(() => {
+		refreshWorkspace();
+		const offDirectory = onDirectoryChange(refreshWorkspace);
+		const offLabel = onWorkspaceLabelChange(refreshWorkspace);
+		return () => {
+			offDirectory();
+			offLabel();
+		};
+	});
+
+	// Plain anchors drop the query string, so carry the workspace
+	// parameters over explicitly. Modified clicks keep native behavior.
+	function openWorkspaceSettings(event: MouseEvent): void {
+		if (
+			event.defaultPrevented ||
+			event.button !== 0 ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey
+		) {
+			return;
+		}
+		event.preventDefault();
+		const query = buildListQuery(page.url as unknown as URL, { tab: 'workspace' });
+		const target = `${resolve('/settings')}${query ? `?${query}` : ''}` as ResolvedPathname;
+		void goto(target);
+	}
 </script>
 
 <header class="frost flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
@@ -34,6 +83,16 @@
 	</nav>
 
 	<div class="ml-auto flex items-center gap-1.5">
+		<a
+			href={resolve('/settings')}
+			onclick={openWorkspaceSettings}
+			title={workspaceDir ?? workspaceLabel}
+			aria-label={t('layout.topbar.workspace')}
+			class="hidden max-w-44 items-center gap-1.5 truncate rounded-md border border-border bg-muted/40 px-2 py-1 text-caption text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+		>
+			<Icon name="folder" size={13} class="shrink-0" />
+			<span class="truncate">{workspaceLabel || t('layout.topbar.noWorkspace')}</span>
+		</a>
 		<Button
 			variant="outline"
 			size="sm"

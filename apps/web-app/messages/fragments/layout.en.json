@@ -8,6 +8,8 @@
 	"layout.topbar.themeDark": "Dark",
 	"layout.topbar.themeSystem": "Follow system",
 	"layout.topbar.toggleInspector": "Toggle inspector",
+	"layout.topbar.workspace": "Workspace",
+	"layout.topbar.noWorkspace": "No workspace",
 	"layout.sidebar.expand": "Expand sidebar",
 	"layout.sidebar.collapse": "Collapse sidebar",
 	"layout.sidebar.apiReachable": "API reachable",

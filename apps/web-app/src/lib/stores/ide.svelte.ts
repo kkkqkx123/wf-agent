@@ -7,6 +7,7 @@ import { listFiles } from '#lib/services/git';
 import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
 import { toasts } from '#lib/stores/toast.svelte';
 import { t } from '#lib/i18n';
+import { directoryNamespace, onDirectoryChange, resolveDirectory } from '#lib/api/workspace';
 import type { FsEntry } from '#lib/services/fs';
 
 export interface IdeFileTab {
@@ -44,13 +45,37 @@ function storageKey(suffix: string): string {
 	return `wf.ide.v1.${suffix}`;
 }
 
-function readSession<T>(key: string, fallback: T): T {
+/** Namespace isolating tab state per workspace directory. Empty in
+ * directory-less mode so previous single-workspace keys keep working. */
+function workspaceNs(): string {
 	try {
-		const raw = sessionStorage.getItem(storageKey(key));
+		return directoryNamespace(resolveDirectory());
+	} catch {
+		return '';
+	}
+}
+
+/** Tab-scoped keys: open files follow the active workspace directory so
+ * two tabs pinned to different workspaces never share file state. */
+function tabKey(suffix: string): string {
+	return `wf.ide.v1${workspaceNs()}.${suffix}`;
+}
+
+function readTabSession<T>(suffix: string, fallback: T): T {
+	try {
+		const raw = sessionStorage.getItem(tabKey(suffix));
 		if (!raw) return fallback;
 		return JSON.parse(raw) as T;
 	} catch {
 		return fallback;
+	}
+}
+
+function writeTabSession(suffix: string, value: unknown): void {
+	try {
+		sessionStorage.setItem(tabKey(suffix), JSON.stringify(value));
+	} catch {
+		// Session storage unavailable; tabs stay memory-only.
 	}
 }
 
@@ -147,40 +172,11 @@ export class IdeStore {
 	gitRefreshSeq = $state(0);
 
 	constructor() {
-		const saved = readSession<{ tabs: string[]; active: string | null }>('tabs', {
-			tabs: [],
-			active: null,
-		});
-		// Session storage is untrusted: validate the shape and drop duplicate
-		// paths so a keyed each block can never throw each_key_duplicate.
-		const savedPaths = Array.isArray(saved?.tabs) ? saved.tabs : [];
-		const seenPaths = new SvelteSet<string>();
-		const restoredPaths: string[] = [];
-		for (const candidate of savedPaths) {
-			if (typeof candidate !== 'string' || candidate === '' || seenPaths.has(candidate)) {
-				continue;
-			}
-			seenPaths.add(candidate);
-			restoredPaths.push(candidate);
-			if (restoredPaths.length >= MAX_OPEN_TABS) break;
-		}
-		if (restoredPaths.length > 0) {
-			this.tabs = restoredPaths.map((path) => ({
-				path,
-				content: '',
-				original: '',
-				hash: null,
-				language: languageForPath(path),
-				loading: true,
-				saving: false,
-				error: null,
-				isBinary: false,
-				truncated: false,
-				preview: false,
-			}));
-			const savedActive = typeof saved?.active === 'string' ? saved.active : null;
-			this.activePath =
-				savedActive && seenPaths.has(savedActive) ? savedActive : (restoredPaths[0] ?? null);
+		this.restoreTabs();
+		// A directory switch drops workspace-bound state and reloads it for
+		// the new directory; layout chrome (sizes, panel flags) stays global.
+		if (typeof window !== 'undefined') {
+			onDirectoryChange(() => this.resetForDirectory());
 		}
 		if (typeof sessionStorage !== 'undefined') {
 			const terminal = sessionStorage.getItem(storageKey('terminal'));
@@ -234,8 +230,66 @@ export class IdeStore {
 		this.restoreDrafts();
 	}
 
+	/** Drop workspace-bound state and reload it for the current directory. */
+	resetForDirectory(): void {
+		for (const tab of this.tabs) releaseFileModel(tab.path);
+		this.dirs = new SvelteMap();
+		this.tabs = [];
+		this.activePath = null;
+		this.diffs = [];
+		this.activeDiffKey = null;
+		this.pendingReveal = null;
+		this.gitBadges = new SvelteMap();
+		this.revealRequest = null;
+		this.commandQueue = [];
+		this.clipboard = null;
+		this.selectedPaths = [];
+		this.anchorPath = null;
+		this.root = '';
+		this.restoreTabs();
+		this.restoreDrafts();
+	}
+
+	private restoreTabs(): void {
+		const saved = readTabSession<{ tabs: string[]; active: string | null }>('tabs', {
+			tabs: [],
+			active: null,
+		});
+		// Session storage is untrusted: validate the shape and drop duplicate
+		// paths so a keyed each block can never throw each_key_duplicate.
+		const savedPaths = Array.isArray(saved?.tabs) ? saved.tabs : [];
+		const seenPaths = new SvelteSet<string>();
+		const restoredPaths: string[] = [];
+		for (const candidate of savedPaths) {
+			if (typeof candidate !== 'string' || candidate === '' || seenPaths.has(candidate)) {
+				continue;
+			}
+			seenPaths.add(candidate);
+			restoredPaths.push(candidate);
+			if (restoredPaths.length >= MAX_OPEN_TABS) break;
+		}
+		if (restoredPaths.length > 0) {
+			this.tabs = restoredPaths.map((path) => ({
+				path,
+				content: '',
+				original: '',
+				hash: null,
+				language: languageForPath(path),
+				loading: true,
+				saving: false,
+				error: null,
+				isBinary: false,
+				truncated: false,
+				preview: false,
+			}));
+			const savedActive = typeof saved?.active === 'string' ? saved.active : null;
+			this.activePath =
+				savedActive && seenPaths.has(savedActive) ? savedActive : (restoredPaths[0] ?? null);
+		}
+	}
+
 	private persistTabs(): void {
-		writeSession('tabs', {
+		writeTabSession('tabs', {
 			tabs: this.tabs.map((t) => t.path),
 			active: this.activePath,
 		});
@@ -562,7 +616,7 @@ export class IdeStore {
 	}
 
 	private draftKey(): string {
-		return 'wf.ide.drafts.v1';
+		return `wf.ide.drafts.v1${workspaceNs()}`;
 	}
 
 	private readDrafts(): Record<string, { content: string; savedAt: number }> {

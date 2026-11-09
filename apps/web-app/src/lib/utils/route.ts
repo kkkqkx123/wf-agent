@@ -31,8 +31,22 @@ export function resolveAppPath(path: AppPath): ResolvedPathname {
 	return resolve(path.replace(/^\//, '') as Path);
 }
 
-/** Query keys the app round-trips through the address bar. */
-const LIST_KEYS = ['id', 'q', 'status', 'page', 'tab', 'panel', 'definition', 'version'] as const;
+/** Query keys the app round-trips through the address bar. Workspace keys
+ * (`directory`, `label`, `host`) pin the per-tab workspace and must survive
+ * in-app navigation so a page switch never drops the active directory. */
+const LIST_KEYS = [
+	'id',
+	'q',
+	'status',
+	'page',
+	'tab',
+	'panel',
+	'definition',
+	'version',
+	'directory',
+	'label',
+	'host',
+] as const;
 
 export type ListParamKey = (typeof LIST_KEYS)[number];
 

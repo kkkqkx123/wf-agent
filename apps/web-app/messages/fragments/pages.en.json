@@ -625,5 +625,13 @@
 	"page.settings.serverDirectoryClear": "Clear",
 	"page.settings.serverDirectoryDesc": "Absolute path sent as x-wf-directory with every request. Empty means directory-less mode: workspace features reject requests instead of guessing.",
 	"page.settings.serverDirectoryPlaceholder": "/srv/wf/projects/acme",
-	"page.settings.serverDirectoryUnavailable": "Server directory state is unreachable; saving still applies the typed path."
+	"page.settings.serverDirectoryUnavailable": "Server directory state is unreachable; saving still applies the typed path.",
+	"page.settings.serverDirectoryPinned": "Directory is pinned by the server build and cannot be switched.",
+	"page.settings.recentDirectories": "Recent directories — switch without reloading:",
+	"page.settings.tabLabel": "Browser tab title",
+	"page.settings.tabLabelDesc": "Override for the browser tab. Empty derives the short project name from the directory. Current:",
+	"page.settings.tabLabelPlaceholder": "e.g. Acme API",
+	"page.settings.hostPrefix": "Host marker",
+	"page.settings.hostPrefixDesc": "Short prefix for non-local backends (archlinux shows as arch), placed before the project name.",
+	"page.settings.hostPrefixPlaceholder": "e.g. archlinux"
 }

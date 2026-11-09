@@ -225,35 +225,48 @@ export function resolveApiKey(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// resolveDirectory — no-op in preview (fixture data is directory-agnostic)
+// Workspace identity — shared with the real client so tab labels, recents
+// and the address bar behave identically in preview. Fixture routes ignore
+// the directory header, so resolution stays side-effect free for data.
 // ---------------------------------------------------------------------------
-export function resolveDirectory(): string | undefined {
-	return undefined;
-}
-
-export function validateDirectoryFormat(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	if (trimmed.length === 0) return 'directory must not be empty';
-	if (!trimmed.startsWith('/')) return 'directory must be absolute';
-	return undefined;
-}
-
-export function setDirectory(raw: string | undefined): string | undefined {
-	const trimmed = (raw ?? '').trim();
-	if (trimmed.length === 0) return undefined;
-	const problem = validateDirectoryFormat(trimmed);
-	if (problem) throw new Error(problem);
-	return trimmed;
-}
+export {
+	DIRECTORY_PARAM,
+	TAB_LABEL_PARAM,
+	HOST_PARAM,
+	resolveDirectory,
+	pinnedDirectory,
+	validateDirectoryFormat,
+	normalizeDirectory,
+	setDirectory,
+	onDirectoryChange,
+	onWorkspaceLabelChange,
+	readRecentDirectories,
+	pushRecentDirectory,
+	directoryNamespace,
+	shortWorkspaceName,
+	shortHostPrefix,
+	resolveTabName,
+	setTabName,
+	resolveHostPrefix,
+	setHostPrefix,
+	buildTabLabel,
+	resolveTabLabel,
+	applyDocumentTitle,
+} from './workspace';
+export type { RecentDirectory } from './workspace';
 
 export type DirectoryProblem = 'not-found' | 'not-served' | 'validation';
 
-export function classifyDirectoryError(_body: unknown, _status: number): DirectoryProblem | undefined {
+export function classifyDirectoryError(
+	_body: unknown,
+	_status: number,
+): DirectoryProblem | undefined {
 	return undefined;
 }
 
 export async function fetchServerDirectories(): Promise<
-	{ allowedRoots: string[]; cached: { directory: string; project: string; projectId: string }[] } | undefined
+	| { allowedRoots: string[]; cached: { directory: string; project: string; projectId: string }[] }
+	| undefined
 > {
 	return { allowedRoots: [], cached: [] };
 }

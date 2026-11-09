@@ -625,5 +625,13 @@
 	"page.settings.serverDirectoryClear": "清除",
 	"page.settings.serverDirectoryDesc": "随每个请求以 x-wf-directory 发送的绝对路径。留空表示无目录模式：工作区功能将拒绝请求，而不会猜测目录。",
 	"page.settings.serverDirectoryPlaceholder": "/srv/wf/projects/acme",
-	"page.settings.serverDirectoryUnavailable": "无法读取服务端目录状态；保存仍会应用手工输入的路径。"
+	"page.settings.serverDirectoryUnavailable": "无法读取服务端目录状态；保存仍会应用手工输入的路径。",
+	"page.settings.serverDirectoryPinned": "目录由服务端构建固定，不可切换。",
+	"page.settings.recentDirectories": "最近目录——免重载切换：",
+	"page.settings.tabLabel": "浏览器标签页标题",
+	"page.settings.tabLabelDesc": "覆盖浏览器标签页显示的标题。留空则按目录自动生成短项目名。当前：",
+	"page.settings.tabLabelPlaceholder": "例如 Acme API",
+	"page.settings.hostPrefix": "主机标识",
+	"page.settings.hostPrefixDesc": "非本机后端的前缀标识（archlinux 显示为 arch），位于项目名前。",
+	"page.settings.hostPrefixPlaceholder": "例如 archlinux"
 }

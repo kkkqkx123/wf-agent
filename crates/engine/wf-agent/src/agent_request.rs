@@ -47,6 +47,34 @@ pub async fn build_agent_request(
         state.tool_discovery().activated_tools.clone()
     };
 
+    // Explicit pure chat run: available pool set to an empty list with no
+    // initial or discoverable tools. Renders no tools instead of resolving
+    // an empty pool to all registered tools.
+    if entity.is_explicit_no_tools() {
+        return Ok(LlmRequest {
+            profile_id: entity.model().to_string(),
+            messages,
+            parameters: None,
+            generation: None,
+            tools: None,
+            tool_call_protocol: entity
+                .tool_call_protocol()
+                .map(|config| config.format.clone()),
+            locked_tool_call_protocol: entity.tool_call_protocol().cloned(),
+            violation_policy: None,
+            execution_id: Some(entity.id().to_string()),
+            stream: Some(stream),
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+            timeout_ms: None,
+            prompt_caching: None,
+            cached_content: None,
+            max_retries: None,
+            retry_delay_ms: None,
+            extra_headers: None,
+        });
+    }
+
     let exposure = wf_tools::resolve_tool_exposure(ExposureInput {
         registry: tool_registry,
         available_names: entity.available_tool_names(),
@@ -57,6 +85,49 @@ pub async fn build_agent_request(
         activated_tools: &activated_tools,
         exposure_overrides: &entity.exposure_overrides().iter().cloned().collect(),
     });
+    // Frozen membership: when the live registry drifted since loop entry,
+    // keep rendering the entry snapshot so the declaration array stays
+    // byte-stable mid-run. Drift is announced explicitly on the per-request
+    // clone instead of silently reshaping the schema; adoption waits for
+    // the next loop boundary. Additions stay pending, removals render as
+    // absent plus a notice, never as silent shrinkage.
+    let mut frozen_exposure: Option<wf_tools::tool_exposure::ExposureResolution> = None;
+    if let Some(snapshot) = entity.tool_snapshot() {
+        let diff = crate::tool_snapshot::diff_snapshot(&snapshot, &exposure);
+        if !diff.is_empty() {
+            let mut by_name: std::collections::HashMap<String, wf_types::tool::Tool> =
+                std::collections::HashMap::new();
+            for tool in tool_registry.list_tools() {
+                by_name.insert(tool.name.clone(), tool);
+            }
+            let frozen_visible: Vec<wf_types::tool::Tool> = snapshot
+                .visible_names
+                .iter()
+                .filter_map(|name| by_name.get(name).cloned())
+                .collect();
+            let frozen_discoverable: Vec<wf_types::tool::Tool> = snapshot
+                .discoverable_names
+                .iter()
+                .filter_map(|name| by_name.get(name).cloned())
+                .collect();
+            let general_present = by_name.contains_key(GENERAL_TOOL_NAME);
+            frozen_exposure = Some(wf_tools::tool_exposure::ExposureResolution {
+                visible: frozen_visible,
+                discoverable: frozen_discoverable,
+                gated: Vec::new(),
+                hidden: Vec::new(),
+                general_enabled: snapshot.general_enabled && general_present,
+            });
+            if let Some(text) = crate::tool_snapshot::render_tool_change_text(&diff, &[], &[]) {
+                messages.push(
+                    wf_execution_shared::agent_prompt::tool_change_message(format!(
+                        "{text}\nDrift is pending adoption at the next loop boundary."
+                    )),
+                );
+            }
+        }
+    }
+    let effective_exposure = frozen_exposure.as_ref().unwrap_or(&exposure);
     // Opt-in turn-level projection (off by default): rewrite the projected
     // history to this turn's exposure when bucket changes (TOOL_VISIBILITY /
     // overrides) left stale call shapes behind. Rewriting churns the
@@ -67,10 +138,15 @@ pub async fn build_agent_request(
     // always precedes wire-format conversion (Native <-> text): the gateway
     // renders text-mode bodies from these native messages downstream, so id
     // pairing is remapped here first and never reinterpreted later.
+    // Frozen runs project against the frozen exposure so history and schema
+    // stay consistent without churning on background drift.
     if entity.history_normalization_enabled() {
-        messages = wf_tools::general_history::normalize_history_for_exposure(&messages, &exposure);
+        messages = wf_tools::general_history::normalize_history_for_exposure(
+            &messages,
+            effective_exposure,
+        );
     }
-    let mut router: ToolRouter = exposure.clone().into();
+    let mut router: ToolRouter = effective_exposure.clone().into();
 
     // The routed tool list is a clone, so the general description override
     // never touches the shared registry.
@@ -88,14 +164,15 @@ pub async fn build_agent_request(
     // message at request assembly time when the `general` tool is actually
     // exposed. The block is deterministic per turn (same exposure inputs,
     // same generation options), so the system prompt prefix stays
-    // byte-stable across turns.
-    if exposure.general_enabled && !exposure.discoverable.is_empty() {
+    // byte-stable across turns. Frozen runs inject from the frozen exposure
+    // so metadata and schema stay in lockstep on drift.
+    if effective_exposure.general_enabled && !effective_exposure.discoverable.is_empty() {
         let block = match discoverable_metadata_block {
             Some(block) => block.to_string(),
             None => {
                 let options = wf_tools::discoverable_metadata_options(entity.tool_call_protocol());
                 wf_tools::generate_discoverable_tools_metadata_with_options(
-                    &exposure.discoverable,
+                    &effective_exposure.discoverable,
                     &options,
                 )
             }
@@ -173,7 +250,7 @@ mod tests {
     async fn make_entity(system_prompt: &str) -> AgentLoopEntity {
         let entity = AgentLoopEntity::new(wf_types::Id::from("request-test".to_string()))
             .with_model("mock".to_string())
-            .with_available_tool_names(vec!["web_search".to_string()])
+            .with_available_tool_names(vec!["general".to_string(), "web_search".to_string()])
             .with_initial_tool_names(vec!["web_search".to_string()])
             .with_discoverable_tool_names(vec!["web_search".to_string()]);
         entity.conversation().write().await.add_message(Message {

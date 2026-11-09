@@ -111,7 +111,11 @@ mod tests {
         ]);
         let router = build_tool_router(ExposureInput {
             registry: &registry,
-            available_names: &["alpha".to_string(), "web_search".to_string()],
+            available_names: &[
+                "alpha".to_string(),
+                "web_search".to_string(),
+                "general".to_string(),
+            ],
             initial_names: &["alpha".to_string()],
             discoverable_names: &["web_search".to_string()],
             hidden_names: &[],

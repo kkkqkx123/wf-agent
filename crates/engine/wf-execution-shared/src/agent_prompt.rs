@@ -33,6 +33,10 @@ use wf_tools::registry::ToolRegistry;
 pub const DYNAMIC_CONTEXT_MESSAGE_TYPE: &str = "dynamic_context";
 /// Marker for tool visibility tail announcements.
 pub const TOOL_VISIBILITY_MESSAGE_TYPE: &str = "tool_visibility";
+/// Marker for explicit tool change announcements describing declaration
+/// array differences (added, removed, activated, blocked). Shares the tail
+/// system-message convention with `tool_visibility`.
+pub const TOOL_CHANGE_MESSAGE_TYPE: &str = "tool_change";
 
 /// Narrow variable access shared by the workflow variable table and the
 /// direct path input context.
@@ -510,6 +514,15 @@ pub fn is_dynamic_context_message(msg: &wf_types::message::Message) -> bool {
         .unwrap_or(false)
 }
 
+/// True for explicit tool change tail announcements.
+pub fn is_tool_change_message(msg: &wf_types::message::Message) -> bool {
+    msg.metadata
+        .as_ref()
+        .and_then(|meta| meta.get("type"))
+        .map(|t| t == &Value::String(TOOL_CHANGE_MESSAGE_TYPE.to_string()))
+        .unwrap_or(false)
+}
+
 /// True for tool visibility tail announcements.
 pub fn is_tool_visibility_message(msg: &wf_types::message::Message) -> bool {
     msg.metadata
@@ -520,7 +533,8 @@ pub fn is_tool_visibility_message(msg: &wf_types::message::Message) -> bool {
 }
 
 /// Stable header exists when a non-announcement system message is present.
-/// `tool_visibility` and `dynamic_context` marked messages never count.
+/// `tool_visibility`, `tool_change` and `dynamic_context` marked messages
+/// never count.
 ///
 /// Locating is owned here; wire concatenation of the located header plus
 /// every announcement is owned by the gateway
@@ -533,6 +547,7 @@ fn stable_system_index(conversation: &[wf_types::message::Message]) -> Option<us
     conversation.iter().position(|m| {
         m.role == wf_types::message::MessageRole::System
             && !is_tool_visibility_message(m)
+            && !is_tool_change_message(m)
             && !is_dynamic_context_message(m)
     })
 }
@@ -570,6 +585,27 @@ pub fn split_trailing_dynamic_tail(
         .filter(|m| !is_dynamic_context_message(m))
         .collect();
     (filtered, trailing)
+}
+
+/// Tail system message carrying an explicit tool change notice. Marked so
+/// stable header checks skip it and transcripts can filter it.
+pub fn tool_change_message(content: String) -> wf_types::message::Message {
+    let mut message = wf_types::message::Message::system_text(content);
+    message.metadata = Some(HashMap::from([(
+        "type".to_string(),
+        Value::String(TOOL_CHANGE_MESSAGE_TYPE.to_string()),
+    )]));
+    message
+}
+
+/// Replace any existing tool change tail with a fresh notice. Refresh
+/// replaces instead of appending so repeated updates stay idempotent.
+pub fn refresh_tool_change_announcement(
+    conversation: &mut Vec<wf_types::message::Message>,
+    content: String,
+) {
+    conversation.retain(|m| !is_tool_change_message(m));
+    conversation.push(tool_change_message(content));
 }
 
 /// Leading stable system message carrying the cacheable header.

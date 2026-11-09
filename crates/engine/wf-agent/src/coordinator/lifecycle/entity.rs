@@ -186,6 +186,8 @@ impl AgentLoopCoordinator {
 
         if let Some(tools) = config.available_tool_names.clone() {
             entity = entity.with_available_tool_names(tools);
+        } else {
+            entity = entity.with_available_unset(true);
         }
 
         if !config.initial_tool_names.is_empty() {
@@ -237,6 +239,35 @@ impl AgentLoopCoordinator {
             entity.interruption().set_event_bus(bus.clone());
         }
 
+        // Frozen membership captured at loop entry. Per-turn assembly
+        // renders from this snapshot so background registry drift does not
+        // silently reshape the declaration array mid-run. An explicit empty
+        // pool with no initial or discoverable tools means a pure chat run
+        // and freezes to an empty snapshot instead of resolving to all.
+        if entity.is_explicit_no_tools() {
+            entity.set_tool_snapshot(crate::tool_snapshot::ToolSnapshot::default());
+        } else {
+            let activated_for_snapshot: std::collections::HashSet<String> =
+                config.activated_tool_names.iter().cloned().collect();
+            let empty_tools: Vec<String> = Vec::new();
+            let snapshot_resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
+                registry: &self.tool_registry,
+                available_names: config
+                    .available_tool_names
+                    .as_ref()
+                    .unwrap_or(&empty_tools),
+                initial_names: &config.initial_tool_names,
+                discoverable_names: &config.discoverable_tool_names,
+                hidden_names: &config.hidden_tool_names,
+                enable_general_tool: config.enable_general_tool,
+                activated_tools: &activated_for_snapshot,
+                exposure_overrides: &std::collections::HashMap::new(),
+            });
+            entity.set_tool_snapshot(
+                crate::tool_snapshot::ToolSnapshot::from_resolution(&snapshot_resolution),
+            );
+        }
+
         // Loop-boundary history normalization: the inbound conversation
         // carries the sender's bucket shapes, so rewrite it once to this
         // loop's target exposure (config lists + activated tools) before it
@@ -249,6 +280,24 @@ impl AgentLoopCoordinator {
             Self::normalize_inbound_conversation(&self.tool_registry, &input.conversation, config);
         for msg in &inbound_conversation {
             entity.conversation().write().await.add_message(msg.clone());
+        }
+
+        // Loop-boundary explicit notice for formally activated tools: the
+        // declaration array now carries them directly, so the model does
+        // not have to infer activation from a separate visibility notice.
+        if !config.activated_tool_names.is_empty() {
+            let diff = crate::tool_snapshot::ToolSnapshotDiff::default();
+            if let Some(text) = crate::tool_snapshot::render_tool_change_text(
+                &diff,
+                &config.activated_tool_names,
+                &[],
+            ) {
+                entity
+                    .conversation()
+                    .write()
+                    .await
+                    .add_message(wf_execution_shared::agent_prompt::tool_change_message(text));
+            }
         }
 
         if config.enable_token_tracking.unwrap_or(true) {

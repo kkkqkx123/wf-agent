@@ -24,6 +24,7 @@ pub use state::{
     ToolCallRecord, ToolDiscoveryState, VariableHistoryEntry,
 };
 pub mod tool_router;
+pub mod tool_snapshot;
 pub mod trigger;
 pub mod validation;
 pub mod visibility;
@@ -56,6 +57,6 @@ pub use trigger::{
 };
 pub use validation::AgentLoopValidator;
 pub use visibility::{
-    collect_activated_tools, VariableBackedVisibilityStore, ACTIVATED_VARIABLE_PREFIX,
-    BLOCKED_VARIABLE_PREFIX,
+    collect_activated_tools, collect_blocked_tools, VariableBackedVisibilityStore,
+    ACTIVATED_VARIABLE_PREFIX, BLOCKED_VARIABLE_PREFIX,
 };

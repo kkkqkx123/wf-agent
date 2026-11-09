@@ -53,6 +53,22 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
             .collect();
     conversation.extend(announcements);
 
+    // Consolidated blocked notice: interception keeps the declaration array
+    // unchanged, so the loop entry adds one explicit do-not-retry summary
+    // for the current blocked set instead of relying on per-event messages.
+    let mut blocked: Vec<String> =
+        wf_agent::visibility::collect_blocked_tools(&ctx.variables)
+            .into_iter()
+            .collect();
+    blocked.sort();
+    if !blocked.is_empty() {
+        let text = format!(
+            "[Tool Change]\n- Blocked tools (declared but not executable, do not retry): {}",
+            blocked.join(", ")
+        );
+        conversation.push(wf_execution_shared::agent_prompt::tool_change_message(text));
+    }
+
     conversation
 }
 

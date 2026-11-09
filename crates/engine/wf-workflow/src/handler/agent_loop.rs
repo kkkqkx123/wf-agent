@@ -145,6 +145,32 @@ impl AgentLoopHandler {
             },
         );
 
+        // Explicit notice when discoverable tools exist but the general
+        // proxy cannot be injected (closed pool without `general` or the
+        // tool not registered). Silent non-injection would leave the tools
+        // unreachable without explanation.
+        if !settings.discoverable_tool_names.is_empty() {
+            let pool_blocks_general =
+                !settings.available_is_unset && !settings.available_tool_names.iter().any(|n| n == "general");
+            let general_registered = ctx.tool_registry.as_deref().is_some_and(|r| {
+                r.list_tools().iter().any(|t| t.name == "general")
+            });
+            if pool_blocks_general || !general_registered {
+                let reason = if pool_blocks_general {
+                    "the available pool excludes the general proxy"
+                } else {
+                    "the general proxy is not registered"
+                };
+                initial_conversation.push(
+                    wf_execution_shared::agent_prompt::tool_change_message(format!(
+                        "[Tool Change]\n- Discoverable tools temporarily unreachable ({}): {}",
+                        reason,
+                        settings.discoverable_tool_names.join(", ")
+                    )),
+                );
+            }
+        }
+
         let message = settings.input_text.clone();
         wf_execution_shared::agent_prompt::apply_assembled_prompt(
             &mut initial_conversation,
@@ -164,9 +190,9 @@ impl AgentLoopHandler {
             }),
             agent_id: ctx.node_id.clone(),
             model: settings.model,
-            // An empty node-level list keeps the "unset" semantics and falls
-            // back to the definition layer; a non-empty list is explicit.
-            available_tool_names: if settings.available_tool_names.is_empty() {
+            // Unset inherits all registered tools; an explicit list (even
+            // empty for a pure chat run) is a closed whitelist.
+            available_tool_names: if settings.available_is_unset {
                 None
             } else {
                 Some(settings.available_tool_names)

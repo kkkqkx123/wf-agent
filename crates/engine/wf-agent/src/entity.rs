@@ -62,6 +62,18 @@ pub struct AgentLoopEntity {
     discoverable_tool_names: Vec<String>,
     enable_general_tool: Option<bool>,
     hidden_tool_names: Vec<String>,
+    /// Whether the available pool was unset (`None` in the loop config).
+    /// Unset means inherit-all, while an explicit empty list means a pure
+    /// chat run with no tools. The flag preserves the distinction that a
+    /// plain empty vector would otherwise erase.
+    available_is_unset: bool,
+    /// Frozen tool membership captured at loop entry. Per-turn assembly
+    /// renders from this snapshot so background registry drift does not
+    /// silently reshape the declaration array mid-run.
+    tool_snapshot: std::sync::RwLock<Option<crate::tool_snapshot::ToolSnapshot>>,
+    /// Last announced blocked tool set. Used to refresh the explicit
+    /// do-not-retry notice only when the set actually changes.
+    blocked_snapshot: std::sync::RwLock<Vec<String>>,
     exposure_overrides: Vec<(String, wf_types::tool::ToolExposure)>,
     /// Opt-in per-turn history projection (`build_agent_request` rewrites the
     /// projected history to the current turn's exposure). Default `false`;
@@ -123,6 +135,9 @@ impl AgentLoopEntity {
             discoverable_tool_names: Vec::new(),
             enable_general_tool: None,
             hidden_tool_names: Vec::new(),
+            available_is_unset: true,
+            tool_snapshot: std::sync::RwLock::new(None),
+            blocked_snapshot: std::sync::RwLock::new(Vec::new()),
             exposure_overrides: Vec::new(),
             history_normalization: false,
             timeout_manager: AgentTimeoutManager::new(),
@@ -203,8 +218,53 @@ impl AgentLoopEntity {
     }
 
     pub fn with_available_tool_names(mut self, names: Vec<String>) -> Self {
+        self.available_is_unset = false;
         self.available_tool_names = names;
         self
+    }
+
+    /// Mark the available pool as unset (inherit-all). Kept separate from
+    /// an explicit empty list, which means a pure chat run with no tools.
+    pub fn with_available_unset(mut self, unset: bool) -> Self {
+        self.available_is_unset = unset;
+        if unset {
+            self.available_tool_names = Vec::new();
+        }
+        self
+    }
+
+    /// Whether the available pool was unset in the loop config.
+    pub fn available_is_unset(&self) -> bool {
+        self.available_is_unset
+    }
+
+    /// Explicit pure chat run: available pool set to an empty list with no
+    /// initial or discoverable tools.
+    pub fn is_explicit_no_tools(&self) -> bool {
+        !self.available_is_unset
+            && self.available_tool_names.is_empty()
+            && self.initial_tool_names.is_empty()
+            && self.discoverable_tool_names.is_empty()
+    }
+
+    /// Store the frozen tool membership captured at loop entry.
+    pub fn set_tool_snapshot(&self, snapshot: crate::tool_snapshot::ToolSnapshot) {
+        *wf_common::lock::write_ok(self.tool_snapshot.write()) = Some(snapshot);
+    }
+
+    /// Frozen tool membership captured at loop entry, if any.
+    pub fn tool_snapshot(&self) -> Option<crate::tool_snapshot::ToolSnapshot> {
+        wf_common::lock::read_ok(self.tool_snapshot.read()).clone()
+    }
+
+    /// Last announced blocked tool set.
+    pub fn blocked_snapshot(&self) -> Vec<String> {
+        wf_common::lock::read_ok(self.blocked_snapshot.read()).clone()
+    }
+
+    /// Update the last announced blocked tool set.
+    pub fn set_blocked_snapshot(&self, blocked: Vec<String>) {
+        *wf_common::lock::write_ok(self.blocked_snapshot.write()) = blocked;
     }
 
     /// Tools visible in the initial schema; when absent all available tools

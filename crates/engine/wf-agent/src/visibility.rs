@@ -33,6 +33,13 @@ impl VariableBackedVisibilityStore {
         Self { variables }
     }
 
+    /// All currently blocked tool names, sorted for stable notices.
+    pub fn blocked_tools(&self) -> Vec<String> {
+        collect_blocked_tools(&self.variables)
+            .into_iter()
+            .collect()
+    }
+
     /// Whether the workflow has blocked the given tool.
     pub fn is_blocked(&self, tool_name: &str) -> bool {
         self.variables
@@ -47,6 +54,21 @@ impl ToolVisibilityStore for VariableBackedVisibilityStore {
     async fn is_tool_visible(&self, _execution_id: &str, tool_name: &str) -> bool {
         !self.is_blocked(tool_name)
     }
+}
+
+/// Collect the names of all currently blocked tools from the workflow
+/// variable map (`__tool_blocked_<name>` markers), used to render the
+/// explicit do-not-retry notice.
+pub fn collect_blocked_tools(variables: &DashMap<String, Value>) -> std::collections::HashSet<String> {
+    let mut blocked = std::collections::HashSet::new();
+    for entry in variables.iter() {
+        if let Some(name) = entry.key().strip_prefix(BLOCKED_VARIABLE_PREFIX) {
+            if entry.value() == &Value::Bool(true) && !name.is_empty() {
+                blocked.insert(name.to_string());
+            }
+        }
+    }
+    blocked
 }
 
 /// Collect the names of all formally activated tools from the workflow

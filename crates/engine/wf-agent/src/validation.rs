@@ -543,37 +543,37 @@ fn validate_tool_lists(
             ),
         ));
     }
-    // Available pool subset: a non-empty available list is the whitelist,
-    // so entries outside it are filtered silently at resolution time.
+    // Available pool subset: an explicit available list (including an
+    // explicit empty list for a pure chat run) is the closed whitelist,
+    // so entries outside it are rejected instead of filtered silently.
+    // Only an unset pool inherits all registered tools.
     if let Some(pool) = config.available_tool_names.as_ref() {
-        if !pool.is_empty() {
-            let pool_set: std::collections::HashSet<&str> =
-                pool.iter().map(String::as_str).collect();
-            for (field, names) in [
-                ("initial_tool_names", &config.initial_tool_names),
-                ("discoverable_tool_names", &config.discoverable_tool_names),
-                ("hidden_tool_names", &config.hidden_tool_names),
-            ] {
-                let mut outside: Vec<&str> = names
-                    .iter()
-                    .map(String::as_str)
-                    .filter(|name| !pool_set.contains(name))
-                    .collect();
-                outside.sort_unstable();
-                outside.dedup();
-                for name in outside {
-                    // Unknown names already error above; only report pool
-                    // misses for registered tools.
-                    if !known.contains(name) {
-                        continue;
-                    }
-                    issues.push(ValidationIssue::error(
-                        field,
-                        format!(
-                            "tool '{name}' is listed in '{field}' but not in the available pool; add it to available or remove it",
-                        ),
-                    ));
+        let pool_set: std::collections::HashSet<&str> =
+            pool.iter().map(String::as_str).collect();
+        for (field, names) in [
+            ("initial_tool_names", &config.initial_tool_names),
+            ("discoverable_tool_names", &config.discoverable_tool_names),
+            ("hidden_tool_names", &config.hidden_tool_names),
+        ] {
+            let mut outside: Vec<&str> = names
+                .iter()
+                .map(String::as_str)
+                .filter(|name| !pool_set.contains(name))
+                .collect();
+            outside.sort_unstable();
+            outside.dedup();
+            for name in outside {
+                // Unknown names already error above; only report pool
+                // misses for registered tools.
+                if !known.contains(name) {
+                    continue;
                 }
+                issues.push(ValidationIssue::error(
+                    field,
+                    format!(
+                        "tool '{name}' is listed in '{field}' but not in the available pool; add it to available or remove it",
+                    ),
+                ));
             }
         }
     }

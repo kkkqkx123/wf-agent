@@ -20,6 +20,7 @@ pub(crate) struct AgentLoopSettings {
     pub max_execution_time: Option<u64>,
     pub tool_call_protocol: Option<wf_types::llm::ToolCallProtocolConfig>,
     pub available_tool_names: Vec<String>,
+    pub available_is_unset: bool,
     pub initial_tool_names: Vec<String>,
     pub discoverable_tool_names: Vec<String>,
     pub hidden_tool_names: Vec<String>,
@@ -158,27 +159,20 @@ pub(crate) fn load_settings(
 
     let available_tools = agent_config.and_then(|c| c.available_tools.as_ref());
 
+    // Closed whitelist: `available` alone defines the pool. `initial`
+    // entries outside the pool are rejected downstream instead of being
+    // merged in silently. Unset means inherit-all.
+    let available_is_unset = available_tools.is_none();
     let available_tool_names: Vec<String> = available_tools
-        .map(|tools| {
-            tools
-                .available
-                .iter()
-                .chain(tools.initial.as_ref().into_iter().flatten())
-                .cloned()
-                .collect()
-        })
+        .map(|tools| tools.available.clone())
         .unwrap_or_default();
 
-    // Tools visible in the initial schema: the explicit `initial` list,
-    // or every available tool when none is configured.
+    // Tools visible in the initial schema: the explicit `initial` list.
+    // Absent `initial` falls back to the available pool (all visible).
+    // An explicit empty `initial` is kept as-is so a pure chat pool stays
+    // empty instead of being backfilled.
     let initial_tool_names: Vec<String> = available_tools
-        .and_then(|tools| {
-            tools
-                .initial
-                .as_ref()
-                .filter(|initial| !initial.is_empty())
-                .cloned()
-        })
+        .and_then(|tools| tools.initial.clone())
         .unwrap_or_else(|| available_tool_names.clone());
 
     let discoverable_tool_names: Vec<String> = available_tools
@@ -235,6 +229,7 @@ pub(crate) fn load_settings(
         max_execution_time,
         tool_call_protocol,
         available_tool_names,
+        available_is_unset,
         initial_tool_names,
         discoverable_tool_names,
         hidden_tool_names,

@@ -82,13 +82,17 @@ pub(crate) async fn run_tool(
     // the inner `record_general_invoke`).
     let is_proxy = tool_name == wf_tools::general::GENERAL_TOOL_NAME;
 
-    // Visibility gate.
+    // Visibility gate. Blocked tools stay in the declaration array to keep
+    // the request prefix stable, so the rejection must tell the model not
+    // to retry instead of leaving it to guess.
     if let Some(ref store) = ctx.visibility_store {
         if !store.is_tool_visible(entity_id, &tool_name).await {
             entity_state.write().await.finish_tool_call(&tc.id, None);
             let error = ToolError::ExecutionFailed {
                 tool_id: tool_name.clone(),
-                reason: "tool is not visible in this execution".to_string(),
+                reason: format!(
+                    "tool '{tool_name}' is blocked in this execution; do not retry it, use other tools or ask for activation"
+                ),
             };
             note_permanent_tool_failure(entity_state, &tool_name, &error).await;
             return Err(error);

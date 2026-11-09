@@ -118,14 +118,19 @@ pub fn resolve_tool_exposure(input: ExposureInput<'_>) -> ExposureResolution {
         }
     }
 
-    // The `general` tool enters the initial visible set when discoverable
-    // tools exist and it is not explicitly disabled; it is exempt from the
-    // whitelist (assembly-layer injection, like `skill`). When the tool is
-    // not registered, `general_enabled` falls back to false so schema and
-    // metadata consumers share one decision.
+    // The `general` tool enters the visible set when discoverable tools
+    // exist and it is not explicitly disabled. It is a member of the
+    // declaration array, so a closed available pool must contain it to
+    // allow injection; otherwise the proxy stays hidden and discoverable
+    // tools are reported as temporarily unreachable by the caller. When the
+    // tool is not registered, `general_enabled` falls back to false so
+    // schema and metadata consumers share one decision.
     let mut general_enabled = input
         .enable_general_tool
         .unwrap_or(!discoverable.is_empty());
+    if general_enabled && !pool_empty && !input.available_names.iter().any(|n| n == GENERAL_TOOL_NAME) {
+        general_enabled = false;
+    }
     if general_enabled {
         if let Some(general) = input
             .registry
@@ -378,7 +383,11 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "web_search".to_string()],
+            &[
+                "alpha".to_string(),
+                "web_search".to_string(),
+                "general".to_string()
+            ],
             &["alpha".to_string()],
             &["web_search".to_string()],
             &[],
@@ -397,6 +406,27 @@ mod tests {
             .collect();
         assert_eq!(discoverable, vec!["web_search".to_string()]);
         assert!(resolution.general_enabled);
+    }
+
+    #[test]
+    fn test_pool_without_general_disables_proxy() {
+        let registry = registry_with(vec![
+            make_tool("a", "alpha", None),
+            make_tool("d", "web_search", None),
+            general_tool(),
+        ]);
+        let resolution = resolve_tool_exposure(input(
+            &registry,
+            &["alpha".to_string(), "web_search".to_string()],
+            &["alpha".to_string()],
+            &["web_search".to_string()],
+            &[],
+            &Default::default(),
+            &Default::default(),
+        ));
+        assert!(!resolution.general_enabled);
+        assert_eq!(names(&resolution), vec!["alpha".to_string()]);
+        assert_eq!(resolution.discoverable.len(), 1);
     }
 
     #[test]
@@ -644,6 +674,7 @@ mod tests {
                 "alpha".to_string(),
                 "web_search".to_string(),
                 "write_file".to_string(),
+                "general".to_string(),
             ],
             &["alpha".to_string()],
             &["web_search".to_string()],
@@ -676,6 +707,7 @@ mod tests {
                 "web_search".to_string(),
                 "write_file".to_string(),
                 "secret_admin".to_string(),
+                "general".to_string(),
             ],
             &["alpha".to_string()],
             &["web_search".to_string()],
@@ -714,7 +746,11 @@ mod tests {
         ]);
         let resolution = resolve_tool_exposure(input(
             &registry,
-            &["alpha".to_string(), "beta_db".to_string()],
+            &[
+                "alpha".to_string(),
+                "beta_db".to_string(),
+                "general".to_string()
+            ],
             &["alpha".to_string()],
             &[],
             &[],

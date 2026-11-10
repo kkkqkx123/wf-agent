@@ -3,7 +3,8 @@
 // valid. `ContributionType` stays host-side: it describes
 // registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
-    apply_markdown_rules, parse_middleware_outcome, render_tool_summary, AuthDescriptor,
+    apply_cli_input_outcome, apply_markdown_rules, parse_cli_input_outcome,
+    parse_middleware_outcome, render_tool_summary, AuthDescriptor, CliInputOutcome,
     CodecHttpRequest, MiddlewareOutcome, NextFn, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
     PluginAuthPrompt, PluginCliCommand, PluginCliCondition, PluginCompactionAdvisor,
     PluginCompletionItem, PluginCompletionSource, PluginEventData, PluginEventHandler,

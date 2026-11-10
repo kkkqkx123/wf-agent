@@ -558,6 +558,87 @@ pub struct LocalSettings {
     pub notification_enabled: Option<bool>,
 }
 
+/// One plugin settings row with its resolved value for the settings
+/// surface. `value` is the stored visitor-config value or the fallback;
+/// `constrained` marks candidate-list rows rendered as dropdown/single.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSettingRow {
+    pub key: String,
+    pub label: String,
+    pub value: String,
+    pub constrained: bool,
+}
+
+/// Plugin id prefix of a dotted setting key (`review.level` -> `review`).
+pub fn plugin_id_of_setting_key(key: &str) -> &str {
+    key.split('.').next().unwrap_or(key)
+}
+
+/// Whether `value` is accepted for `field`: candidate-list rows accept
+/// only listed values, free-form rows accept anything. Illegal values are
+/// rejected and the old value kept.
+pub fn validate_setting_value(field: &wf_types::cli::CliSettingField, value: &str) -> bool {
+    if field.values.is_empty() {
+        return true;
+    }
+    field.values.iter().any(|candidate| candidate == value)
+}
+
+/// Resolve the display value for one field: the stored visitor-config
+/// value when present and valid, else the fallback.
+pub fn resolve_setting_value(
+    field: &wf_types::cli::CliSettingField,
+    stored: Option<&str>,
+) -> String {
+    match stored {
+        Some(value) if validate_setting_value(field, value) => value.to_string(),
+        _ => field.fallback.clone(),
+    }
+}
+
+/// Group merged setting fields by plugin prefix for the settings surface.
+/// Values come from the visitor-config map; missing or illegal entries
+/// resolve to the fallback. Groups and rows keep merge order.
+pub fn group_plugin_settings(
+    fields: &[wf_types::cli::CliSettingField],
+    values: &std::collections::HashMap<String, String>,
+) -> Vec<(String, Vec<PluginSettingRow>)> {
+    let mut groups: Vec<(String, Vec<PluginSettingRow>)> = Vec::new();
+    for field in fields {
+        let plugin = plugin_id_of_setting_key(&field.key).to_string();
+        let row = PluginSettingRow {
+            key: field.key.clone(),
+            label: field.label.clone(),
+            value: resolve_setting_value(field, values.get(&field.key).map(String::as_str)),
+            constrained: !field.values.is_empty(),
+        };
+        match groups.iter_mut().find(|(id, _)| id == &plugin) {
+            Some((_, rows)) => rows.push(row),
+            None => groups.push((plugin, vec![row])),
+        }
+    }
+    groups
+}
+
+/// Name both sides of a duplicate setting-key conflict for activation
+/// blocking (`review.level`: local vs snapshot). Returns one message per
+/// duplicated key.
+pub fn setting_conflict_notices(
+    local: &[wf_types::cli::CliSettingField],
+    snapshot: &[wf_types::cli::CliSettingField],
+) -> Vec<String> {
+    let mut notices = Vec::new();
+    for field in local {
+        if snapshot.iter().any(|other| other.key == field.key) {
+            notices.push(format!(
+                "setting '{}' conflicts: local and snapshot plugins both register it; local wins",
+                field.key
+            ));
+        }
+    }
+    notices
+}
+
 /// Settings screen state.
 #[derive(Debug, Clone, Default)]
 pub struct SettingsData {
@@ -565,6 +646,10 @@ pub struct SettingsData {
     pub default_profile: Option<String>,
     pub theme: String,
     pub local: LocalSettings,
+    /// Merged plugin settings rows for the plugin section, in merge order.
+    pub plugin_settings: Vec<wf_types::cli::CliSettingField>,
+    /// Stored visitor-config values under `plugins.<plugin>.<name>`.
+    pub plugin_values: std::collections::HashMap<String, String>,
 }
 
 /// One pre-aggregated metrics table rendered on the insights screen.
@@ -866,6 +951,38 @@ mod tests {
             resolve_context_window(&[], Some("default"), Some("x")),
             None
         );
+    }
+
+    #[test]
+    fn plugin_settings_group_validate_and_conflict() {
+        let fields = vec![
+            wf_types::cli::CliSettingField {
+                key: "review.level".to_string(),
+                label: "Level".to_string(),
+                values: vec!["low".to_string(), "high".to_string()],
+                fallback: "low".to_string(),
+            },
+            wf_types::cli::CliSettingField {
+                key: "review.notes".to_string(),
+                label: "Notes".to_string(),
+                values: Vec::new(),
+                fallback: String::new(),
+            },
+        ];
+        assert!(validate_setting_value(&fields[0], "high"));
+        assert!(!validate_setting_value(&fields[0], "nope"));
+        assert!(validate_setting_value(&fields[1], "anything"));
+        let mut values = std::collections::HashMap::new();
+        values.insert("review.level".to_string(), "nope".to_string());
+        let groups = group_plugin_settings(&fields, &values);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "review");
+        assert_eq!(groups[0].1[0].value, "low", "illegal value keeps the fallback");
+        assert!(groups[0].1[0].constrained);
+        assert!(!groups[0].1[1].constrained);
+        let conflicts = setting_conflict_notices(&fields[..1], &fields[..1]);
+        assert_eq!(conflicts.len(), 1);
+        assert!(conflicts[0].contains("review.level"));
     }
 
     #[test]

@@ -547,6 +547,36 @@ pub enum Command {
         #[command(subcommand)]
         sub: RemoteSub,
     },
+    /// Machine-local TUI plugin approvals (project roots only; global
+    /// plugins are trusted on sight and server approvals stay separate).
+    Plugin {
+        #[command(subcommand)]
+        sub: PluginSub,
+    },
+}
+
+/// Machine-local plugin operations.
+#[derive(Debug, Clone, Subcommand)]
+pub enum PluginSub {
+    /// Show the pending project plugin directory fingerprint and whether
+    /// it is approved. A changed manifest invalidates the approval.
+    Status {
+        /// Project plugin directory (default: `./.wf/tui-plugins`).
+        #[arg(long = "dir", value_name = "DIR")]
+        dir: Option<PathBuf>,
+    },
+    /// Approve one project plugin directory at its current fingerprint.
+    /// The fingerprint summary prints first; confirmation writes the
+    /// machine-local approval record (`tui-plugin-approvals.json`).
+    /// Tampering with any manifest invalidates the approval.
+    Approve {
+        /// Project plugin directory (default: `./.wf/tui-plugins`).
+        #[arg(long = "dir", value_name = "DIR")]
+        dir: Option<PathBuf>,
+        /// Write without asking for confirmation.
+        #[arg(long = "yes", short = 'y')]
+        yes: bool,
+    },
 }
 
 /// TUI display config backup operations.

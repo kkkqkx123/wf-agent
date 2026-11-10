@@ -31,6 +31,7 @@ pub mod execution_view;
 pub mod llm;
 pub mod message;
 pub mod metrics;
+pub mod plugin;
 pub mod query;
 pub mod remote;
 pub mod render;

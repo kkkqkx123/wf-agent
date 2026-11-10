@@ -253,7 +253,8 @@ fn scan_project_dir(
     let approved = read_approvals(approvals_path).get(&canonical) == Some(&fingerprint);
     if !approved {
         scan.notices.push(format!(
-            "project plugin directory '{}' is not approved; record approval with `approve_project_dir` (record: '{}') to load its CLI contributions",
+            "project plugin directory '{}' is not approved; run `wf plugin approve --dir '{}'` (record: '{}') to load its CLI contributions",
+            dir.display(),
             dir.display(),
             approvals_path.display()
         ));

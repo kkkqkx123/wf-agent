@@ -138,11 +138,12 @@ pub struct NativeSession {
     local_slash: Vec<PluginSlash>,
     /// Machine-local completion sources.
     local_completions: Vec<PluginCompletionSource>,
-    /// Merged settings rows; stored so no snapshot entry is silently
-    /// dropped. No settings surface exists yet in mini.
+    /// Merged settings rows with visitor-config values under
+    /// `plugins.<plugin>.<name>`; `/display` renders them grouped.
     plugin_settings: Vec<wf_types::cli::CliSettingField>,
     snapshot_settings: Vec<wf_types::cli::CliSettingField>,
     local_settings: Vec<wf_types::cli::CliSettingField>,
+    plugin_setting_values: std::collections::HashMap<String, String>,
     /// Merged tool summary templates; stored for parity with the full
     /// shell. Mini renders tool lines as plain text for now.
     plugin_tool_summaries: Vec<wf_types::cli::CliToolSummary>,
@@ -303,6 +304,7 @@ impl NativeSession {
             plugin_settings: Vec::new(),
             snapshot_settings: Vec::new(),
             local_settings: Vec::new(),
+            plugin_setting_values: std::collections::HashMap::new(),
             plugin_tool_summaries: Vec::new(),
             snapshot_tool_summaries: Vec::new(),
             local_tool_summaries: Vec::new(),
@@ -454,6 +456,17 @@ impl NativeSession {
             merge_by_key(&self.local_settings, &self.snapshot_settings, |field| {
                 field.key.clone()
             });
+        for field in &self.local_settings {
+            if self.snapshot_settings.iter().any(|other| other.key == field.key) {
+                output::diag_line(&format!(
+                    "setting '{}' conflicts: local and snapshot plugins both register it; local wins",
+                    field.key
+                ));
+            }
+        }
+        self.plugin_setting_values.retain(|key, _| {
+            self.plugin_settings.iter().any(|field| &field.key == key)
+        });
         self.plugin_tool_summaries = merge_by_key(
             &self.local_tool_summaries,
             &self.snapshot_tool_summaries,
@@ -464,6 +477,57 @@ impl NativeSession {
             &self.snapshot_markdown_rules,
             |rule| rule.id.clone(),
         );
+    }
+
+    /// Set one plugin setting value under `plugins.<plugin>.<name>`.
+    /// Candidate-list rows accept only listed values; free-form rows accept
+    /// anything. Illegal values are rejected and the old value kept.
+    /// Returns whether the value changed (the caller redraws on change).
+    pub fn set_plugin_setting(&mut self, key: &str, value: &str) -> bool {
+        let Some(field) = self.plugin_settings.iter().find(|field| field.key == key) else {
+            output::diag_line(&format!("unknown plugin setting '{key}'"));
+            return false;
+        };
+        if !field.values.is_empty() && !field.values.iter().any(|candidate| candidate == value) {
+            output::diag_line(&format!(
+                "ignoring invalid value '{value}' for setting '{key}': expected one of {}",
+                field.values.join(", ")
+            ));
+            return false;
+        }
+        self.plugin_setting_values.insert(key.to_string(), value.to_string());
+        output::diag_line(&format!("setting '{key}' set to '{value}'"));
+        true
+    }
+
+    /// Grouped plugin settings text for `/display`: per-plugin groups in
+    /// merge order, constrained rows marked as select, free rows as text.
+    pub fn plugin_settings_text(&self) -> String {
+        if self.plugin_settings.is_empty() {
+            return "plugin settings: (none registered)".to_string();
+        }
+        let groups = tui_core::screen_data::group_plugin_settings(
+            &self.plugin_settings,
+            &self.plugin_setting_values,
+        );
+        let mut out = vec!["plugin settings:".to_string()];
+        for (plugin, rows) in groups {
+            out.push(format!("  [{plugin}]"));
+            for row in rows {
+                let shape = if row.constrained { "select" } else { "text" };
+                out.push(format!("    {} = {} ({shape})", row.key, row.value));
+            }
+        }
+        out.join("\n")
+    }
+
+    /// Run the CLI input chain for one line: command dispatch first, slash
+    /// expand before/after, then completion request share the same
+    /// pass/rewrite/takeover contract. No handlers are registered in this
+    /// shell yet, so the chain passes through; any handler failure falls
+    /// back to the built-in path instead of blocking the session.
+    fn run_cli_input_chain(&self, text: &str) -> (String, Option<String>) {
+        tui_core::command::apply_cli_input_chain(text, std::iter::empty())
     }
 
     fn plugin_entry_matches(&self, name: &str) -> Option<PluginSlash> {
@@ -545,7 +609,14 @@ impl NativeSession {
                 }
                 PromptEvent::Line(raw) => {
                     quitter.reset();
-                    let trimmed = raw.trim().to_string();
+                    let (chained, takeover) = self.run_cli_input_chain(raw.trim());
+                    if let Some(echo) = takeover {
+                        if !echo.is_empty() {
+                            output::diag_line(&echo);
+                        }
+                        continue;
+                    }
+                    let trimmed = chained.trim().to_string();
                     if trimmed.is_empty() {
                         continue;
                     }
@@ -817,6 +888,7 @@ impl NativeSession {
             }
             SlashCommand::Display => {
                 output::diag_line(&format!("display: {}", self.display.describe()));
+                output::diag_line(&self.plugin_settings_text());
                 CommandAction::Continue
             }
             SlashCommand::Context(arg) => {
@@ -2133,6 +2205,17 @@ impl NativeSession {
     {
         let started = Instant::now();
         let mut renderer = TurnRenderer::<RealSink>::new(self.display);
+        renderer.set_plugin_display(
+            self.plugin_markdown_rules.clone(),
+            self.plugin_tool_summaries
+                .iter()
+                .map(|summary| tui_core::tool_output::ToolSummaryTemplate {
+                    tool_name: summary.tool_name.clone(),
+                    call_template: summary.call_template.clone(),
+                    result_template: summary.result_template.clone(),
+                })
+                .collect(),
+        );
         // The cancel receiver needs `&mut` for poll; keep a local clone so
         // the pump can hold `&self` like every other session method.
         let mut cancel = self.cancel_rx.clone();

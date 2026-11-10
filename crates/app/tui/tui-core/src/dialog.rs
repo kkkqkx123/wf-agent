@@ -1,4 +1,4 @@
-//! Host-mediated dialogs for plugins: confirm, select and text input.
+//! Host-mediated dialogs for plugins: confirm, select, text input and multiline edit.
 //!
 //! A plugin describes the question as data; the shell presents it with its
 //! own widgets (`wf-tui`), the stdin line reader (`wf-mini`) or the
@@ -36,6 +36,72 @@ pub enum DialogRequest {
         #[serde(default)]
         secret: bool,
     },
+    /// Multiline edit; `initial` prefills the buffer, `language` hints
+    /// syntax highlighting where the shell can. Headless and mini shells
+    /// degrade to a single-line answer without hanging the turn.
+    Edit {
+        title: String,
+        message: String,
+        #[serde(default)]
+        initial: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+}
+
+/// Default wait for one dialog answer before failing closed.
+pub const DIALOG_DEFAULT_TIMEOUT_SECS: u64 = 120;
+
+/// Wire name of the permission gating dialog requests.
+pub fn dialog_permission_id() -> &'static str {
+    "cli_dialog"
+}
+
+/// Denial message naming the plugin without a dialog permission.
+pub fn deny_dialog_without_permission(plugin_id: &str) -> String {
+    format!(
+        "plugin '{plugin_id}' lacks the {} permission; dialog request denied",
+        dialog_permission_id()
+    )
+}
+
+/// Title of one request for host surfaces and audit logs.
+pub fn dialog_title(request: &DialogRequest) -> &str {
+    match request {
+        DialogRequest::Confirm { title, .. }
+        | DialogRequest::Select { title, .. }
+        | DialogRequest::Input { title, .. }
+        | DialogRequest::Edit { title, .. } => title,
+    }
+}
+
+/// One-line stderr prompt text for the mini shell: title, message and the
+/// expected answer shape. The host owns focus; this text never executes.
+pub fn mini_prompt_text(request: &DialogRequest, timeout_secs: u64) -> String {
+    match request {
+        DialogRequest::Confirm { title, message, .. } => {
+            format!("{title}: {message} [y/N] (default N, {timeout_secs}s timeout)")
+        }
+        DialogRequest::Select { title, message, options } => {
+            let mut line = format!("{title}: {message}");
+            for (index, option) in options.iter().enumerate() {
+                line.push_str(&format!(" [{}] {option}", index + 1));
+            }
+            line.push_str(" (reply number)");
+            line
+        }
+        DialogRequest::Input { title, message, placeholder, .. } => {
+            let hint = placeholder.as_deref().unwrap_or("");
+            if hint.is_empty() {
+                format!("{title}: {message}")
+            } else {
+                format!("{title}: {message} ({hint})")
+            }
+        }
+        DialogRequest::Edit { title, message, .. } => {
+            format!("{title}: {message} (single line; empty cancels)")
+        }
+    }
 }
 
 /// What the host reports back for one [`DialogRequest`].
@@ -47,6 +113,8 @@ pub enum DialogOutcome {
     Selected(Option<usize>),
     /// Entered text; `None` means dismissed without answering.
     Entered(Option<String>),
+    /// Edited text; `None` means dismissed without answering.
+    Edited(Option<String>),
     /// The request was cancelled before an answer arrived.
     Cancelled,
 }
@@ -80,6 +148,11 @@ pub fn answer_headless(request: &DialogRequest, line: Option<&str>) -> DialogOut
         }
         DialogRequest::Input { .. } => match line {
             Some(text) => DialogOutcome::Entered(Some(text.to_string())),
+            None => DialogOutcome::Cancelled,
+        },
+        DialogRequest::Edit { .. } => match line {
+            Some(text) if text.trim().is_empty() => DialogOutcome::Edited(None),
+            Some(text) => DialogOutcome::Edited(Some(text.to_string())),
             None => DialogOutcome::Cancelled,
         },
     }
@@ -150,5 +223,46 @@ mod tests {
         let value = serde_json::to_value(&request).expect("serializes");
         let back: DialogRequest = serde_json::from_value(value).expect("deserializes");
         assert_eq!(request, back);
+        let edit = DialogRequest::Edit {
+            title: "notes".to_string(),
+            message: "edit notes".to_string(),
+            initial: "hi".to_string(),
+            language: None,
+        };
+        let value = serde_json::to_value(&edit).expect("serializes");
+        let back: DialogRequest = serde_json::from_value(value).expect("deserializes");
+        assert_eq!(edit, back);
+    }
+
+    #[test]
+    fn edit_answers_fail_closed_and_blank_cancels() {
+        let edit = DialogRequest::Edit {
+            title: "notes".to_string(),
+            message: "edit".to_string(),
+            initial: String::new(),
+            language: None,
+        };
+        assert_eq!(answer_headless(&edit, None), DialogOutcome::Cancelled);
+        assert_eq!(
+            answer_headless(&edit, Some("")),
+            DialogOutcome::Edited(None)
+        );
+        assert_eq!(
+            answer_headless(&edit, Some("hello")),
+            DialogOutcome::Edited(Some("hello".to_string()))
+        );
+    }
+
+    #[test]
+    fn mini_prompts_name_the_permission_on_denial() {
+        assert!(deny_dialog_without_permission("review.bot").contains("review.bot"));
+        assert!(deny_dialog_without_permission("review.bot").contains(dialog_permission_id()));
+        let confirm = DialogRequest::Confirm {
+            title: "rm?".to_string(),
+            message: "delete?".to_string(),
+            danger: false,
+        };
+        assert!(mini_prompt_text(&confirm, 5).contains("[y/N]"));
+        assert_eq!(dialog_title(&confirm), "rm?");
     }
 }

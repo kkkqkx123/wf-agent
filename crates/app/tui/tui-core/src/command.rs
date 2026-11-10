@@ -1443,6 +1443,100 @@ pub fn slash_suggestions_with(typed: &str, limit: usize, plugins: &CommandRegist
     out
 }
 
+/// One plugin completion suggestion for the composer ghost line: the first
+/// source in merge order whose trigger prefix matches `buffer` wins, and
+/// ambiguous items resolve to their longest common prefix. Mirrors the
+/// `wf-mini` first-hit pipeline so both shells sort identically; every
+/// result is a strict prefix extension of `buffer`, and whitespace in the
+/// buffer disables completion so paths with spaces never half-complete.
+pub fn plugin_completion_suggestion(
+    buffer: &str,
+    sources: &[wf_types::cli::CliCompletionSource],
+) -> Option<String> {
+    for source in sources {
+        let active = source.trigger_chars.iter().any(|trigger| {
+            !trigger.is_empty() && buffer.starts_with(trigger.as_str())
+        });
+        if !active {
+            continue;
+        }
+        if buffer.chars().any(char::is_whitespace) {
+            continue;
+        }
+        let mut candidates: Vec<&str> = source
+            .items
+            .iter()
+            .map(|item| item.value.as_str())
+            .filter(|value| !value.is_empty() && value.starts_with(buffer))
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+        match candidates.as_slice() {
+            [only] if only.len() > buffer.len() => return Some((*only).to_string()),
+            _ => {
+                let prefix = longest_completion_prefix(&candidates)?;
+                if prefix.len() > buffer.len() {
+                    return Some(prefix);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn longest_completion_prefix(candidates: &[&str]) -> Option<String> {
+    let mut prefix: Option<String> = None;
+    for candidate in candidates {
+        match &prefix {
+            None => prefix = Some((*candidate).to_string()),
+            Some(current) => {
+                let common = current
+                    .char_indices()
+                    .zip(candidate.chars())
+                    .take_while(|((_, a), b)| a == b)
+                    .count();
+                let kept: String = current.chars().take(common).collect();
+                if kept.is_empty() {
+                    return None;
+                }
+                prefix = Some(kept);
+            }
+        }
+    }
+    prefix
+}
+
+/// One CLI input-chain step for the host runner: pass the text through,
+/// rewrite it for the next handler, or take over with a direct echo that
+/// skips the default dispatch path. Mirrors the
+/// `wf-plugin-sdk::parse_cli_input_outcome` mapping without adding a
+/// dependency edge; both sides share the pass/rewrite/takeover contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliInputStep {
+    Pass,
+    Rewrite(String),
+    Takeover(String),
+}
+
+/// Rewrite one CLI buffer through an ordered handler chain: each step may
+/// pass, rewrite the text or take over with a direct echo. A takeover
+/// stops the chain and skips the default dispatch path; any handler error
+/// falls back to the built-in path by treating it as a pass.
+pub fn apply_cli_input_chain(
+    initial: &str,
+    outcomes: impl IntoIterator<Item = Result<CliInputStep, String>>,
+) -> (String, Option<String>) {
+    let mut text = initial.to_string();
+    for outcome in outcomes {
+        match outcome.unwrap_or(CliInputStep::Pass) {
+            CliInputStep::Pass => {}
+            CliInputStep::Rewrite(next) => text = next,
+            CliInputStep::Takeover(echo) => return (text, Some(echo)),
+        }
+    }
+    (text, None)
+}
+
 /// One plugin palette row: display label, description and group follow
 /// the builtin row conventions; the id routes execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2086,6 +2180,69 @@ mod tests {
         assert_eq!(sections[0].1.len(), 1);
         assert!(sections[0].1[0].keys.contains("/review"));
         assert!(sections[0].1[0].title.contains("[local]"));
+    }
+
+    #[test]
+    fn plugin_completion_first_hit_matches_mini_order() {
+        let sources = vec![
+            wf_types::cli::CliCompletionSource {
+                id: "review.paths".to_string(),
+                trigger_chars: vec!["#".to_string()],
+                items: vec![
+                    wf_types::cli::CliCompletionItem {
+                        value: "#review-a".to_string(),
+                        label: None,
+                        description: None,
+                    },
+                    wf_types::cli::CliCompletionItem {
+                        value: "#review-b".to_string(),
+                        label: None,
+                        description: None,
+                    },
+                ],
+            },
+            wf_types::cli::CliCompletionSource {
+                id: "review.slash".to_string(),
+                trigger_chars: vec!["/".to_string()],
+                items: vec![wf_types::cli::CliCompletionItem {
+                    value: "/review".to_string(),
+                    label: None,
+                    description: None,
+                }],
+            },
+        ];
+        assert_eq!(
+            plugin_completion_suggestion("#review", &sources).as_deref(),
+            Some("#review-")
+        );
+        assert_eq!(
+            plugin_completion_suggestion("/rev", &sources).as_deref(),
+            Some("/review")
+        );
+        assert_eq!(plugin_completion_suggestion("hi", &sources), None);
+        assert_eq!(plugin_completion_suggestion("#a b", &sources), None);
+    }
+
+    #[test]
+    fn cli_input_chain_rewrite_and_takeover_skip_default() {
+        let (text, echo) = apply_cli_input_chain(
+            "/rev",
+            [Ok(CliInputStep::Rewrite("/review".to_string())), Ok(CliInputStep::Pass)],
+        );
+        assert_eq!(text, "/review");
+        assert_eq!(echo, None);
+        let (text, echo) = apply_cli_input_chain(
+            "/rev",
+            [
+                Ok(CliInputStep::Rewrite("/review".to_string())),
+                Ok(CliInputStep::Takeover("done".to_string())),
+            ],
+        );
+        assert_eq!(text, "/review");
+        assert_eq!(echo.as_deref(), Some("done"));
+        let (text, echo) = apply_cli_input_chain("/rev", [Err("boom".to_string())]);
+        assert_eq!(text, "/rev");
+        assert_eq!(echo, None);
     }
 
     #[test]

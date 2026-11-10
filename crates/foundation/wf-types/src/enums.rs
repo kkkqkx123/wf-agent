@@ -159,6 +159,15 @@ pub enum MiddlewarePhase {
     OnError,
     OnCheckpoint,
     OnResume,
+    /// CLI input chain: before command dispatch (shell commands and slash
+    /// entries share this gate; a takeover skips the default path).
+    BeforeCliDispatch,
+    /// CLI input chain: before slash expansion rewrites the buffer.
+    BeforeSlashExpand,
+    /// CLI input chain: after slash expansion, before dispatch.
+    AfterSlashExpand,
+    /// CLI input chain: completion request for the current buffer.
+    OnCompletionRequest,
     /// Any other plugin-registered phase (round-trips as-is).
     #[serde(untagged)]
     Other(String),
@@ -184,6 +193,10 @@ impl MiddlewarePhase {
             MiddlewarePhase::OnError => "on-error",
             MiddlewarePhase::OnCheckpoint => "on-checkpoint",
             MiddlewarePhase::OnResume => "on-resume",
+            MiddlewarePhase::BeforeCliDispatch => "before-cli-dispatch",
+            MiddlewarePhase::BeforeSlashExpand => "before-slash-expand",
+            MiddlewarePhase::AfterSlashExpand => "after-slash-expand",
+            MiddlewarePhase::OnCompletionRequest => "on-completion-request",
             MiddlewarePhase::Other(value) => value,
         }
     }
@@ -207,6 +220,10 @@ impl From<&str> for MiddlewarePhase {
             "on-error" => MiddlewarePhase::OnError,
             "on-checkpoint" => MiddlewarePhase::OnCheckpoint,
             "on-resume" => MiddlewarePhase::OnResume,
+            "before-cli-dispatch" => MiddlewarePhase::BeforeCliDispatch,
+            "before-slash-expand" => MiddlewarePhase::BeforeSlashExpand,
+            "after-slash-expand" => MiddlewarePhase::AfterSlashExpand,
+            "on-completion-request" => MiddlewarePhase::OnCompletionRequest,
             other => MiddlewarePhase::Other(other.to_string()),
         }
     }
@@ -242,6 +259,10 @@ impl MiddlewarePhase {
                 | MiddlewarePhase::OnError
                 | MiddlewarePhase::OnCheckpoint
                 | MiddlewarePhase::OnResume
+                | MiddlewarePhase::BeforeCliDispatch
+                | MiddlewarePhase::BeforeSlashExpand
+                | MiddlewarePhase::AfterSlashExpand
+                | MiddlewarePhase::OnCompletionRequest
         )
     }
 }
@@ -269,6 +290,20 @@ mod tests {
             "before-workflow-execution"
         );
         assert_eq!(MiddlewarePhase::OnResume.as_str(), "on-resume");
+    }
+
+    #[test]
+    fn cli_input_phases_round_trip_and_stay_known() {
+        for (text, phase) in [
+            ("before-cli-dispatch", MiddlewarePhase::BeforeCliDispatch),
+            ("before-slash-expand", MiddlewarePhase::BeforeSlashExpand),
+            ("after-slash-expand", MiddlewarePhase::AfterSlashExpand),
+            ("on-completion-request", MiddlewarePhase::OnCompletionRequest),
+        ] {
+            assert_eq!(MiddlewarePhase::from(text), phase);
+            assert_eq!(phase.as_str(), text);
+            assert!(phase.is_known());
+        }
     }
 
     #[test]

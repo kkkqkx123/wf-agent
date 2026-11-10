@@ -157,6 +157,17 @@ pub(crate) fn plugin_event_to_base(event: &PluginEvent) -> wf_types::events::Bas
                 ("config".into(), config.clone()),
             ])),
         ),
+        PluginEvent::ResourceDiscovered { plugin_id, kind, paths } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([
+                (
+                    "plugin:resource-discovered".into(),
+                    serde_json::Value::String(plugin_id.clone()),
+                ),
+                ("kind".into(), serde_json::Value::String(kind.as_str().to_string())),
+                ("paths".into(), serde_json::json!(paths)),
+            ])),
+        ),
     };
     BaseEvent {
         id: uuid_or_fallback(),

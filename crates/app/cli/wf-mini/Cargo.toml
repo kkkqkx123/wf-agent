@@ -20,6 +20,8 @@ tui-markdown = { path = "../../tui/tui-markdown" }
 crossterm.workspace = true
 # Window title heartbeat helpers (sanitize_title / running_title).
 tui-terminal = { path = "../../tui/tui-terminal" }
+# Host-mediated plugin dialogs (confirm / select / input / edit).
+tui-core = { path = "../../tui/tui-core" }
 libc.workspace = true
 unicode-width.workspace = true
 regex.workspace = true

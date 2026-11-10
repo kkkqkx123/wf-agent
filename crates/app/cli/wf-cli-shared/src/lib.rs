@@ -162,6 +162,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::Remote { sub }) => {
             return cmd::remote::run(&cli, sub).await;
         }
+        Some(Command::Plugin { sub }) => {
+            return cmd::plugin::run(&cli, sub).await;
+        }
         Some(Command::Diagnostics) => {
             return cmd::diagnostics::run_diagnostics(&cli).await;
         }

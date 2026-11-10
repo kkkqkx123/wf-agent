@@ -393,6 +393,69 @@ pub fn parse_middleware_outcome(response: &Value, incoming: &Value) -> Middlewar
     }
 }
 
+/// Outcome of one CLI input-chain handler: pass the text through,
+/// rewrite it for the next handler, or take over with a direct echo that
+/// skips the default dispatch path. Context travels as JSON
+/// (`{"text": ..., "slash": ...}`); handlers only rewrite `text`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CliInputOutcome {
+    /// Keep `text` unchanged and run the next handler.
+    Pass,
+    /// Replace the buffer text and run the next handler.
+    Rewrite(String),
+    /// Skip remaining handlers and the default path; `echo` is shown
+    /// directly as the command result.
+    Takeover(String),
+}
+
+/// Parse one CLI input-chain guest response against the incoming buffer
+/// text. Shapes: `true` passes, `false` takes over with an empty echo
+/// (legacy boolean protocol); `{"action": "pass"}` passes,
+/// `{"action": "rewrite", "text": "..."}` rewrites,
+/// `{"action": "takeover", "echo": "..."}` takes over. Anything else
+/// passes with the incoming text so old guests never break dispatch.
+pub fn parse_cli_input_outcome(response: &Value, incoming_text: &str) -> CliInputOutcome {
+    if let Some(pass) = response.as_bool() {
+        if pass {
+            return CliInputOutcome::Pass;
+        }
+        return CliInputOutcome::Takeover(String::new());
+    }
+    if let Some(object) = response.as_object() {
+        let action = object.get("action").and_then(Value::as_str).unwrap_or("pass");
+        match action {
+            "rewrite" => {
+                if let Some(text) = object.get("text").and_then(Value::as_str) {
+                    return CliInputOutcome::Rewrite(text.to_string());
+                }
+                return CliInputOutcome::Pass;
+            }
+            "takeover" => {
+                let echo = object.get("echo").and_then(Value::as_str).unwrap_or("");
+                return CliInputOutcome::Takeover(echo.to_string());
+            }
+            _ => return CliInputOutcome::Pass,
+        }
+    }
+    let _ = incoming_text;
+    CliInputOutcome::Pass
+}
+
+/// Apply one input-chain outcome to the running buffer text. Returns the
+/// new text plus whether the chain took over (with its direct echo).
+/// A handler failure must call this with `Pass` so dispatch falls back to
+/// the built-in path instead of stalling the session.
+pub fn apply_cli_input_outcome(
+    text: &str,
+    outcome: CliInputOutcome,
+) -> (String, Option<String>) {
+    match outcome {
+        CliInputOutcome::Pass => (text.to_string(), None),
+        CliInputOutcome::Rewrite(next) => (next, None),
+        CliInputOutcome::Takeover(echo) => (text.to_string(), Some(echo)),
+    }
+}
+
 #[async_trait]
 pub trait PluginNodeHandler: Send + Sync {
     async fn execute(&self, ctx: PluginExecutionContext) -> PluginResult<PluginNodeResult>;
@@ -753,6 +816,29 @@ mod tests {
         let out = parse_middleware_outcome(&json!({"proceed": false}), &incoming);
         assert!(!out.proceed);
         assert_eq!(out.context, incoming);
+    }
+
+    #[test]
+    fn cli_input_outcome_passes_rewrites_and_takes_over_in_order() {
+        assert_eq!(parse_cli_input_outcome(&json!(true), "hi"), CliInputOutcome::Pass);
+        assert_eq!(
+            parse_cli_input_outcome(&json!(false), "hi"),
+            CliInputOutcome::Takeover(String::new())
+        );
+        assert_eq!(
+            parse_cli_input_outcome(&json!({"action": "rewrite", "text": "/help"}), "hi"),
+            CliInputOutcome::Rewrite("/help".to_string())
+        );
+        assert_eq!(
+            parse_cli_input_outcome(&json!({"action": "takeover", "echo": "done"}), "hi"),
+            CliInputOutcome::Takeover("done".to_string())
+        );
+        assert_eq!(parse_cli_input_outcome(&json!(null), "hi"), CliInputOutcome::Pass);
+        let (text, echo) = apply_cli_input_outcome("hi", CliInputOutcome::Rewrite("/help".into()));
+        assert_eq!(text, "/help");
+        assert_eq!(echo, None);
+        let (_, echo) = apply_cli_input_outcome("hi", CliInputOutcome::Takeover("done".into()));
+        assert_eq!(echo.as_deref(), Some("done"));
     }
 
     #[test]

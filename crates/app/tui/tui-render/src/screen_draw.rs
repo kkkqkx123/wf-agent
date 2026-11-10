@@ -1033,6 +1033,21 @@ pub fn draw_settings(
                     .unwrap_or("auto")
             ));
             out.push(String::new());
+            out.push("Plugin settings:".to_string());
+            if d.plugin_settings.is_empty() {
+                out.push("  (no plugin settings registered)".to_string());
+            } else {
+                for (plugin, rows) in
+                    tui_core::screen_data::group_plugin_settings(&d.plugin_settings, &d.plugin_values)
+                {
+                    out.push(format!("  [{plugin}]"));
+                    for row in rows {
+                        let shape = if row.constrained { "select" } else { "text" };
+                        out.push(format!("    {} · {} = {} ({shape})", row.key, row.label, row.value));
+                    }
+                }
+            }
+            out.push(String::new());
             out.push(
                 "Local changes save to the config file; restart applies them (session_scrollbar / sidebar instant)."
                     .to_string(),

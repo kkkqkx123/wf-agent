@@ -39,13 +39,15 @@ impl InteractiveController {
         let client = self.client.clone();
         let session_id = session_id.to_string();
         let tx = self.tx.clone();
+        let rules = self.markdown_rules_snapshot();
         tokio::spawn(async move {
             let conversation = crate::replay::conversation_records(&client, &session_id).await;
-            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
+            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page_with_rules(
                 &client,
                 &session_id,
                 None,
                 crate::replay::REPLAY_PAGE_LIMIT,
+                &rules,
             )
             .await
             {
@@ -83,12 +85,14 @@ impl InteractiveController {
         let client = self.client.clone();
         let session_id = self.footer.state.execution_id.clone().unwrap_or_default();
         let tx = self.tx.clone();
+        let rules = self.markdown_rules_snapshot();
         tokio::spawn(async move {
-            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
+            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page_with_rules(
                 &client,
                 &session_id,
                 Some(before),
                 crate::replay::REPLAY_PAGE_LIMIT,
+                &rules,
             )
             .await
             {

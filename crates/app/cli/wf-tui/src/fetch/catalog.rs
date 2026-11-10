@@ -80,11 +80,59 @@ pub(super) async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
             })
         })
         .collect();
+    // Merged plugin settings for the plugin section: server snapshot
+    // first, then trusted global local plugins shadowing same keys. An
+    // unreachable snapshot degrades to local-only instead of failing the
+    // whole settings screen.
+    let snapshot_settings = client
+        .cli_snapshot()
+        .await
+        .map(|snapshot| {
+            snapshot
+                .settings
+                .into_iter()
+                .filter(|field| {
+                    field.key.contains('.')
+                        && !field.key.trim().is_empty()
+                        && !field.key.chars().any(char::is_whitespace)
+                        && (field.values.is_empty() || field.values.contains(&field.fallback))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let global_settings = wf_cli_shared::local_plugins::scan_local_plugins(
+        wf_cli_shared::local_plugins::default_global_dir().as_deref(),
+        None,
+        None,
+    )
+    .settings
+    .into_iter()
+    .map(|field| wf_types::cli::CliSettingField {
+        key: field.key,
+        label: field.label,
+        values: field.values,
+        fallback: field.fallback,
+    })
+    .filter(|field| {
+        field.key.contains('.')
+            && !field.key.trim().is_empty()
+            && !field.key.chars().any(char::is_whitespace)
+            && (field.values.is_empty() || field.values.contains(&field.fallback))
+    })
+    .collect::<Vec<_>>();
+    let mut plugin_settings = global_settings;
+    for field in snapshot_settings {
+        if !plugin_settings.iter().any(|kept| kept.key == field.key) {
+            plugin_settings.push(field);
+        }
+    }
     Ok(ScreenData::Settings(SettingsData {
         profiles: rows,
         default_profile: Some(default_id),
         theme,
         local: load_local_settings(),
+        plugin_settings,
+        plugin_values: std::collections::HashMap::new(),
     }))
 }
 

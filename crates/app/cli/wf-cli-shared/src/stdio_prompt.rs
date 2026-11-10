@@ -176,6 +176,74 @@ pub fn parse_followup_answer(text: &str, request: &Value) -> Value {
     Value::String(trimmed.to_string())
 }
 
+/// Render one host-mediated plugin dialog prompt. Text follows the
+/// `? DIALOG kind=<kind> title="<title>" ...` line protocol; structured
+/// mode emits one NDJSON object. Headless never blocks: a missing answer
+/// line fails closed through [`answer_dialog_headless`], so the caller
+/// records the outcome and continues the turn.
+pub fn render_dialog_prompt(
+    kind: &str,
+    title: &str,
+    message: &str,
+    options: &[String],
+    json: bool,
+) -> String {
+    if json {
+        return serde_json::json!({
+            "type": "dialog",
+            "kind": kind,
+            "title": title,
+            "message": message,
+            "options": options,
+        })
+        .to_string();
+    }
+    let mut line = format!("? DIALOG kind={kind} title=\"{title}\" prompt=\"{message}\"");
+    for (index, option) in options.iter().enumerate() {
+        line.push_str(&format!(" [{}] {option}", index + 1));
+    }
+    match kind {
+        "confirm" => line.push_str(" (y/n, default N)"),
+        "select" => line.push_str(" (reply number)"),
+        "edit" => line.push_str(" (single line; empty cancels)"),
+        _ => line.push_str(" (reply text; empty cancels)"),
+    }
+    line
+}
+
+/// Apply one headless answer line to a plugin dialog. `None` (timeout or
+/// EOF) fails closed: denied confirm, dismissed select/input/edit. Mirrors
+/// the `tui-core::dialog::answer_headless` mapping so the same request
+/// returns the same-shaped outcome on every shell; kept JSON-shaped here
+/// because this crate must stay below `tui-core` in the dependency DAG.
+pub fn answer_dialog_headless(kind: &str, options: usize, line: Option<&str>) -> Value {
+    match kind {
+        "confirm" => {
+            let approved = line.is_some_and(|text| parse_approval_answer(text));
+            serde_json::json!({"confirmed": approved})
+        }
+        "select" => {
+            let selected = line.and_then(|text| {
+                text.trim()
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|index| *index >= 1 && *index <= options)
+                    .map(|index| index - 1)
+            });
+            serde_json::json!({"selected": selected})
+        }
+        "edit" => match line {
+            Some(text) if text.trim().is_empty() => serde_json::json!({"edited": null}),
+            Some(text) => serde_json::json!({"edited": text}),
+            None => serde_json::json!({"cancelled": true}),
+        },
+        _ => match line {
+            Some(text) => serde_json::json!({"entered": text}),
+            None => serde_json::json!({"cancelled": true}),
+        },
+    }
+}
+
 /// Render a follow-up prompt. Text follows the `? ANSWER ...` line protocol
 /// with numbered options; structured mode emits one NDJSON object.
 pub fn render_followup_prompt(
@@ -287,6 +355,35 @@ mod tests {
             serde_json::from_str(&render_followup_prompt("ui-2", "pick one", &[], true)).unwrap();
         assert_eq!(parsed["type"], "answer");
         assert_eq!(parsed["interaction_id"], "ui-2");
+    }
+
+    #[test]
+    fn dialog_prompts_fail_closed_without_a_line() {
+        assert_eq!(
+            answer_dialog_headless("confirm", 0, None),
+            serde_json::json!({"confirmed": false})
+        );
+        assert_eq!(
+            answer_dialog_headless("confirm", 0, Some("y")),
+            serde_json::json!({"confirmed": true})
+        );
+        assert_eq!(
+            answer_dialog_headless("select", 2, Some("2")),
+            serde_json::json!({"selected": 1})
+        );
+        assert_eq!(
+            answer_dialog_headless("select", 2, None),
+            serde_json::json!({"selected": null})
+        );
+        assert_eq!(
+            answer_dialog_headless("edit", 0, Some("")),
+            serde_json::json!({"edited": null})
+        );
+        assert!(render_dialog_prompt("confirm", "rm?", "delete?", &[], false).contains("? DIALOG"));
+        let parsed: Value =
+            serde_json::from_str(&render_dialog_prompt("select", "pick", "one", &["a".into()], true))
+                .unwrap();
+        assert_eq!(parsed["type"], "dialog");
     }
 
     #[tokio::test]

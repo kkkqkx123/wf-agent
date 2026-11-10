@@ -160,6 +160,41 @@ impl MiniApprover {
     }
 }
 
+/// Present one host-mediated plugin dialog on stderr and read a single
+/// stdin line. The host owns the prompt text; an empty option list is
+/// rejected before presenting, and timeout or EOF fails closed so a
+/// missing answer never hangs the turn. Mirrors the headless
+/// `answer_headless` mapping so the same request returns the same-shaped
+/// outcome on every shell.
+pub async fn present_plugin_dialog(
+    request: &tui_core::dialog::DialogRequest,
+    lines: std::sync::Arc<tokio::sync::Mutex<LineReader>>,
+    timeout_secs: u64,
+) -> tui_core::dialog::DialogOutcome {
+    if let tui_core::dialog::DialogRequest::Select { options, .. } = request {
+        if options.is_empty() {
+            return tui_core::dialog::DialogOutcome::Selected(None);
+        }
+    }
+    {
+        let stderr = io::stderr();
+        let mut err = stderr.lock();
+        let _ = writeln!(
+            err,
+            "{}",
+            tui_core::dialog::mini_prompt_text(request, timeout_secs.max(1))
+        );
+        let _ = err.flush();
+    }
+    let line = tokio::time::timeout(Duration::from_secs(timeout_secs.max(1)), async {
+        lines.lock().await.next_line().await
+    })
+    .await
+    .ok()
+    .flatten();
+    tui_core::dialog::answer_headless(request, line.as_deref())
+}
+
 /// Approval prompt text for one tool. The risk level, when the request
 /// carries one, sits in brackets after the tool name.
 pub fn approval_prompt(tool_name: &str, risk: Option<&str>, timeout_secs: u64) -> String {

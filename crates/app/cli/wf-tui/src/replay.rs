@@ -11,6 +11,95 @@ use wf_types::tool::DisplayKind;
 /// The function tries live then persisted sources: conversation messages plus
 /// iteration tool details. The produced lines use the same roles as the live
 /// session so replay is visually identical.
+/// Rebuild scrollback lines with merged Markdown rules applied to
+/// committed assistant text (surface `assistant`). Display-only; stored
+/// payloads never change, empty patterns are skipped, and a bad rule
+/// keeps already-produced output instead of breaking the session.
+pub fn records_to_lines_with_rules(
+    records: &[Message],
+    rules: &[wf_types::cli::CliMarkdownRule],
+) -> Vec<HistoryLine> {
+    let mut lines = records_to_lines(records);
+    if rules.is_empty() {
+        return lines;
+    }
+    for line in &mut lines {
+        if !line.is_markdown() {
+            continue;
+        }
+        let text = line.source_text();
+        if text.trim().is_empty() {
+            continue;
+        }
+        let transformed =
+            tui_core::tool_output::apply_snapshot_markdown_rules(&text, rules, "assistant");
+        if transformed != text {
+            let state = line.state;
+            let role = line.role;
+            let seq = line.seq_no();
+            *line = HistoryLine::markdown_with(transformed, state, role).with_seq_no(seq);
+        }
+    }
+    lines
+}
+
+/// Full replay loader with Markdown rules applied to committed assistant
+/// text. `replay_scrollack` stays as the empty-rules wrapper so existing
+/// callers keep builtin-only behavior.
+pub async fn replay_scrollack_with_rules(
+    client: &WfClient,
+    session_id: &str,
+    rules: &[wf_types::cli::CliMarkdownRule],
+) -> CliResult<Vec<HistoryLine>> {
+    let mut lines = replay_scrollack(client, session_id).await?;
+    if !rules.is_empty() {
+        for line in &mut lines {
+            if !line.is_markdown() {
+                continue;
+            }
+            let text = line.source_text();
+            let transformed =
+                tui_core::tool_output::apply_snapshot_markdown_rules(&text, rules, "assistant");
+            if transformed != text {
+                let state = line.state;
+                let role = line.role;
+                let seq = line.seq_no();
+                *line = HistoryLine::markdown_with(transformed, state, role).with_seq_no(seq);
+            }
+        }
+    }
+    Ok(lines)
+}
+
+/// Paged replay loader with Markdown rules applied to committed assistant
+/// text. Streaming views stay untransformed, matching the live path.
+pub async fn replay_scrollack_page_with_rules(
+    client: &WfClient,
+    session_id: &str,
+    before_timestamp: Option<i64>,
+    limit: u64,
+    rules: &[wf_types::cli::CliMarkdownRule],
+) -> CliResult<ReplayPage> {
+    let mut page = replay_scrollack_page(client, session_id, before_timestamp, limit).await?;
+    if !rules.is_empty() {
+        for line in &mut page.lines {
+            if !line.is_markdown() {
+                continue;
+            }
+            let text = line.source_text();
+            let transformed =
+                tui_core::tool_output::apply_snapshot_markdown_rules(&text, rules, "assistant");
+            if transformed != text {
+                let state = line.state;
+                let role = line.role;
+                let seq = line.seq_no();
+                *line = HistoryLine::markdown_with(transformed, state, role).with_seq_no(seq);
+            }
+        }
+    }
+    Ok(page)
+}
+
 pub async fn replay_scrollack(client: &WfClient, session_id: &str) -> CliResult<Vec<HistoryLine>> {
     // Validate the session exists (live or persisted).
     let summary = loop_summary(client, session_id).await?;

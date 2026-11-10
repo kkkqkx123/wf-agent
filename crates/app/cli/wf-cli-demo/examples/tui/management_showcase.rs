@@ -221,6 +221,8 @@ fn synthetic_settings() -> ScreenData {
             motion_performance: "auto".into(),
             notification_enabled: None,
         },
+        plugin_settings: Vec::new(),
+        plugin_values: std::collections::HashMap::new(),
     })
 }
 

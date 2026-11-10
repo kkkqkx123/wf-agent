@@ -234,6 +234,13 @@ impl HistoryLine {
         &self.text
     }
 
+    /// Whether this line renders as Markdown (assistant committed text and
+    /// streaming views). Replay Markdown rules apply only to these lines;
+    /// plain tool/user rows stay verbatim so prefixes never rewrite.
+    pub fn is_markdown(&self) -> bool {
+        self.render == LineRender::Markdown
+    }
+
     /// Source-text view for copy paths: span contents joined per source
     /// line, without reflow or reordering. Copy always reads this, never
     /// the width-reflowed display rows.

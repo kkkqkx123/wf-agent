@@ -125,6 +125,68 @@ impl PluginEngine {
     }
 }
 
+/// Evaluation input for an executable local UI backend (restricted
+/// script runtime). The default conclusion is to not build it:立项当且仅当
+/// declarative contributions cannot express the local interaction need.
+#[derive(Debug, Clone, Default)]
+pub struct ExecutableUiRequest {
+    /// True when the need truly cannot be expressed declaratively.
+    pub declarative_insufficient: bool,
+    /// The backend stays default-off when built.
+    pub default_off: bool,
+    /// Host permission blacklist covers the new surface.
+    pub blacklist_covers: bool,
+    /// `tui.toml` cooperates (explicit opt-in, scoped grants).
+    pub tui_toml_cooperates: bool,
+    /// Failure posture falls back to built-in behavior.
+    pub fallback_to_builtin: bool,
+}
+
+/// Binary evaluation output: whether to build the executable backend and
+/// why. Wasm and Lua still only walk declarative contributions when built;
+/// executable UI stays on the native trusted channel behind explicit
+/// dispatch, with the host holding focus and dismissal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutableUiDecision {
+    pub build: bool,
+    pub reason: String,
+}
+
+/// Evaluate whether to stand up the executable local backend. Returns a
+/// build/no-build decision, never a preset implementation.
+pub fn evaluate_executable_ui(request: &ExecutableUiRequest) -> ExecutableUiDecision {
+    if !request.declarative_insufficient {
+        return ExecutableUiDecision {
+            build: false,
+            reason: "declarative contributions suffice; executable backend stays unbuilt".to_string(),
+        };
+    }
+    let mut missing = Vec::new();
+    if !request.default_off {
+        missing.push("default-off");
+    }
+    if !request.blacklist_covers {
+        missing.push("permission-blacklist");
+    }
+    if !request.tui_toml_cooperates {
+        missing.push("tui.toml-cooperation");
+    }
+    if !request.fallback_to_builtin {
+        missing.push("builtin-fallback");
+    }
+    if missing.is_empty() {
+        ExecutableUiDecision {
+            build: true,
+            reason: "declarative-insufficient with all four guards satisfied".to_string(),
+        }
+    } else {
+        ExecutableUiDecision {
+            build: false,
+            reason: format!("missing guards: {}", missing.join(", ")),
+        }
+    }
+}
+
 pub(crate) fn validate_manifest(manifest: &PluginManifest) -> Option<Vec<String>> {
     let mut errors = Vec::new();
     if manifest.id.is_empty() {
@@ -232,6 +294,31 @@ mod tests {
         let mut m = manifest("1.0.0");
         m.versioned_entry_points.insert(1, "plugin_v1.wasm".into());
         assert!(validate_manifest(&m).is_none());
+    }
+
+    #[test]
+    fn executable_backend_defaults_to_not_building() {
+        assert!(!evaluate_executable_ui(&ExecutableUiRequest::default()).build);
+        assert!(
+            !evaluate_executable_ui(&ExecutableUiRequest {
+                declarative_insufficient: true,
+                default_off: true,
+                blacklist_covers: false,
+                tui_toml_cooperates: true,
+                fallback_to_builtin: true,
+            })
+            .build
+        );
+        assert!(
+            evaluate_executable_ui(&ExecutableUiRequest {
+                declarative_insufficient: true,
+                default_off: true,
+                blacklist_covers: true,
+                tui_toml_cooperates: true,
+                fallback_to_builtin: true,
+            })
+            .build
+        );
     }
 
     #[test]

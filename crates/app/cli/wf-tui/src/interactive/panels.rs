@@ -400,10 +400,85 @@ impl InteractiveController {
         }
     }
 
-    /// All mention candidates: local files first, then the server entities.
+    /// Accept the plugin ghost suffix when the cursor sits at the end of
+    /// the buffer. Returns whether anything was taken, mirroring
+    /// `Composer::accept_ghost` so Right/End prefer history, then plugin,
+    /// then movement.
+    pub(crate) fn accept_plugin_completion(&mut self) -> bool {
+        if !self.footer.composer.is_at_end() {
+            return false;
+        }
+        let buffer = self.footer.composer.content().to_string();
+        let Some(full) =
+            tui_core::command::plugin_completion_suggestion(&buffer, &self.plugin_completions)
+        else {
+            return false;
+        };
+        let Some(suffix) = full.strip_prefix(buffer.as_str()) else {
+            return false;
+        };
+        if suffix.is_empty() {
+            return false;
+        }
+        for c in suffix.chars() {
+            self.footer.composer.insert_char(c);
+        }
+        self.sync_mention_route();
+        true
+    }
+
+    /// Ghost-line suggestion from merged plugin completion sources for the
+    /// current composer buffer, using the same first-hit order as mini.
+    /// Returns the full suggested line; the caller derives the suffix.
+    pub(crate) fn composer_plugin_suggestion(&self) -> Option<String> {
+        let buffer = self.footer.composer.content().to_string();
+        tui_core::command::plugin_completion_suggestion(&buffer, &self.plugin_completions)
+    }
+
+    /// Plugin completion rows matching the current composer buffer, in
+    /// merge order with mini-identical sorting. Surfaces `#`/`/` sources
+    /// inside the mention panel so the composer联想 panel consumes the
+    /// already-merged completion set instead of builtins only.
+    fn plugin_completion_entries(&self) -> Vec<MentionEntry> {
+        let buffer = self.footer.composer.content().to_string();
+        if buffer.is_empty() || buffer.chars().any(char::is_whitespace) {
+            return Vec::new();
+        }
+        let mut entries = Vec::new();
+        for source in &self.plugin_completions {
+            let active = source.trigger_chars.iter().any(|trigger| {
+                !trigger.is_empty() && buffer.starts_with(trigger.as_str())
+            });
+            if !active {
+                continue;
+            }
+            let mut items: Vec<&wf_types::cli::CliCompletionItem> = source
+                .items
+                .iter()
+                .filter(|item| !item.value.is_empty() && item.value.starts_with(buffer.as_str()))
+                .collect();
+            items.sort_by(|a, b| a.value.cmp(&b.value));
+            for item in items {
+                let mut entry = MentionEntry::new("plugin", item.value.clone());
+                if let Some(label) = item.label.as_deref() {
+                    if label != item.value {
+                        entry = entry.described(label.to_string());
+                    }
+                } else if let Some(description) = item.description.as_deref() {
+                    entry = entry.described(description.to_string());
+                }
+                entries.push(entry);
+            }
+        }
+        entries
+    }
+
+    /// All mention candidates: local files first, then the server entities,
+    /// then merged plugin completion rows in mini-identical order.
     fn mention_entries(&self) -> Vec<MentionEntry> {
         let mut entries = self.panel_mention_files.clone();
         entries.extend(self.panel_mention_entities.iter().cloned());
+        entries.extend(self.plugin_completion_entries());
         entries
     }
 
@@ -938,8 +1013,23 @@ impl InteractiveController {
     /// directly. Returns the command outcome when the line was consumed so
     /// session-level actions (`/tree`, `/fork`, `/sessions`, ...) reach the
     /// shell instead of being swallowed.
+    /// Run the CLI input chain for one composer line: command dispatch
+    /// first, slash expand before/after, then completion request share the
+    /// same pass/rewrite/takeover contract. No handlers are registered in
+    /// this shell yet, so the chain passes through; any handler failure
+    /// falls back to the built-in path instead of blocking the session.
+    fn run_cli_input_chain(&self, text: &str) -> (String, Option<String>) {
+        tui_core::command::apply_cli_input_chain(text, std::iter::empty())
+    }
+
     pub(crate) fn handle_command_line(&mut self, text: &str) -> Option<InteractiveAction> {
-        let trimmed = text.trim();
+        let (chained, takeover) = self.run_cli_input_chain(text.trim());
+        if let Some(echo) = takeover {
+            self.footer.show_notice(echo);
+            return Some(InteractiveAction::Continue);
+        }
+        let trimmed = chained.trim().to_string();
+        let trimmed = trimmed.as_str();
         if !trimmed.starts_with('/') {
             return None;
         }
@@ -1475,6 +1565,15 @@ impl InteractiveController {
             Self::merge_by_key(&self.local_settings, &self.snapshot_settings, |field| {
                 field.key.clone()
             });
+        for notice in tui_core::screen_data::setting_conflict_notices(
+            &self.local_settings,
+            &self.snapshot_settings,
+        ) {
+            self.footer.show_notice(notice);
+        }
+        self.setting_values.retain(|key, _| {
+            self.setting_fields.iter().any(|field| &field.key == key)
+        });
         self.plugin_completions = Self::merge_by_key(
             &self.local_completions,
             &self.snapshot_completions,
@@ -1528,6 +1627,34 @@ impl InteractiveController {
     /// Settings rows for the settings surface, in merge order.
     pub fn setting_fields_snapshot(&self) -> Vec<wf_types::cli::CliSettingField> {
         self.setting_fields.clone()
+    }
+
+    /// Set one plugin setting value under `plugins.<plugin>.<name>`.
+    /// Candidate-list rows accept only listed values; free-form rows accept
+    /// anything. Illegal values are rejected and the old value kept; a
+    /// change bumps the scrollback version so the settings surface redraws.
+    /// Returns whether the value changed.
+    pub fn set_plugin_setting(&mut self, key: &str, value: &str) -> bool {
+        let Some(field) = self.setting_fields.iter().find(|field| field.key == key) else {
+            self.footer.show_notice(format!("unknown plugin setting '{key}'"));
+            return false;
+        };
+        if !tui_core::screen_data::validate_setting_value(field, value) {
+            self.footer.show_notice(format!(
+                "ignoring invalid value '{value}' for setting '{key}': expected one of {}",
+                field.values.join(", ")
+            ));
+            return false;
+        }
+        self.setting_values.insert(key.to_string(), value.to_string());
+        self.footer.show_notice(format!("setting '{key}' set to '{value}'"));
+        true
+    }
+
+    /// Grouped plugin settings rows with resolved values for the settings
+    /// surface, in merge order.
+    pub fn grouped_plugin_settings(&self) -> Vec<(String, Vec<tui_core::screen_data::PluginSettingRow>)> {
+        tui_core::screen_data::group_plugin_settings(&self.setting_fields, &self.setting_values)
     }
 
     /// Completion sources for composer use, in merge order.

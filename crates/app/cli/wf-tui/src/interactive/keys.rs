@@ -513,12 +513,16 @@ impl InteractiveController {
             }
             CKey::Right if !key.ctrl && !key.alt => {
                 if !self.footer.composer.accept_ghost() {
-                    self.footer.composer.move_right();
+                    if !self.accept_plugin_completion() {
+                        self.footer.composer.move_right();
+                    }
                 }
             }
             CKey::End if !key.ctrl && !key.alt => {
                 if !self.footer.composer.accept_ghost() {
-                    self.footer.composer.end();
+                    if !self.accept_plugin_completion() {
+                        self.footer.composer.end();
+                    }
                 }
             }
             CKey::Char('r') | CKey::Char('R') if key.ctrl && !key.alt => {

@@ -288,6 +288,10 @@ pub struct InteractiveController {
     poll_task: Option<JoinHandle<()>>,
     /// Interaction id behind the visible approval overlay, if any.
     pending_approval: Option<String>,
+    /// Host-mediated plugin dialog behind the visible question overlay, if
+    /// any. The host owns focus and dismissal; only one blocker shows at a
+    /// time so a plugin can never steal the approval/question focus.
+    plugin_dialog: Option<PluginDialogPending>,
     remembered: ApprovalRemembered,
     scroll_cover: usize,
     tool_started_at: HashMap<String, u64>,
@@ -482,6 +486,8 @@ pub struct InteractiveController {
     snapshot_settings: Vec<wf_types::cli::CliSettingField>,
     /// Machine-local settings rows shadowing same-key snapshot entries.
     local_settings: Vec<wf_types::cli::CliSettingField>,
+    /// Stored visitor-config values for the merged settings rows.
+    setting_values: std::collections::HashMap<String, String>,
     /// Merged completion sources for composer use; local entries shadow
     /// same-id snapshot entries, exact duplicates dropped.
     plugin_completions: Vec<wf_types::cli::CliCompletionSource>,
@@ -719,6 +725,7 @@ impl InteractiveController {
             turn_task: None,
             poll_task: None,
             pending_approval: None,
+            plugin_dialog: None,
             remembered: ApprovalRemembered::default(),
             scroll_cover: 0,
             tool_started_at: HashMap::new(),
@@ -792,6 +799,7 @@ impl InteractiveController {
             setting_fields: Vec::new(),
             snapshot_settings: Vec::new(),
             local_settings: Vec::new(),
+            setting_values: std::collections::HashMap::new(),
             plugin_completions: Vec::new(),
             snapshot_completions: Vec::new(),
             local_completions: Vec::new(),
@@ -1735,6 +1743,81 @@ impl InteractiveController {
         self.footer.approval.is_some() || self.pending_approval.is_some()
     }
 
+    /// Whether a host-mediated plugin dialog is on screen. While set the
+    /// host owns focus and the composer stays blocked, mirroring the
+    /// approval/question blockers.
+    pub fn plugin_dialog_active(&self) -> bool {
+        self.plugin_dialog.is_some()
+    }
+
+    /// Open one host-mediated plugin dialog through the existing question
+    /// float. Rejects empty selects before presenting and refuses when
+    /// another blocker owns focus; the host keeps dismissal ownership.
+    /// `now_ms` plus `timeout_secs` form the fail-closed deadline.
+    pub fn open_plugin_dialog(
+        &mut self,
+        plugin_id: impl Into<String>,
+        request: tui_core::dialog::DialogRequest,
+        now_ms: u64,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        if self.footer.approval.is_some() || self.footer.question.is_some() {
+            return Err("another dialog owns focus".to_string());
+        }
+        if let tui_core::dialog::DialogRequest::Select { options, .. } = &request {
+            if options.is_empty() {
+                return Err("select dialog needs at least one option".to_string());
+            }
+        }
+        let payload = plugin_dialog_question_payload(&request);
+        let view = crate::question_overlay::QuestionView::from_request(
+            format!("plugin:{}", plugin_id.into()),
+            &payload,
+        );
+        self.footer.question = Some(view);
+        self.plugin_dialog = Some(PluginDialogPending {
+            request,
+            deadline_ms: now_ms.saturating_add(timeout_secs.max(1).saturating_mul(1000)),
+        });
+        Ok(())
+    }
+
+    /// Answer the open plugin dialog from the question float outcome and
+    /// release host focus. Returns `None` when no dialog is open.
+    pub fn answer_plugin_dialog(
+        &mut self,
+        outcome: crate::question_overlay::QuestionOutcome,
+    ) -> Option<tui_core::dialog::DialogOutcome> {
+        let pending = self.plugin_dialog.take()?;
+        self.footer.question = None;
+        Some(answer_plugin_dialog_from_question(&pending.request, outcome))
+    }
+
+    /// Fail closed when the open dialog passes its deadline. Returns the
+    /// closed outcome when a timeout fired, else `None`.
+    pub fn cancel_expired_plugin_dialog(
+        &mut self,
+        now_ms: u64,
+    ) -> Option<tui_core::dialog::DialogOutcome> {
+        let expired = self.plugin_dialog.as_ref().is_some_and(|pending| now_ms >= pending.deadline_ms);
+        if !expired {
+            return None;
+        }
+        let pending = self.plugin_dialog.take()?;
+        self.footer.question = None;
+        Some(tui_core::dialog::answer_headless(&pending.request, None))
+    }
+
+    /// Dismiss the open plugin dialog without an answer (host-owned close).
+    pub fn close_plugin_dialog(&mut self) -> bool {
+        if self.plugin_dialog.is_none() {
+            return false;
+        }
+        self.plugin_dialog = None;
+        self.footer.question = None;
+        true
+    }
+
     /// Record a newly opened blocker dialog. Reopening a source replaces
     /// its position instead of stacking a second entry.
     pub(crate) fn note_blocker_opened(
@@ -1843,6 +1926,80 @@ impl InteractiveController {
             input_changed: false,
             animation_cells: self.has_anim_cells(),
         }
+    }
+}
+
+/// One host-mediated plugin dialog behind the question float. The host
+/// owns focus and dismissal; the plugin only sees the mapped outcome.
+#[derive(Debug, Clone)]
+pub(crate) struct PluginDialogPending {
+    request: tui_core::dialog::DialogRequest,
+    deadline_ms: u64,
+}
+
+/// Build the question-float payload for one dialog request. Confirm maps
+/// to a Yes/No pick, select keeps its options, input and edit open the
+/// free-form path (edit embeds its initial text in the prompt).
+fn plugin_dialog_question_payload(request: &tui_core::dialog::DialogRequest) -> serde_json::Value {
+    match request {
+        tui_core::dialog::DialogRequest::Confirm { title, message, .. } => serde_json::json!({
+            "prompt": format!("{title}: {message}"),
+            "options": ["Yes", "No"],
+            "allowCustom": false,
+        }),
+        tui_core::dialog::DialogRequest::Select { title, message, options } => serde_json::json!({
+            "prompt": format!("{title}: {message}"),
+            "options": options,
+            "allowCustom": false,
+        }),
+        tui_core::dialog::DialogRequest::Input { title, message, placeholder, .. } => serde_json::json!({
+            "prompt": format!("{title}: {message}"),
+            "options": [],
+            "allowCustom": true,
+            "placeholder": placeholder,
+        }),
+        tui_core::dialog::DialogRequest::Edit { title, message, initial, .. } => serde_json::json!({
+            "prompt": format!("{title}: {message} (initial: {initial})"),
+            "options": [],
+            "allowCustom": true,
+        }),
+    }
+}
+
+/// Map a question-float outcome back onto the dialog contract. Confirm
+/// approves only on the first option; select resolves the picked index;
+/// input and edit take the custom text, with blank edit text dismissing.
+fn answer_plugin_dialog_from_question(
+    request: &tui_core::dialog::DialogRequest,
+    outcome: crate::question_overlay::QuestionOutcome,
+) -> tui_core::dialog::DialogOutcome {
+    use crate::question_overlay::QuestionOutcome as Q;
+    use tui_core::dialog::DialogOutcome as D;
+    match request {
+        tui_core::dialog::DialogRequest::Confirm { .. } => match outcome {
+            Q::Selected(picks) => D::Confirmed(picks.contains(&0)),
+            Q::Custom(text) => D::Confirmed(tui_core::dialog::parse_confirm_answer(&text)),
+            Q::Cancelled => D::Confirmed(false),
+        },
+        tui_core::dialog::DialogRequest::Select { options, .. } => match outcome {
+            Q::Selected(mut picks) => {
+                let first = picks.pop();
+                D::Selected(first.filter(|index| *index < options.len()))
+            }
+            Q::Custom(text) => D::Selected(tui_core::dialog::parse_select_answer(&text, options.len())),
+            Q::Cancelled => D::Selected(None),
+        },
+        tui_core::dialog::DialogRequest::Input { .. } => match outcome {
+            Q::Selected(_) => D::Entered(None),
+            Q::Custom(text) => D::Entered(Some(text)),
+            Q::Cancelled => D::Cancelled,
+        },
+        tui_core::dialog::DialogRequest::Edit { .. } => match outcome {
+            Q::Selected(_) => D::Edited(None),
+            Q::Custom(text) if text.trim().is_empty() => D::Edited(None),
+            Q::Custom(text) => D::Edited(Some(text)),
+            Q::Cancelled => D::Cancelled,
+        },
     }
 }
 
@@ -2164,6 +2321,49 @@ mod tests {
             false,
             &interrupted
         ));
+    }
+
+    #[tokio::test]
+    async fn plugin_dialog_owns_focus_and_fails_closed_on_timeout() {
+        use crate::question_overlay::QuestionOutcome;
+        let mut ctl = started_controller().await;
+        let confirm = tui_core::dialog::DialogRequest::Confirm {
+            title: "rm?".to_string(),
+            message: "delete?".to_string(),
+            danger: true,
+        };
+        ctl.open_plugin_dialog("review.bot", confirm, 1000, 5).expect("opens");
+        assert!(ctl.plugin_dialog_active());
+        assert!(ctl.footer.question.is_some());
+        let denied = ctl
+            .open_plugin_dialog(
+                "other",
+                tui_core::dialog::DialogRequest::Input {
+                    title: "x".to_string(),
+                    message: "y".to_string(),
+                    placeholder: None,
+                    secret: false,
+                },
+                1000,
+                5,
+            )
+            .is_err();
+        assert!(denied, "second dialog cannot steal focus");
+        let outcome = ctl.answer_plugin_dialog(QuestionOutcome::Selected(vec![0]));
+        assert_eq!(outcome, Some(tui_core::dialog::DialogOutcome::Confirmed(true)));
+        assert!(!ctl.plugin_dialog_active());
+        let select = tui_core::dialog::DialogRequest::Select {
+            title: "pick".to_string(),
+            message: "one".to_string(),
+            options: vec!["a".to_string(), "b".to_string()],
+        };
+        ctl.open_plugin_dialog("review.bot", select, 1000, 1).expect("opens");
+        let timed_out = ctl.cancel_expired_plugin_dialog(1000 + 1001);
+        assert_eq!(
+            timed_out,
+            Some(tui_core::dialog::DialogOutcome::Selected(None))
+        );
+        assert!(!ctl.plugin_dialog_active());
     }
 
     #[test]

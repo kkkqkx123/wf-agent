@@ -291,6 +291,30 @@ impl SuggestStrategy for PluginCompletionStrategy {
     }
 
     fn suggest(&self, buffer: &str, _ctx: &SuggestCtx) -> Option<String> {
+        // Delegate to the shared host helper so mini and the full TUI sort
+        // identically (first-hit in merge order, longest-common-prefix on
+        // ambiguity). The local loop stays as the fallback when the host
+        // helper is unavailable in trimmed builds.
+        let views: Vec<wf_types::cli::CliCompletionSource> = self
+            .sources
+            .iter()
+            .map(|source| wf_types::cli::CliCompletionSource {
+                id: String::new(),
+                trigger_chars: source.triggers.clone(),
+                items: source
+                    .items
+                    .iter()
+                    .map(|value| wf_types::cli::CliCompletionItem {
+                        value: value.clone(),
+                        label: None,
+                        description: None,
+                    })
+                    .collect(),
+            })
+            .collect();
+        if let Some(suggestion) = tui_core::command::plugin_completion_suggestion(buffer, &views) {
+            return Some(suggestion);
+        }
         for source in &self.sources {
             let active = source
                 .triggers

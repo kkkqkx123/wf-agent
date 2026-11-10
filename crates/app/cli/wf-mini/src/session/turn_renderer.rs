@@ -95,6 +95,13 @@ pub(super) struct TurnRenderer<S: TurnSink = RealSink> {
     /// Observed background shell sessions, in completion order.
     /// Observer-only: sessions stay server-owned.
     background_sessions: Vec<String>,
+    /// Merged Markdown rules applied to display text only (surface
+    /// `assistant`); the transcript keeps raw text so display never leaks
+    /// into model context. Empty patterns are skipped by the helper.
+    markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+    /// Merged tool summary templates for tool lines; without a match the
+    /// builtin card applies so a bad contribution degrades gracefully.
+    tool_templates: Vec<tui_core::tool_output::ToolSummaryTemplate>,
 }
 
 impl<S: TurnSink + Default> TurnRenderer<S> {
@@ -109,7 +116,42 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             assistant_text: String::new(),
             sink: S::default(),
             background_sessions: Vec::new(),
+            markdown_rules: Vec::new(),
+            tool_templates: Vec::new(),
         }
+    }
+
+    /// Install merged plugin display sources for this turn. Display-only;
+    /// the transcript keeps raw text.
+    pub(super) fn set_plugin_display(
+        &mut self,
+        markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+        tool_templates: Vec<tui_core::tool_output::ToolSummaryTemplate>,
+    ) {
+        self.markdown_rules = markdown_rules;
+        self.tool_templates = tool_templates;
+    }
+
+    fn display_text(&self, text: &str) -> String {
+        if self.markdown_rules.is_empty() {
+            return text.to_string();
+        }
+        tui_core::tool_output::apply_snapshot_markdown_rules(text, &self.markdown_rules, "assistant")
+    }
+
+    fn tool_start_line(&self, tool_name: &str) -> String {
+        if let Some(rendered) = self
+            .tool_templates
+            .iter()
+            .find(|template| template.tool_name == tool_name)
+            .and_then(|template| template.render_call(""))
+        {
+            if rendered.trim().is_empty() {
+                return format!("tool start: {tool_name}");
+            }
+            return format!("tool start: {tool_name} {rendered}");
+        }
+        format!("tool start: {tool_name}")
     }
 
     /// Take the accumulated assistant text for the transcript. Rendering
@@ -129,9 +171,10 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             ExecutionStreamEvent::LlmDelta { content } => {
                 let clean = strip_terminal_escapes(content);
                 self.assistant_text.push_str(&clean);
+                let shown = self.display_text(&clean);
                 let ready = match self.display.markdown {
-                    MarkdownMode::Raw => self.append.push(&clean),
-                    MarkdownMode::Plain | MarkdownMode::Styled => self.stream.push(&clean),
+                    MarkdownMode::Raw => self.append.push(&shown),
+                    MarkdownMode::Plain | MarkdownMode::Styled => self.stream.push(&shown),
                 };
                 if !ready.is_empty() {
                     self.sink.stdout_text(&ready);
@@ -145,7 +188,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 }
                 self.end_stdout_line();
                 let line = paint_stderr(
-                    &format!("tool start: {tool_name}"),
+                    &self.tool_start_line(tool_name),
                     &self.display,
                     StderrKind::Plain,
                 );

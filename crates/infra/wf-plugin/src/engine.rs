@@ -219,6 +219,8 @@ impl PluginEngine {
             );
             return Ok(());
         }
+        // Dialog requests are runtime-gated by `check_cli_dialog`; the
+        // declarative surface stays behind `cli_ui` only.
         let mut registrar = self.contribution_manager.as_registrar();
         for command in &manifest.cli_commands {
             registrar.register_cli_command(command.clone())?;
@@ -236,6 +238,33 @@ impl PluginEngine {
             registrar.register_markdown_transformer(rule.clone())?;
         }
         Ok(())
+    }
+
+    /// Admit one host-mediated dialog request. Wasm and Lua callers must
+    /// hold the `cli_dialog` permission; native callers pass the same
+    /// check for audit. A denial names the plugin so the shell can log
+    /// which plugin was refused without presenting anything.
+    pub fn check_cli_dialog(&self, plugin_id: &str) -> PluginResult<()> {
+        let info = match self.registry.get(plugin_id) {
+            Some(info) => info,
+            None => {
+                return Err(crate::error::PluginError::PermissionDenied {
+                    plugin_id: plugin_id.to_string(),
+                    reason: "unknown plugin; dialog request denied".to_string(),
+                });
+            }
+        };
+        if info.manifest.permissions.contains(&PluginPermission::CliDialog) {
+            return Ok(());
+        }
+        tracing::warn!(
+            plugin_id,
+            "plugin requested a host dialog without the cli_dialog permission; denying"
+        );
+        Err(crate::error::PluginError::PermissionDenied {
+            plugin_id: plugin_id.to_string(),
+            reason: "missing cli_dialog permission".to_string(),
+        })
     }
 }
 

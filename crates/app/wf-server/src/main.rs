@@ -190,7 +190,11 @@ async fn main() {
         );
     }
 
-    let handle = if let Some(registry) = metrics_registry.clone() {
+    let registry = metrics_registry.clone().unwrap_or_else(|| {
+        tracing::info!("metrics not configured; serving observability endpoints with an empty registry");
+        std::sync::Arc::new(wf_metrics::MetricsRegistry::default())
+    });
+    let handle = {
         info!(%addr, "starting wf-server with metrics");
         match wf_server::serve_full_with_config(
             registry,
@@ -199,16 +203,6 @@ async fn main() {
             Arc::clone(&dirs),
         )
         .await
-        {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("bind failed at {addr}: {e}");
-                std::process::exit(1);
-            }
-        }
-    } else {
-        info!(%addr, "starting wf-server");
-        match wf_server::serve_api_with_config(ctx.clone(), &server_config, Arc::clone(&dirs)).await
         {
             Ok(h) => h,
             Err(e) => {

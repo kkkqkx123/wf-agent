@@ -43584,6 +43584,16 @@
           "403": {
             "description": "Forbidden: API key lacks access"
           },
+          "409": {
+            "description": "Already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
@@ -45512,6 +45522,16 @@
           "403": {
             "description": "Forbidden: API key lacks access"
           },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
@@ -45591,6 +45611,16 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"

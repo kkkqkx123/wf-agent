@@ -875,7 +875,7 @@ export async function gcExecutionCheckpoints(
 }
 
 /** Delete every checkpoint of one entity; `entityType` selects the domain
- * (`checkpoint` for workflow executions, `agent_loop` for agent loops).
+ * (`workflow_execution` for workflow executions, `agent_loop` for agent loops).
  * Returns the number of checkpoints deleted. */
 export async function deleteCheckpointsByEntity(
 	entityId: string,

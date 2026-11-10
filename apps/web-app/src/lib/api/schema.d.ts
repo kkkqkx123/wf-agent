@@ -57311,6 +57311,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
                 headers: {
@@ -59239,6 +59248,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
                 headers: {
@@ -59317,6 +59335,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

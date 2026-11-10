@@ -80,7 +80,7 @@ pub enum WorkflowSub {
         #[arg(value_name = "ID")]
         id: String,
         /// Skip confirmation.
-        #[arg(long, alias = "yes")]
+        #[arg(long)]
         force: bool,
     },
     /// Clone a workflow.
@@ -134,7 +134,7 @@ pub enum WorkflowSub {
         id: String,
         /// Target version.
         #[arg(value_name = "VERSION")]
-        version: String,
+        target_version: String,
     },
     /// Show execution graph of a workflow execution.
     ExecutionGraph {
@@ -178,7 +178,7 @@ pub enum WorkflowVersionSub {
         id: String,
         /// Version label.
         #[arg(value_name = "VERSION")]
-        version: String,
+        version_label: String,
     },
     /// Bump the workflow version (patch/minor/major).
     Bump {

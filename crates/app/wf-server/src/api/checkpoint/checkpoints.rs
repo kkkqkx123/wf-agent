@@ -477,9 +477,9 @@ pub(crate) async fn handle_list_checkpoints_by_entity(
     Path(path): Path<EntityIdPath>,
     Query(query): Query<EntityCheckpointsQuery>,
 ) -> impl IntoResponse {
-    let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
-    match wf_api::checkpoint::record::list_checkpoints_by_entity(
-        &state.ctx.storage,
+    let entity_type = query.entity_type.as_deref().unwrap_or("workflow_execution");
+    match wf_api::checkpoint::record::list_by_entity_unified(
+        &state.ctx,
         &path.entity_id,
         entity_type,
     )
@@ -522,13 +522,8 @@ pub(crate) async fn handle_latest_checkpoint(
     Path(path): Path<EntityIdPath>,
     Query(query): Query<LatestCheckpointQuery>,
 ) -> impl IntoResponse {
-    let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
-    match wf_api::checkpoint::record::get_latest_checkpoint(
-        &state.ctx.storage,
-        &path.entity_id,
-        entity_type,
-    )
-    .await
+    let entity_type = query.entity_type.as_deref().unwrap_or("workflow_execution");
+    match wf_api::checkpoint::record::latest_unified(&state.ctx, &path.entity_id, entity_type).await
     {
         Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),
@@ -558,7 +553,7 @@ pub(crate) async fn handle_delete_checkpoints_by_entity(
     Path(path): Path<EntityIdPath>,
     Query(query): Query<DeleteCheckpointsQuery>,
 ) -> impl IntoResponse {
-    let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
+    let entity_type = query.entity_type.as_deref().unwrap_or("workflow_execution");
     match wf_api::checkpoint::record::delete_checkpoints_by_entity(
         &state.ctx.storage,
         &path.entity_id,
@@ -661,7 +656,7 @@ pub(crate) async fn handle_list_checkpoints_by_entities(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
+    let entity_type = query.entity_type.as_deref().unwrap_or("workflow_execution");
     match wf_api::checkpoint::record::list_checkpoints_by_entities(
         &state.ctx.storage,
         &ids,

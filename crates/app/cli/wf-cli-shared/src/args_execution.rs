@@ -155,8 +155,8 @@ pub enum ExecutionSub {
         #[arg(long)]
         transitions: bool,
         /// Include context evolution.
-        #[arg(long)]
-        context: bool,
+        #[arg(long = "context-evolution")]
+        context_evolution: bool,
         /// Include call stack.
         #[arg(long)]
         call_stack: bool,
@@ -270,7 +270,7 @@ pub enum ExecutionSub {
         #[arg(value_name = "ID")]
         id: String,
         /// Skip confirmation.
-        #[arg(long, alias = "yes")]
+        #[arg(long)]
         force: bool,
     },
     /// Append runtime input to a running agent loop.

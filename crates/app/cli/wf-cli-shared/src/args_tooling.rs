@@ -209,7 +209,7 @@ pub enum TemplateSub {
         id: String,
         /// Version label to roll back to.
         #[arg(value_name = "VERSION")]
-        version: String,
+        target_version: String,
     },
 }
 
@@ -229,7 +229,7 @@ pub enum TemplateVersionSub {
         id: String,
         /// Version label.
         #[arg(value_name = "VERSION")]
-        version: String,
+        version_label: String,
     },
 }
 

@@ -7,11 +7,9 @@
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
-use axum::http::header::CONTENT_TYPE;
-use axum::http::HeaderValue;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::Router;
 use serde::Deserialize;
 
 use wf_metrics::collectors::{AgentUsageStats, NodeUsageStats, WorkflowUsageStats};
@@ -23,6 +21,8 @@ use wf_metrics::{
 use crate::envelope::{err, InvalidParams};
 
 pub(crate) const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
+
+
 
 #[derive(Clone)]
 pub(crate) struct RegistryState {
@@ -193,11 +193,8 @@ pub(crate) async fn handle_export(
     Query(query): Query<ExportQuery>,
 ) -> Response {
     match query.format.as_deref() {
-        Some("json") | None => Json(format_registry_json(&state.registry)).into_response(),
-        Some("prometheus") => text_response(
-            PROMETHEUS_CONTENT_TYPE,
-            format_registry_prometheus(&state.registry),
-        ),
+        Some("json") | None => crate::envelope::ok(format_registry_json(&state.registry)).into_response(),
+        Some("prometheus") => crate::envelope::ok(format_registry_prometheus(&state.registry)).into_response(),
         Some(other) => err(InvalidParams::validation(format!(
             "unsupported export format: {other}"
         )))
@@ -218,13 +215,4 @@ pub(crate) async fn handle_export(
 )]
 pub(crate) async fn handle_collectors(State(state): State<RegistryState>) -> impl IntoResponse {
     crate::envelope::ok(format_registry_json(&state.registry)).into_response()
-}
-
-fn text_response(content_type: &str, body: String) -> Response {
-    let mut response = body.into_response();
-    response.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_str(content_type).expect("valid content type"),
-    );
-    response
 }

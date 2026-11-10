@@ -180,10 +180,15 @@ pub(crate) async fn run_with_client(
                 }
             }
             if *background || *stream {
-                run_workflow_streaming(cli, client, workflow, input_value, *background).await
+                run_workflow_streaming(cli, client, workflow, input_value, *background)
+                    .await
+                    .map_err(|e| CliError::Business(format!("workflow [{workflow}] run failed: {e}")))?;
+                Ok(())
             } else {
                 let typed = crate::turn::TurnParams::workflow_typed_body(input_value.as_ref());
-                let view = client.execute_workflow(workflow, &typed).await?;
+                let view = client.execute_workflow(workflow, &typed).await.map_err(|e| {
+                    CliError::Business(format!("workflow [{workflow}] run failed: {e}"))
+                })?;
                 let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
@@ -394,7 +399,7 @@ pub(crate) async fn run_with_client(
             id,
             variables,
             transitions,
-            context,
+            context_evolution: context,
             call_stack,
             variable_history,
             var_name,
@@ -710,21 +715,30 @@ async fn cancel_execution(client: &WfClient, id: &str) -> CliResult<serde_json::
     if let Ok(data) = client.cancel_execution(id).await {
         return Ok(data);
     }
-    client.cancel_agent_loop(id).await.map_err(CliError::from)
+    client
+        .cancel_agent_loop(id)
+        .await
+        .map_err(|e| CliError::Business(format!("execution [{id}] cancel failed: {e}")))
 }
 
 async fn pause_execution(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
     if let Ok(data) = client.pause_execution(id).await {
         return Ok(data);
     }
-    client.pause_agent_loop(id).await.map_err(CliError::from)
+    client
+        .pause_agent_loop(id)
+        .await
+        .map_err(|e| CliError::Business(format!("execution [{id}] pause failed: {e}")))
 }
 
 async fn resume_execution(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
     if let Ok(data) = client.resume_execution(id).await {
         return Ok(data);
     }
-    client.resume_agent_loop(id).await.map_err(CliError::from)
+    client
+        .resume_agent_loop(id)
+        .await
+        .map_err(|e| CliError::Business(format!("execution [{id}] resume failed: {e}")))
 }
 
 #[allow(clippy::too_many_arguments)]

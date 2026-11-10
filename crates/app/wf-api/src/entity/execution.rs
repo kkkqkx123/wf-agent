@@ -22,7 +22,7 @@ impl ExecutionDomain {
     pub fn checkpoint_entity_type(self) -> &'static str {
         match self {
             ExecutionDomain::AgentLoop => "agent_loop",
-            ExecutionDomain::Workflow => "checkpoint",
+            ExecutionDomain::Workflow => "workflow_execution",
         }
     }
 

@@ -255,7 +255,7 @@ pub async fn get_checkpoint_chain(
     ctx: &StorageContext,
     execution_id: &str,
 ) -> crate::ApiResult<CheckpointChainAnalysisView> {
-    let sorted = list_checkpoints_by_entity(ctx, execution_id, "checkpoint").await?;
+    let sorted = list_checkpoints_by_entity(ctx, execution_id, "workflow_execution").await?;
     Ok(build_chain(execution_id, sorted))
 }
 
@@ -298,6 +298,66 @@ pub async fn ensure_checkpoint_domain(
     Ok(checkpoint)
 }
 
+/// List checkpoints of an entity from every checkpoint writer, filtered by
+/// `entity_type`. Coordinator rows (workflow/agent managers) and legacy
+/// record rows share one table with incompatible payloads, so the record
+/// adapter alone never sees coordinator writes; merging all three sources
+/// makes create-then-list consistent for execution checkpoints.
+pub async fn list_by_entity_unified(
+    ctx: &crate::infra::context::ApiContext,
+    entity_id: &str,
+    entity_type: &str,
+) -> crate::ApiResult<Vec<Checkpoint>> {
+    use wf_checkpoint::CheckpointStateManager;
+    let lookup_failed = |e: wf_checkpoint::CheckpointError| {
+        crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
+    };
+    let workflow =
+        wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone())
+            .list_by_entity(entity_id)
+            .await
+            .map_err(lookup_failed)?;
+    let agent = wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone())
+        .list_by_entity(entity_id)
+        .await
+        .map_err(lookup_failed)?;
+    let legacy =
+        list_checkpoints_by_entity(&ctx.storage, entity_id, entity_type)
+            .await
+            .unwrap_or_default();
+    let mut merged: Vec<Checkpoint> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for cp in workflow.into_iter().chain(agent) {
+        if cp.entity_type != entity_type {
+            continue;
+        }
+        if seen.insert(cp.id.to_string()) {
+            merged.push(cp);
+        }
+    }
+    for cp in legacy {
+        if seen.insert(cp.id.to_string()) {
+            merged.push(cp);
+        }
+    }
+    merged.sort_by(|a, b| {
+        a.timestamp
+            .cmp(&b.timestamp)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(merged)
+}
+
+/// Latest checkpoint of an entity across every checkpoint writer.
+pub async fn latest_unified(
+    ctx: &crate::infra::context::ApiContext,
+    entity_id: &str,
+    entity_type: &str,
+) -> crate::ApiResult<Option<Checkpoint>> {
+    let mut list = list_by_entity_unified(ctx, entity_id, entity_type).await?;
+    Ok(list.pop())
+}
+
 /// List checkpoints of an execution, selecting the `entity_type` filter via
 /// the unified execution resolver instead of a hardcoded workflow value.
 pub async fn list_for_execution(
@@ -306,7 +366,7 @@ pub async fn list_for_execution(
     domain_override: Option<crate::entity::execution::ExecutionDomain>,
 ) -> crate::ApiResult<Vec<Checkpoint>> {
     let entity_type = entity_type_for_execution(ctx, execution_id, domain_override).await?;
-    list_checkpoints_by_entity(&ctx.storage, execution_id, entity_type).await
+    list_by_entity_unified(ctx, execution_id, entity_type).await
 }
 
 /// Checkpoint chain of an execution with the `entity_type` resolved through
@@ -378,7 +438,7 @@ pub async fn list_checkpoints_by_time_range(
     }
     let mut checkpoints = ctx
         .checkpoint
-        .list_by_entities_with_metadata(&entity_ids, "checkpoint")
+        .list_by_entities_with_metadata(&entity_ids, "workflow_execution")
         .await?;
     checkpoints.retain(|c| c.timestamp >= start && c.timestamp <= end);
     checkpoints.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));

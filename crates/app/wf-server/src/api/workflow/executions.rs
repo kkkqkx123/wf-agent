@@ -187,7 +187,7 @@ pub struct StreamMetadataView {
     tag = "workflow",
     params(IdPath),
     request_body = ExecuteBody,
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execute_workflow(
@@ -278,7 +278,7 @@ pub(crate) struct BackgroundExecuteView {
     tag = "workflow",
     params(IdPath),
     request_body = ExecuteBody,
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::BackgroundExecuteView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::BackgroundExecuteView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execute_background(

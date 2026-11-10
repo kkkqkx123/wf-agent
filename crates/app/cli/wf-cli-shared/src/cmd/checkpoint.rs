@@ -11,10 +11,10 @@ use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat};
 
 fn entity_type(domain: Option<CheckpointDomain>) -> Option<&'static str> {
-    // Workflow checkpoints are stored under the `checkpoint` entity type;
-    // only agent loops use `agent_loop`.
+    // Workflow checkpoints are stored under the `workflow_execution`
+    // entity type; only agent loops use `agent_loop`.
     match domain {
-        Some(CheckpointDomain::Workflow) => Some("checkpoint"),
+        Some(CheckpointDomain::Workflow) => Some("workflow_execution"),
         Some(CheckpointDomain::Agent) => Some("agent_loop"),
         None => None,
     }
@@ -886,7 +886,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             // checkpoint entity type.
             let path = match domain {
                 Some(CheckpointDomain::Workflow) => format!("{path}&domain=workflow"),
-                Some(CheckpointDomain::Agent) => format!("{path}&domain=agent"),
+                Some(CheckpointDomain::Agent) => format!("{path}&domain=agent_loop"),
                 None => path,
             };
             let deleted: serde_json::Value =

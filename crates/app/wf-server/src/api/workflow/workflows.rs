@@ -111,13 +111,20 @@ pub(crate) async fn handle_list_workflows(
     path = "/api/v1/workflows",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 409, description = "Already exists", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_create_workflow(
     State(state): State<ApiState>,
     Json(workflow): Json<WorkflowDefinition>,
 ) -> impl IntoResponse {
+    match wf_api::workflow::workflow_exists(&state.ctx, &workflow.id).await {
+        Ok(true) => {
+            return error_response(wf_api::ApiError::already_exists("workflow", &workflow.id));
+        }
+        Ok(false) => {}
+        Err(e) => return error_response(e),
+    }
     match wf_api::workflow::save_workflow(&state.ctx, &workflow).await {
         Ok(()) => ok(workflow.id).into_response(),
         Err(e) => error_response(e),

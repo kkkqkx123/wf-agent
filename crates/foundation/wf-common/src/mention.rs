@@ -166,26 +166,19 @@ pub fn split_file_range(raw: &str) -> (String, Option<(u32, u32)>) {
 /// containing a slash or dot resolves as a file. Bare words without a
 /// separator are queries rather than references and resolve to nothing.
 pub fn parse_reference(token: &str) -> Option<(String, String)> {
-    if token.is_empty()
-        || token.contains([' ', '\t', '\n', '\r', '@'])
-        || token.ends_with(':')
-    {
+    if token.is_empty() || token.contains([' ', '\t', '\n', '\r', '@']) || token.ends_with(':') {
         return None;
     }
     if let Some(colon) = token.find(':') {
         let kind = &token[..colon];
         let value = &token[colon + 1..];
-        if is_mention_kind(kind)
-            && !value.is_empty()
-            && value.chars().all(is_reference_value_char)
+        if is_mention_kind(kind) && !value.is_empty() && value.chars().all(is_reference_value_char)
         {
             return Some((kind.to_string(), value.to_string()));
         }
         return None;
     }
-    if (token.contains('/') || token.contains('.'))
-        && token.chars().all(is_reference_value_char)
-    {
+    if (token.contains('/') || token.contains('.')) && token.chars().all(is_reference_value_char) {
         return Some(("file".to_string(), token.to_string()));
     }
     None
@@ -257,10 +250,7 @@ mod tests {
             ("a/b.rs".to_string(), Some((5, 5)))
         );
         assert_eq!(split_file_range("a/b.rs"), ("a/b.rs".to_string(), None));
-        assert_eq!(
-            split_file_range("a/b.rs:0"),
-            ("a/b.rs:0".to_string(), None)
-        );
+        assert_eq!(split_file_range("a/b.rs:0"), ("a/b.rs:0".to_string(), None));
     }
 
     #[test]
@@ -287,10 +277,7 @@ mod tests {
             staged_placeholder_parts("[Image 1] rest"),
             Some(("Image", 1, 9))
         );
-        assert_eq!(
-            staged_placeholder_parts("[File 12]"),
-            Some(("File", 12, 9))
-        );
+        assert_eq!(staged_placeholder_parts("[File 12]"), Some(("File", 12, 9)));
         assert_eq!(staged_placeholder_parts("[Image 0]"), None);
         assert_eq!(staged_placeholder_parts("[Image ]"), None);
         assert_eq!(staged_placeholder_parts("[Note 1]"), None);

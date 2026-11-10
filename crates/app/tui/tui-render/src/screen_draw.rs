@@ -1197,12 +1197,54 @@ pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, 
 }
 
 /// Search palette overlay: centered floating input plus result list.
+/// Hit layout published by one palette overlay frame: the inner list
+/// area, the list scroll offset after painting, and per displayed row the
+/// item index it stands for (`None` for status rows that never activate).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaletteHitLayout {
+    pub list_area: Rect,
+    pub offset: usize,
+    pub targets: Vec<Option<usize>>,
+}
+
+impl PaletteHitLayout {
+    /// Item index under an absolute terminal cell, if the cell lands on an
+    /// actionable row of this layout.
+    pub fn item_at(&self, col: u16, row: u16) -> Option<usize> {
+        if col < self.list_area.x || col >= self.list_area.x.saturating_add(self.list_area.width) {
+            return None;
+        }
+        if row < self.list_area.y || row >= self.list_area.y.saturating_add(self.list_area.height) {
+            return None;
+        }
+        let rel = row.saturating_sub(self.list_area.y) as usize;
+        self.targets
+            .get(self.offset.saturating_add(rel))
+            .copied()
+            .flatten()
+    }
+}
+
+/// Inner list area of a bordered popup list chunk: one cell of border on
+/// every side. Empty areas yield an empty rectangle so no click lands.
+fn palette_list_area(chunk: Rect) -> Rect {
+    if chunk.width < 3 || chunk.height < 3 {
+        return Rect::new(chunk.x, chunk.y, 0, 0);
+    }
+    Rect::new(
+        chunk.x.saturating_add(1),
+        chunk.y.saturating_add(1),
+        chunk.width.saturating_sub(2),
+        chunk.height.saturating_sub(2),
+    )
+}
+
 pub fn draw_search_palette(
     frame: &mut Frame,
     area: Rect,
     palette: &SearchPaletteView<'_>,
     theme: &Theme,
-) {
+) -> PaletteHitLayout {
     use ratatui::layout::{Constraint, Direction, Layout};
     let popup = tui_components::modal::centered_rect(70, 60, area);
     frame.render_widget(Clear, popup);
@@ -1216,15 +1258,19 @@ pub fn draw_search_palette(
         chunks[0],
     );
     let mut rows: Vec<String> = Vec::new();
+    let mut targets: Vec<Option<usize>> = Vec::new();
     if palette.running {
         rows.push("Searching...".to_string());
+        targets.push(None);
     } else if let Some(message) = palette.error {
         rows.push(format!("error: {message}"));
+        targets.push(None);
     } else {
         if palette.results.is_empty() && !palette.query.is_empty() {
             rows.push(format!("No results for \"{}\"", palette.query));
+            targets.push(None);
         }
-        for row in palette.results {
+        for (index, row) in palette.results.iter().enumerate() {
             rows.push(format!(
                 "[{}] {} · {} (score {})",
                 row.kind,
@@ -1232,12 +1278,15 @@ pub fn draw_search_palette(
                 short_id(&row.id),
                 row.score
             ));
+            targets.push(Some(index));
         }
         if palette.truncated {
             rows.push("(results truncated)".to_string());
+            targets.push(None);
         }
         if rows.is_empty() {
             rows.push("Type a query and press Enter to search.".to_string());
+            targets.push(None);
         }
     }
     let items: Vec<ListItem> = rows
@@ -1253,6 +1302,11 @@ pub fn draw_search_palette(
     }
     let list = List::new(items).block(titled_block("Results", ColorRole::Accent, theme));
     frame.render_stateful_widget(list, chunks[1], &mut state);
+    PaletteHitLayout {
+        list_area: palette_list_area(chunks[1]),
+        offset: state.offset(),
+        targets,
+    }
 }
 
 /// Snapshot of the shell command palette: the typed filter plus the
@@ -1272,7 +1326,7 @@ pub fn draw_command_palette(
     area: Rect,
     palette: &CommandPaletteView<'_>,
     theme: &Theme,
-) {
+) -> PaletteHitLayout {
     use ratatui::layout::{Constraint, Direction, Layout};
     let popup = tui_components::modal::centered_rect(70, 60, area);
     frame.render_widget(Clear, popup);
@@ -1286,8 +1340,10 @@ pub fn draw_command_palette(
         chunks[0],
     );
     let mut rows: Vec<String> = palette.rows.to_vec();
+    let mut targets: Vec<Option<usize>> = (0..rows.len()).map(Some).collect();
     if rows.is_empty() {
         rows.push("No matching command.".to_string());
+        targets.push(None);
     }
     let items: Vec<ListItem> = rows
         .iter()
@@ -1302,6 +1358,11 @@ pub fn draw_command_palette(
     }
     let list = List::new(items).block(titled_block("Commands", ColorRole::Accent, theme));
     frame.render_stateful_widget(list, chunks[1], &mut state);
+    PaletteHitLayout {
+        list_area: palette_list_area(chunks[1]),
+        offset: state.offset(),
+        targets,
+    }
 }
 
 /// Session tree placeholder overlay: centered floating panel naming the
@@ -1668,5 +1729,29 @@ mod tests {
         assert!(overlay_badge_rect(narrow, 5).is_none());
         let empty = Rect::new(0, 0, 0, 0);
         assert!(overlay_badge_rect(empty, 5).is_none());
+    }
+
+    #[test]
+    fn palette_hit_maps_rows_through_scroll_offset() {
+        let layout = PaletteHitLayout {
+            list_area: Rect::new(5, 5, 20, 3),
+            offset: 2,
+            targets: vec![Some(0), Some(1), None, Some(2), Some(3)],
+        };
+        assert_eq!(layout.item_at(6, 5), None);
+        assert_eq!(layout.item_at(6, 6), Some(2));
+        assert_eq!(layout.item_at(6, 7), Some(3));
+        assert_eq!(layout.item_at(4, 5), None);
+        assert_eq!(layout.item_at(25, 5), None);
+        assert_eq!(layout.item_at(6, 4), None);
+        assert_eq!(layout.item_at(6, 8), None);
+    }
+
+    #[test]
+    fn palette_list_area_reserves_borders() {
+        let chunk = Rect::new(0, 0, 20, 6);
+        assert_eq!(palette_list_area(chunk), Rect::new(1, 1, 18, 4));
+        let tiny = Rect::new(0, 0, 2, 6);
+        assert_eq!(palette_list_area(tiny).width, 0);
     }
 }

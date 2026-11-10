@@ -40,9 +40,19 @@ pub(super) struct MousePress {
     /// Alt press: keep the existing transcript regions and add another one
     /// instead of replacing the selection.
     transcript_add: bool,
+    /// Press landed while a transcript selection existed. The press keeps
+    /// it: a same-cell release runs no click action so copy gestures are
+    /// never eaten, while a drag replaces it with the new range.
+    had_selection: bool,
     /// Right-button press: only a same-cell release copies the line, any
     /// drag stays native and never lands.
     is_right: bool,
+    /// Palette overlay press: which palette was on top. A release lands
+    /// only on the same overlay with the same displayed row count; a
+    /// refilter between press and release invalidates the pair.
+    palette: Option<OverlayMode>,
+    /// Displayed row count of the palette layout at press time.
+    palette_rows: usize,
 }
 
 /// Map a terminal mouse event to the backend-free gesture a modal handles.
@@ -63,14 +73,34 @@ fn modal_mouse_kind(mouse: MouseEvent) -> Option<ModalMouseKind> {
     }
 }
 
+/// Async mouse action armed by a sync release path and drained once per
+/// event-loop turn before drawing. Click routing itself stays frame-pure;
+/// only the armed action awaits.
+#[derive(Debug)]
+pub(super) enum PendingMouseAction {
+    /// Run the selected command palette row with the typed argument.
+    RunPaletteCommand,
+    /// Open a new chat tab from the strip new-tab cell.
+    NewTab,
+    /// Close the tab strip tab at the index.
+    CloseTab(usize),
+    /// Open the child session behind a sub-agent start row.
+    OpenChildSession(String),
+}
+
 impl TuiApp {
     /// Handle a non-move mouse event. Motion is filtered by the caller.
     /// Wheel scrolls the scrollback on the session screen (reusing the
     /// pager-aware scroll methods) or moves the selection elsewhere.
     /// Shift plus any button keeps native selection and never requests a
-    /// frame. A badge click (same cell and same snapshot generation inside
-    /// the badge rectangle) jumps to the tail; anything else is ignored so
-    /// native selection keeps working. Returns the outcome for the frame
+    /// frame. Buttons route to press, release and drag handling: the tab
+    /// strip switches, closes or opens tabs, palette rows focus or run,
+    /// the badge jumps to the tail, the gutter jumps or drags the
+    /// viewport, content rows toggle tool blocks, jump to sub agents
+    /// (Ctrl opens them) or grow a transcript selection, and the composer
+    /// places the cursor. A prior transcript selection wins over a single
+    /// content click. Releases outside any hit stay silent so native
+    /// selection keeps working. Returns the outcome for the frame
     /// decision: scrolled or clicked requests a full frame, ignored
     /// requests nothing (no focus mark either).
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) -> MouseOutcome {
@@ -86,7 +116,6 @@ impl TuiApp {
             MouseAction::ScrollUp => {
                 self.mouse_press = None;
                 self.clear_click_chain();
-                self.clear_mouse_hover();
                 if let Some(session) = self.sessions.active_mut() {
                     session.end_gutter_drag();
                 }
@@ -96,14 +125,13 @@ impl TuiApp {
             MouseAction::ScrollDown => {
                 self.mouse_press = None;
                 self.clear_click_chain();
-                self.clear_mouse_hover();
                 if let Some(session) = self.sessions.active_mut() {
                     session.end_gutter_drag();
                 }
                 self.scroll_by_wheel(false);
                 MouseOutcome::Scrolled
             }
-            MouseAction::IgnoredButton => {
+            MouseAction::Button => {
                 if self.handle_mouse_button(mouse) {
                     MouseOutcome::Clicked
                 } else {
@@ -139,15 +167,18 @@ impl TuiApp {
         }
     }
 
-    /// Whether all mouse hits are suppressed by a covering layer.
-    fn mouse_layer_suppressed(&self) -> bool {
+    /// Whether all mouse hits are suppressed by a covering layer: modals,
+    /// blocking footer views (approval or question) and full-screen
+    /// overlays. The history overlay is not listed: it has its own badge
+    /// and selection routing on a separate snapshot.
+    pub(super) fn mouse_layer_suppressed(&self) -> bool {
         if !self.modals.is_empty() {
             return true;
         }
         if self
             .sessions
             .active()
-            .is_some_and(|session| session.approval_active())
+            .is_some_and(|session| session.approval_active() || session.footer.question.is_some())
         {
             return true;
         }
@@ -157,6 +188,7 @@ impl TuiApp {
                 | OverlayMode::SearchPalette
                 | OverlayMode::CommandPalette
                 | OverlayMode::SessionList
+                | OverlayMode::SessionTree
         )
     }
 
@@ -168,30 +200,39 @@ impl TuiApp {
         self.last_click_count = 0;
     }
 
-    /// Record one hover cell from a motion event. Never requests a frame;
-    /// the value is only consulted by the next full frame. Hover recording
+    /// Record one hover cell from a motion event. Returns whether the
+    /// affordance flipped and a full frame is due; repeats and moves that
+    /// keep the painted underline unchanged stay frameless. Hover recording
     /// requires capture so disabled capture keeps the terminal untouched.
-    pub(super) fn record_mouse_hover(&mut self, mouse: MouseEvent) {
+    pub(super) fn record_mouse_hover(&mut self, mouse: MouseEvent) -> bool {
         if !self.perf_policy.enable_mouse_capture {
-            return;
+            return false;
         }
         if mouse_bypasses_capture(mouse.modifiers) {
-            return;
+            return false;
         }
         if self.mouse_layer_suppressed()
             || self.app.screen.navigation.current_kind() != ScreenKind::Interactive
         {
-            return;
+            return false;
         }
-        self.mouse_hover = Some((mouse.column, mouse.row));
-        if let Some(session) = self.sessions.active_mut() {
-            session.set_hover_cell(mouse.column, mouse.row);
-        }
+        let Some(session) = self.sessions.active_mut() else {
+            return false;
+        };
+        use crate::interactive::mouse_hit::{hover_frame_needed, HoverTarget};
+        let old_cell = session.hover_cell();
+        let old_target = old_cell.map_or(HoverTarget::None, |(col, row)| {
+            session.hover_target_at(col, row)
+        });
+        let new_target = session.hover_target_at(mouse.column, mouse.row);
+        let needs_frame =
+            hover_frame_needed(old_cell, &old_target, mouse.column, mouse.row, &new_target);
+        session.set_hover_cell(mouse.column, mouse.row);
+        needs_frame
     }
 
-    /// Clear the hover cell after scroll, resize or button activity.
+    /// Clear the hover cell after resize or button activity.
     pub(super) fn clear_mouse_hover(&mut self) {
-        self.mouse_hover = None;
         if let Some(session) = self.sessions.active_mut() {
             session.clear_hover_cell();
         }
@@ -226,17 +267,47 @@ impl TuiApp {
 
     /// Tab index under a terminal cell, if the cell lands on the tab
     /// strip. Cells divide evenly across open tabs.
-    fn tab_index_at(&self, col: u16, row: u16) -> Option<usize> {
+    /// Tab strip hit under a terminal cell, using the shared strip layout
+    /// so clicks land where the cells are drawn. `None` without a
+    /// published strip or outside every actionable cell.
+    fn tab_strip_hit_at(&self, col: u16, row: u16) -> Option<tui_components::tab_bar::TabStripHit> {
+        use crate::tab_bar::{layout_tab_strip, tab_strip_hit, SessionTabItem};
         let area = self.tab_strip_area?;
-        if self.sessions.len() < 2 {
-            return None;
+        let items: Vec<SessionTabItem> = self
+            .sessions
+            .snapshot()
+            .into_iter()
+            .map(|(title, streaming, pinned)| {
+                let mut item = SessionTabItem::new(title, streaming);
+                item.pinned = pinned;
+                item
+            })
+            .collect();
+        let layout = layout_tab_strip(area, &items, self.sessions.active_index());
+        tab_strip_hit(&layout, area.y, col, row)
+    }
+
+    /// Land one tab strip hit: switch tabs, arm a tab close or arm a new
+    /// tab. Async work arms a deferred action so release paths stay sync.
+    fn land_tab_strip_hit(&mut self, hit: tui_components::tab_bar::TabStripHit) -> bool {
+        use tui_components::tab_bar::TabStripHit;
+        match hit {
+            TabStripHit::Tab(index) => {
+                if self.sessions.switch(index, self.now_ms()) {
+                    self.request_save_tabs();
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                }
+                true
+            }
+            TabStripHit::NewTab => {
+                self.pending_mouse_action = Some(PendingMouseAction::NewTab);
+                true
+            }
+            TabStripHit::CloseTab(index) => {
+                self.pending_mouse_action = Some(PendingMouseAction::CloseTab(index));
+                true
+            }
         }
-        if row != area.y || col < area.x || col >= area.x.saturating_add(area.width) {
-            return None;
-        }
-        let width = usize::from(area.width.max(1));
-        let len = self.sessions.len();
-        Some(((usize::from(col - area.x) * len) / width).min(len - 1))
     }
 
     /// Route one button press, release or drag. Thin dispatcher over the
@@ -269,22 +340,34 @@ impl TuiApp {
             && self.overlay == OverlayMode::None
             && self.app.screen.navigation.current_kind() == ScreenKind::Interactive
         {
-            if let Some(index) = self.tab_index_at(mouse.column, mouse.row) {
-                if self.sessions.switch(index, self.now_ms()) {
-                    self.request_save_tabs();
-                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
-                }
-                return true;
+            if let Some(hit) = self.tab_strip_hit_at(mouse.column, mouse.row) {
+                return self.land_tab_strip_hit(hit);
             }
         }
-        // A fresh press drops any previous drag selection; Alt+Click keeps
+        // Palette overlays own their rows: a left press inside the list
+        // arms a same-cell release that focuses (search) or runs
+        // (command) the row. Clicks outside the list stay suppressed.
+        if !is_right
+            && matches!(
+                self.overlay,
+                OverlayMode::CommandPalette | OverlayMode::SearchPalette
+            )
+        {
+            return self.handle_palette_press(mouse);
+        }
+        // A press never drops a previous drag selection; the release
+        // decides: a same-cell release with a prior selection keeps it
+        // and runs no click, a drag replaces it below. Alt+Click keeps
         // the committed regions so several disjoint ranges can be copied.
         let transcript_add = !is_right && mouse.modifiers.contains(KeyModifiers::ALT);
-        if let Some(session) = self.sessions.active_mut() {
-            if transcript_add {
+        let had_selection = !transcript_add
+            && self
+                .sessions
+                .active()
+                .is_some_and(|session| session.has_transcript_selection());
+        if transcript_add {
+            if let Some(session) = self.sessions.active_mut() {
                 session.begin_additive_transcript_selection();
-            } else {
-                session.clear_transcript_selection();
             }
         }
         let in_history = self.overlay == OverlayMode::History;
@@ -330,12 +413,17 @@ impl TuiApp {
                     transcript_anchor: None,
                     history_anchor: false,
                     transcript_add: false,
+                    had_selection: false,
                     is_right,
+                    palette: None,
+                    palette_rows: 0,
                 });
                 self.clear_mouse_hover();
                 return false;
             }
         }
+        // Palette overlays own their rows (see the early press routing
+        // above); the scrollback paths below never run for them.
         let session_gen = self
             .sessions
             .active()
@@ -386,10 +474,87 @@ impl TuiApp {
             },
             history_anchor,
             transcript_add,
+            had_selection,
             is_right,
+            palette: None,
+            palette_rows: 0,
         });
         self.clear_mouse_hover();
         false
+    }
+
+    /// Arm one palette row press. Only left presses inside the published
+    /// list area arm; clicks outside the list stay suppressed without
+    /// arming so the overlay never closes by accident.
+    fn handle_palette_press(&mut self, mouse: MouseEvent) -> bool {
+        let overlay = self.overlay;
+        let layout = match overlay {
+            OverlayMode::CommandPalette => self.command_palette_hit.clone(),
+            OverlayMode::SearchPalette => self.search_palette_hit.clone(),
+            _ => None,
+        };
+        let Some(layout) = layout else {
+            return false;
+        };
+        if layout.item_at(mouse.column, mouse.row).is_none() {
+            return false;
+        }
+        self.mouse_press = Some(MousePress {
+            col: mouse.column,
+            row: mouse.row,
+            session_gen: 0,
+            history_gen: 0,
+            in_history: false,
+            in_gutter: false,
+            gutter_thumb: false,
+            in_composer: false,
+            transcript_anchor: None,
+            history_anchor: false,
+            transcript_add: false,
+            had_selection: false,
+            is_right: false,
+            palette: Some(overlay),
+            palette_rows: layout.targets.len(),
+        });
+        self.clear_mouse_hover();
+        false
+    }
+
+    /// Land one palette release: same overlay, same cell, same displayed
+    /// row count. Command rows focus and arm an async run; search rows
+    /// only focus, matching the keyboard (results have no open action).
+    fn land_palette_release(
+        &mut self,
+        palette: OverlayMode,
+        palette_rows: usize,
+        mouse: MouseEvent,
+    ) -> bool {
+        let layout = match palette {
+            OverlayMode::CommandPalette => self.command_palette_hit.clone(),
+            OverlayMode::SearchPalette => self.search_palette_hit.clone(),
+            _ => None,
+        };
+        let Some(layout) = layout else {
+            return false;
+        };
+        if layout.targets.len() != palette_rows {
+            return false;
+        }
+        let Some(index) = layout.item_at(mouse.column, mouse.row) else {
+            return false;
+        };
+        match palette {
+            OverlayMode::CommandPalette => {
+                self.command_palette.select(index);
+                self.pending_mouse_action = Some(PendingMouseAction::RunPaletteCommand);
+                true
+            }
+            OverlayMode::SearchPalette => {
+                self.search_palette.select(index);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Land one release against its press. Requires the same cell and the
@@ -405,6 +570,18 @@ impl TuiApp {
         };
         if let Some(session) = self.sessions.active_mut() {
             session.clear_transcript_autoscroll();
+        }
+        // Palette releases land only on the same overlay, cell and row
+        // count; anything else is dropped without touching the session.
+        if let Some(palette) = press.palette {
+            if self.overlay != palette
+                || press.col != mouse.column
+                || press.row != mouse.row
+                || !mouse_is_left_button(mouse.kind)
+            {
+                return false;
+            }
+            return self.land_palette_release(palette, press.palette_rows, mouse);
         }
         if press.is_right {
             if !mouse_is_right_button(mouse.kind) {
@@ -651,6 +828,27 @@ impl TuiApp {
             }
             ClickKind::Single => {}
         }
+        // A prior selection wins over a single click: keep the range for
+        // copying instead of toggling the row underneath.
+        if press.had_selection {
+            return false;
+        }
+        // Ctrl+Click on a sub-agent start row opens the child session
+        // directly; every other row keeps its plain-click action.
+        if mouse.modifiers.contains(KeyModifiers::CONTROL) {
+            let child = self.sessions.active().and_then(|session| {
+                match session.content_click_target(display_row) {
+                    Some(crate::interactive::mouse_hit::ClickTarget::Subagent { seq }) => {
+                        session.subagent_child_for_seq(seq)
+                    }
+                    _ => None,
+                }
+            });
+            if let Some(id) = child {
+                self.pending_mouse_action = Some(PendingMouseAction::OpenChildSession(id));
+                return true;
+            }
+        }
         if let Some(session) = self.sessions.active_mut() {
             return session.handle_content_click(display_row);
         }
@@ -769,6 +967,9 @@ impl TuiApp {
                 });
                 if let Some(direction) = outside {
                     if let Some(session) = self.sessions.active_mut() {
+                        if !press.transcript_add {
+                            session.clear_transcript_selection();
+                        }
                         if session.transcript_selection().is_none() {
                             session.set_transcript_selection(TranscriptSelection {
                                 anchor,
@@ -788,6 +989,9 @@ impl TuiApp {
                 return false;
             };
             if let Some(session) = self.sessions.active_mut() {
+                if !press.transcript_add {
+                    session.clear_transcript_selection();
+                }
                 session.set_transcript_selection(TranscriptSelection { anchor, head });
             }
             return true;

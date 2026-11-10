@@ -221,12 +221,14 @@ pub struct TuiApp {
     over_budget_frames: u64,
     /// Pending press for click matching; cleared on scroll, resize or drag.
     mouse_press: Option<MousePress>,
-    /// Last hovered cell from motion events. Recorded without requesting a
-    /// frame; the next full frame may use it for affordance highlights.
-    /// Cleared on scroll, resize or any button event.
-    mouse_hover: Option<(u16, u16)>,
     /// Badge hit rectangle published by the last history overlay frame.
     history_badge: Option<Rect>,
+    /// Hit layout published by the last search palette frame.
+    search_palette_hit: Option<crate::screen_draw::PaletteHitLayout>,
+    /// Hit layout published by the last command palette frame.
+    command_palette_hit: Option<crate::screen_draw::PaletteHitLayout>,
+    /// Deferred async mouse action armed by a sync release path.
+    pending_mouse_action: Option<mouse::PendingMouseAction>,
     /// History hit generation bumped on full or bottom overlay frames.
     history_hit_generation: u64,
     /// Last click for multi-click chains; cleared on scroll or resize.
@@ -390,8 +392,10 @@ impl TuiApp {
             prod_frame_no: 0,
             over_budget_frames: 0,
             mouse_press: None,
-            mouse_hover: None,
             history_badge: None,
+            search_palette_hit: None,
+            command_palette_hit: None,
+            pending_mouse_action: None,
             history_hit_generation: 0,
             last_click_ms: None,
             last_click_col: None,
@@ -678,9 +682,14 @@ impl TuiApp {
                     }
                     Event::Mouse(mouse) => {
                         if mouse.kind == MouseEventKind::Moved {
-                            // Motion without buttons is never input: no
-                            // focus mark, no interaction, no frame.
-                            self.record_mouse_hover(mouse);
+                            // Motion without buttons only moves the hover
+                            // affordance: no focus mark, no interaction, and
+                            // a frame only when the clickable state flips.
+                            if self.record_mouse_hover(mouse) {
+                                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                                self.pending_scope
+                                    .note_source(crate::redraw::EventSource::Input);
+                            }
                         } else {
                             let outcome = self.handle_mouse(mouse);
                             if outcome.needs_frame() {
@@ -693,6 +702,31 @@ impl TuiApp {
                                 self.last_interaction_clock_ms = Some(self.now_ms());
                             }
                         }
+                    }
+                }
+            }
+
+            // Run one mouse-deferred async action (palette run, tab close
+            // or child open): sync release paths only arm it so click
+            // routing stays frame-pure.
+            if let Some(action) = self.pending_mouse_action.take() {
+                match action {
+                    mouse::PendingMouseAction::RunPaletteCommand => {
+                        if self.run_selected_palette_command().await?
+                            == crate::overlay::LoopAction::Quit
+                        {
+                            break;
+                        }
+                    }
+                    mouse::PendingMouseAction::NewTab => {
+                        self.new_tab().await;
+                    }
+                    mouse::PendingMouseAction::CloseTab(index) => {
+                        self.close_tab(index).await;
+                        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    }
+                    mouse::PendingMouseAction::OpenChildSession(id) => {
+                        self.open_child_session(id).await;
                     }
                 }
             }
@@ -957,6 +991,14 @@ impl TuiApp {
             } else {
                 (chunks[0], None)
             };
+            // A covering layer must never promise clicks: drop the hover
+            // before painting so no underline survives under modals,
+            // blockers or full-screen overlays.
+            if self.mouse_layer_suppressed() {
+                if let Some(session) = self.sessions.active_mut() {
+                    session.clear_hover_cell();
+                }
+            }
             if let Some(session) = self.sessions.active_mut_if_renderable() {
                 session.draw(frame, main_area, &self.theme, scope);
             }
@@ -1049,7 +1091,12 @@ impl TuiApp {
                     selected: self.search_palette.selected(),
                     error: self.search_palette.error(),
                 };
-                crate::screen_draw::draw_search_palette(frame, area, &palette, &self.theme);
+                self.search_palette_hit = Some(crate::screen_draw::draw_search_palette(
+                    frame,
+                    area,
+                    &palette,
+                    &self.theme,
+                ));
             }
             OverlayMode::CommandPalette => {
                 let filtered = self.command_palette.filtered();
@@ -1078,7 +1125,12 @@ impl TuiApp {
                     rows: &rows,
                     selected: self.command_palette.selected(),
                 };
-                crate::screen_draw::draw_command_palette(frame, area, &view, &self.theme);
+                self.command_palette_hit = Some(crate::screen_draw::draw_command_palette(
+                    frame,
+                    area,
+                    &view,
+                    &self.theme,
+                ));
             }
             OverlayMode::SessionList => {
                 let active = self.sessions.active_index();

@@ -306,6 +306,25 @@ impl TuiApp {
         self.save_tabs();
     }
 
+    /// Open a child execution behind a sub-agent start row: switch to
+    /// its tab when already open, otherwise open a new tab whose history
+    /// seeds the next turn. Mirrors the recent-sessions continue path.
+    pub(super) async fn open_child_session(&mut self, id: String) {
+        let short = crate::screens::short_id(&id);
+        if let Some(index) = self.sessions.index_of_execution(&id) {
+            self.sessions.switch(index, self.now_ms());
+            self.request_save_tabs();
+            self.app
+                .notice
+                .set(format!("switched to tab for {short} — history continues"));
+        } else {
+            self.open_tab_for_session(id, None, None).await;
+            self.app.notice.set(format!(
+                "opened {short} — history loaded, continue chatting"
+            ));
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
     /// Snapshot the open tabs for persistence.
     fn tabs_snapshot(&self) -> crate::tab_persistence::SavedTabs {
         crate::tab_persistence::SavedTabs {

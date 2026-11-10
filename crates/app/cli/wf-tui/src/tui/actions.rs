@@ -636,6 +636,16 @@ impl TuiApp {
             Ok(()) => {
                 self.invalidate(ScreenKind::Settings);
                 self.perf_policy.enable_mouse_capture = enabled;
+                if !enabled {
+                    // Capture off must leave no armed press, chain, hover
+                    // or gutter drag behind for the next enable to trip on.
+                    self.mouse_press = None;
+                    self.clear_click_chain();
+                    self.clear_mouse_hover();
+                    if let Some(session) = self.sessions.active_mut() {
+                        session.end_gutter_drag();
+                    }
+                }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 self.app.notice.set(format!(
                     "mouse_capture {} (applies instantly)",
@@ -705,8 +715,8 @@ impl TuiApp {
         match crate::app_config::ConfigManager::save(&path, &config) {
             Ok(()) => {
                 self.invalidate(ScreenKind::Settings);
-                if let Some(session) = self.sessions.active_mut() {
-                    session.set_session_scrollbar(enabled);
+                for tab in self.sessions.iter_mut() {
+                    tab.controller.set_session_scrollbar(enabled);
                 }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 self.app.notice.set(format!(

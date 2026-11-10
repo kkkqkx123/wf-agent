@@ -67,8 +67,10 @@ pub(super) enum MouseAction {
     ScrollUp,
     /// Wheel down: scroll the content down.
     ScrollDown,
-    /// Press, release and drag: ignored so native selection keeps working.
-    IgnoredButton,
+    /// Press, release and drag: routed to the button handling, which
+    /// decides clicks against the hit snapshot; misses stay silent so
+    /// native selection keeps working.
+    Button,
 }
 
 /// Outcome of one handled mouse event: drives the frame decision at the
@@ -94,7 +96,8 @@ impl MouseOutcome {
 }
 
 /// Classify a mouse event kind. Motion never reaches this function: the
-/// event loop filters it out before any focus mark or frame request.
+/// event loop routes it to hover recording before any focus mark or frame
+/// request.
 pub(super) fn classify_mouse(kind: MouseEventKind) -> MouseAction {
     match kind {
         MouseEventKind::ScrollUp => MouseAction::ScrollUp,
@@ -104,7 +107,7 @@ pub(super) fn classify_mouse(kind: MouseEventKind) -> MouseAction {
         | MouseEventKind::Drag(_)
         | MouseEventKind::Moved
         | MouseEventKind::ScrollLeft
-        | MouseEventKind::ScrollRight => MouseAction::IgnoredButton,
+        | MouseEventKind::ScrollRight => MouseAction::Button,
     }
 }
 
@@ -479,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn mouse_kinds_classify_to_scroll_or_ignore() {
+    fn mouse_kinds_classify_to_scroll_or_button() {
         assert_eq!(
             classify_mouse(MouseEventKind::ScrollUp),
             MouseAction::ScrollUp
@@ -488,7 +491,8 @@ mod tests {
             classify_mouse(MouseEventKind::ScrollDown),
             MouseAction::ScrollDown
         );
-        // Buttons never drive frames or selection in this version.
+        // Buttons route to click handling; the click outcome (not the
+        // classification) decides whether a frame is due.
         for kind in [
             MouseEventKind::Down(MouseButton::Left),
             MouseEventKind::Up(MouseButton::Left),
@@ -497,7 +501,7 @@ mod tests {
             MouseEventKind::ScrollLeft,
             MouseEventKind::ScrollRight,
         ] {
-            assert_eq!(classify_mouse(kind), MouseAction::IgnoredButton);
+            assert_eq!(classify_mouse(kind), MouseAction::Button);
         }
     }
 

@@ -137,6 +137,15 @@ impl CommandPalette {
         }
         self.selected = self.selected.saturating_sub(10);
     }
+
+    /// Focus one filtered row from a pointer hit. Out-of-range rows keep
+    /// the current selection so stale hits stay inert.
+    pub fn select(&mut self, index: usize) {
+        let len = self.filtered().len();
+        if index < len {
+            self.selected = index;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -196,5 +205,15 @@ mod tests {
         palette.move_next();
         palette.push_char('z');
         assert_eq!(palette.selected(), 0);
+    }
+
+    #[test]
+    fn pointer_focus_clamps_to_filtered_rows() {
+        let mut palette = CommandPalette::new();
+        let len = palette.filtered().len();
+        palette.select(1.min(len - 1));
+        assert_eq!(palette.selected(), 1.min(len - 1));
+        palette.select(len + 10);
+        assert_eq!(palette.selected(), 1.min(len - 1));
     }
 }

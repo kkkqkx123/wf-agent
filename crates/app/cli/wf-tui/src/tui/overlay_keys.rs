@@ -379,15 +379,7 @@ impl TuiApp {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             CKey::Enter => {
-                let Some(command) = self.command_palette.selected_command() else {
-                    self.app.notice.set("No matching command.".to_string());
-                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
-                    return Ok(LoopAction::Continue);
-                };
-                let argument = self.command_palette.argument();
-                self.overlay = OverlayMode::None;
-                self.pending_scope.request(crate::redraw::RedrawScope::Full);
-                return self.run_palette_command(command, &argument).await;
+                return self.run_selected_palette_command().await;
             }
             CKey::Backspace if !key.ctrl && !key.alt => {
                 self.command_palette.pop();
@@ -428,6 +420,21 @@ impl TuiApp {
             _ => {}
         }
         Ok(LoopAction::Continue)
+    }
+
+    /// Run the selected command palette row with the typed argument.
+    /// Shared by the Enter key and pointer clicks; closes the overlay
+    /// before running, matching the key path.
+    pub(super) async fn run_selected_palette_command(&mut self) -> CliResult<LoopAction> {
+        let Some(command) = self.command_palette.selected_command() else {
+            self.app.notice.set("No matching command.".to_string());
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return Ok(LoopAction::Continue);
+        };
+        let argument = self.command_palette.argument();
+        self.overlay = OverlayMode::None;
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+        self.run_palette_command(command, &argument).await
     }
 
     async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {

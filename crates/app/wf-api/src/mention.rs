@@ -67,20 +67,24 @@ pub async fn search(
             .as_ref()
             .map(|list| {
                 list.iter()
-                    .filter_map(|kind| match wf_common::mention::normalize_mention_kind(kind) {
-                        "workflow" => Some(crate::analysis::search::SearchResourceType::Workflow),
-                        "execution" => Some(crate::analysis::search::SearchResourceType::Execution),
-                        "task" => Some(crate::analysis::search::SearchResourceType::Task),
-                        "checkpoint" => {
-                            Some(crate::analysis::search::SearchResourceType::Checkpoint)
-                        }
-                        "event" => Some(crate::analysis::search::SearchResourceType::Event),
-                        "agent" => {
-                            Some(crate::analysis::search::SearchResourceType::AgentLoop)
-                        }
-                        "message" => Some(crate::analysis::search::SearchResourceType::Message),
-                        _ => None,
-                    })
+                    .filter_map(
+                        |kind| match wf_common::mention::normalize_mention_kind(kind) {
+                            "workflow" => {
+                                Some(crate::analysis::search::SearchResourceType::Workflow)
+                            }
+                            "execution" => {
+                                Some(crate::analysis::search::SearchResourceType::Execution)
+                            }
+                            "task" => Some(crate::analysis::search::SearchResourceType::Task),
+                            "checkpoint" => {
+                                Some(crate::analysis::search::SearchResourceType::Checkpoint)
+                            }
+                            "event" => Some(crate::analysis::search::SearchResourceType::Event),
+                            "agent" => Some(crate::analysis::search::SearchResourceType::AgentLoop),
+                            "message" => Some(crate::analysis::search::SearchResourceType::Message),
+                            _ => None,
+                        },
+                    )
                     .collect::<Vec<_>>()
             })
             .filter(|types| !types.is_empty());
@@ -175,8 +179,10 @@ pub async fn search(
             ));
         };
         let root = dir.to_path_buf();
-        let mut files =
-            wf_common::mention::scan_files(&root, if query.is_empty() { None } else { Some(query) });
+        let mut files = wf_common::mention::scan_files(
+            &root,
+            if query.is_empty() { None } else { Some(query) },
+        );
         files.truncate(limit);
         for rel in files {
             let is_dir = rel.ends_with('/');
@@ -226,8 +232,7 @@ pub async fn search(
     if let Some(kinds) = &kinds {
         out.retain(|item| {
             kinds.iter().any(|kind| {
-                kind == &item.kind
-                    || wf_common::mention::normalize_mention_kind(kind) == item.kind
+                kind == &item.kind || wf_common::mention::normalize_mention_kind(kind) == item.kind
             })
         });
     }

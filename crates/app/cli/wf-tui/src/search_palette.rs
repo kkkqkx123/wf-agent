@@ -141,6 +141,14 @@ impl SearchPalette {
         }
         self.selected = self.selected.saturating_sub(10);
     }
+
+    /// Focus one result row from a pointer hit. Out-of-range rows keep
+    /// the current selection so stale hits stay inert.
+    pub fn select(&mut self, index: usize) {
+        if index < self.results.len() {
+            self.selected = index;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -193,5 +201,18 @@ mod tests {
         assert_eq!(palette.selected(), 10);
         palette.page_up();
         assert_eq!(palette.selected(), 0);
+    }
+
+    #[test]
+    fn pointer_focus_clamps_to_result_rows() {
+        let mut palette = SearchPalette::new();
+        palette.push_char('q');
+        let query = palette.submit().expect("non-empty draft submits");
+        let rows = (0..3).map(|i| row(&format!("id-{i}"))).collect::<Vec<_>>();
+        palette.land(&query, rows, 3, false);
+        palette.select(2);
+        assert_eq!(palette.selected(), 2);
+        palette.select(9);
+        assert_eq!(palette.selected(), 2);
     }
 }

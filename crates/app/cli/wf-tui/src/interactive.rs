@@ -386,8 +386,8 @@ pub struct InteractiveController {
     /// drag head extends past the viewport edge.
     transcript_autoscroll: Option<i8>,
     /// Last hovered terminal cell from motion events. Affordance only:
-    /// never requests a frame, only read by full frames. Cleared on
-    /// scroll, resize or button activity.
+    /// frames are requested only on affordance flips, paint reads the cell
+    /// on full frames. Cleared on resize or button activity.
     hover_cell: Option<(u16, u16)>,
     /// Whether a gutter thumb drag is in progress. Only set by a press on
     /// the thumb; track presses never enter drag.
@@ -1587,6 +1587,12 @@ impl InteractiveController {
     /// frame; cleared alongside the hit snapshot.
     pub fn set_hover_cell(&mut self, col: u16, row: u16) {
         self.hover_cell = Some((col, row));
+    }
+
+    /// Last hovered cell, if any. The shell reads this to dedupe motion
+    /// events before deciding whether a frame is due.
+    pub(crate) fn hover_cell(&self) -> Option<(u16, u16)> {
+        self.hover_cell
     }
 
     /// Clear the hover cell after scroll, resize or button activity.

@@ -130,6 +130,15 @@ impl InteractiveController {
         }
     }
 
+    /// Child execution id behind a start sequence, for pointer actions
+    /// that open the child session directly instead of jumping to it.
+    pub(crate) fn subagent_child_for_seq(&self, seq: u64) -> Option<String> {
+        self.subagent_blocks
+            .values()
+            .find(|block| block.start_seq == seq)
+            .map(|block| block.id.clone())
+    }
+
     /// Jump the viewport to a sub-agent start row, cycling from the most
     /// recent start toward older ones on repeated presses. Unknown or
     /// trimmed rows drop their bookkeeping and the jump falls through to

@@ -27,7 +27,8 @@ use tui_core::keymap::KeyAction;
 
 /// Entity kinds requested from the mention search endpoint. Files are not
 /// requested: the local scan already covers them.
-const MENTION_ENTITY_KINDS: &str = "skill,tool,script,resource,workflow,agent,agent_loop,execution,checkpoint,task,event,message";
+const MENTION_ENTITY_KINDS: &str =
+    "skill,tool,script,resource,workflow,agent,agent_loop,execution,checkpoint,task,event,message";
 
 /// Upper bound of the mention search page size.
 const MENTION_SEARCH_LIMIT: usize = 40;

@@ -99,6 +99,43 @@ pub(crate) enum ClickTarget {
     Subagent { seq: u64 },
 }
 
+/// Hover affordance target for one terminal cell: the badge, one clickable
+/// content row, or nothing. Mirrors the click routing so the highlight
+/// never promises an action the release path would refuse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HoverTarget {
+    Badge,
+    Content(ClickTarget),
+    None,
+}
+
+impl HoverTarget {
+    /// Whether the target paints an underline.
+    pub(crate) fn is_clickable(&self) -> bool {
+        !matches!(self, HoverTarget::None)
+    }
+}
+
+/// Whether a hover move warrants a frame: same-cell repeats never do, a
+/// target flip always does, and a row move across clickable rows does so
+/// the underline follows. Column moves inside one painted row and moves
+/// inside non-clickable areas stay frameless.
+pub(crate) fn hover_frame_needed(
+    old_cell: Option<(u16, u16)>,
+    old_target: &HoverTarget,
+    new_col: u16,
+    new_row: u16,
+    new_target: &HoverTarget,
+) -> bool {
+    if old_cell == Some((new_col, new_row)) {
+        return false;
+    }
+    if old_target != new_target {
+        return true;
+    }
+    new_target.is_clickable() && old_cell.map(|(_, row)| row) != Some(new_row)
+}
+
 /// Auto-scroll direction for a drag cell vertically outside the scroll
 /// viewport: `-1` above the top edge, `+1` below the bottom edge, `None`
 /// inside. The caller ticks the viewport one notch and pins the selection
@@ -202,6 +239,36 @@ impl InteractiveController {
             return Some(ClickTarget::Tool { tool_call_id });
         }
         None
+    }
+
+    /// Hover target for one absolute terminal cell. Badge first, then the
+    /// content row under the cell with the same priority as clicks; the
+    /// gutter column and outside cells never paint. Reads the live layout
+    /// so a stationary cursor follows scrolled content.
+    pub(crate) fn hover_target_at(&self, col: u16, row: u16) -> HoverTarget {
+        if let Some(rect) = self.last_badge_rect {
+            if badge_contains(&rect, col, row) {
+                return HoverTarget::Badge;
+            }
+        }
+        let Some(area) = self.last_scroll_area else {
+            return HoverTarget::None;
+        };
+        if row < area.y || row >= area.y.saturating_add(area.height) {
+            return HoverTarget::None;
+        }
+        if let Some(gutter) = self.session_gutter_rect() {
+            if col < area.x || col >= gutter.x {
+                return HoverTarget::None;
+            }
+        } else if col < area.x || col >= area.x.saturating_add(area.width) {
+            return HoverTarget::None;
+        }
+        let display_row = row.saturating_sub(area.y) as usize;
+        match self.content_click_target(display_row) {
+            Some(target) => HoverTarget::Content(target),
+            None => HoverTarget::None,
+        }
     }
 
     /// Handle one content click: toggle the tool block or jump to the sub
@@ -352,5 +419,85 @@ mod tests {
         assert_eq!(autoscroll_dir_for_row(99, &area), Some(1));
         let flat = Rect::new(0, 5, 40, 0);
         assert_eq!(autoscroll_dir_for_row(4, &flat), None);
+    }
+
+    #[test]
+    fn hover_frame_only_on_flips_and_clickable_row_moves() {
+        let plain = HoverTarget::None;
+        let badge = HoverTarget::Badge;
+        let tool = HoverTarget::Content(ClickTarget::Tool {
+            tool_call_id: "t".to_string(),
+        });
+        assert!(!hover_frame_needed(Some((5, 5)), &tool, 5, 5, &tool));
+        assert!(!hover_frame_needed(Some((5, 5)), &plain, 6, 5, &plain));
+        assert!(!hover_frame_needed(Some((5, 5)), &plain, 6, 6, &plain));
+        assert!(hover_frame_needed(None, &plain, 5, 5, &tool));
+        assert!(hover_frame_needed(Some((5, 5)), &tool, 6, 5, &plain));
+        assert!(hover_frame_needed(Some((5, 5)), &tool, 5, 6, &tool));
+        assert!(!hover_frame_needed(Some((5, 5)), &tool, 6, 5, &tool));
+        assert!(hover_frame_needed(Some((5, 5)), &tool, 6, 5, &badge));
+    }
+
+    async fn hover_controller(rows: usize) -> InteractiveController {
+        let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
+        let mut ctl = InteractiveController::start(client, "exec".into()).await;
+        ctl.last_layout_width = 30;
+        ctl.last_layout_height = 10;
+        let mut lines: Vec<crate::transcript::HistoryLine> = (0..rows)
+            .map(|index| crate::transcript::HistoryLine::new(format!("row {index:03}")))
+            .collect();
+        ctl.assign_seq(&mut lines);
+        ctl.scrollback = lines;
+        ctl.content_version = ctl.content_version.wrapping_add(1);
+        let scrollback = std::mem::take(&mut ctl.scrollback);
+        ctl.prep.sync_replace(&scrollback, 30, ctl.content_version);
+        ctl.scrollback = scrollback;
+        ctl
+    }
+
+    #[tokio::test]
+    async fn hover_badge_wins_and_plain_rows_stay_dark() {
+        let mut ctl = hover_controller(5).await;
+        let area = Rect::new(0, 0, 30, 10);
+        ctl.last_scroll_area = Some(area);
+        ctl.last_badge_rect = Some(Rect::new(22, 9, 7, 1));
+        assert_eq!(ctl.hover_target_at(23, 9), HoverTarget::Badge);
+        assert_eq!(ctl.hover_target_at(2, 0), HoverTarget::None);
+        assert_eq!(ctl.hover_target_at(2, 40), HoverTarget::None);
+    }
+
+    #[tokio::test]
+    async fn hover_gutter_column_never_paints() {
+        let mut ctl = hover_controller(50).await;
+        ctl.set_session_scrollbar(true);
+        let area = Rect::new(0, 0, 30, 10);
+        ctl.last_scroll_area = Some(area);
+        assert!(ctl.scrollbar_currently_visible(area));
+        let gutter = ctl.session_gutter_rect().expect("bar shows");
+        assert_eq!(ctl.hover_target_at(gutter.x, 2), HoverTarget::None);
+        assert_eq!(ctl.hover_target_at(area.x, 2), HoverTarget::None);
+    }
+
+    #[tokio::test]
+    async fn hover_subagent_start_row_is_clickable() {
+        let mut ctl = hover_controller(0).await;
+        ctl.record_subagent_started("child", "worker", None, None);
+        ctl.settle_scrollback();
+        ctl.content_version = ctl.content_version.wrapping_add(1);
+        let scrollback = std::mem::take(&mut ctl.scrollback);
+        ctl.prep.sync_replace(&scrollback, 30, ctl.content_version);
+        ctl.scrollback = scrollback;
+        let area = Rect::new(0, 0, 30, 10);
+        ctl.last_scroll_area = Some(area);
+        let seq = ctl
+            .subagent_blocks
+            .get("child")
+            .expect("recorded")
+            .start_seq;
+        assert!(seq != 0);
+        assert!(matches!(
+            ctl.hover_target_at(area.x, area.y),
+            HoverTarget::Content(ClickTarget::Subagent { .. })
+        ));
     }
 }

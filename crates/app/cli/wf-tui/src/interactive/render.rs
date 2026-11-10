@@ -544,10 +544,9 @@ impl InteractiveController {
     }
 
     /// Paint the hover affordance for the last motion cell. Full frames
-    /// only: hover never requests a frame itself. Clickable content rows
-    /// and the jump badge get an underline; everything else stays plain.
-    /// Stale cells (outside the viewport, in the gutter, over streaming
-    /// rows) simply paint nothing.
+    /// only: hover never requests a frame itself. The badge paints its own
+    /// rectangle and clickable content rows paint the text width; anything
+    /// else stays plain. Stale cells simply resolve to no target.
     fn paint_hover_cell(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
         use ratatui::style::{Modifier, Style};
         let Some((col, row)) = self.hover_cell else {
@@ -558,30 +557,21 @@ impl InteractiveController {
         }
         let buf = frame.buffer_mut();
         let underline = Style::default().add_modifier(Modifier::UNDERLINED);
-        if let Some(rect) = self.last_badge_rect {
-            if mouse_hit::badge_contains(&rect, col, row) {
-                buf.set_style(rect, underline);
-                return;
+        match self.hover_target_at(col, row) {
+            mouse_hit::HoverTarget::Badge => {
+                if let Some(rect) = self.last_badge_rect {
+                    buf.set_style(rect, underline);
+                }
             }
+            mouse_hit::HoverTarget::Content(_) => {
+                let text_width = Self::effective_text_width(area.width, show_bar);
+                if text_width == 0 || row < area.y {
+                    return;
+                }
+                buf.set_style(Rect::new(area.x, row, text_width, 1), underline);
+            }
+            mouse_hit::HoverTarget::None => {}
         }
-        if row < area.y || row >= area.y.saturating_add(area.height) {
-            return;
-        }
-        let text_width = Self::effective_text_width(area.width, show_bar);
-        if text_width == 0 {
-            return;
-        }
-        if col < area.x || col >= area.x.saturating_add(text_width) {
-            return;
-        }
-        let display_row = row.saturating_sub(area.y) as usize;
-        if display_row >= usize::from(area.height) {
-            return;
-        }
-        if self.content_click_target(display_row).is_none() {
-            return;
-        }
-        buf.set_style(Rect::new(area.x, row, text_width, 1), underline);
     }
 }
 

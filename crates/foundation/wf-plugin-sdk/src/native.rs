@@ -46,6 +46,21 @@ pub struct ContributionRegistrarC {
     /// Declarative tool description (`ToolDescriptionData` JSON, null-terminated).
     pub register_tool_description:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, description_json: *const c_char) -> i32>,
+    /// Declarative CLI command (`PluginCliCommand` JSON, null-terminated).
+    pub register_cli_command:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, command_json: *const c_char) -> i32>,
+    /// Static completion source (`PluginCompletionSource` JSON, null-terminated).
+    pub register_completion_source:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, source_json: *const c_char) -> i32>,
+    /// Settings row (`PluginSettingField` JSON, null-terminated).
+    pub register_setting_field:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, field_json: *const c_char) -> i32>,
+    /// Tool summary templates (`PluginToolSummary` JSON, null-terminated).
+    pub register_tool_summary:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, summary_json: *const c_char) -> i32>,
+    /// Markdown rewrite rule (`PluginMarkdownRule` JSON, null-terminated).
+    pub register_markdown_rule:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, rule_json: *const c_char) -> i32>,
 }
 
 /// Host dispatch function: calls a registered handler by type and name.

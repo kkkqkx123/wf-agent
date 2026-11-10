@@ -168,7 +168,25 @@ impl ContributionManager {
         let policy = *wf_common::lock::read_ok(self.override_policy.read());
         if let Some(owner) = owner_check() {
             let current = wf_common::lock::read_ok(self.current_plugin_id.read()).clone();
-            if owner != current {
+            if owner == current {
+                match policy {
+                    OverridePolicy::Forbid => {
+                        return Err(PluginError::ContributionConflict(format!(
+                            "plugin '{}' duplicate {} '{}': already registered; unregister before re-registering",
+                            current, type_name, key
+                        )));
+                    }
+                    OverridePolicy::Warn => {
+                        tracing::warn!(
+                            "plugin '{}' duplicate {} '{}': already registered",
+                            current,
+                            type_name,
+                            key
+                        );
+                    }
+                    OverridePolicy::Allow => {}
+                }
+            } else {
                 match policy {
                     OverridePolicy::Forbid => {
                         return Err(PluginError::ContributionConflict(format!(

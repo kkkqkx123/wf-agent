@@ -380,9 +380,14 @@ mod tests {
             serde_json::json!({"edited": null})
         );
         assert!(render_dialog_prompt("confirm", "rm?", "delete?", &[], false).contains("? DIALOG"));
-        let parsed: Value =
-            serde_json::from_str(&render_dialog_prompt("select", "pick", "one", &["a".into()], true))
-                .unwrap();
+        let parsed: Value = serde_json::from_str(&render_dialog_prompt(
+            "select",
+            "pick",
+            "one",
+            &["a".into()],
+            true,
+        ))
+        .unwrap();
         assert_eq!(parsed["type"], "dialog");
     }
 

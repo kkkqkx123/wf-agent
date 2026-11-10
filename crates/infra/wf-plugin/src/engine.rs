@@ -254,7 +254,11 @@ impl PluginEngine {
                 });
             }
         };
-        if info.manifest.permissions.contains(&PluginPermission::CliDialog) {
+        if info
+            .manifest
+            .permissions
+            .contains(&PluginPermission::CliDialog)
+        {
             return Ok(());
         }
         tracing::warn!(

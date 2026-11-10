@@ -422,7 +422,10 @@ pub fn parse_cli_input_outcome(response: &Value, incoming_text: &str) -> CliInpu
         return CliInputOutcome::Takeover(String::new());
     }
     if let Some(object) = response.as_object() {
-        let action = object.get("action").and_then(Value::as_str).unwrap_or("pass");
+        let action = object
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("pass");
         match action {
             "rewrite" => {
                 if let Some(text) = object.get("text").and_then(Value::as_str) {
@@ -445,10 +448,7 @@ pub fn parse_cli_input_outcome(response: &Value, incoming_text: &str) -> CliInpu
 /// new text plus whether the chain took over (with its direct echo).
 /// A handler failure must call this with `Pass` so dispatch falls back to
 /// the built-in path instead of stalling the session.
-pub fn apply_cli_input_outcome(
-    text: &str,
-    outcome: CliInputOutcome,
-) -> (String, Option<String>) {
+pub fn apply_cli_input_outcome(text: &str, outcome: CliInputOutcome) -> (String, Option<String>) {
     match outcome {
         CliInputOutcome::Pass => (text.to_string(), None),
         CliInputOutcome::Rewrite(next) => (next, None),
@@ -820,7 +820,10 @@ mod tests {
 
     #[test]
     fn cli_input_outcome_passes_rewrites_and_takes_over_in_order() {
-        assert_eq!(parse_cli_input_outcome(&json!(true), "hi"), CliInputOutcome::Pass);
+        assert_eq!(
+            parse_cli_input_outcome(&json!(true), "hi"),
+            CliInputOutcome::Pass
+        );
         assert_eq!(
             parse_cli_input_outcome(&json!(false), "hi"),
             CliInputOutcome::Takeover(String::new())
@@ -833,7 +836,10 @@ mod tests {
             parse_cli_input_outcome(&json!({"action": "takeover", "echo": "done"}), "hi"),
             CliInputOutcome::Takeover("done".to_string())
         );
-        assert_eq!(parse_cli_input_outcome(&json!(null), "hi"), CliInputOutcome::Pass);
+        assert_eq!(
+            parse_cli_input_outcome(&json!(null), "hi"),
+            CliInputOutcome::Pass
+        );
         let (text, echo) = apply_cli_input_outcome("hi", CliInputOutcome::Rewrite("/help".into()));
         assert_eq!(text, "/help");
         assert_eq!(echo, None);

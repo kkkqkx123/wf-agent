@@ -42,26 +42,27 @@ impl InteractiveController {
         let rules = self.markdown_rules_snapshot();
         tokio::spawn(async move {
             let conversation = crate::replay::conversation_records(&client, &session_id).await;
-            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page_with_rules(
-                &client,
-                &session_id,
-                None,
-                crate::replay::REPLAY_PAGE_LIMIT,
-                &rules,
-            )
-            .await
-            {
-                Ok(page) => (page.lines, page.has_more, page.next_before, false),
-                Err(err) => (
-                    vec![HistoryLine::new_role(
-                        format!("✗ replay failed: {err}"),
-                        Role::Error,
-                    )],
-                    false,
+            let (lines, has_more, next_before, failed) =
+                match crate::replay::replay_scrollack_page_with_rules(
+                    &client,
+                    &session_id,
                     None,
-                    true,
-                ),
-            };
+                    crate::replay::REPLAY_PAGE_LIMIT,
+                    &rules,
+                )
+                .await
+                {
+                    Ok(page) => (page.lines, page.has_more, page.next_before, false),
+                    Err(err) => (
+                        vec![HistoryLine::new_role(
+                            format!("✗ replay failed: {err}"),
+                            Role::Error,
+                        )],
+                        false,
+                        None,
+                        true,
+                    ),
+                };
             let _ = tx.send(InteractiveEvent::ReplayLoaded {
                 lines,
                 conversation,
@@ -87,26 +88,27 @@ impl InteractiveController {
         let tx = self.tx.clone();
         let rules = self.markdown_rules_snapshot();
         tokio::spawn(async move {
-            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page_with_rules(
-                &client,
-                &session_id,
-                Some(before),
-                crate::replay::REPLAY_PAGE_LIMIT,
-                &rules,
-            )
-            .await
-            {
-                Ok(page) => (page.lines, page.has_more, page.next_before, false),
-                Err(err) => (
-                    vec![HistoryLine::new_role(
-                        format!("✗ earlier history failed: {err}"),
-                        Role::Error,
-                    )],
-                    false,
-                    None,
-                    true,
-                ),
-            };
+            let (lines, has_more, next_before, failed) =
+                match crate::replay::replay_scrollack_page_with_rules(
+                    &client,
+                    &session_id,
+                    Some(before),
+                    crate::replay::REPLAY_PAGE_LIMIT,
+                    &rules,
+                )
+                .await
+                {
+                    Ok(page) => (page.lines, page.has_more, page.next_before, false),
+                    Err(err) => (
+                        vec![HistoryLine::new_role(
+                            format!("✗ earlier history failed: {err}"),
+                            Role::Error,
+                        )],
+                        false,
+                        None,
+                        true,
+                    ),
+                };
             let _ = tx.send(InteractiveEvent::ReplayEarlier {
                 lines,
                 has_more,

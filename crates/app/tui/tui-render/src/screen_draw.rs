@@ -1037,13 +1037,17 @@ pub fn draw_settings(
             if d.plugin_settings.is_empty() {
                 out.push("  (no plugin settings registered)".to_string());
             } else {
-                for (plugin, rows) in
-                    tui_core::screen_data::group_plugin_settings(&d.plugin_settings, &d.plugin_values)
-                {
+                for (plugin, rows) in tui_core::screen_data::group_plugin_settings(
+                    &d.plugin_settings,
+                    &d.plugin_values,
+                ) {
                     out.push(format!("  [{plugin}]"));
                     for row in rows {
                         let shape = if row.constrained { "select" } else { "text" };
-                        out.push(format!("    {} · {} = {} ({shape})", row.key, row.label, row.value));
+                        out.push(format!(
+                            "    {} · {} = {} ({shape})",
+                            row.key, row.label, row.value
+                        ));
                     }
                 }
             }

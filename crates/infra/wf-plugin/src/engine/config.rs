@@ -158,7 +158,8 @@ pub fn evaluate_executable_ui(request: &ExecutableUiRequest) -> ExecutableUiDeci
     if !request.declarative_insufficient {
         return ExecutableUiDecision {
             build: false,
-            reason: "declarative contributions suffice; executable backend stays unbuilt".to_string(),
+            reason: "declarative contributions suffice; executable backend stays unbuilt"
+                .to_string(),
         };
     }
     let mut missing = Vec::new();

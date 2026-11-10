@@ -82,7 +82,11 @@ pub fn mini_prompt_text(request: &DialogRequest, timeout_secs: u64) -> String {
         DialogRequest::Confirm { title, message, .. } => {
             format!("{title}: {message} [y/N] (default N, {timeout_secs}s timeout)")
         }
-        DialogRequest::Select { title, message, options } => {
+        DialogRequest::Select {
+            title,
+            message,
+            options,
+        } => {
             let mut line = format!("{title}: {message}");
             for (index, option) in options.iter().enumerate() {
                 line.push_str(&format!(" [{}] {option}", index + 1));
@@ -90,7 +94,12 @@ pub fn mini_prompt_text(request: &DialogRequest, timeout_secs: u64) -> String {
             line.push_str(" (reply number)");
             line
         }
-        DialogRequest::Input { title, message, placeholder, .. } => {
+        DialogRequest::Input {
+            title,
+            message,
+            placeholder,
+            ..
+        } => {
             let hint = placeholder.as_deref().unwrap_or("");
             if hint.is_empty() {
                 format!("{title}: {message}")

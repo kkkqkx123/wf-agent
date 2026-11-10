@@ -446,9 +446,10 @@ impl InteractiveController {
         }
         let mut entries = Vec::new();
         for source in &self.plugin_completions {
-            let active = source.trigger_chars.iter().any(|trigger| {
-                !trigger.is_empty() && buffer.starts_with(trigger.as_str())
-            });
+            let active = source
+                .trigger_chars
+                .iter()
+                .any(|trigger| !trigger.is_empty() && buffer.starts_with(trigger.as_str()));
             if !active {
                 continue;
             }
@@ -1571,9 +1572,8 @@ impl InteractiveController {
         ) {
             self.footer.show_notice(notice);
         }
-        self.setting_values.retain(|key, _| {
-            self.setting_fields.iter().any(|field| &field.key == key)
-        });
+        self.setting_values
+            .retain(|key, _| self.setting_fields.iter().any(|field| &field.key == key));
         self.plugin_completions = Self::merge_by_key(
             &self.local_completions,
             &self.snapshot_completions,
@@ -1636,7 +1636,8 @@ impl InteractiveController {
     /// Returns whether the value changed.
     pub fn set_plugin_setting(&mut self, key: &str, value: &str) -> bool {
         let Some(field) = self.setting_fields.iter().find(|field| field.key == key) else {
-            self.footer.show_notice(format!("unknown plugin setting '{key}'"));
+            self.footer
+                .show_notice(format!("unknown plugin setting '{key}'"));
             return false;
         };
         if !tui_core::screen_data::validate_setting_value(field, value) {
@@ -1646,14 +1647,18 @@ impl InteractiveController {
             ));
             return false;
         }
-        self.setting_values.insert(key.to_string(), value.to_string());
-        self.footer.show_notice(format!("setting '{key}' set to '{value}'"));
+        self.setting_values
+            .insert(key.to_string(), value.to_string());
+        self.footer
+            .show_notice(format!("setting '{key}' set to '{value}'"));
         true
     }
 
     /// Grouped plugin settings rows with resolved values for the settings
     /// surface, in merge order.
-    pub fn grouped_plugin_settings(&self) -> Vec<(String, Vec<tui_core::screen_data::PluginSettingRow>)> {
+    pub fn grouped_plugin_settings(
+        &self,
+    ) -> Vec<(String, Vec<tui_core::screen_data::PluginSettingRow>)> {
         tui_core::screen_data::group_plugin_settings(&self.setting_fields, &self.setting_values)
     }
 

@@ -457,16 +457,19 @@ impl NativeSession {
                 field.key.clone()
             });
         for field in &self.local_settings {
-            if self.snapshot_settings.iter().any(|other| other.key == field.key) {
+            if self
+                .snapshot_settings
+                .iter()
+                .any(|other| other.key == field.key)
+            {
                 output::diag_line(&format!(
                     "setting '{}' conflicts: local and snapshot plugins both register it; local wins",
                     field.key
                 ));
             }
         }
-        self.plugin_setting_values.retain(|key, _| {
-            self.plugin_settings.iter().any(|field| &field.key == key)
-        });
+        self.plugin_setting_values
+            .retain(|key, _| self.plugin_settings.iter().any(|field| &field.key == key));
         self.plugin_tool_summaries = merge_by_key(
             &self.local_tool_summaries,
             &self.snapshot_tool_summaries,
@@ -495,7 +498,8 @@ impl NativeSession {
             ));
             return false;
         }
-        self.plugin_setting_values.insert(key.to_string(), value.to_string());
+        self.plugin_setting_values
+            .insert(key.to_string(), value.to_string());
         output::diag_line(&format!("setting '{key}' set to '{value}'"));
         true
     }

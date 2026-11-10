@@ -1790,7 +1790,10 @@ impl InteractiveController {
     ) -> Option<tui_core::dialog::DialogOutcome> {
         let pending = self.plugin_dialog.take()?;
         self.footer.question = None;
-        Some(answer_plugin_dialog_from_question(&pending.request, outcome))
+        Some(answer_plugin_dialog_from_question(
+            &pending.request,
+            outcome,
+        ))
     }
 
     /// Fail closed when the open dialog passes its deadline. Returns the
@@ -1799,7 +1802,10 @@ impl InteractiveController {
         &mut self,
         now_ms: u64,
     ) -> Option<tui_core::dialog::DialogOutcome> {
-        let expired = self.plugin_dialog.as_ref().is_some_and(|pending| now_ms >= pending.deadline_ms);
+        let expired = self
+            .plugin_dialog
+            .as_ref()
+            .is_some_and(|pending| now_ms >= pending.deadline_ms);
         if !expired {
             return None;
         }
@@ -1947,18 +1953,32 @@ fn plugin_dialog_question_payload(request: &tui_core::dialog::DialogRequest) -> 
             "options": ["Yes", "No"],
             "allowCustom": false,
         }),
-        tui_core::dialog::DialogRequest::Select { title, message, options } => serde_json::json!({
+        tui_core::dialog::DialogRequest::Select {
+            title,
+            message,
+            options,
+        } => serde_json::json!({
             "prompt": format!("{title}: {message}"),
             "options": options,
             "allowCustom": false,
         }),
-        tui_core::dialog::DialogRequest::Input { title, message, placeholder, .. } => serde_json::json!({
+        tui_core::dialog::DialogRequest::Input {
+            title,
+            message,
+            placeholder,
+            ..
+        } => serde_json::json!({
             "prompt": format!("{title}: {message}"),
             "options": [],
             "allowCustom": true,
             "placeholder": placeholder,
         }),
-        tui_core::dialog::DialogRequest::Edit { title, message, initial, .. } => serde_json::json!({
+        tui_core::dialog::DialogRequest::Edit {
+            title,
+            message,
+            initial,
+            ..
+        } => serde_json::json!({
             "prompt": format!("{title}: {message} (initial: {initial})"),
             "options": [],
             "allowCustom": true,
@@ -1986,7 +2006,9 @@ fn answer_plugin_dialog_from_question(
                 let first = picks.pop();
                 D::Selected(first.filter(|index| *index < options.len()))
             }
-            Q::Custom(text) => D::Selected(tui_core::dialog::parse_select_answer(&text, options.len())),
+            Q::Custom(text) => {
+                D::Selected(tui_core::dialog::parse_select_answer(&text, options.len()))
+            }
             Q::Cancelled => D::Selected(None),
         },
         tui_core::dialog::DialogRequest::Input { .. } => match outcome {
@@ -2332,7 +2354,8 @@ mod tests {
             message: "delete?".to_string(),
             danger: true,
         };
-        ctl.open_plugin_dialog("review.bot", confirm, 1000, 5).expect("opens");
+        ctl.open_plugin_dialog("review.bot", confirm, 1000, 5)
+            .expect("opens");
         assert!(ctl.plugin_dialog_active());
         assert!(ctl.footer.question.is_some());
         let denied = ctl
@@ -2350,14 +2373,18 @@ mod tests {
             .is_err();
         assert!(denied, "second dialog cannot steal focus");
         let outcome = ctl.answer_plugin_dialog(QuestionOutcome::Selected(vec![0]));
-        assert_eq!(outcome, Some(tui_core::dialog::DialogOutcome::Confirmed(true)));
+        assert_eq!(
+            outcome,
+            Some(tui_core::dialog::DialogOutcome::Confirmed(true))
+        );
         assert!(!ctl.plugin_dialog_active());
         let select = tui_core::dialog::DialogRequest::Select {
             title: "pick".to_string(),
             message: "one".to_string(),
             options: vec!["a".to_string(), "b".to_string()],
         };
-        ctl.open_plugin_dialog("review.bot", select, 1000, 1).expect("opens");
+        ctl.open_plugin_dialog("review.bot", select, 1000, 1)
+            .expect("opens");
         let timed_out = ctl.cancel_expired_plugin_dialog(1000 + 1001);
         assert_eq!(
             timed_out,

@@ -39,7 +39,9 @@ pub async fn run(cli: &crate::args::Cli, sub: &PluginSub) -> CliResult<()> {
                 .unwrap_or_else(|_| dir.to_string_lossy().into_owned());
             let approved = std::fs::read_to_string(&approvals_path)
                 .ok()
-                .and_then(|text| serde_json::from_str::<std::collections::HashMap<String, u64>>(&text).ok())
+                .and_then(|text| {
+                    serde_json::from_str::<std::collections::HashMap<String, u64>>(&text).ok()
+                })
                 .and_then(|record| record.get(&canonical).copied())
                 == Some(fingerprint);
             let data = serde_json::json!({
@@ -55,7 +57,11 @@ pub async fn run(cli: &crate::args::Cli, sub: &PluginSub) -> CliResult<()> {
             }
             if cli.output == OutputFormat::Text {
                 if approved {
-                    println!("approved: {} ({})", dir.display(), fingerprint_summary(&dir));
+                    println!(
+                        "approved: {} ({})",
+                        dir.display(),
+                        fingerprint_summary(&dir)
+                    );
                 } else {
                     println!(
                         "not approved: {} ({}) — run `wf plugin approve --dir '{}'`",
@@ -108,7 +114,10 @@ pub async fn run(cli: &crate::args::Cli, sub: &PluginSub) -> CliResult<()> {
                 println!("{line}");
             }
             if cli.output == OutputFormat::Text {
-                println!("approved {} ({summary}); rescan to load its CLI contributions", dir.display());
+                println!(
+                    "approved {} ({summary}); rescan to load its CLI contributions",
+                    dir.display()
+                );
             }
             Ok(())
         }

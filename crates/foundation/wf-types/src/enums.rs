@@ -298,7 +298,10 @@ mod tests {
             ("before-cli-dispatch", MiddlewarePhase::BeforeCliDispatch),
             ("before-slash-expand", MiddlewarePhase::BeforeSlashExpand),
             ("after-slash-expand", MiddlewarePhase::AfterSlashExpand),
-            ("on-completion-request", MiddlewarePhase::OnCompletionRequest),
+            (
+                "on-completion-request",
+                MiddlewarePhase::OnCompletionRequest,
+            ),
         ] {
             assert_eq!(MiddlewarePhase::from(text), phase);
             assert_eq!(phase.as_str(), text);

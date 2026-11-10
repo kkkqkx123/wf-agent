@@ -977,7 +977,10 @@ mod tests {
         let groups = group_plugin_settings(&fields, &values);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].0, "review");
-        assert_eq!(groups[0].1[0].value, "low", "illegal value keeps the fallback");
+        assert_eq!(
+            groups[0].1[0].value, "low",
+            "illegal value keeps the fallback"
+        );
         assert!(groups[0].1[0].constrained);
         assert!(!groups[0].1[1].constrained);
         let conflicts = setting_conflict_notices(&fields[..1], &fields[..1]);

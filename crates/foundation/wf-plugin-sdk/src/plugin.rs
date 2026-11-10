@@ -16,11 +16,16 @@ use std::sync::Mutex;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::native::{ContributionRegistrarC, PluginContextC, WF_ABI_VERSION_V1};
+use crate::{
+    PluginCliCommand, PluginCompletionSource, PluginMarkdownRule, PluginSettingField,
+    PluginToolSummary,
+};
 
 /// Author-side registration handle passed to [`WfNativePlugin::register`].
-/// Recorded names are forwarded into the host registrar; the host wraps each
-/// with its dispatch machinery that calls back into the generated
-/// `wf_plugin_dispatch_handler`, so no handler closures are needed here.
+/// Recorded entries are forwarded into the host registrar; name entries wrap
+/// dispatch handlers that call back into the generated
+/// `wf_plugin_dispatch_handler`, JSON entries carry declarative CLI payloads
+/// validated by the host, so no handler closures are needed here.
 pub struct NativeRegistrar {
     names: Mutex<Vec<(String, String)>>,
 }
@@ -64,6 +69,36 @@ impl NativeRegistrar {
 
     pub fn register_middleware(&self, _phase: &str, _priority: i32) {
         self.record("middleware", "middleware");
+    }
+
+    pub fn register_cli_command(&self, command: &PluginCliCommand) {
+        if let Ok(json) = serde_json::to_string(command) {
+            self.record("cli-command", &json);
+        }
+    }
+
+    pub fn register_completion_source(&self, source: &PluginCompletionSource) {
+        if let Ok(json) = serde_json::to_string(source) {
+            self.record("completion-provider", &json);
+        }
+    }
+
+    pub fn register_setting_field(&self, field: &PluginSettingField) {
+        if let Ok(json) = serde_json::to_string(field) {
+            self.record("setting-field", &json);
+        }
+    }
+
+    pub fn register_tool_summary(&self, summary: &PluginToolSummary) {
+        if let Ok(json) = serde_json::to_string(summary) {
+            self.record("tool-summary", &json);
+        }
+    }
+
+    pub fn register_markdown_rule(&self, rule: &PluginMarkdownRule) {
+        if let Ok(json) = serde_json::to_string(rule) {
+            self.record("markdown-transformer", &json);
+        }
     }
 
     /// All recorded (contribution-kind, name) pairs, in registration order.
@@ -281,19 +316,26 @@ pub mod __private {
         let Some(host) = (unsafe { host.as_ref() }) else {
             return 1;
         };
-        for (kind, name) in registrar.recorded() {
-            let Ok(c_name) = CString::new(name) else {
+        for (kind, payload) in registrar.recorded() {
+            let Ok(c_payload) = CString::new(payload) else {
                 return 1;
             };
-            let name_ptr = c_name.as_ptr();
+            let payload_ptr = c_payload.as_ptr();
             let ctx = host.context;
             let ok = match kind.as_str() {
-                "node-type" => host.register_node_type.map(|f| f(ctx, name_ptr)),
-                "tool-type" => host.register_tool_type.map(|f| f(ctx, name_ptr)),
-                "llm-provider" => host.register_llm_provider.map(|f| f(ctx, name_ptr)),
-                "llm-auth" => host.register_llm_auth.map(|f| f(ctx, name_ptr)),
-                "event-handler" => host.register_event_handler.map(|f| f(ctx, name_ptr)),
-                "middleware" => host.register_middleware.map(|f| f(ctx, name_ptr, 0)),
+                "node-type" => host.register_node_type.map(|f| f(ctx, payload_ptr)),
+                "tool-type" => host.register_tool_type.map(|f| f(ctx, payload_ptr)),
+                "llm-provider" => host.register_llm_provider.map(|f| f(ctx, payload_ptr)),
+                "llm-auth" => host.register_llm_auth.map(|f| f(ctx, payload_ptr)),
+                "event-handler" => host.register_event_handler.map(|f| f(ctx, payload_ptr)),
+                "middleware" => host.register_middleware.map(|f| f(ctx, payload_ptr, 0)),
+                "cli-command" => host.register_cli_command.map(|f| f(ctx, payload_ptr)),
+                "completion-provider" => {
+                    host.register_completion_source.map(|f| f(ctx, payload_ptr))
+                }
+                "setting-field" => host.register_setting_field.map(|f| f(ctx, payload_ptr)),
+                "tool-summary" => host.register_tool_summary.map(|f| f(ctx, payload_ptr)),
+                "markdown-transformer" => host.register_markdown_rule.map(|f| f(ctx, payload_ptr)),
                 _ => None,
             };
             if ok == Some(1) {

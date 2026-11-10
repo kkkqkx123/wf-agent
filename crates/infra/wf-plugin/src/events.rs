@@ -147,7 +147,11 @@ impl PluginEvent {
             Self::ConfigChanged { plugin_id, config } => {
                 serde_json::json!({ "plugin_id": plugin_id, "config": config })
             }
-            Self::ResourceDiscovered { plugin_id, kind, paths } => {
+            Self::ResourceDiscovered {
+                plugin_id,
+                kind,
+                paths,
+            } => {
                 serde_json::json!({ "plugin_id": plugin_id, "kind": kind.as_str(), "paths": paths })
             }
         }
@@ -160,7 +164,10 @@ mod tests {
 
     #[test]
     fn resource_merge_appends_incremental_paths_without_duplicates() {
-        let merged = merge_discovered_paths(&["a".to_string()], &["b".to_string(), "a".to_string(), "".to_string()]);
+        let merged = merge_discovered_paths(
+            &["a".to_string()],
+            &["b".to_string(), "a".to_string(), "".to_string()],
+        );
         assert_eq!(merged, vec!["a".to_string(), "b".to_string()]);
     }
 

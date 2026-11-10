@@ -136,7 +136,11 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
         if self.markdown_rules.is_empty() {
             return text.to_string();
         }
-        tui_core::tool_output::apply_snapshot_markdown_rules(text, &self.markdown_rules, "assistant")
+        tui_core::tool_output::apply_snapshot_markdown_rules(
+            text,
+            &self.markdown_rules,
+            "assistant",
+        )
     }
 
     fn tool_start_line(&self, tool_name: &str) -> String {

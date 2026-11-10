@@ -1454,9 +1454,10 @@ pub fn plugin_completion_suggestion(
     sources: &[wf_types::cli::CliCompletionSource],
 ) -> Option<String> {
     for source in sources {
-        let active = source.trigger_chars.iter().any(|trigger| {
-            !trigger.is_empty() && buffer.starts_with(trigger.as_str())
-        });
+        let active = source
+            .trigger_chars
+            .iter()
+            .any(|trigger| !trigger.is_empty() && buffer.starts_with(trigger.as_str()));
         if !active {
             continue;
         }
@@ -2227,7 +2228,10 @@ mod tests {
     fn cli_input_chain_rewrite_and_takeover_skip_default() {
         let (text, echo) = apply_cli_input_chain(
             "/rev",
-            [Ok(CliInputStep::Rewrite("/review".to_string())), Ok(CliInputStep::Pass)],
+            [
+                Ok(CliInputStep::Rewrite("/review".to_string())),
+                Ok(CliInputStep::Pass),
+            ],
         );
         assert_eq!(text, "/review");
         assert_eq!(echo, None);

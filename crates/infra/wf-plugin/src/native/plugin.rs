@@ -490,9 +490,7 @@ extern "C" fn ffi_register_cli_command(
             return registrar_ctx.record(result);
         }
     };
-    let result = registrar_ctx
-        .registrar
-        .register_cli_command(command);
+    let result = registrar_ctx.registrar.register_cli_command(command);
     registrar_ctx.record(result)
 }
 
@@ -516,9 +514,7 @@ extern "C" fn ffi_register_completion_source(
             return registrar_ctx.record(result);
         }
     };
-    let result = registrar_ctx
-        .registrar
-        .register_completion_provider(source);
+    let result = registrar_ctx.registrar.register_completion_provider(source);
     registrar_ctx.record(result)
 }
 
@@ -590,9 +586,7 @@ extern "C" fn ffi_register_markdown_rule(
             return registrar_ctx.record(result);
         }
     };
-    let result = registrar_ctx
-        .registrar
-        .register_markdown_transformer(rule);
+    let result = registrar_ctx.registrar.register_markdown_transformer(rule);
     registrar_ctx.record(result)
 }
 

@@ -13,11 +13,9 @@ use wf_types::events::BaseEvent;
 
 /// Defaults for the buffered wrapper.
 const DEFAULT_EVENT_BUFFER_SIZE: usize = 256;
-const DEFAULT_SNAPSHOT_BUFFER_SIZE: usize = 64;
-const DEFAULT_METRIC_BUFFER_SIZE: usize = 64;
 const DEFAULT_FLUSH_INTERVAL_MS: u64 = 5000;
-/// Default capacity of the bounded write channel: headroom above the three
-/// water levels (256 + 64 + 64) so a slow backend rarely drops writes.
+/// Default capacity of the bounded event channel: headroom above the event
+/// water level (256) so a slow backend rarely drops events.
 const DEFAULT_QUEUE_CAPACITY: usize = 1024;
 
 /// Write request enqueued on the buffered layer's channel. The channel gives
@@ -27,8 +25,6 @@ const DEFAULT_QUEUE_CAPACITY: usize = 1024;
 /// arrive.
 enum WriteOp {
     Event(BaseEvent),
-    Snapshot(String, Value),
-    Metric(String, Value),
     /// Force an immediate flush of the flusher's batch (used by `clear_*` and
     /// the first stage of `shutdown`).
     Flush,
@@ -37,19 +33,18 @@ enum WriteOp {
     Shutdown,
 }
 
-/// Buffered persistence layer: writes land on a bounded `mpsc` channel
+/// Buffered persistence layer: events land on a bounded `mpsc` channel
 /// (capacity `DEFAULT_QUEUE_CAPACITY`, configurable) and are drained by a
 /// single flusher task that batches them into the inner backend when a buffer
-/// fills or on a time interval.
+/// fills or on a time interval. Snapshots and metrics bypass the queue and
+/// write straight through so a save followed by a read observes the write.
 /// Queries hit the inner backend; `pending_writes` reports the un-persisted
-/// backlog (queued + in-flight).
+/// event backlog (queued + in-flight).
 pub struct BufferedPersistenceLayer {
     inner: Arc<dyn PersistenceLayer>,
     /// Write entry point. `None` until `initialize` spawns the flusher.
     tx: Mutex<Option<mpsc::Sender<WriteOp>>>,
     event_buffer_size: usize,
-    snapshot_buffer_size: usize,
-    metric_buffer_size: usize,
     queue_capacity: usize,
     flush_interval: Duration,
     flush_handle: Mutex<Option<JoinHandle<()>>>,
@@ -68,8 +63,6 @@ impl BufferedPersistenceLayer {
             inner,
             tx: Mutex::new(None),
             event_buffer_size: DEFAULT_EVENT_BUFFER_SIZE,
-            snapshot_buffer_size: DEFAULT_SNAPSHOT_BUFFER_SIZE,
-            metric_buffer_size: DEFAULT_METRIC_BUFFER_SIZE,
             queue_capacity: DEFAULT_QUEUE_CAPACITY,
             flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL_MS),
             flush_handle: Mutex::new(None),
@@ -82,16 +75,6 @@ impl BufferedPersistenceLayer {
 
     pub fn with_event_buffer_size(mut self, size: usize) -> Self {
         self.event_buffer_size = size;
-        self
-    }
-
-    pub fn with_snapshot_buffer_size(mut self, size: usize) -> Self {
-        self.snapshot_buffer_size = size;
-        self
-    }
-
-    pub fn with_metric_buffer_size(mut self, size: usize) -> Self {
-        self.metric_buffer_size = size;
         self
     }
 
@@ -146,8 +129,6 @@ impl BufferedPersistenceLayer {
     fn spawn_flusher(&self, mut rx: mpsc::Receiver<WriteOp>) -> JoinHandle<()> {
         let inner = self.inner.clone();
         let event_limit = self.event_buffer_size;
-        let snapshot_limit = self.snapshot_buffer_size;
-        let metric_limit = self.metric_buffer_size;
         let flush_interval = self.flush_interval;
         let pending = self.pending.clone();
         let queued = self.queued.clone();
@@ -161,8 +142,6 @@ impl BufferedPersistenceLayer {
             );
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut events: Vec<BaseEvent> = Vec::new();
-            let mut snapshots: Vec<(String, Value)> = Vec::new();
-            let mut metrics: Vec<(String, Value)> = Vec::new();
             let mut just_failed = false;
 
             loop {
@@ -176,21 +155,11 @@ impl BufferedPersistenceLayer {
                             queued.fetch_sub(1, Ordering::Relaxed);
                             pending.fetch_add(1, Ordering::Relaxed);
                         }
-                        Some(WriteOp::Snapshot(key, value)) => {
-                            snapshots.push((key, value));
-                            queued.fetch_sub(1, Ordering::Relaxed);
-                            pending.fetch_add(1, Ordering::Relaxed);
-                        }
-                        Some(WriteOp::Metric(key, value)) => {
-                            metrics.push((key, value));
-                            queued.fetch_sub(1, Ordering::Relaxed);
-                            pending.fetch_add(1, Ordering::Relaxed);
-                        }
                         Some(WriteOp::Flush) => {
-                            just_failed = !flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending).await;
+                            just_failed = !flush_batch(&*inner, &mut events, &pending).await;
                         }
                         Some(WriteOp::Shutdown) => {
-                            let _ = flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending).await;
+                            let _ = flush_batch(&*inner, &mut events, &pending).await;
                             break;
                         }
                     },
@@ -198,15 +167,8 @@ impl BufferedPersistenceLayer {
 
                 if ticked {
                     // Periodic flush; also the retry cadence after a failure.
-                    if !events.is_empty() || !snapshots.is_empty() || !metrics.is_empty() {
-                        just_failed = !flush_batch(
-                            &*inner,
-                            &mut events,
-                            &mut snapshots,
-                            &mut metrics,
-                            &pending,
-                        )
-                        .await;
+                    if !events.is_empty() {
+                        just_failed = !flush_batch(&*inner, &mut events, &pending).await;
                     }
                     continue;
                 }
@@ -215,33 +177,17 @@ impl BufferedPersistenceLayer {
                     // against a persistently failing backend.
                     continue;
                 }
-                if events.len() >= event_limit
-                    || snapshots.len() >= snapshot_limit
-                    || metrics.len() >= metric_limit
-                {
-                    just_failed =
-                        !flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending)
-                            .await;
+                if events.len() >= event_limit {
+                    just_failed = !flush_batch(&*inner, &mut events, &pending).await;
                 }
             }
         })
     }
 }
 
-async fn write_batch(
-    layer: &dyn PersistenceLayer,
-    events: &[BaseEvent],
-    snapshots: &[(String, Value)],
-    metrics: &[(String, Value)],
-) -> ApiResult<()> {
+async fn write_batch(layer: &dyn PersistenceLayer, events: &[BaseEvent]) -> ApiResult<()> {
     if !events.is_empty() {
         layer.save_events(events).await?;
-    }
-    for (key, value) in snapshots {
-        layer.save_snapshot(key, value).await?;
-    }
-    for (key, value) in metrics {
-        layer.save_metric(key, value).await?;
     }
     Ok(())
 }
@@ -252,19 +198,15 @@ async fn write_batch(
 async fn flush_batch(
     inner: &dyn PersistenceLayer,
     events: &mut Vec<BaseEvent>,
-    snapshots: &mut Vec<(String, Value)>,
-    metrics: &mut Vec<(String, Value)>,
     pending: &AtomicUsize,
 ) -> bool {
-    if events.is_empty() && snapshots.is_empty() && metrics.is_empty() {
+    if events.is_empty() {
         return true;
     }
-    match write_batch(inner, events, snapshots, metrics).await {
+    match write_batch(inner, events).await {
         Ok(()) => {
-            let count = events.len() + snapshots.len() + metrics.len();
+            let count = events.len();
             events.clear();
-            snapshots.clear();
-            metrics.clear();
             pending.fetch_sub(count, Ordering::Relaxed);
             true
         }
@@ -350,8 +292,7 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn save_snapshot(&self, key: &str, snapshot: &Value) -> ApiResult<()> {
-        self.try_enqueue(WriteOp::Snapshot(key.to_string(), snapshot.clone()));
-        Ok(())
+        self.inner.save_snapshot(key, snapshot).await
     }
 
     async fn load_snapshot(&self, key: &str) -> ApiResult<Option<Value>> {
@@ -368,8 +309,7 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn save_metric(&self, key: &str, value: &Value) -> ApiResult<()> {
-        self.try_enqueue(WriteOp::Metric(key.to_string(), value.clone()));
-        Ok(())
+        self.inner.save_metric(key, value).await
     }
 
     async fn query_metrics(&self, key_prefix: &str) -> ApiResult<Vec<(String, Value)>> {

@@ -815,6 +815,25 @@ impl FileCheckpointManager {
                 ));
             }
         }
+        if let Some(existing) = self.healed_import_commit(git, &head)? {
+            let point = ReconcilePoint {
+                internal_main: main_head,
+                external_commit: head.clone(),
+                external_repo: fingerprint,
+                external_repo_id: repo_id.clone(),
+                updated_at_ms: now_millis(),
+            };
+            self.store_reconcile_point(&point)?;
+            return Ok(ImportOutcome {
+                created: Some(existing),
+                advanced_to: head,
+                file_count,
+                had_conflicts: !conflicts.is_empty(),
+                no_base,
+                fallback_poll: false,
+                idempotent: true,
+            });
+        }
         let message = crate::git_store::commit_message(
             &format!("import external {head}"),
             Some("human"),
@@ -852,6 +871,28 @@ impl FileCheckpointManager {
             fallback_poll: false,
             idempotent: false,
         })
+    }
+
+    /// Existing human commit for the same external head, if the previous
+    /// import crashed after committing but before advancing the reconcile
+    /// point. Retrying then fast-forwards the reconcile point instead of
+    /// creating a duplicate import commit.
+    fn healed_import_commit(
+        &self,
+        git: &crate::git_store::GitStore,
+        head: &str,
+    ) -> Result<Option<String>, CheckpointError> {
+        let Some(human_head) = git.read_ref(REF_HUMAN).map_err(map_git_error)? else {
+            return Ok(None);
+        };
+        let marker = format!("import external {head}");
+        let log = git.log(&human_head, 0).map_err(map_git_error)?;
+        for commit in log {
+            if commit.message.contains(marker.as_str()) {
+                return Ok(Some(commit.id));
+            }
+        }
+        Ok(None)
     }
 
     fn external_tree_matches_main(

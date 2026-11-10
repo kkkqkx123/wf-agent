@@ -121,25 +121,24 @@ macro_rules! define_storage_entities {
             }
 
             /// Open a PostgreSQL-backed context. Every entity store shares one
-            /// connection pool and wraps its storage in an entity cache built
-            /// from `cache`. Callers that do not tune the cache pass
-            /// `CacheConfig::default()`.
+            /// connection pool and reads straight through to the database:
+            /// no process-local cache is layered because concurrent processes
+            /// would otherwise keep stale rows. The `cache` argument is
+            /// accepted so call sites stay uniform and is intentionally unused.
             pub async fn new_postgres(
                 connection_string: &str,
                 cache: CacheConfig,
             ) -> Result<Self, StorageError> {
+                let _ = cache;
                 let pool = crate::util::pool::create_pg_pool(connection_string).await?;
                 Ok(Self {
                     $($field: $adapter::new(StorageBackend::Postgres(InstrumentedStore::new(
-                        CachingStore::new(
-                            PostgresStorage::with_pool(
-                                pool.clone(),
-                                $table,
-                                EntityStoreId::$variant.indexes(),
-                            )
-                            .await?,
-                            cache,
-                        ),
+                        PostgresStorage::with_pool(
+                            pool.clone(),
+                            $table,
+                            EntityStoreId::$variant.indexes(),
+                        )
+                        .await?,
                     )))),*,
                     sqlite_pool: None,
                     pg_pool: Some(pool),

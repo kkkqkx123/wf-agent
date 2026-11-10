@@ -28,11 +28,13 @@ macro_rules! dispatch {
 /// save/load/delete/list/exists/clear/batch calls, latency and bytes so the
 /// runtime can export storage load as metrics.
 ///
-/// The Sqlite and PostgreSQL variants layer an entity cache (`CachingStore`)
-/// over the pool — durable backends benefit most from read caching and every
-/// write path invalidates the affected ids, so the cache cannot serve stale
-/// data. The memory variant deliberately has no cache layer: it already lives
-/// in memory, so a second cache would only add a copy without benefit. The
+/// Only the Sqlite variant layers an entity cache (`CachingStore`) over the
+/// pool: it runs in a single process with a shared pool, so local
+/// invalidation on every write path keeps the cache coherent. PostgreSQL
+/// serves multi-process deployments where a process-local cache would stay
+/// stale across writers, so it reads straight through to the database. The
+/// memory variant deliberately has no cache layer: it already lives in
+/// memory, so a second cache would only add a copy without benefit. The
 /// variant-special-cased methods below follow the same reasoning and are not
 /// a candidate for flattening.
 ///
@@ -43,7 +45,7 @@ macro_rules! dispatch {
 pub enum StorageBackend {
     Memory(InstrumentedStore<MemoryStorage>),
     Sqlite(InstrumentedStore<CachingStore<SqliteStorage>>),
-    Postgres(InstrumentedStore<CachingStore<PostgresStorage>>),
+    Postgres(InstrumentedStore<PostgresStorage>),
 }
 
 impl StorageBackend {
@@ -69,9 +71,10 @@ impl StorageBackend {
         ))))
     }
 
-    /// Open a standalone PostgreSQL backend with the entity cache enabled, mirroring
-    /// `new_sqlite`. The backend owns its pool and serves one table only,
-    /// for standalone single-table use such as event snapshots.
+    /// Open a standalone PostgreSQL backend without a process-local cache.
+    /// Every read goes to the database so concurrent processes observe each
+    /// other's committed writes. The backend owns its pool and serves one
+    /// table only, for standalone single-table use such as event snapshots.
     /// Entity tables must use `StorageContext` instead so they share a pool and
     /// join atomic batches. `indexes` is the metadata keys this table's reads
     /// are built on, declared with the entity.
@@ -81,10 +84,7 @@ impl StorageBackend {
         indexes: EntityIndexes,
     ) -> Result<Self, StorageError> {
         let store = PostgresStorage::new(connection_string, table_name, indexes).await?;
-        Ok(Self::Postgres(InstrumentedStore::new(CachingStore::new(
-            store,
-            CacheConfig::default(),
-        ))))
+        Ok(Self::Postgres(InstrumentedStore::new(store)))
     }
 
     /// Operation counters for this backend (the instrumentation wrapper is
@@ -99,8 +99,8 @@ impl StorageBackend {
     pub(crate) fn invalidate_cached(&self, id: &str) {
         match self {
             Self::Memory(_) => {}
+            Self::Postgres(_) => {}
             Self::Sqlite(s) => s.inner().cache().invalidate(id),
-            Self::Postgres(s) => s.inner().cache().invalidate(id),
         }
     }
 
@@ -110,8 +110,8 @@ impl StorageBackend {
     pub(crate) fn invalidate_all_cached(&self) {
         match self {
             Self::Memory(_) => {}
+            Self::Postgres(_) => {}
             Self::Sqlite(s) => s.inner().cache().clear(),
-            Self::Postgres(s) => s.inner().cache().clear(),
         }
     }
 

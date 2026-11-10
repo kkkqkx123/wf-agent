@@ -86,16 +86,18 @@ once. Semantics are equal on all backends:
 
 ## Decorators and context
 
-- `CachingStore`: single-key read cache for durable backends. `load` and
+- `CachingStore`: single-key read cache for SQLite only. `load` and
   `exists` may be served from memory; `list` / `count` pass through.
   Every write path invalidates the affected ids; `load_batch` serves
   cached rows and fetches only the misses, returning input order.
+  PostgreSQL stays uncached so concurrent processes observe each other's
+  committed writes.
 - `InstrumentedStore`: per-operation counters, latency, and byte totals
   (`save` / `load` / `delete` / `list` / `exists` / `clear` / `batch`).
   Aggregate reads (`count`, `count_by_field`) report under `list`;
   single-key writes (`update_status`) under `save`.
-- `StorageBackend`: one table with instrumentation (plus cache for durable
-  variants). Standalone; never joins cross-entity batches.
+- `StorageBackend`: one table with instrumentation (plus cache for the
+  SQLite variant only). Standalone; never joins cross-entity batches.
 - `StorageContext`: all entity stores sharing one pool (SQLite /
   PostgreSQL) or lock-ordered memory partitions. `apply_atomic` runs
   multi-entity batches in one transaction (one batch observation per

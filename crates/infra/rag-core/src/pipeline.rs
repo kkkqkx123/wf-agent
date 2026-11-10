@@ -165,7 +165,11 @@ where
         stats.points += batch.len();
     }
     if let Some(keyword) = keyword {
-        keyword.upsert(collection, &points).await?;
+        if let Err(err) = keyword.upsert(collection, &points).await {
+            let ids: Vec<String> = points.iter().map(|point| point.id.clone()).collect();
+            let _ = store.delete_by_id(collection, &ids).await;
+            return Err(err);
+        }
     }
     Ok(stats)
 }
@@ -433,7 +437,9 @@ where
 
 /// Deletes every point chunked from one source from both indexes.
 /// Returns the vector-side removal count; the keyword side is removed
-/// in the same call so the two indexes stay aligned.
+/// in the same call so the two indexes stay aligned. Both sides are always
+/// attempted even when the first one fails, and the first error is returned
+/// so no failure is silently masked.
 pub async fn delete_source<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     store: &S,
     keyword: Option<&K>,
@@ -441,27 +447,63 @@ pub async fn delete_source<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     namespace: Option<&str>,
     source: &str,
 ) -> Result<u64> {
-    let removed = sync_support::remove_source(store, collection, namespace, source).await?;
-    if let Some(keyword) = keyword {
-        keyword
+    let vector_outcome = sync_support::remove_source(store, collection, namespace, source).await;
+    let keyword_outcome: Result<()> = match keyword {
+        Some(keyword) => keyword
             .delete_by_source(collection, namespace, source)
-            .await?;
+            .await
+            .map(|_| ()),
+        None => Ok(()),
+    };
+    match (vector_outcome, keyword_outcome) {
+        (Ok(removed), Ok(())) => Ok(removed),
+        (Err(err), _) => Err(err),
+        (Ok(_), Err(err)) => Err(err),
     }
-    Ok(removed)
 }
 
-/// Deletes points by id from both indexes.
+/// Deletes points by id from both indexes. Both sides are always attempted
+/// even when the first one fails; the first error is returned.
 pub async fn delete_by_ids<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     store: &S,
     keyword: Option<&K>,
     collection: &str,
     ids: &[String],
 ) -> Result<u64> {
-    let removed = sync_support::remove_by_ids(store, collection, ids).await?;
-    if let Some(keyword) = keyword {
-        keyword.delete_by_id(collection, ids).await?;
+    let vector_outcome = sync_support::remove_by_ids(store, collection, ids).await;
+    let keyword_outcome: Result<()> = match keyword {
+        Some(keyword) => keyword.delete_by_id(collection, ids).await.map(|_| ()),
+        None => Ok(()),
+    };
+    match (vector_outcome, keyword_outcome) {
+        (Ok(removed), Ok(())) => Ok(removed),
+        (Err(err), _) => Err(err),
+        (Ok(_), Err(err)) => Err(err),
     }
-    Ok(removed)
+}
+
+/// Per-side point counts for one source, for operations that need to detect
+/// a half-synced scope without failing on a missing collection.
+pub async fn source_counts<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
+    store: &S,
+    keyword: Option<&K>,
+    collection: &str,
+    namespace: &str,
+    source: &str,
+) -> Result<(u64, Option<u64>)> {
+    let filter = SearchFilter::new()
+        .with_namespace(namespace)
+        .with_source(source);
+    let vector_count = match store.count(collection, Some(&filter)).await {
+        Ok(count) => count,
+        Err(vector_contracts::VectorError::CollectionMissing(_)) => 0,
+        Err(err) => return Err(err.into()),
+    };
+    let keyword_count = match keyword {
+        Some(keyword) => Some(keyword.count(collection, Some(&filter)).await.unwrap_or(0)),
+        None => None,
+    };
+    Ok((vector_count, keyword_count))
 }
 
 /// Rerank invocation bundling the provider and its runtime shaping.
@@ -519,19 +561,12 @@ async fn source_indexed<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     namespace: &str,
     source: &str,
 ) -> Result<bool> {
-    let filter = SearchFilter::new()
-        .with_namespace(namespace)
-        .with_source(source);
-    let vector_count = match store.count(collection, Some(&filter)).await {
-        Ok(count) => count,
-        Err(vector_contracts::VectorError::CollectionMissing(_)) => return Ok(false),
-        Err(err) => return Err(err.into()),
-    };
+    let (vector_count, keyword_count) =
+        source_counts(store, keyword, collection, namespace, source).await?;
     if vector_count == 0 {
         return Ok(false);
     }
-    if let Some(keyword) = keyword {
-        let keyword_count = keyword.count(collection, Some(&filter)).await.unwrap_or(0);
+    if let Some(keyword_count) = keyword_count {
         return Ok(keyword_count > 0);
     }
     Ok(true)

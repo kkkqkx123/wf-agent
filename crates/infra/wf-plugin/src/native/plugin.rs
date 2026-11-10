@@ -110,6 +110,19 @@ impl Plugin for NativePlugin {
             register_setting_field: Some(ffi_register_setting_field),
             register_tool_summary: Some(ffi_register_tool_summary),
             register_markdown_rule: Some(ffi_register_markdown_rule),
+            register_llm_images: Some(ffi_register_llm_images),
+            register_llm_provider_definition: Some(ffi_register_llm_provider_definition),
+            register_workflow: Some(ffi_register_workflow),
+            register_prompt: Some(ffi_register_prompt),
+            register_fragment: Some(ffi_register_fragment),
+            register_agent_template: Some(ffi_register_agent_template),
+            register_node_template: Some(ffi_register_node_template),
+            register_trigger: Some(ffi_register_trigger),
+            register_compaction_advisor: Some(ffi_register_compaction_advisor),
+            register_text_analyzer: Some(ffi_register_text_analyzer),
+            register_retrieval_advisor: Some(ffi_register_retrieval_advisor),
+            register_vector_encoding: Some(ffi_register_vector_encoding),
+            register_snapshot_policy: Some(ffi_register_snapshot_policy),
         };
 
         let result =
@@ -590,6 +603,310 @@ extern "C" fn ffi_register_markdown_rule(
     registrar_ctx.record(result)
 }
 
+extern "C" fn ffi_register_llm_images(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_llm_images(
+        &name_str.clone(),
+        Arc::new(NativeLlmImages {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_llm_provider_definition(
+    ctx_ptr: *mut std::ffi::c_void,
+    definition_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || definition_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(definition_json) };
+    let parsed: Result<wf_types::llm::LlmProviderDefinition, _> = serde_json::from_str(&raw);
+    let definition = match parsed {
+        Ok(d) => d,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid llm-provider-definition JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx
+        .registrar
+        .register_llm_provider_definition(definition);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_workflow(
+    ctx_ptr: *mut std::ffi::c_void,
+    workflow_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || workflow_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(workflow_json) };
+    let parsed: Result<wf_types::workflow::WorkflowTemplate, _> = serde_json::from_str(&raw);
+    let workflow = match parsed {
+        Ok(w) => w,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid workflow JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = workflow.id.to_string();
+    let result = registrar_ctx.registrar.register_workflow(&id, workflow);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_prompt(
+    ctx_ptr: *mut std::ffi::c_void,
+    prompt_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || prompt_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(prompt_json) };
+    let parsed: Result<wf_types::Template, _> = serde_json::from_str(&raw);
+    let prompt = match parsed {
+        Ok(p) => p,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid prompt JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = prompt.id.to_string();
+    let result = registrar_ctx.registrar.register_prompt(&id, prompt);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_fragment(
+    ctx_ptr: *mut std::ffi::c_void,
+    fragment_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || fragment_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(fragment_json) };
+    let parsed: Result<wf_types::SystemPromptFragment, _> = serde_json::from_str(&raw);
+    let fragment = match parsed {
+        Ok(f) => f,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid fragment JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = fragment.id.clone();
+    let result = registrar_ctx.registrar.register_fragment(&id, fragment);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_agent_template(
+    ctx_ptr: *mut std::ffi::c_void,
+    agent_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || agent_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(agent_json) };
+    let parsed: Result<wf_types::agent::AgentTemplate, _> = serde_json::from_str(&raw);
+    let agent = match parsed {
+        Ok(a) => a,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid agent-template JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = agent.id.to_string();
+    let result = registrar_ctx.registrar.register_agent_template(&id, agent);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_node_template(
+    ctx_ptr: *mut std::ffi::c_void,
+    node_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || node_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(node_json) };
+    let parsed: Result<wf_types::workflow::NodeTemplate, _> = serde_json::from_str(&raw);
+    let node = match parsed {
+        Ok(n) => n,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid node-template JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = node.id.to_string();
+    let result = registrar_ctx.registrar.register_node_template(&id, node);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_trigger(
+    ctx_ptr: *mut std::ffi::c_void,
+    trigger_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || trigger_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(trigger_json) };
+    let parsed: Result<wf_types::trigger::TriggerTemplate, _> = serde_json::from_str(&raw);
+    let trigger = match parsed {
+        Ok(t) => t,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid trigger JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = trigger.name.clone();
+    let result = registrar_ctx.registrar.register_trigger(&id, trigger);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_compaction_advisor(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_compaction_advisor(
+        &name_str.clone(),
+        Arc::new(NativeCompactionAdvisor {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_text_analyzer(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_text_analyzer(
+        &name_str.clone(),
+        Arc::new(NativeTextAnalyzer {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_retrieval_advisor(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_retrieval_advisor(
+        &name_str.clone(),
+        Arc::new(NativeRetrievalAdvisor {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_vector_encoding(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_vector_encoding(
+        &name_str.clone(),
+        Arc::new(NativeVectorEncoding {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_snapshot_policy(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+    policy_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() || policy_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let raw = unsafe { ptr_to_string(policy_json) };
+    let parsed: Result<Value, _> = serde_json::from_str(&raw);
+    let policy = match parsed {
+        Ok(p) => p,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid snapshot-policy JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx
+        .registrar
+        .register_snapshot_policy(&name_str, policy);
+    registrar_ctx.record(result)
+}
+
 // ============================================================
 // Handler structs with dispatch
 // ============================================================
@@ -783,5 +1100,110 @@ impl PluginMiddlewareHandler for NativeMiddlewareHandler {
         } else {
             Ok(outcome.context)
         }
+    }
+}
+
+pub struct NativeLlmImages {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginLlmImages for NativeLlmImages {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn generate_images(
+        &self,
+        context: Value,
+        prompt: String,
+        options: Value,
+    ) -> PluginResult<Value> {
+        let input = serde_json::json!({
+            "context": context,
+            "prompt": prompt,
+            "options": options,
+        });
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize images input: {e}")))?;
+        let output = dispatch_call(
+            self.dispatch,
+            "llm-images",
+            &format!("{}/generate_images", self.name),
+            &input_json,
+        )?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize images output: {e}")))
+    }
+}
+
+pub struct NativeCompactionAdvisor {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginCompactionAdvisor for NativeCompactionAdvisor {
+    fn advise(&self, input: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize compaction input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "compaction", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize compaction output: {e}")))
+    }
+}
+
+pub struct NativeTextAnalyzer {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginTextAnalyzer for NativeTextAnalyzer {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn analyze(&self, text: String) -> PluginResult<Vec<String>> {
+        let input_json = serde_json::to_string(&serde_json::json!({ "text": text }))
+            .map_err(|e| PluginError::NativeError(format!("serialize analyzer input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "text-analyzer", &self.name, &input_json)?;
+        serde_json::from_slice::<Vec<String>>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize analyzer output: {e}")))
+    }
+}
+
+pub struct NativeRetrievalAdvisor {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginRetrievalAdvisor for NativeRetrievalAdvisor {
+    fn advise(&self, input: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize retrieval input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "retrieval", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize retrieval output: {e}")))
+    }
+}
+
+pub struct NativeVectorEncoding {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginVectorEncoding for NativeVectorEncoding {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn encode(&self, text: String, options: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&serde_json::json!({
+            "text": text,
+            "options": options,
+        }))
+        .map_err(|e| PluginError::NativeError(format!("serialize encoding input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "vector-encoding", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize encoding output: {e}")))
     }
 }

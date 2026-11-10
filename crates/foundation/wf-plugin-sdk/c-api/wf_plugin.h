@@ -59,6 +59,19 @@ typedef struct WfContributionRegistrar {
     int (*register_setting_field)(void *ctx, const char *field_json);
     int (*register_tool_summary)(void *ctx, const char *summary_json);
     int (*register_markdown_rule)(void *ctx, const char *rule_json);
+    int (*register_llm_images)(void *ctx, const char *name);
+    int (*register_llm_provider_definition)(void *ctx, const char *definition_json);
+    int (*register_workflow)(void *ctx, const char *workflow_json);
+    int (*register_prompt)(void *ctx, const char *prompt_json);
+    int (*register_fragment)(void *ctx, const char *fragment_json);
+    int (*register_agent_template)(void *ctx, const char *agent_json);
+    int (*register_node_template)(void *ctx, const char *node_json);
+    int (*register_trigger)(void *ctx, const char *trigger_json);
+    int (*register_compaction_advisor)(void *ctx, const char *name);
+    int (*register_text_analyzer)(void *ctx, const char *name);
+    int (*register_retrieval_advisor)(void *ctx, const char *name);
+    int (*register_vector_encoding)(void *ctx, const char *name);
+    int (*register_snapshot_policy)(void *ctx, const char *name, const char *policy_json);
 } WfContributionRegistrar;
 
 /*

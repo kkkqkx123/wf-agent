@@ -26,8 +26,19 @@ use crate::{
 /// dispatch handlers that call back into the generated
 /// `wf_plugin_dispatch_handler`, JSON entries carry declarative CLI payloads
 /// validated by the host, so no handler closures are needed here.
+/// One recorded contribution: the first C string argument travels in
+/// `first`, the optional second C string argument in `second`, and the
+/// middleware priority in `priority`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeRecord {
+    pub kind: String,
+    pub first: String,
+    pub second: String,
+    pub priority: i32,
+}
+
 pub struct NativeRegistrar {
-    names: Mutex<Vec<(String, String)>>,
+    names: Mutex<Vec<NativeRecord>>,
 }
 
 impl NativeRegistrar {
@@ -37,11 +48,34 @@ impl NativeRegistrar {
         }
     }
 
-    fn record(&self, kind: &str, name: &str) {
+    fn record(&self, kind: &str, first: &str) {
         self.names
             .lock()
             .expect("registrar poisoned")
-            .push((kind.to_owned(), name.to_owned()));
+            .push(NativeRecord {
+                kind: kind.to_owned(),
+                first: first.to_owned(),
+                second: String::new(),
+                priority: 0,
+            });
+    }
+
+    fn record_double(&self, kind: &str, first: &str, second: &str) {
+        self.names
+            .lock()
+            .expect("registrar poisoned")
+            .push(NativeRecord {
+                kind: kind.to_owned(),
+                first: first.to_owned(),
+                second: second.to_owned(),
+                priority: 0,
+            });
+    }
+
+    fn record_json(&self, kind: &str, value: &serde_json::Value) {
+        if let Ok(json) = serde_json::to_string(value) {
+            self.record(kind, &json);
+        }
     }
 
     pub fn register_node_type(&self, name: &str) {
@@ -63,12 +97,98 @@ impl NativeRegistrar {
         self.record("llm-auth", name);
     }
 
+    /// Register an image generation implementation; dispatched on the
+    /// `llm-images` handler type with op `generate_images`.
+    pub fn register_llm_images(&self, name: &str) {
+        self.record("llm-images", name);
+    }
+
+    /// Register a declarative provider definition as generic JSON.
+    pub fn register_llm_provider_definition(&self, definition: &serde_json::Value) {
+        self.record_json("llm-provider-definition", definition);
+    }
+
+    /// Register a declarative tool definition as generic JSON.
+    pub fn register_tool(&self, tool: &serde_json::Value) {
+        self.record_json("tool", tool);
+    }
+
+    /// Register a declarative tool description as generic JSON.
+    pub fn register_tool_description(&self, description: &serde_json::Value) {
+        self.record_json("tool-description", description);
+    }
+
+    /// Register a declarative workflow as generic JSON.
+    pub fn register_workflow(&self, workflow: &serde_json::Value) {
+        self.record_json("workflow", workflow);
+    }
+
+    /// Register a declarative prompt template as generic JSON.
+    pub fn register_prompt(&self, prompt: &serde_json::Value) {
+        self.record_json("prompt", prompt);
+    }
+
+    /// Register a declarative prompt fragment as generic JSON.
+    pub fn register_fragment(&self, fragment: &serde_json::Value) {
+        self.record_json("fragment", fragment);
+    }
+
+    /// Register a declarative agent template as generic JSON.
+    pub fn register_agent_template(&self, agent: &serde_json::Value) {
+        self.record_json("agent-template", agent);
+    }
+
+    /// Register a declarative node template as generic JSON.
+    pub fn register_node_template(&self, node: &serde_json::Value) {
+        self.record_json("node-template", node);
+    }
+
+    /// Register a declarative trigger as generic JSON.
+    pub fn register_trigger(&self, trigger: &serde_json::Value) {
+        self.record_json("trigger", trigger);
+    }
+
+    /// Register compaction advice; dispatched on `compaction`.
+    pub fn register_compaction_advisor(&self, name: &str) {
+        self.record("compaction-advisor", name);
+    }
+
+    /// Register a full-text analyzer; dispatched on `text-analyzer`.
+    pub fn register_text_analyzer(&self, name: &str) {
+        self.record("text-analyzer", name);
+    }
+
+    /// Register retrieval shaping advice; dispatched on `retrieval`.
+    pub fn register_retrieval_advisor(&self, name: &str) {
+        self.record("retrieval-advisor", name);
+    }
+
+    /// Register a vector encoding; dispatched on `vector-encoding`.
+    pub fn register_vector_encoding(&self, name: &str) {
+        self.record("vector-encoding", name);
+    }
+
+    /// Register a snapshot policy document under `name`.
+    pub fn register_snapshot_policy(&self, name: &str, policy: &serde_json::Value) {
+        if let Ok(json) = serde_json::to_string(policy) {
+            self.record_double("snapshot-policy", name, &json);
+        }
+    }
+
     pub fn register_event_handler(&self, event_type: &str) {
         self.record("event-handler", event_type);
     }
 
-    pub fn register_middleware(&self, _phase: &str, _priority: i32) {
-        self.record("middleware", "middleware");
+    pub fn register_middleware(&self, phase: &str, priority: i32) {
+        self.names
+            .lock()
+            .expect("registrar poisoned")
+            .push(NativeRecord {
+                kind: "middleware".to_owned(),
+                first: phase.to_owned(),
+                second: String::new(),
+                priority,
+            });
     }
 
     pub fn register_cli_command(&self, command: &PluginCliCommand) {
@@ -101,8 +221,8 @@ impl NativeRegistrar {
         }
     }
 
-    /// All recorded (contribution-kind, name) pairs, in registration order.
-    pub fn recorded(&self) -> Vec<(String, String)> {
+    /// All recorded contributions in registration order.
+    pub fn recorded(&self) -> Vec<NativeRecord> {
         self.names.lock().expect("registrar poisoned").clone()
     }
 }
@@ -316,29 +436,53 @@ pub mod __private {
         let Some(host) = (unsafe { host.as_ref() }) else {
             return 1;
         };
-        for (kind, payload) in registrar.recorded() {
-            let Ok(c_payload) = CString::new(payload) else {
+        for record in registrar.recorded() {
+            let Ok(c_first) = CString::new(record.first) else {
                 return 1;
             };
-            let payload_ptr = c_payload.as_ptr();
+            let Ok(c_second) = CString::new(record.second) else {
+                return 1;
+            };
+            let first_ptr = c_first.as_ptr();
+            let second_ptr = c_second.as_ptr();
             let ctx = host.context;
-            let ok = match kind.as_str() {
-                "node-type" => host.register_node_type.map(|f| f(ctx, payload_ptr)),
-                "tool-type" => host.register_tool_type.map(|f| f(ctx, payload_ptr)),
-                "llm-provider" => host.register_llm_provider.map(|f| f(ctx, payload_ptr)),
-                "llm-auth" => host.register_llm_auth.map(|f| f(ctx, payload_ptr)),
-                "event-handler" => host.register_event_handler.map(|f| f(ctx, payload_ptr)),
-                "middleware" => host.register_middleware.map(|f| f(ctx, payload_ptr, 0)),
-                "cli-command" => host.register_cli_command.map(|f| f(ctx, payload_ptr)),
-                "completion-provider" => {
-                    host.register_completion_source.map(|f| f(ctx, payload_ptr))
-                }
-                "setting-field" => host.register_setting_field.map(|f| f(ctx, payload_ptr)),
-                "tool-summary" => host.register_tool_summary.map(|f| f(ctx, payload_ptr)),
-                "markdown-transformer" => host.register_markdown_rule.map(|f| f(ctx, payload_ptr)),
+            let priority = record.priority;
+            let ok = match record.kind.as_str() {
+                "node-type" => host.register_node_type.map(|f| f(ctx, first_ptr)),
+                "tool-type" => host.register_tool_type.map(|f| f(ctx, first_ptr)),
+                "llm-provider" => host.register_llm_provider.map(|f| f(ctx, first_ptr)),
+                "llm-auth" => host.register_llm_auth.map(|f| f(ctx, first_ptr)),
+                "llm-images" => host.register_llm_images.map(|f| f(ctx, first_ptr)),
+                "llm-provider-definition" => host
+                    .register_llm_provider_definition
+                    .map(|f| f(ctx, first_ptr)),
+                "tool" => host.register_tool.map(|f| f(ctx, first_ptr)),
+                "tool-description" => host.register_tool_description.map(|f| f(ctx, first_ptr)),
+                "workflow" => host.register_workflow.map(|f| f(ctx, first_ptr)),
+                "prompt" => host.register_prompt.map(|f| f(ctx, first_ptr)),
+                "fragment" => host.register_fragment.map(|f| f(ctx, first_ptr)),
+                "agent-template" => host.register_agent_template.map(|f| f(ctx, first_ptr)),
+                "node-template" => host.register_node_template.map(|f| f(ctx, first_ptr)),
+                "trigger" => host.register_trigger.map(|f| f(ctx, first_ptr)),
+                "compaction-advisor" => host.register_compaction_advisor.map(|f| f(ctx, first_ptr)),
+                "text-analyzer" => host.register_text_analyzer.map(|f| f(ctx, first_ptr)),
+                "retrieval-advisor" => host.register_retrieval_advisor.map(|f| f(ctx, first_ptr)),
+                "vector-encoding" => host.register_vector_encoding.map(|f| f(ctx, first_ptr)),
+                "snapshot-policy" => host
+                    .register_snapshot_policy
+                    .map(|f| f(ctx, first_ptr, second_ptr)),
+                "event-handler" => host.register_event_handler.map(|f| f(ctx, first_ptr)),
+                "middleware" => host
+                    .register_middleware
+                    .map(|f| f(ctx, first_ptr, priority)),
+                "cli-command" => host.register_cli_command.map(|f| f(ctx, first_ptr)),
+                "completion-provider" => host.register_completion_source.map(|f| f(ctx, first_ptr)),
+                "setting-field" => host.register_setting_field.map(|f| f(ctx, first_ptr)),
+                "tool-summary" => host.register_tool_summary.map(|f| f(ctx, first_ptr)),
+                "markdown-transformer" => host.register_markdown_rule.map(|f| f(ctx, first_ptr)),
                 _ => None,
             };
-            if ok == Some(1) {
+            if matches!(ok, Some(code) if code != 0) {
                 return 1;
             }
         }
@@ -747,11 +891,11 @@ mod tests {
         DemoPlugin::register(&registrar);
         let recorded = registrar.recorded();
         assert_eq!(
-            recorded,
-            vec![
-                ("tool-type".to_owned(), "demo_tool".to_owned()),
-                ("node-type".to_owned(), "demo_node".to_owned()),
-            ]
+            recorded
+                .iter()
+                .map(|r| (r.kind.as_str(), r.first.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("tool-type", "demo_tool"), ("node-type", "demo_node")]
         );
     }
 
@@ -759,10 +903,52 @@ mod tests {
     fn registrar_records_llm_auth_contribution() {
         let registrar = NativeRegistrar::new();
         registrar.register_llm_auth("claude-subscription");
-        assert_eq!(
-            registrar.recorded(),
-            vec![("llm-auth".to_owned(), "claude-subscription".to_owned())]
-        );
+        let recorded = registrar.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].kind, "llm-auth");
+        assert_eq!(recorded[0].first, "claude-subscription");
+    }
+
+    #[test]
+    fn registrar_records_middleware_priority_and_snapshot_policy() {
+        let registrar = NativeRegistrar::new();
+        registrar.register_middleware("pre", 7);
+        registrar.register_snapshot_policy("nightly", &json!({"expect": 1}));
+        registrar.register_tool(&json!({"id": "t"}));
+        let recorded = registrar.recorded();
+        assert_eq!(recorded.len(), 3);
+        assert_eq!(recorded[0].kind, "middleware");
+        assert_eq!(recorded[0].first, "pre");
+        assert_eq!(recorded[0].priority, 7);
+        assert_eq!(recorded[1].kind, "snapshot-policy");
+        assert_eq!(recorded[1].first, "nightly");
+        assert!(recorded[1].second.contains("expect"));
+        assert_eq!(recorded[2].kind, "tool");
+        assert!(recorded[2].first.contains("\"id\""));
+    }
+
+    #[test]
+    fn header_mirror_covers_new_registrar_symbols() {
+        let header = include_str!("../c-api/wf_plugin.h");
+        for symbol in [
+            "register_llm_images",
+            "register_llm_provider_definition",
+            "register_workflow",
+            "register_prompt",
+            "register_fragment",
+            "register_agent_template",
+            "register_node_template",
+            "register_trigger",
+            "register_compaction_advisor",
+            "register_text_analyzer",
+            "register_retrieval_advisor",
+            "register_vector_encoding",
+            "register_snapshot_policy",
+            "WfContributionRegistrar",
+            "wf_plugin_dispatch_handler",
+        ] {
+            assert!(header.contains(symbol), "header missing {symbol}");
+        }
     }
 
     #[test]

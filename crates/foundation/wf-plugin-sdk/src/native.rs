@@ -61,6 +61,51 @@ pub struct ContributionRegistrarC {
     /// Markdown rewrite rule (`PluginMarkdownRule` JSON, null-terminated).
     pub register_markdown_rule:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, rule_json: *const c_char) -> i32>,
+    /// Image generation implementation under `name`; dispatched on
+    /// the `llm-images` handler type.
+    pub register_llm_images:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Declarative LLM connection template (`LlmProviderDefinition` JSON).
+    pub register_llm_provider_definition:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, definition_json: *const c_char) -> i32>,
+    /// Declarative workflow (`WorkflowTemplate` JSON, null-terminated).
+    pub register_workflow:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, workflow_json: *const c_char) -> i32>,
+    /// Declarative prompt (`Template` JSON, null-terminated).
+    pub register_prompt:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, prompt_json: *const c_char) -> i32>,
+    /// Declarative fragment (`SystemPromptFragment` JSON, null-terminated).
+    pub register_fragment:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, fragment_json: *const c_char) -> i32>,
+    /// Declarative agent template (`AgentTemplate` JSON, null-terminated).
+    pub register_agent_template:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, agent_json: *const c_char) -> i32>,
+    /// Declarative node template (`NodeTemplate` JSON, null-terminated).
+    pub register_node_template:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, node_json: *const c_char) -> i32>,
+    /// Declarative trigger (`TriggerTemplate` JSON, null-terminated).
+    pub register_trigger:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, trigger_json: *const c_char) -> i32>,
+    /// Compaction planning advice under `name`; dispatched on `compaction`.
+    pub register_compaction_advisor:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Full-text analyzer under `name`; dispatched on `text-analyzer`.
+    pub register_text_analyzer:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Retrieval shaping advice under `name`; dispatched on `retrieval`.
+    pub register_retrieval_advisor:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Vector encoding under `name`; dispatched on `vector-encoding`.
+    pub register_vector_encoding:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Snapshot policy (`name` plus arbitrary JSON policy document).
+    pub register_snapshot_policy: Option<
+        extern "C" fn(
+            ctx: *mut std::ffi::c_void,
+            name: *const c_char,
+            policy_json: *const c_char,
+        ) -> i32,
+    >,
 }
 
 /// Host dispatch function: calls a registered handler by type and name.

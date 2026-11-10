@@ -395,15 +395,15 @@ impl NativeSession {
         let project_plugins = std::env::current_dir()
             .ok()
             .map(|dir| dir.join(".wf").join("tui-plugins"));
-        let scan = wf_cli_shared::local_cli::scan_local_cli(
-            wf_cli_shared::local_cli::default_global_dir().as_deref(),
+        let scan = wf_cli_shared::local_plugins::scan_local_plugins(
+            wf_cli_shared::local_plugins::default_global_dir().as_deref(),
             project_plugins.as_deref(),
-            wf_cli_shared::local_cli::default_approvals_path().as_deref(),
+            wf_cli_shared::local_plugins::default_approvals_path().as_deref(),
         );
         for notice in &scan.notices {
             output::diag_line(notice);
         }
-        self.set_local_snapshot(&wf_cli_shared::local_cli::local_snapshot(&scan));
+        self.set_local_snapshot(&wf_cli_shared::local_plugins::local_snapshot(&scan));
     }
 
     /// Run the prompt loop until EOF or a quit command.

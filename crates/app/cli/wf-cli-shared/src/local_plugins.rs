@@ -18,10 +18,12 @@
 //! in `$XDG_CONFIG_HOME/wf/tui-plugin-approvals.json`, separate from any
 //! server-side trust, because the local checkout and the server's business
 //! directory may differ.
+//!
+//! Fingerprints use `blake3` over manifest bytes, so approvals survive
+//! toolchain updates. Each root is listed and read once per scan; the
+//! project approval check and the contribution parse share those bytes.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use wf_plugin_sdk::{
@@ -36,7 +38,7 @@ use crate::error::{CliError, CliResult};
 /// roots, invalid entries). Shells surface the notices once and keep
 /// the contributions.
 #[derive(Debug, Default)]
-pub struct LocalCliScan {
+pub struct LocalPluginScan {
     pub commands: Vec<PluginCliCommand>,
     pub completions: Vec<PluginCompletionSource>,
     pub settings: Vec<PluginSettingField>,
@@ -84,7 +86,12 @@ pub fn approve_project_dir(
     project_dir: &Path,
     fingerprint: u64,
 ) -> CliResult<()> {
-    let canonical = canonical_dir(project_dir);
+    let Some(canonical) = canonical_dir(project_dir) else {
+        return Err(CliError::Configuration(format!(
+            "cannot approve '{}': directory does not resolve",
+            project_dir.display()
+        )));
+    };
     let mut record = read_approvals(approvals_path);
     record.insert(canonical, fingerprint);
     write_approvals(approvals_path, &record)
@@ -93,70 +100,119 @@ pub fn approve_project_dir(
 /// Project the validated local scan onto the snapshot wire shape with
 /// the scan fingerprint as revision. Shells feed the result through the
 /// same convert-and-merge path as the server snapshot, tagging every
-/// entry as local so shadowing stays explicit.
-pub fn local_snapshot(scan: &LocalCliScan) -> wf_types::cli::CliSnapshot {
-    fn convert<T: serde::Serialize, U: serde::de::DeserializeOwned>(items: &[T]) -> Vec<U> {
-        items
-            .iter()
-            .filter_map(|item| {
-                serde_json::to_value(item)
-                    .ok()
-                    .and_then(|value| serde_json::from_value(value).ok())
-            })
-            .collect()
-    }
+/// entry as local so shadowing stays explicit. Mapping is field-by-field
+/// so an SDK/wire shape drift fails the build instead of dropping
+/// entries at runtime.
+pub fn local_snapshot(scan: &LocalPluginScan) -> wf_types::cli::CliSnapshot {
     wf_types::cli::CliSnapshot {
         revision: scan.fingerprint,
-        commands: convert(&scan.commands),
-        completions: convert(&scan.completions),
-        settings: convert(&scan.settings),
-        tool_summaries: convert(&scan.tool_summaries),
-        markdown_rules: convert(&scan.markdown_rules),
+        commands: scan.commands.iter().map(map_command).collect(),
+        completions: scan.completions.iter().map(map_completion_source).collect(),
+        settings: scan.settings.iter().map(map_setting_field).collect(),
+        tool_summaries: scan.tool_summaries.iter().map(map_tool_summary).collect(),
+        markdown_rules: scan.markdown_rules.iter().map(map_markdown_rule).collect(),
+    }
+}
+
+fn map_command(command: &PluginCliCommand) -> wf_types::cli::CliCommandView {
+    wf_types::cli::CliCommandView {
+        id: command.id.clone(),
+        title: command.title.clone(),
+        group: command.group.clone(),
+        description: command.description.clone(),
+        slash_name: command.slash_name.clone(),
+        slash_aliases: command.slash_aliases.clone(),
+        slash_argument: command.slash_argument.clone(),
+        palette: command.palette,
+        key_hint: command.key_hint.clone(),
+        when: wf_types::cli::CliCommandCondition {
+            screens: command.when.screens.clone(),
+            roles: command.when.roles.clone(),
+            require_connected: command.when.require_connected,
+            hide_when_overlay: command.when.hide_when_overlay,
+        },
+    }
+}
+
+fn map_completion_source(source: &PluginCompletionSource) -> wf_types::cli::CliCompletionSource {
+    wf_types::cli::CliCompletionSource {
+        id: source.id.clone(),
+        trigger_chars: source.trigger_chars.clone(),
+        items: source
+            .items
+            .iter()
+            .map(|item| wf_types::cli::CliCompletionItem {
+                value: item.value.clone(),
+                label: item.label.clone(),
+                description: item.description.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn map_setting_field(field: &PluginSettingField) -> wf_types::cli::CliSettingField {
+    wf_types::cli::CliSettingField {
+        key: field.key.clone(),
+        label: field.label.clone(),
+        values: field.values.clone(),
+        fallback: field.fallback.clone(),
+    }
+}
+
+fn map_tool_summary(summary: &PluginToolSummary) -> wf_types::cli::CliToolSummary {
+    wf_types::cli::CliToolSummary {
+        tool_name: summary.tool_name.clone(),
+        call_template: summary.call_template.clone(),
+        result_template: summary.result_template.clone(),
+    }
+}
+
+fn map_markdown_rule(rule: &PluginMarkdownRule) -> wf_types::cli::CliMarkdownRule {
+    wf_types::cli::CliMarkdownRule {
+        id: rule.id.clone(),
+        pattern: rule.pattern.clone(),
+        replacement: rule.replacement.clone(),
+        surfaces: rule.surfaces.clone(),
     }
 }
 
 /// Scan both roots. Missing roots are not an error: a machine without
 /// local plugins behaves exactly like a plugin-less server.
-pub fn scan_local_cli(
+pub fn scan_local_plugins(
     global_dir: Option<&Path>,
     project_dir: Option<&Path>,
     approvals_path: Option<&Path>,
-) -> LocalCliScan {
-    let mut scan = LocalCliScan::default();
-    let mut hasher = DefaultHasher::new();
+) -> LocalPluginScan {
+    let mut scan = LocalPluginScan::default();
+    let mut hasher = blake3::Hasher::new();
     if let Some(dir) = global_dir {
         scan_dir(dir, &mut scan, &mut hasher);
     }
     if let (Some(dir), Some(approvals)) = (project_dir, approvals_path) {
         scan_project_dir(dir, approvals, &mut scan, &mut hasher);
     }
-    scan.fingerprint = hasher.finish();
+    scan.fingerprint = stable_u64(hasher.finalize());
     scan
 }
 
 /// Scan one root directory for plugin manifests. Approval gating
 /// happens in the caller ([`scan_project_dir`]); this only reads.
-fn scan_dir(dir: &Path, scan: &mut LocalCliScan, hasher: &mut DefaultHasher) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-    let mut plugin_dirs: Vec<PathBuf> = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .collect();
-    plugin_dirs.sort();
-    for plugin_dir in plugin_dirs {
-        let manifest_path = plugin_dir.join("plugin.toml");
-        if !manifest_path.is_file() {
-            continue;
-        }
-        match load_manifest(&manifest_path) {
-            Ok((manifest, bytes)) => {
-                manifest.id.hash(hasher);
-                bytes.hash(hasher);
-                collect_manifest(&manifest, &plugin_dir, scan);
+fn scan_dir(dir: &Path, scan: &mut LocalPluginScan, hasher: &mut blake3::Hasher) {
+    for (manifest_path, result) in read_raw_entries(dir) {
+        let plugin_dir = manifest_path.parent().map_or(dir, |parent| parent);
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(message) => {
+                scan.notices.push(format!(
+                    "ignoring local plugin '{}': {message}",
+                    plugin_dir.display()
+                ));
+                continue;
             }
+        };
+        update_hasher(hasher, plugin_dir, &bytes);
+        match parse_manifest_bytes(&bytes) {
+            Ok(manifest) => collect_manifest(&manifest, plugin_dir, scan),
             Err(message) => scan.notices.push(format!(
                 "ignoring local plugin '{}': {message}",
                 plugin_dir.display()
@@ -165,20 +221,35 @@ fn scan_dir(dir: &Path, scan: &mut LocalCliScan, hasher: &mut DefaultHasher) {
     }
 }
 
-/// Scan the project root behind its approval gate. An unknown or changed
-/// fingerprint skips the whole root with one notice: unapproved bytes are
-/// never read beyond the manifest hash.
+/// Scan the project root behind its approval gate. The directory is
+/// listed and read once: the approval fingerprint and the contribution
+/// parse share those bytes, so nothing can change between the check and
+/// the load.
 fn scan_project_dir(
     dir: &Path,
     approvals_path: &Path,
-    scan: &mut LocalCliScan,
-    hasher: &mut DefaultHasher,
+    scan: &mut LocalPluginScan,
+    hasher: &mut blake3::Hasher,
 ) {
     if !dir.is_dir() {
         return;
     }
-    let fingerprint = fingerprint_dir(dir);
-    let canonical = canonical_dir(dir);
+    let raw = read_raw_entries(dir);
+    let mut approval_hasher = blake3::Hasher::new();
+    for (manifest_path, result) in &raw {
+        if let Ok(bytes) = result {
+            let plugin_dir = manifest_path.parent().map_or(dir, |parent| parent);
+            update_hasher(&mut approval_hasher, plugin_dir, bytes);
+        }
+    }
+    let fingerprint = stable_u64(approval_hasher.finalize());
+    let Some(canonical) = canonical_dir(dir) else {
+        scan.notices.push(format!(
+            "project plugin directory '{}' does not resolve; skipping its CLI contributions",
+            dir.display()
+        ));
+        return;
+    };
     let approved = read_approvals(approvals_path).get(&canonical) == Some(&fingerprint);
     if !approved {
         scan.notices.push(format!(
@@ -187,44 +258,101 @@ fn scan_project_dir(
         ));
         return;
     }
-    scan_dir(dir, scan, hasher);
+    for (manifest_path, result) in raw {
+        let plugin_dir = manifest_path
+            .parent()
+            .map_or_else(|| dir.to_path_buf(), |parent| parent.to_path_buf());
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(message) => {
+                scan.notices.push(format!(
+                    "ignoring local plugin '{}': {message}",
+                    plugin_dir.display()
+                ));
+                continue;
+            }
+        };
+        update_hasher(hasher, &plugin_dir, &bytes);
+        match parse_manifest_bytes(&bytes) {
+            Ok(manifest) => collect_manifest(&manifest, &plugin_dir, scan),
+            Err(message) => scan.notices.push(format!(
+                "ignoring local plugin '{}': {message}",
+                plugin_dir.display()
+            )),
+        }
+    }
 }
 
 /// Hash every manifest under a root without loading contributions: the
 /// approval fingerprint must change whenever any declaration changes.
-fn fingerprint_dir(dir: &Path) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    let mut manifests: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.filter_map(|entry| entry.ok()) {
-            let manifest = entry.path().join("plugin.toml");
-            if manifest.is_file() {
-                manifests.push(manifest);
-            }
+pub fn fingerprint_dir(dir: &Path) -> u64 {
+    let mut hasher = blake3::Hasher::new();
+    for (manifest_path, result) in read_raw_entries(dir) {
+        if let Ok(bytes) = result {
+            let plugin_dir = manifest_path.parent().map_or(dir, |parent| parent);
+            update_hasher(&mut hasher, plugin_dir, &bytes);
         }
     }
-    manifests.sort();
-    for manifest in manifests {
-        manifest.hash(&mut hasher);
-        if let Ok(bytes) = std::fs::read(&manifest) {
-            bytes.hash(&mut hasher);
-        }
-    }
-    hasher.finish()
+    stable_u64(hasher.finalize())
 }
 
-fn canonical_dir(dir: &Path) -> String {
+/// List `plugin.toml` manifests directly under one root, sorted for a
+/// deterministic scan and fingerprint order.
+fn manifest_paths(dir: &Path) -> Vec<PathBuf> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    let mut plugin_dirs: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_dir())
+        .collect();
+    plugin_dirs.sort();
+    plugin_dirs
+        .into_iter()
+        .map(|plugin_dir| plugin_dir.join("plugin.toml"))
+        .filter(|manifest| manifest.is_file())
+        .collect()
+}
+
+/// Read every manifest under one root once. IO failures travel with the
+/// path so the caller can report them without re-reading.
+fn read_raw_entries(dir: &Path) -> Vec<(PathBuf, Result<Vec<u8>, String>)> {
+    manifest_paths(dir)
+        .into_iter()
+        .map(|manifest| {
+            let result = std::fs::read(&manifest).map_err(|e| format!("cannot read manifest: {e}"));
+            (manifest, result)
+        })
+        .collect()
+}
+
+fn update_hasher(hasher: &mut blake3::Hasher, plugin_dir: &Path, bytes: &[u8]) {
+    if let Some(name) = plugin_dir.file_name().and_then(|name| name.to_str()) {
+        hasher.update(name.as_bytes());
+    }
+    hasher.update(&[0]);
+    hasher.update(&(bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+    hasher.update(&[1]);
+}
+
+fn stable_u64(hash: blake3::Hash) -> u64 {
+    let bytes = hash.as_bytes();
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&bytes[..8]);
+    u64::from_le_bytes(out)
+}
+
+fn canonical_dir(dir: &Path) -> Option<String> {
     std::fs::canonicalize(dir)
+        .ok()
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| dir.to_string_lossy().into_owned())
 }
 
-fn load_manifest(path: &Path) -> Result<(PluginManifest, Vec<u8>), String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("cannot read manifest: {e}"))?;
-    let text = std::str::from_utf8(&bytes).map_err(|e| format!("manifest is not UTF-8: {e}"))?;
-    toml::from_str::<PluginManifest>(text)
-        .map(|manifest| (manifest, bytes))
-        .map_err(|e| format!("manifest does not parse: {e}"))
+fn parse_manifest_bytes(bytes: &[u8]) -> Result<PluginManifest, String> {
+    let text = std::str::from_utf8(bytes).map_err(|e| format!("manifest is not UTF-8: {e}"))?;
+    toml::from_str::<PluginManifest>(text).map_err(|e| format!("manifest does not parse: {e}"))
 }
 
 /// Move one manifest's inline CLI declarations into the scan, validating
@@ -233,7 +361,7 @@ fn load_manifest(path: &Path) -> Result<(PluginManifest, Vec<u8>), String> {
 /// manifest behaves the same locally and on the server. Plugin code is
 /// never consulted: the entry point may name a script the local shell
 /// will not run.
-fn collect_manifest(manifest: &PluginManifest, plugin_dir: &Path, scan: &mut LocalCliScan) {
+fn collect_manifest(manifest: &PluginManifest, plugin_dir: &Path, scan: &mut LocalPluginScan) {
     use wf_plugin_sdk::PluginPermission;
     let has_cli = !manifest.cli_commands.is_empty()
         || !manifest.completion_sources.is_empty()
@@ -295,6 +423,8 @@ fn collect_manifest(manifest: &PluginManifest, plugin_dir: &Path, scan: &mut Loc
 }
 
 fn read_approvals(path: &Path) -> HashMap<String, u64> {
+    // A missing or corrupt record means nothing is approved: fail closed
+    // and require a fresh explicit approval.
     let text = std::fs::read_to_string(path).unwrap_or_default();
     if text.trim().is_empty() {
         return HashMap::new();
@@ -309,6 +439,12 @@ fn write_approvals(path: &Path, record: &HashMap<String, u64>) -> CliResult<()> 
     let text = serde_json::to_string_pretty(record)
         .map_err(|e| CliError::Configuration(format!("approval record encode: {e}")))?;
     std::fs::write(path, text)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, permissions)?;
+    }
     Ok(())
 }
 
@@ -358,7 +494,7 @@ mod tests {
             &manifest_toml(&command_toml("bad id", "badrun")),
         );
         std::fs::create_dir_all(global.join("empty")).expect("empty plugin dir");
-        let scan = scan_local_cli(Some(&global), None, None);
+        let scan = scan_local_plugins(Some(&global), None, None);
         assert_eq!(scan.commands.len(), 1);
         assert_eq!(scan.commands[0].id, "local.run");
         assert_eq!(scan.notices.len(), 1, "invalid entry reported once");
@@ -382,18 +518,18 @@ mod tests {
             "p",
             &manifest_toml(&command_toml("proj.run", "projrun")),
         );
-        let denied = scan_local_cli(None, Some(&project), Some(&approvals));
+        let denied = scan_local_plugins(None, Some(&project), Some(&approvals));
         assert!(denied.commands.is_empty(), "unapproved root stays empty");
         assert_eq!(denied.notices.len(), 1);
         approve_project_dir(&approvals, &project, fingerprint_dir(&project)).expect("approve");
-        let allowed = scan_local_cli(None, Some(&project), Some(&approvals));
+        let allowed = scan_local_plugins(None, Some(&project), Some(&approvals));
         assert_eq!(allowed.commands.len(), 1);
         std::fs::write(
             project.join("p").join("plugin.toml"),
             manifest_toml(&command_toml("proj.run", "other")),
         )
         .expect("rewrite manifest");
-        let changed = scan_local_cli(None, Some(&project), Some(&approvals));
+        let changed = scan_local_plugins(None, Some(&project), Some(&approvals));
         assert!(
             changed.commands.is_empty(),
             "changed manifest invalidates the approval"
@@ -412,7 +548,7 @@ mod tests {
         ));
         let global = root.join("global");
         write_plugin(&global, "bare", &manifest_toml(""));
-        let scan = scan_local_cli(Some(&global), None, None);
+        let scan = scan_local_plugins(Some(&global), None, None);
         assert!(scan.commands.is_empty());
         assert!(scan.notices.is_empty());
         std::fs::remove_dir_all(&root).expect("cleanup");
@@ -450,10 +586,81 @@ mod tests {
         let manifest = manifest_toml(&command_toml("local.run", "localrun"))
             .replace("permissions = [\"cli_ui\"]\n", "");
         write_plugin(&global, "noperm", &manifest);
-        let scan = scan_local_cli(Some(&global), None, None);
+        let scan = scan_local_plugins(Some(&global), None, None);
         assert!(scan.commands.is_empty());
         assert_eq!(scan.notices.len(), 1);
         assert!(scan.notices[0].contains("cli_ui"));
         std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn fingerprint_is_stable_for_identical_content() {
+        let root = std::env::temp_dir().join(format!(
+            "wf-local-cli-stable-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let global = root.join("global");
+        write_plugin(
+            &global,
+            "good",
+            &manifest_toml(&command_toml("local.run", "localrun")),
+        );
+        let first = fingerprint_dir(&global);
+        let second = fingerprint_dir(&global);
+        assert_eq!(first, second);
+        assert_ne!(first, 0);
+        std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn local_snapshot_maps_all_contribution_kinds_without_loss() {
+        let root = std::env::temp_dir().join(format!(
+            "wf-local-cli-snapshot-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let global = root.join("global");
+        let manifest = manifest_toml(&format!(
+            "{}\n[[completion_sources]]\nid = \"local.paths\"\ntrigger_chars = [\"@\"]\n\
+             [[completion_sources.items]]\nvalue = \"src/\"\n\
+             [[setting_fields]]\nkey = \"local.level\"\nlabel = \"Level\"\nfallback = \"low\"\n\
+             [[tool_summaries]]\ntool_name = \"grep\"\ncall_template = \"search {{args}}\"\n\
+             [[markdown_rules]]\nid = \"local.tickets\"\npattern = \"[T]\"\nreplacement = \"ticket\"\n",
+            command_toml("local.run", "localrun")
+        ));
+        write_plugin(&global, "full", &manifest);
+        let scan = scan_local_plugins(Some(&global), None, None);
+        assert!(scan.notices.is_empty());
+        let snapshot = local_snapshot(&scan);
+        assert_eq!(snapshot.revision, scan.fingerprint);
+        assert_eq!(snapshot.commands.len(), 1);
+        assert_eq!(snapshot.completions.len(), 1);
+        assert_eq!(snapshot.settings.len(), 1);
+        assert_eq!(snapshot.tool_summaries.len(), 1);
+        assert_eq!(snapshot.markdown_rules.len(), 1);
+        assert_eq!(snapshot.commands[0].id, "local.run");
+        assert_eq!(snapshot.commands[0].slash_name.as_deref(), Some("localrun"));
+        assert_eq!(snapshot.completions[0].items.len(), 1);
+        std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn approve_missing_directory_fails_loudly() {
+        let root = std::env::temp_dir().join(format!(
+            "wf-local-cli-missing-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let approvals = root.join("approvals.json");
+        let missing = root.join("does-not-exist");
+        assert!(approve_project_dir(&approvals, &missing, 1).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

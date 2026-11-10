@@ -439,13 +439,13 @@ impl TuiApp {
         let project_plugins = std::env::current_dir()
             .ok()
             .map(|dir| dir.join(".wf").join("tui-plugins"));
-        let scan = wf_cli_shared::local_cli::scan_local_cli(
-            wf_cli_shared::local_cli::default_global_dir().as_deref(),
+        let scan = wf_cli_shared::local_plugins::scan_local_plugins(
+            wf_cli_shared::local_plugins::default_global_dir().as_deref(),
             project_plugins.as_deref(),
-            wf_cli_shared::local_cli::default_approvals_path().as_deref(),
+            wf_cli_shared::local_plugins::default_approvals_path().as_deref(),
         );
         problems.extend(scan.notices.iter().cloned());
-        self.local_snapshot = Some(wf_cli_shared::local_cli::local_snapshot(&scan));
+        self.local_snapshot = Some(wf_cli_shared::local_plugins::local_snapshot(&scan));
         if let Some(snapshot) = self.plugin_snapshot.as_ref() {
             for tab in self.sessions.iter_mut() {
                 tab.controller.set_snapshot_commands(snapshot);

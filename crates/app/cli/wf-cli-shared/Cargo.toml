@@ -6,6 +6,7 @@ description = "Shared logic for wf-cli targets (headless, mini, full TUI)"
 
 [dependencies]
 base64.workspace = true
+blake3.workspace = true
 chrono.workspace = true
 clap.workspace = true
 serde.workspace = true

@@ -105,6 +105,11 @@ impl Plugin for NativePlugin {
             register_middleware: Some(ffi_register_middleware),
             register_tool: Some(ffi_register_tool),
             register_tool_description: Some(ffi_register_tool_description),
+            register_cli_command: Some(ffi_register_cli_command),
+            register_completion_source: Some(ffi_register_completion_source),
+            register_setting_field: Some(ffi_register_setting_field),
+            register_tool_summary: Some(ffi_register_tool_summary),
+            register_markdown_rule: Some(ffi_register_markdown_rule),
         };
 
         let result =
@@ -462,6 +467,132 @@ extern "C" fn ffi_register_tool_description(
     let result = registrar_ctx
         .registrar
         .register_tool_description(&id, description);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_cli_command(
+    ctx_ptr: *mut std::ffi::c_void,
+    command_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || command_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(command_json) };
+    let parsed: Result<PluginCliCommand, _> = serde_json::from_str(&raw);
+    let command = match parsed {
+        Ok(c) => c,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid cli-command JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx
+        .registrar
+        .register_cli_command(command);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_completion_source(
+    ctx_ptr: *mut std::ffi::c_void,
+    source_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || source_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(source_json) };
+    let parsed: Result<PluginCompletionSource, _> = serde_json::from_str(&raw);
+    let source = match parsed {
+        Ok(s) => s,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid completion-source JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx
+        .registrar
+        .register_completion_provider(source);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_setting_field(
+    ctx_ptr: *mut std::ffi::c_void,
+    field_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || field_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(field_json) };
+    let parsed: Result<PluginSettingField, _> = serde_json::from_str(&raw);
+    let field = match parsed {
+        Ok(f) => f,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid setting-field JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx.registrar.register_setting_field(field);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_tool_summary(
+    ctx_ptr: *mut std::ffi::c_void,
+    summary_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || summary_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(summary_json) };
+    let parsed: Result<PluginToolSummary, _> = serde_json::from_str(&raw);
+    let summary = match parsed {
+        Ok(s) => s,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid tool-summary JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx.registrar.register_tool_summary(summary);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_markdown_rule(
+    ctx_ptr: *mut std::ffi::c_void,
+    rule_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || rule_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(rule_json) };
+    let parsed: Result<PluginMarkdownRule, _> = serde_json::from_str(&raw);
+    let rule = match parsed {
+        Ok(r) => r,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid markdown-rule JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let result = registrar_ctx
+        .registrar
+        .register_markdown_transformer(rule);
     registrar_ctx.record(result)
 }
 

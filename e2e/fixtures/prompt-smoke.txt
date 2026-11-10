@@ -1,0 +1,1 @@
+Summarize the repository status in one sentence. Manual model-tier prompt only; never executed by the default gate.

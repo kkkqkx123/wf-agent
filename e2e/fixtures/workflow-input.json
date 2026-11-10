@@ -1,0 +1,3 @@
+{
+  "comment": "Execution input object for the local script workflow; also reused as an invalid workflow file for the negative validate case."
+}

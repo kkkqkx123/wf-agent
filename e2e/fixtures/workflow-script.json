@@ -1,0 +1,43 @@
+{
+  "id": "e2e-script",
+  "name": "e2e script workflow",
+  "description": "Local-only script workflow for the execution tier, no model calls",
+  "type": "STANDALONE",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "node_type": "START"
+    },
+    {
+      "id": "say-hello",
+      "node_type": "SCRIPT",
+      "name": "say-hello",
+      "config": {
+        "script_name": "echo",
+        "risk": "none",
+        "inline": "echo hello"
+      }
+    },
+    {
+      "id": "end",
+      "node_type": "END"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source_node_id": "start",
+      "target_node_id": "say-hello",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e2",
+      "source_node_id": "say-hello",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    }
+  ],
+  "created_at": 0,
+  "updated_at": 0
+}

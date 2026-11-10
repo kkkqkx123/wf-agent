@@ -327,8 +327,8 @@ impl<S: Store + Maintainable> Maintainable for InstrumentedStore<S> {
         self.inner.wal_checkpoint().await
     }
 
-    async fn sync(&self) -> Result<(), StorageError> {
-        self.inner.sync().await
+    async fn flush(&self) -> Result<(), StorageError> {
+        self.inner.flush().await
     }
 }
 

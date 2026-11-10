@@ -89,7 +89,7 @@ impl PersistenceLayer for StorePersistenceLayer {
     }
 
     async fn shutdown(&self) -> ApiResult<()> {
-        let _ = self.store.sync().await;
+        let _ = self.store.flush().await;
         Ok(())
     }
 

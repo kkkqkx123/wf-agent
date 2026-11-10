@@ -485,13 +485,10 @@ impl StorageContext {
 
     /// Drop cached rows touched by a cross-table batch. Only called after a
     /// successful commit; a failed transaction changes nothing, so caches
-    /// stay valid without invalidation.
-    ///
-    /// Convention for every coordinator path: any operation that bypasses the
-    /// per-store write path must supplement cache invalidation after commit.
-    /// The single-store path inherits invalidation from the caching decorator;
-    /// cross-table batches call this, and full cleanup calls
-    /// `invalidate_all_cached`.
+    /// stay valid without invalidation. Cache invalidation stays inside the
+    /// coordinator: the single-store path inherits it from the caching decorator,
+    /// cross-table batches call this, and full cleanup calls the context-wide
+    /// cache clear.
     fn invalidate_after_atomic(&self, operations: &[AtomicOperation]) {
         for op in operations {
             let backend = self.backend_of(op.target);

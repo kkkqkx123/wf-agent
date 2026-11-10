@@ -130,8 +130,8 @@ impl StorageManager {
         }
         if let Some(ctx) = self.context.as_ref() {
             for (id, backend) in ctx.named_backends() {
-                if let Err(err) = backend.sync().await {
-                    warn!(store = id.name(), error = %err, "storage sync before close failed");
+                if let Err(err) = backend.flush().await {
+                    warn!(store = id.name(), error = %err, "storage flush before close failed");
                 }
             }
         }

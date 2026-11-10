@@ -210,11 +210,11 @@ impl Maintainable for SqliteStorage {
         Ok(())
     }
 
-    async fn sync(&self) -> Result<(), StorageError> {
+    async fn flush(&self) -> Result<(), StorageError> {
         sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::from_sqlx_with_operation(e, "sync"))?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "flush"))?;
         Ok(())
     }
 }

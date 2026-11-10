@@ -464,6 +464,8 @@ pub trait StoreExt: Store {
 
 /// Backend maintenance operations. Kept separate from data access so
 /// backends without maintenance needs keep the default no-op behavior.
+/// None of these methods replicate data between backends; they only maintain
+/// the local files or tables of the backend they run on.
 #[async_trait]
 pub trait Maintainable: Store {
     async fn vacuum(&self) -> Result<(), StorageError> {
@@ -477,11 +479,12 @@ pub trait Maintainable: Store {
     async fn wal_checkpoint(&self) -> Result<(), StorageError> {
         Ok(())
     }
-    /// Flush pending writes to durable storage.
+    /// Flush pending writes to durable storage on this backend only.
     /// For Sqlite with WAL mode, this runs a WAL checkpoint to ensure committed
     /// transactions are written to the main database file.
     /// For PostgreSQL this is a no-op (fsync on every commit is guaranteed).
-    async fn sync(&self) -> Result<(), StorageError> {
+    /// This method never copies data between local and remote backends.
+    async fn flush(&self) -> Result<(), StorageError> {
         Ok(())
     }
 }

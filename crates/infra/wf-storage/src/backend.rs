@@ -51,10 +51,11 @@ impl StorageBackend {
         Self::Memory(InstrumentedStore::new(MemoryStorage::new("default")))
     }
 
-    /// Open a Sqlite backend with the entity cache enabled (default cache
+    /// Open a standalone Sqlite backend with the entity cache enabled (default cache
     /// configuration: 1000 entries / 300s TTL). The backend owns its pool and
-    /// serves one table; entity tables should use `StorageContext` instead so
-    /// they share a pool and join atomic batches. `indexes` is the metadata
+    /// serves one table only, for standalone single-table use such as event snapshots.
+    /// Entity tables must use `StorageContext` instead so they share a pool
+    /// and join atomic batches. `indexes` is the metadata
     /// keys this table's reads are built on, declared with the entity.
     pub async fn new_sqlite(
         path: &str,
@@ -68,9 +69,10 @@ impl StorageBackend {
         ))))
     }
 
-    /// Open a PostgreSQL backend with the entity cache enabled, mirroring
-    /// `new_sqlite`. The backend owns its pool and serves one table; entity
-    /// tables should use `StorageContext` instead so they share a pool and
+    /// Open a standalone PostgreSQL backend with the entity cache enabled, mirroring
+    /// `new_sqlite`. The backend owns its pool and serves one table only,
+    /// for standalone single-table use such as event snapshots.
+    /// Entity tables must use `StorageContext` instead so they share a pool and
     /// join atomic batches. `indexes` is the metadata keys this table's reads
     /// are built on, declared with the entity.
     pub async fn new_postgres(
@@ -91,10 +93,10 @@ impl StorageBackend {
         dispatch!(self, |s| s.metrics())
     }
 
-    /// Drop one cached record without touching durable storage, used after a
-    /// cross-table atomic batch that bypasses the per-backend write path.
-    /// No-op for backends without a cache layer.
-    pub fn invalidate_cached(&self, id: &str) {
+    /// Drop one cached record without touching durable storage. Only the
+    /// cross-table coordinator calls this after a batch that bypasses the
+    /// per-backend write path. No-op for backends without a cache layer.
+    pub(crate) fn invalidate_cached(&self, id: &str) {
         match self {
             Self::Memory(_) => {}
             Self::Sqlite(s) => s.inner().cache().invalidate(id),
@@ -102,10 +104,10 @@ impl StorageBackend {
         }
     }
 
-    /// Drop every cached record without touching durable storage, used after
-    /// a full cleanup that bypasses the per-backend clear path. No-op for
-    /// backends without a cache layer.
-    pub fn invalidate_all_cached(&self) {
+    /// Drop every cached record without touching durable storage. Only the
+    /// context-wide cleanup calls this after a clear that bypasses the
+    /// per-backend clear path. No-op for backends without a cache layer.
+    pub(crate) fn invalidate_all_cached(&self) {
         match self {
             Self::Memory(_) => {}
             Self::Sqlite(s) => s.inner().cache().clear(),
@@ -218,7 +220,7 @@ impl Maintainable for StorageBackend {
         dispatch!(self, |s| s.wal_checkpoint().await)
     }
 
-    async fn sync(&self) -> Result<(), StorageError> {
-        dispatch!(self, |s| s.sync().await)
+    async fn flush(&self) -> Result<(), StorageError> {
+        dispatch!(self, |s| s.flush().await)
     }
 }

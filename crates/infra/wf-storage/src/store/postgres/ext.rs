@@ -162,7 +162,7 @@ impl Maintainable for PostgresStorage {
     // PostgreSQL has no per-table checkpoint a regular user can trigger:
     // the CHECKPOINT command requires superuser privileges and applies to
     // the whole cluster. WAL advancement is handled internally by the
-    // server, so this is a no-op like `sync`.
+    // server, so this is a no-op like `flush`.
     async fn wal_checkpoint(&self) -> Result<(), StorageError> {
         Ok(())
     }
@@ -179,7 +179,7 @@ impl Maintainable for PostgresStorage {
         Ok(())
     }
 
-    async fn sync(&self) -> Result<(), StorageError> {
+    async fn flush(&self) -> Result<(), StorageError> {
         Ok(())
     }
 }

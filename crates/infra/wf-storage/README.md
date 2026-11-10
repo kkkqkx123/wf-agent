@@ -29,8 +29,9 @@ src/
   `save_batch` / `load_batch` / `delete_batch` (homogeneous bulk),
   `update_status` (metadata-only status write), `count_by_field` (grouped
   counting with a `GROUP BY` override on SQL backends).
-- `Maintainable`: `vacuum` / `wal_checkpoint` / `sync`. No-op by default;
-  only backends with real maintenance override it.
+- `Maintainable`: `vacuum` / `wal_checkpoint` / `flush`. No-op by default;
+  only backends with real maintenance override it. `flush` persists local
+  state to disk and never replicates between backends.
 
 `EntityStore<S, T>` sits above `Store`: it serializes entities, applies
 gzip compression above a threshold, merges the `entityType` marker and

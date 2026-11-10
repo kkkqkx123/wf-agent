@@ -3,7 +3,9 @@
 //! The ingest pipeline applies the write policy per source; this module
 //! adds the caller-side sync semantics: decide whether a source needs
 //! re-indexing by comparing content hashes, and remove sources or id
-//! lists through the storage contract.
+//! lists through the storage contract. An update rebuilds the whole source
+//! scope through delete plus re-index. Callers split large sources and
+//! remove stale sources explicitly so no orphan chunks remain.
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,7 +20,9 @@ use vector_contracts::{SearchFilter, VectorStorage};
 pub enum SyncAction {
     /// Source is unknown: index it.
     Insert,
-    /// Content hash changed: delete the source scope, then index.
+    /// Content hash changed: rebuild the whole source scope through delete
+    /// plus re-index. Large sources should be split upstream so one edit
+    /// does not rewrite an unrelated chunk set.
     Update,
     /// Content hash matches the indexed state: skip.
     Skip,

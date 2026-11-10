@@ -5,7 +5,8 @@
   "description": "On-demand TypeScript codegen from the committed wf-server OpenAPI snapshot",
   "type": "module",
   "scripts": {
-    "gen": "openapi-typescript ../../crates/app/wf-server/openapi.json -o ../../apps/web-app/src/lib/api/schema.d.ts"
+    "gen": "openapi-typescript ../../crates/app/wf-server/openapi.json -o ../../apps/web-app/src/lib/api/schema.d.ts",
+    "gen:check": "node -e \"const fs=require('fs');const a=fs.statSync('../../crates/app/wf-server/openapi.json').mtimeMs;const b=fs.statSync('../../apps/web-app/src/lib/api/schema.d.ts').mtimeMs;if(b<a){console.error('schema.d.ts is older than openapi.json; run npm run gen');process.exit(1)}else{console.log('schema.d.ts is fresh')}\""
   },
   "engines": {
     "node": ">=22.0.0"

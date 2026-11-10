@@ -17,7 +17,7 @@ pub(crate) mod generated {
 
 pub mod client;
 pub mod error;
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) mod normalize;
 pub mod remote;
 pub mod sse;

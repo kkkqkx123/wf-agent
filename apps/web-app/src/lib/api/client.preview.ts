@@ -47,17 +47,13 @@ export const API_BASE_URL = '/mock';
 const router = makeRouter();
 registerAllRoutes(router);
 
-function dispatchEnvelope(
-	method: string,
-	path: string,
-	query: Record<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	body: any,
-): { data?: unknown; error?: unknown; response?: { status: number }; status: number } {
-	const data = router.dispatch(method, path, query, body);
+// Route handlers may return a MockRouteError (e.g. an fs write conflict or an
+// unknown PTY session); surface it as a genuine error envelope so `call()`
+// throws ApiHttpError instead of handing the marker object to services as a
+// fake payload. Single handling point for every preview entry.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function wrapMockData(method: string, path: string, data: any): any {
 	if (data === undefined) return missingRoute(method, path);
-	// Route handlers may return a MockRouteError (e.g. an fs write conflict);
-	// surface it as a genuine error envelope so `call()` throws ApiHttpError.
 	const candidate = data as {
 		__mockError?: boolean;
 		status?: number;
@@ -79,6 +75,17 @@ function dispatchEnvelope(
 		};
 	}
 	return okEnvelope(data);
+}
+
+function dispatchEnvelope(
+	method: string,
+	path: string,
+	query: Record<string, unknown>,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	body: any,
+): { data?: unknown; error?: unknown; response?: { status: number }; status: number } {
+	const data = router.dispatch(method, path, query, body);
+	return wrapMockData(method, path, data);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,33 +106,9 @@ function substitutePath(path: string, params?: { path?: Record<string, unknown> 
 	});
 }
 
-// Route handlers may return a MockRouteError (e.g. unknown PTY session);
-// surface it as a genuine error envelope so `call()` throws ApiHttpError
-// instead of handing the marker object to services as a fake payload.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toPreviewResult(method: string, path: string, data: any): any {
-	if (data === undefined) return missingRoute(method, path);
-	const candidate = data as {
-		__mockError?: boolean;
-		status?: number;
-		code?: string;
-		message?: string;
-	};
-	if (candidate && candidate.__mockError === true) {
-		return {
-			error: {
-				success: false,
-				data: null,
-				error: {
-					code: candidate.code ?? 'HTTP_ERROR',
-					message: candidate.message ?? 'Preview error',
-				},
-			},
-			response: { status: candidate.status ?? 400 },
-			status: candidate.status ?? 400,
-		};
-	}
-	return okEnvelope(data);
+	return wrapMockData(method, path, data);
 }
 
 export const client: AnyClient = {
@@ -258,9 +241,16 @@ export type { RecentDirectory } from './workspace';
 export type DirectoryProblem = 'not-found' | 'not-served' | 'validation';
 
 export function classifyDirectoryError(
-	_body: unknown,
-	_status: number,
+	body: unknown,
+	status: number,
 ): DirectoryProblem | undefined {
+	const code =
+		typeof body === 'object' && body !== null && 'error' in body
+			? (body as { error?: { code?: unknown } }).error?.code
+			: undefined;
+	if (code === 'LOCATION_NOT_FOUND' || status === 404) return 'not-found';
+	if (code === 'FORBIDDEN' || status === 403) return 'not-served';
+	if (code === 'VALIDATION' || status === 400) return 'validation';
 	return undefined;
 }
 

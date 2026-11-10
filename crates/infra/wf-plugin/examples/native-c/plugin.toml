@@ -1,0 +1,6 @@
+# Native plugins must declare the backend explicitly; rename the suffix to
+# dylib on macOS or dll on Windows and keep it aligned with plugin.c.
+id = "native-echo-c"
+version = "1.0.0"
+entry_point = "native_echo.so"
+plugin_type = "native"

@@ -12,7 +12,7 @@
 //! truncation; per-tool presentation knowledge lives in `wf-tools`.
 
 use tui_core::tool_output::{
-    cap_block_bytes, collapse_output, collapse_shell_tail, format_tool_summary, infer_kind,
+    cap_block_bytes, collapse_output, collapse_shell_tail, format_tool_summary_with, infer_kind,
     is_exploration_tool_name, preview_tone, summarize_activity, Collapsed, DetailLevel,
     PreviewTone, ToolOutputConfig,
 };
@@ -295,7 +295,15 @@ impl InteractiveController {
         } else {
             payload_summary.to_string()
         };
-        let summary = format_tool_summary(tool_name, &call_summary, elapsed_ms, 0, false, success);
+        let summary = format_tool_summary_with(
+            tool_name,
+            &call_summary,
+            elapsed_ms,
+            0,
+            false,
+            success,
+            &self.tool_templates,
+        );
         if !self.tool_config.enabled {
             self.pending_scroll
                 .push(HistoryLine::new_role(summary, role));
@@ -342,8 +350,15 @@ impl InteractiveController {
             if block.expandable {
                 match block.display_preview.as_deref() {
                     Some(preview) if !preview.trim().is_empty() => {
-                        format_tool_summary(tool_name, &call, elapsed_ms, 0, false, success)
-                            + &format!(" · {preview}")
+                        format_tool_summary_with(
+                            tool_name,
+                            &call,
+                            elapsed_ms,
+                            0,
+                            false,
+                            success,
+                            &self.tool_templates,
+                        ) + &format!(" · {preview}")
                     }
                     _ => {
                         let total = block.output.lines().count();
@@ -360,13 +375,14 @@ impl InteractiveController {
                 summary
             }
         } else if preview.overflow {
-            format_tool_summary(
+            format_tool_summary_with(
                 tool_name,
                 &call,
                 elapsed_ms,
                 preview.hidden_lines,
                 true,
                 success,
+                &self.tool_templates,
             )
         } else {
             summary

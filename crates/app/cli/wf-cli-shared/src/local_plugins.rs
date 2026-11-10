@@ -253,8 +253,9 @@ fn scan_project_dir(
     let approved = read_approvals(approvals_path).get(&canonical) == Some(&fingerprint);
     if !approved {
         scan.notices.push(format!(
-            "project plugin directory '{}' is not approved; approve it to load its CLI contributions",
-            dir.display()
+            "project plugin directory '{}' is not approved; record approval with `approve_project_dir` (record: '{}') to load its CLI contributions",
+            dir.display(),
+            approvals_path.display()
         ));
         return;
     }

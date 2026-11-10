@@ -336,6 +336,16 @@ pub struct ToolSummaryTemplate {
 }
 
 impl ToolSummaryTemplate {
+    /// Convert one snapshot tool summary into a render template.
+    /// Empty pairs never reach the registry, so this keeps every entry.
+    pub fn from_snapshot(summary: &wf_types::cli::CliToolSummary) -> Self {
+        Self {
+            tool_name: summary.tool_name.clone(),
+            call_template: summary.call_template.clone(),
+            result_template: summary.result_template.clone(),
+        }
+    }
+
     /// Render the call portion: `{args}` takes the compact argument text.
     /// `None` means no template is set and the builtin card applies.
     pub fn render_call(&self, args: &str) -> Option<String> {
@@ -345,6 +355,28 @@ impl ToolSummaryTemplate {
                 .replace("{result}", "")
         })
     }
+}
+
+/// Apply snapshot Markdown rules for one transcript surface. Rules run in
+/// order and only when their surface list is empty or names `surface`;
+/// empty patterns are skipped so one bad entry never erases the document.
+/// Display-only: the stored payload never changes.
+pub fn apply_snapshot_markdown_rules(
+    text: &str,
+    rules: &[wf_types::cli::CliMarkdownRule],
+    surface: &str,
+) -> String {
+    let mut out = text.to_string();
+    for rule in rules {
+        if rule.pattern.is_empty() {
+            continue;
+        }
+        if !rule.surfaces.is_empty() && !rule.surfaces.iter().any(|s| s == surface) {
+            continue;
+        }
+        out = out.replace(rule.pattern.as_str(), rule.replacement.as_str());
+    }
+    out
 }
 
 /// Assemble one tool summary row: status mark, tool name, optional call
@@ -602,5 +634,31 @@ mod tests {
         assert_eq!(DetailLevel::High.cycle(), DetailLevel::Low);
         assert_eq!(DetailLevel::default(), DetailLevel::Medium);
         assert_eq!(DetailLevel::High.label(), "high");
+    }
+
+    #[test]
+    fn snapshot_markdown_rules_filter_by_surface_and_skip_empty() {
+        let rules = vec![
+            wf_types::cli::CliMarkdownRule {
+                id: "arrows".to_string(),
+                pattern: "-->".to_string(),
+                replacement: "\u{2192}".to_string(),
+                surfaces: vec!["assistant".to_string()],
+            },
+            wf_types::cli::CliMarkdownRule {
+                id: "empty".to_string(),
+                pattern: String::new(),
+                replacement: "gone".to_string(),
+                surfaces: vec![],
+            },
+        ];
+        assert_eq!(
+            apply_snapshot_markdown_rules("a --> b", &rules, "assistant"),
+            "a \u{2192} b"
+        );
+        assert_eq!(
+            apply_snapshot_markdown_rules("a --> b", &rules, "user"),
+            "a --> b"
+        );
     }
 }

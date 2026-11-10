@@ -268,6 +268,7 @@ mod tests {
             palette: true,
             key_hint: None,
             origin: tui_core::command::CliCommandOrigin::default(),
+            when: wf_types::cli::CliCommandCondition::default(),
         }
     }
 

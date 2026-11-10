@@ -52,7 +52,8 @@ impl TuiApp {
         if let Some(command) = self.keymap.resolve(KeymapContext::List, key) {
             match command.id {
                 "app.help" => {
-                    self.modals.push(Box::new(HelpModal::new()));
+                    let plugins = self.active_plugin_commands();
+                    self.modals.push(Box::new(HelpModal::with_plugins(plugins)));
                     return Ok(LoopAction::Continue);
                 }
                 "ui.back" => {

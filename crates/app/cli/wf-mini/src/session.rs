@@ -138,6 +138,21 @@ pub struct NativeSession {
     local_slash: Vec<PluginSlash>,
     /// Machine-local completion sources.
     local_completions: Vec<PluginCompletionSource>,
+    /// Merged settings rows; stored so no snapshot entry is silently
+    /// dropped. No settings surface exists yet in mini.
+    plugin_settings: Vec<wf_types::cli::CliSettingField>,
+    snapshot_settings: Vec<wf_types::cli::CliSettingField>,
+    local_settings: Vec<wf_types::cli::CliSettingField>,
+    /// Merged tool summary templates; stored for parity with the full
+    /// shell. Mini renders tool lines as plain text for now.
+    plugin_tool_summaries: Vec<wf_types::cli::CliToolSummary>,
+    snapshot_tool_summaries: Vec<wf_types::cli::CliToolSummary>,
+    local_tool_summaries: Vec<wf_types::cli::CliToolSummary>,
+    /// Merged Markdown rules; stored for parity. Mini prints plain
+    /// lines for now.
+    plugin_markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+    snapshot_markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+    local_markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
     /// Snapshot revision behind the snapshot sets; equal revisions skip
     /// the rebuild. The local fingerprint has its own counter.
     snapshot_revision: u64,
@@ -151,6 +166,23 @@ pub struct NativeSession {
     /// Render detail applied to newly staged images (`/image-detail`).
     /// Empty means the provider default; kept across turns until changed.
     staged_image_detail: Option<wf_types::message::ImageDetail>,
+}
+
+/// Merge one contribution kind with local entries first: the first entry
+/// for a key wins, so machine-local plugins shadow same-key snapshot
+/// entries without failing.
+fn merge_by_key<T: Clone>(local: &[T], snapshot: &[T], key: impl Fn(&T) -> String) -> Vec<T> {
+    let mut merged: Vec<T> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for item in local.iter().chain(snapshot.iter()) {
+        let id = key(item);
+        if seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+        merged.push(item.clone());
+    }
+    merged
 }
 
 /// What a slash command asks the loop to do.
@@ -268,6 +300,15 @@ impl NativeSession {
             snapshot_completions: Vec::new(),
             local_slash: Vec::new(),
             local_completions: Vec::new(),
+            plugin_settings: Vec::new(),
+            snapshot_settings: Vec::new(),
+            local_settings: Vec::new(),
+            plugin_tool_summaries: Vec::new(),
+            snapshot_tool_summaries: Vec::new(),
+            local_tool_summaries: Vec::new(),
+            plugin_markdown_rules: Vec::new(),
+            snapshot_markdown_rules: Vec::new(),
+            local_markdown_rules: Vec::new(),
             snapshot_revision: 0,
             local_revision: 0,
         };
@@ -322,18 +363,50 @@ impl NativeSession {
             .collect();
         let rejected =
             snapshot.commands.len() - slash.len() + snapshot.completions.len() - completions.len();
+        let settings: Vec<wf_types::cli::CliSettingField> = snapshot
+            .settings
+            .iter()
+            .filter(|field| {
+                field.key.contains('.')
+                    && !field.key.trim().is_empty()
+                    && !field.key.chars().any(char::is_whitespace)
+                    && (field.values.is_empty() || field.values.contains(&field.fallback))
+            })
+            .cloned()
+            .collect();
+        let settings_rejected = snapshot.settings.len() - settings.len();
+        let tools: Vec<wf_types::cli::CliToolSummary> = snapshot.tool_summaries.clone();
+        let markdown: Vec<wf_types::cli::CliMarkdownRule> = snapshot
+            .markdown_rules
+            .iter()
+            .filter(|rule| !rule.pattern.is_empty())
+            .cloned()
+            .collect();
+        let markdown_rejected = snapshot.markdown_rules.len() - markdown.len();
         if track_snapshot {
             self.snapshot_slash = slash;
             self.snapshot_completions = completions;
+            self.snapshot_settings = settings;
+            self.snapshot_tool_summaries = tools;
+            self.snapshot_markdown_rules = markdown;
         } else {
             self.local_slash = slash;
             self.local_completions = completions;
+            self.local_settings = settings;
+            self.local_tool_summaries = tools;
+            self.local_markdown_rules = markdown;
         }
         if rejected > 0 {
             output::diag_line(&format!(
                 "ignoring {rejected} invalid {} entr{}: fails host validation",
                 if track_snapshot { "snapshot" } else { "local" },
                 if rejected == 1 { "y" } else { "ies" }
+            ));
+        }
+        if settings_rejected > 0 || markdown_rejected > 0 {
+            output::diag_line(&format!(
+                "ignoring {settings_rejected} settings, {markdown_rejected} markdown entries from {}: fails host validation",
+                if track_snapshot { "snapshot" } else { "local" }
             ));
         }
         self.rebuild_plugin_commands();
@@ -377,6 +450,34 @@ impl NativeSession {
         self.plugin_slash = slash;
         self.plugin_completions = completions.clone();
         self.suggest = Arc::new(SuggestEngine::with_plugin_sources(completions));
+        self.plugin_settings =
+            merge_by_key(&self.local_settings, &self.snapshot_settings, |field| {
+                field.key.clone()
+            });
+        self.plugin_tool_summaries = merge_by_key(
+            &self.local_tool_summaries,
+            &self.snapshot_tool_summaries,
+            |summary| summary.tool_name.clone(),
+        );
+        self.plugin_markdown_rules = merge_by_key(
+            &self.local_markdown_rules,
+            &self.snapshot_markdown_rules,
+            |rule| rule.id.clone(),
+        );
+    }
+
+    fn plugin_entry_matches(&self, name: &str) -> Option<PluginSlash> {
+        let needle = name.trim().trim_start_matches('/');
+        self.plugin_slash
+            .iter()
+            .find(|entry| {
+                entry.name.eq_ignore_ascii_case(needle)
+                    || entry
+                        .aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(needle))
+            })
+            .cloned()
     }
 
     /// Fetch the server CLI snapshot and scan machine-local declarative
@@ -864,6 +965,14 @@ impl NativeSession {
                 CommandAction::Continue
             }
             SlashCommand::Plugin { name, .. } => {
+                if let Some(entry) = self.plugin_entry_matches(&name) {
+                    if !entry.matches_connection_overlay(true, false) {
+                        output::diag_line(&format!(
+                            "plugin command '/{name}' is not available here"
+                        ));
+                        return CommandAction::Continue;
+                    }
+                }
                 output::diag_line(&format!(
                     "plugin command '/{name}' is registered but not executable in this shell"
                 ));

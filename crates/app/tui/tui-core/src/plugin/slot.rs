@@ -52,10 +52,6 @@ impl Slot {
     pub const FOOTER_MAIN: Slot = Slot::new("footer.main");
     /// Footer extension rows below the main status line.
     pub const FOOTER_EXTENSION: Slot = Slot::new("footer.extension");
-    /// Tool summary override by display kind.
-    pub const TOOL_SUMMARY: Slot = Slot::new("tool.summary");
-    /// Settings dialog groups contributed by extensions.
-    pub const SETTINGS_GROUP: Slot = Slot::new("settings.group");
 }
 
 /// Read-only context handed to slot content each frame. `data` carries the

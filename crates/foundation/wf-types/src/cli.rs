@@ -27,7 +27,7 @@ pub enum CliCommandOrigin {
 
 /// Applicability condition of a snapshot command. Carried for fidelity;
 /// shells ignore it until host-side condition evaluation lands.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CliCommandCondition {
     /// Screen names admitting the command (empty means every screen).

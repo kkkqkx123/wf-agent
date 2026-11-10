@@ -207,7 +207,8 @@ impl TuiApp {
                         return Ok(LoopAction::Continue);
                     }
                     InteractiveAction::ShowHelp => {
-                        self.modals.push(Box::new(HelpModal::new()));
+                        let plugins = self.active_plugin_commands();
+                        self.modals.push(Box::new(HelpModal::with_plugins(plugins)));
                     }
                     InteractiveAction::NewSession => {
                         self.new_tab().await;

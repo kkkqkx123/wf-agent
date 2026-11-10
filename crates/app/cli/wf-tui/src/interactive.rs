@@ -461,6 +461,34 @@ pub struct InteractiveController {
     snapshot_revision: u64,
     /// Fingerprint behind `local_commands`; equal values skip the rebuild.
     local_revision: u64,
+    /// Merged tool summary templates backing tool row rendering;
+    /// machine-local entries shadow same-name snapshot entries.
+    tool_templates: Vec<tui_core::tool_output::ToolSummaryTemplate>,
+    /// Server snapshot tool templates, kept to rebuild the merged set.
+    snapshot_tool_templates: Vec<tui_core::tool_output::ToolSummaryTemplate>,
+    /// Machine-local tool templates shadowing same-name snapshot entries.
+    local_tool_templates: Vec<tui_core::tool_output::ToolSummaryTemplate>,
+    /// Merged Markdown rules for transcript surfaces; display-only and
+    /// applied in order, empty patterns skipped.
+    markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+    /// Server snapshot Markdown rules, kept to rebuild the merged set.
+    snapshot_markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+    /// Machine-local Markdown rules shadowing same-id snapshot entries.
+    local_markdown_rules: Vec<wf_types::cli::CliMarkdownRule>,
+    /// Merged settings rows for the settings surface; values live under
+    /// the visitor `plugins.<plugin>.<name>` namespace.
+    setting_fields: Vec<wf_types::cli::CliSettingField>,
+    /// Server snapshot settings rows, kept to rebuild the merged set.
+    snapshot_settings: Vec<wf_types::cli::CliSettingField>,
+    /// Machine-local settings rows shadowing same-key snapshot entries.
+    local_settings: Vec<wf_types::cli::CliSettingField>,
+    /// Merged completion sources for composer use; local entries shadow
+    /// same-id snapshot entries, exact duplicates dropped.
+    plugin_completions: Vec<wf_types::cli::CliCompletionSource>,
+    /// Server snapshot completion sources.
+    snapshot_completions: Vec<wf_types::cli::CliCompletionSource>,
+    /// Machine-local completion sources.
+    local_completions: Vec<wf_types::cli::CliCompletionSource>,
     /// Skills cached for the skill panel.
     panel_skills: Vec<wf_types::skill::SkillMetadata>,
     /// Workflow summaries cached for the workflow panel.
@@ -755,6 +783,18 @@ impl InteractiveController {
             local_commands: Vec::new(),
             snapshot_revision: 0,
             local_revision: 0,
+            tool_templates: Vec::new(),
+            snapshot_tool_templates: Vec::new(),
+            local_tool_templates: Vec::new(),
+            markdown_rules: Vec::new(),
+            snapshot_markdown_rules: Vec::new(),
+            local_markdown_rules: Vec::new(),
+            setting_fields: Vec::new(),
+            snapshot_settings: Vec::new(),
+            local_settings: Vec::new(),
+            plugin_completions: Vec::new(),
+            snapshot_completions: Vec::new(),
+            local_completions: Vec::new(),
             panel_workflows: Vec::new(),
             panel_auth: Vec::new(),
             panel_mention_files: Vec::new(),

@@ -1204,6 +1204,11 @@ pub struct RuntimeCommand {
     /// which always arrived over the snapshot channel.
     #[serde(default)]
     pub origin: wf_types::cli::CliCommandOrigin,
+    /// Applicability condition carried from the snapshot. Screens and
+    /// roles stay unevaluated until per-screen and identity context
+    /// lands in the shells; connection and overlay filter at dispatch.
+    #[serde(default)]
+    pub when: wf_types::cli::CliCommandCondition,
 }
 
 fn default_palette() -> bool {
@@ -1250,6 +1255,7 @@ impl RuntimeCommand {
             palette: view.palette,
             key_hint: view.key_hint.clone(),
             origin,
+            when: view.when.clone(),
         })
     }
 
@@ -1274,6 +1280,20 @@ impl RuntimeCommand {
             label.push_str(&self.slash_argument);
         }
         label
+    }
+
+    /// Connection and overlay part of the applicability condition.
+    /// Screen and role scoping stays with the host until per-screen and
+    /// identity context lands in the shells; only the two shell-local
+    /// signals filter here.
+    pub fn matches_connection_overlay(&self, connected: bool, overlay_open: bool) -> bool {
+        if self.when.require_connected && !connected {
+            return false;
+        }
+        if self.when.hide_when_overlay && overlay_open {
+            return false;
+        }
+        true
     }
 }
 
@@ -1541,6 +1561,48 @@ fn edit_distance(a: &str, b: &str) -> usize {
 pub struct HelpRow {
     pub keys: String,
     pub title: &'static str,
+}
+
+/// One help row for a plugin command: owned strings because plugin
+/// titles only exist at runtime. `keys` carries the slash spelling plus
+/// the display-only key hint; `title` carries the origin suffix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginHelpRow {
+    pub keys: String,
+    pub title: String,
+}
+
+/// Plugin commands grouped by their own group, in registration order.
+/// Titles carry the declaration origin so shadowing stays visible.
+pub fn plugin_help_sections(plugins: &[RuntimeCommand]) -> Vec<(String, Vec<PluginHelpRow>)> {
+    let mut sections: Vec<(String, Vec<PluginHelpRow>)> = Vec::new();
+    for command in plugins {
+        let mut keys = command.palette_label();
+        if let Some(hint) = command.key_hint.as_deref() {
+            let hint = hint.trim();
+            if !hint.is_empty() {
+                keys.push_str(" (");
+                keys.push_str(hint);
+                keys.push(')');
+            }
+        }
+        let origin = match command.origin {
+            CliCommandOrigin::Local => "local",
+            CliCommandOrigin::Snapshot => "server",
+        };
+        let position = sections
+            .iter()
+            .position(|(group, _)| group == &command.group)
+            .unwrap_or_else(|| {
+                sections.push((command.group.clone(), Vec::new()));
+                sections.len() - 1
+            });
+        sections[position].1.push(PluginHelpRow {
+            keys,
+            title: format!("{} [{origin}]", command.title),
+        });
+    }
+    sections
 }
 
 /// Command help grouped by command group, followed by the leader section.
@@ -1872,6 +1934,7 @@ mod tests {
             palette: true,
             key_hint: None,
             origin: wf_types::cli::CliCommandOrigin::Snapshot,
+            when: wf_types::cli::CliCommandCondition::default(),
         }
     }
 
@@ -2011,5 +2074,29 @@ mod tests {
         let mut aliased = snapshot_view("review.run", Some("review"));
         aliased.slash_aliases.push("has space".to_string());
         assert!(RuntimeCommand::from_view(&aliased, CliCommandOrigin::Snapshot).is_none());
+    }
+
+    #[test]
+    fn plugin_help_sections_group_and_mark_origin() {
+        let mut first = plugin_command("review.run", "review");
+        first.origin = wf_types::cli::CliCommandOrigin::Local;
+        let sections = plugin_help_sections(&[first]);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].0, "Review");
+        assert_eq!(sections[0].1.len(), 1);
+        assert!(sections[0].1[0].keys.contains("/review"));
+        assert!(sections[0].1[0].title.contains("[local]"));
+    }
+
+    #[test]
+    fn connection_overlay_condition_filters_dispatch() {
+        let mut gated = plugin_command("review.run", "review");
+        gated.when.require_connected = true;
+        assert!(!gated.matches_connection_overlay(false, false));
+        assert!(gated.matches_connection_overlay(true, false));
+        gated.when.require_connected = false;
+        gated.when.hide_when_overlay = true;
+        assert!(!gated.matches_connection_overlay(true, true));
+        assert!(gated.matches_connection_overlay(true, false));
     }
 }

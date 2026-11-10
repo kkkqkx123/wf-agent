@@ -706,8 +706,6 @@ impl PluginHandlerSource for WfPluginHandlerSource {
     }
 
     fn cli_snapshot(&self) -> wf_types::cli::CliSnapshot {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
         use wf_types::cli::*;
 
         let mut commands: Vec<CliCommandView> = self
@@ -788,30 +786,39 @@ impl PluginHandlerSource for WfPluginHandlerSource {
             .collect();
         markdown_rules.sort_by(|a, b| a.id.cmp(&b.id));
         // Content fingerprint over sorted keys: shells compare revisions
-        // for equality and replace the whole snapshot on change.
-        let mut hasher = DefaultHasher::new();
+        // for equality and replace the whole snapshot on change. Stable
+        // across restarts so identical content keeps one revision.
+        let mut hasher = blake3::Hasher::new();
         for command in &commands {
-            "cli-command".hash(&mut hasher);
-            command.id.hash(&mut hasher);
+            hasher.update(b"cli-command\0");
+            hasher.update(command.id.as_bytes());
+            hasher.update(b"\0");
         }
         for source in &completions {
-            "completion-provider".hash(&mut hasher);
-            source.id.hash(&mut hasher);
+            hasher.update(b"completion-provider\0");
+            hasher.update(source.id.as_bytes());
+            hasher.update(b"\0");
         }
         for field in &settings {
-            "setting-field".hash(&mut hasher);
-            field.key.hash(&mut hasher);
+            hasher.update(b"setting-field\0");
+            hasher.update(field.key.as_bytes());
+            hasher.update(b"\0");
         }
         for summary in &tool_summaries {
-            "tool-summary".hash(&mut hasher);
-            summary.tool_name.hash(&mut hasher);
+            hasher.update(b"tool-summary\0");
+            hasher.update(summary.tool_name.as_bytes());
+            hasher.update(b"\0");
         }
         for rule in &markdown_rules {
-            "markdown-transformer".hash(&mut hasher);
-            rule.id.hash(&mut hasher);
+            hasher.update(b"markdown-transformer\0");
+            hasher.update(rule.id.as_bytes());
+            hasher.update(b"\0");
         }
+        let digest = hasher.finalize();
+        let mut revision_bytes = [0u8; 8];
+        revision_bytes.copy_from_slice(&digest.as_bytes()[..8]);
         CliSnapshot {
-            revision: hasher.finish(),
+            revision: u64::from_le_bytes(revision_bytes),
             commands,
             completions,
             settings,

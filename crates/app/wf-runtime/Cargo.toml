@@ -37,6 +37,7 @@ wf-shell = { path = "../../infra/wf-shell" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-api = { path = "../wf-api" }
 fs4.workspace = true
+blake3.workspace = true
 
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

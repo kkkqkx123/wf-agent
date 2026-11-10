@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::modal::{centered_rect, Modal, ModalAction, ModalResult};
-use tui_core::command::help_sections;
+use tui_core::command::{help_sections, plugin_help_sections, RuntimeCommand};
 use tui_core::keymap::{CKey, Key};
 use tui_style::theme::Theme;
 
@@ -18,11 +18,19 @@ fn to_color(rgb: tui_style::theme::Rgb) -> Color {
 /// the screen behind it keeps rendering so the user can read the shortcut
 /// in context.
 #[derive(Default)]
-pub struct HelpModal;
+pub struct HelpModal {
+    plugins: Vec<RuntimeCommand>,
+}
 
 impl HelpModal {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Help modal with plugin rows appended after the builtin groups.
+    /// Titles carry the declaration origin so shadowing stays visible.
+    pub fn with_plugins(plugins: Vec<RuntimeCommand>) -> Self {
+        Self { plugins }
     }
 }
 
@@ -48,6 +56,20 @@ impl Modal for HelpModal {
                 help_text.push_str(&row.keys);
                 help_text.push_str(" - ");
                 help_text.push_str(row.title);
+                help_text.push('\n');
+            }
+        }
+        for (group, rows) in plugin_help_sections(&self.plugins) {
+            if !help_text.is_empty() {
+                help_text.push('\n');
+            }
+            help_text.push_str(&group);
+            help_text.push_str(":\n");
+            for row in rows {
+                help_text.push_str("  ");
+                help_text.push_str(&row.keys);
+                help_text.push_str(" - ");
+                help_text.push_str(&row.title);
                 help_text.push('\n');
             }
         }

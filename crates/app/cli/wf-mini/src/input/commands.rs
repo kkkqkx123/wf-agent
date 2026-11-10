@@ -92,6 +92,9 @@ pub struct PluginSlash {
     /// Where the entry was declared: local plugins shadow same-name
     /// snapshot entries in the merged registry.
     pub origin: wf_types::cli::CliCommandOrigin,
+    /// Applicability condition carried from the snapshot. Screens and
+    /// roles stay unevaluated; connection and overlay filter at dispatch.
+    pub when: wf_types::cli::CliCommandCondition,
 }
 
 impl PluginSlash {
@@ -117,7 +120,19 @@ impl PluginSlash {
             aliases: view.slash_aliases.clone(),
             description: view.description.clone(),
             origin,
+            when: view.when.clone(),
         })
+    }
+
+    /// Connection and overlay part of the applicability condition.
+    pub fn matches_connection_overlay(&self, connected: bool, overlay_open: bool) -> bool {
+        if self.when.require_connected && !connected {
+            return false;
+        }
+        if self.when.hide_when_overlay && overlay_open {
+            return false;
+        }
+        true
     }
 }
 
@@ -627,6 +642,7 @@ mod tests {
             aliases: vec!["rev".to_string()],
             description: "Review the diff".to_string(),
             origin: wf_types::cli::CliCommandOrigin::Snapshot,
+            when: wf_types::cli::CliCommandCondition::default(),
         }]
     }
 
@@ -653,6 +669,7 @@ mod tests {
             aliases: vec![],
             description: "shadow".to_string(),
             origin: wf_types::cli::CliCommandOrigin::Snapshot,
+            when: wf_types::cli::CliCommandCondition::default(),
         }];
         assert_eq!(
             parse_command_with("/help", &shadowed),

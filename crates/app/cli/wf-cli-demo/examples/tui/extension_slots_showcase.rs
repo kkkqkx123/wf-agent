@@ -2,7 +2,7 @@
 //! and session lifecycle on one screen.
 //!
 //! The left pane lists the slot names reserved for header, footer main,
-//! footer extension, tool summary and settings groups. The right pane
+//! footer extension, tool call/result and setting rows. The right pane
 //! packs a synthetic footer segment list into the current width with
 //! `fit_footer_segments`, showing compact replacement before drops and
 //! priority-ordered drops. `c` clears session contributions, `r` restores
@@ -31,8 +31,9 @@ fn slot_lines() -> Vec<Line<'static>> {
         Slot::HEADER.name(),
         Slot::FOOTER_MAIN.name(),
         Slot::FOOTER_EXTENSION.name(),
-        Slot::TOOL_SUMMARY.name(),
-        Slot::SETTINGS_GROUP.name(),
+        Slot::TOOL_CALL.name(),
+        Slot::TOOL_RESULT.name(),
+        Slot::SETTING_ROW.name(),
         Slot::SIDEBAR.name(),
         Slot::NOTICE.name(),
     ]

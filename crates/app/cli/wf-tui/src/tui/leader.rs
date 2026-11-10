@@ -82,7 +82,8 @@ impl TuiApp {
                 }
             }
             "app.help" => {
-                self.modals.push(Box::new(HelpModal::new()));
+                let plugins = self.active_plugin_commands();
+                self.modals.push(Box::new(HelpModal::with_plugins(plugins)));
                 Ok(LoopAction::Continue)
             }
             "command.palette" => {
@@ -114,7 +115,8 @@ impl TuiApp {
                 match action {
                     Some(InteractiveAction::Exit) => self.interactive_exit = true,
                     Some(InteractiveAction::ShowHelp) => {
-                        self.modals.push(Box::new(HelpModal::new()));
+                        let plugins = self.active_plugin_commands();
+                        self.modals.push(Box::new(HelpModal::with_plugins(plugins)));
                     }
                     Some(InteractiveAction::NewSession) => self.new_tab().await,
                     Some(InteractiveAction::OpenSessionList) => self.open_session_list(),

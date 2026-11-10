@@ -1140,8 +1140,8 @@ impl InteractiveController {
     /// over-limit path so both offer identical settlement semantics.
     fn apply_stream_frame(&mut self, frame: crate::markdown::MarkdownFrame) {
         if !frame.new_committed.is_empty() {
-            self.pending_scroll
-                .push(HistoryLine::markdown(frame.new_committed));
+            let text = self.apply_markdown(frame.new_committed, "assistant");
+            self.pending_scroll.push(HistoryLine::markdown(text));
             self.scroll_cover = self.stream.committed_upto();
         } else {
             let committed_to = self.stream.committed_upto();
@@ -1151,7 +1151,8 @@ impl InteractiveController {
                     .range_text(self.scroll_cover, committed_to)
                     .to_string();
                 if !chunk.is_empty() {
-                    self.pending_scroll.push(HistoryLine::markdown(chunk));
+                    let text = self.apply_markdown(chunk, "assistant");
+                    self.pending_scroll.push(HistoryLine::markdown(text));
                 }
                 self.scroll_cover = committed_to;
             }
@@ -1218,7 +1219,8 @@ impl InteractiveController {
             .range_text(self.scroll_cover, usize::MAX)
             .to_string();
         if !rest.is_empty() {
-            self.pending_scroll.push(HistoryLine::markdown(rest));
+            let text = self.apply_markdown(rest, "assistant");
+            self.pending_scroll.push(HistoryLine::markdown(text));
         }
         let _ = self.stream.finish();
         self.scroll_cover = 0;

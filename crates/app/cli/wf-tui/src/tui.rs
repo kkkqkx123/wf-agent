@@ -461,6 +461,15 @@ impl TuiApp {
         }
     }
 
+    /// Plugin commands of the active tab for help and palette consumers.
+    /// Empty when no tab is open; the builtin registry always renders.
+    fn active_plugin_commands(&self) -> Vec<tui_core::command::RuntimeCommand> {
+        self.sessions
+            .active()
+            .map(|controller| controller.plugin_commands_snapshot())
+            .unwrap_or_default()
+    }
+
     pub async fn run(mut self) -> CliResult<()> {
         crate::terminal::install_panic_hook();
         let mut guard = TerminalGuard::new(CrosstermControl::new(io::stdout()));

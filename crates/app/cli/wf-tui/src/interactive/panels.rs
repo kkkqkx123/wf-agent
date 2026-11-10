@@ -1267,6 +1267,14 @@ impl InteractiveController {
             Some(command::SlashHit::Builtin(spec)) => Some(self.run_command(spec, argument)),
             Some(command::SlashHit::Plugin(plugin)) => {
                 let plugin = plugin.clone();
+                let overlay_open = self.footer.panel.is_some();
+                if !plugin.matches_connection_overlay(true, overlay_open) {
+                    self.footer.show_notice(format!(
+                        "plugin command '/{}' is not available here",
+                        plugin.slash_name.as_deref().unwrap_or(plugin.id.as_str())
+                    ));
+                    return Some(InteractiveAction::Continue);
+                }
                 Some(self.run_plugin_command(&plugin, argument))
             }
             None => {
@@ -1323,7 +1331,11 @@ impl InteractiveController {
     /// and rebuild. Local entries shadow same-id entries from the other
     /// source; the shadowing is reported once per rebuild instead of
     /// failing. `track_revision` selects which revision counter gates
-    /// the no-op path.
+    /// the no-op path. All five contribution kinds convert here so no
+    /// snapshot entry is silently dropped: commands merge into the
+    /// registry, tool templates feed row rendering, Markdown rules feed
+    /// transcript display, settings and completions merge for their
+    /// surfaces.
     fn set_commands(
         &mut self,
         snapshot: &wf_types::cli::CliSnapshot,
@@ -1345,20 +1357,76 @@ impl InteractiveController {
             .filter_map(|view| RuntimeCommand::from_view(view, origin))
             .collect();
         let rejected = snapshot.commands.len() - converted.len();
+        let tools: Vec<tui_core::tool_output::ToolSummaryTemplate> = snapshot
+            .tool_summaries
+            .iter()
+            .map(tui_core::tool_output::ToolSummaryTemplate::from_snapshot)
+            .collect();
+        let markdown: Vec<wf_types::cli::CliMarkdownRule> = snapshot
+            .markdown_rules
+            .iter()
+            .filter(|rule| !rule.pattern.is_empty())
+            .cloned()
+            .collect();
+        let markdown_rejected = snapshot.markdown_rules.len() - markdown.len();
+        let settings: Vec<wf_types::cli::CliSettingField> = snapshot
+            .settings
+            .iter()
+            .filter(|field| Self::valid_setting_field(field))
+            .cloned()
+            .collect();
+        let settings_rejected = snapshot.settings.len() - settings.len();
+        let completions: Vec<wf_types::cli::CliCompletionSource> = snapshot
+            .completions
+            .iter()
+            .filter(|source| Self::valid_completion_source(source))
+            .cloned()
+            .collect();
+        let completions_rejected = snapshot.completions.len() - completions.len();
         if track_snapshot {
             self.snapshot_commands = converted;
+            self.snapshot_tool_templates = tools;
+            self.snapshot_markdown_rules = markdown;
+            self.snapshot_settings = settings;
+            self.snapshot_completions = completions;
         } else {
             self.local_commands = converted;
+            self.local_tool_templates = tools;
+            self.local_markdown_rules = markdown;
+            self.local_settings = settings;
+            self.local_completions = completions;
         }
+        let source = if track_snapshot { "snapshot" } else { "local" };
         if rejected > 0 {
             self.footer.show_notice(format!(
-                "ignoring {rejected} invalid {} command{}: fails host validation",
-                if track_snapshot { "snapshot" } else { "local" },
+                "ignoring {rejected} invalid {source} command{}: fails host validation",
                 if rejected == 1 { "" } else { "s" }
+            ));
+        }
+        if markdown_rejected > 0 || settings_rejected > 0 || completions_rejected > 0 {
+            self.footer.show_notice(format!(
+                "ignoring {markdown_rejected} markdown, {settings_rejected} settings, {completions_rejected} completion entries from {source}: fails host validation"
             ));
         }
         self.rebuild_plugin_commands();
         true
+    }
+
+    fn valid_setting_field(field: &wf_types::cli::CliSettingField) -> bool {
+        field.key.contains('.')
+            && !field.key.trim().is_empty()
+            && !field.key.chars().any(char::is_whitespace)
+            && (field.values.is_empty() || field.values.contains(&field.fallback))
+    }
+
+    fn valid_completion_source(source: &wf_types::cli::CliCompletionSource) -> bool {
+        !source.id.trim().is_empty()
+            && !source.trigger_chars.is_empty()
+            && source
+                .trigger_chars
+                .iter()
+                .all(|trigger| !trigger.is_empty() && !trigger.chars().any(char::is_whitespace))
+            && source.items.iter().any(|item| !item.value.is_empty())
     }
 
     /// Rebuild the merged registry: local commands first, then snapshot
@@ -1396,11 +1464,86 @@ impl InteractiveController {
         if let Some(PanelState::Command(panel)) = self.footer.panel.as_mut() {
             panel.set_plugin_commands(snapshot);
         }
+        self.tool_templates =
+            Self::merge_tool_templates(&self.local_tool_templates, &self.snapshot_tool_templates);
+        self.markdown_rules = Self::merge_by_key(
+            &self.local_markdown_rules,
+            &self.snapshot_markdown_rules,
+            |rule| rule.id.clone(),
+        );
+        self.setting_fields =
+            Self::merge_by_key(&self.local_settings, &self.snapshot_settings, |field| {
+                field.key.clone()
+            });
+        self.plugin_completions = Self::merge_by_key(
+            &self.local_completions,
+            &self.snapshot_completions,
+            |source| source.id.clone(),
+        );
+    }
+
+    fn merge_tool_templates(
+        local: &[tui_core::tool_output::ToolSummaryTemplate],
+        snapshot: &[tui_core::tool_output::ToolSummaryTemplate],
+    ) -> Vec<tui_core::tool_output::ToolSummaryTemplate> {
+        let mut merged: Vec<tui_core::tool_output::ToolSummaryTemplate> = Vec::new();
+        for template in local.iter().chain(snapshot.iter()) {
+            if merged
+                .iter()
+                .any(|kept| kept.tool_name == template.tool_name)
+            {
+                continue;
+            }
+            merged.push(template.clone());
+        }
+        merged
+    }
+
+    fn merge_by_key<T: Clone>(local: &[T], snapshot: &[T], key: impl Fn(&T) -> String) -> Vec<T> {
+        let mut merged: Vec<T> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for item in local.iter().chain(snapshot.iter()) {
+            let id = key(item);
+            if seen.contains(&id) {
+                continue;
+            }
+            seen.push(id);
+            merged.push(item.clone());
+        }
+        merged
+    }
+
+    /// Markdown rules for transcript display, in merge order.
+    pub fn markdown_rules_snapshot(&self) -> Vec<wf_types::cli::CliMarkdownRule> {
+        self.markdown_rules.clone()
+    }
+
+    /// Apply merged Markdown rules to committed transcript text for one
+    /// surface. Display-only; stored payloads and streaming views are
+    /// untouched, so one bad rule never breaks the session.
+    pub(crate) fn apply_markdown(&self, text: String, surface: &str) -> String {
+        tui_core::tool_output::apply_snapshot_markdown_rules(&text, &self.markdown_rules, surface)
+    }
+
+    /// Settings rows for the settings surface, in merge order.
+    pub fn setting_fields_snapshot(&self) -> Vec<wf_types::cli::CliSettingField> {
+        self.setting_fields.clone()
+    }
+
+    /// Completion sources for composer use, in merge order.
+    pub fn completions_snapshot(&self) -> Vec<wf_types::cli::CliCompletionSource> {
+        self.plugin_completions.clone()
     }
 
     /// Shell-held plugin commands in registration order.
     fn plugin_snapshot(&self) -> Vec<RuntimeCommand> {
         self.plugin_commands.ordered().cloned().collect()
+    }
+
+    /// Plugin commands for help and palette consumers outside the
+    /// controller. Cloned because shells render from owned rows.
+    pub fn plugin_commands_snapshot(&self) -> Vec<RuntimeCommand> {
+        self.plugin_snapshot()
     }
 
     // ── queued prompts ─────────────────────────────────────────────────

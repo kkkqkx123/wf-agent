@@ -66,6 +66,11 @@ mod tests {
             llm_providers: vec![],
             tools: vec![],
             tool_descriptions: vec![],
+            cli_commands: vec![],
+            completion_sources: vec![],
+            setting_fields: vec![],
+            tool_summaries: vec![],
+            markdown_rules: vec![],
             wasm: None,
             lua: None,
         };
@@ -156,6 +161,11 @@ mod tests {
             llm_providers: vec![],
             tools: vec![],
             tool_descriptions: vec![],
+            cli_commands: vec![],
+            completion_sources: vec![],
+            setting_fields: vec![],
+            tool_summaries: vec![],
+            markdown_rules: vec![],
             wasm: Some(WasmConfig {
                 store_pool_size: Some(pool_size),
                 ..Default::default()
@@ -377,6 +387,11 @@ mod tests {
             llm_providers: vec![],
             tools: vec![],
             tool_descriptions: vec![],
+            cli_commands: vec![],
+            completion_sources: vec![],
+            setting_fields: vec![],
+            tool_summaries: vec![],
+            markdown_rules: vec![],
             wasm: None,
             lua: None,
         };
@@ -738,6 +753,11 @@ mod tests {
             llm_providers: vec![],
             tools: vec![],
             tool_descriptions: vec![],
+            cli_commands: vec![],
+            completion_sources: vec![],
+            setting_fields: vec![],
+            tool_summaries: vec![],
+            markdown_rules: vec![],
             wasm: None,
             lua: None,
         };

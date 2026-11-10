@@ -98,11 +98,7 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
                     OutputEnvelope::success("tool-delete", data).with_entity(id.clone()),
                 )
             } else {
-                render_failure(
-                    cli.output,
-                    "tool-delete",
-                    format!("tool not found: {id}"),
-                )
+                render_failure(cli.output, "tool-delete", format!("tool not found: {id}"))
             }
         }
         ToolSub::Enable { id } => {

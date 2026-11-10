@@ -242,6 +242,13 @@ pub struct TuiApp {
     /// Initial session-level agent context for new tabs: parsed once from
     /// `--context` / `--context-file` and cloned into every tab.
     initial_context: serde_json::Map<String, serde_json::Value>,
+    /// Last fetched server CLI snapshot, applied to every tab controller
+    /// at creation and fanned out to live tabs on refresh. `None` before
+    /// the first sync; a failed fetch keeps builtin-only behavior.
+    plugin_snapshot: Option<wf_types::cli::CliSnapshot>,
+    /// Machine-local declarative plugin snapshot, same lifecycle as the
+    /// server snapshot. Local entries shadow same-id snapshot entries.
+    local_snapshot: Option<wf_types::cli::CliSnapshot>,
 }
 
 impl TuiApp {
@@ -403,6 +410,8 @@ impl TuiApp {
             last_click_count: 0,
             tab_strip_area: None,
             initial_context: serde_json::Map::new(),
+            plugin_snapshot: None,
+            local_snapshot: None,
         }
     }
 
@@ -410,6 +419,46 @@ impl TuiApp {
     /// tabs. Parsed once from the global `--context` / `--context-file`.
     pub fn set_initial_context(&mut self, context: serde_json::Map<String, serde_json::Value>) {
         self.initial_context = context;
+    }
+
+    /// Fetch the server CLI snapshot and scan machine-local declarative
+    /// plugins, then fan both out to every live tab controller (new tabs
+    /// pick them up in `start_tab_controller`). Any failure degrades to
+    /// builtin-only behavior with one visible notice instead of blocking
+    /// the session.
+    pub async fn sync_plugin_snapshot(&mut self) {
+        let mut problems: Vec<String> = Vec::new();
+        match self.client.cli_snapshot().await {
+            Ok(snapshot) => {
+                self.plugin_snapshot = Some(snapshot);
+            }
+            Err(e) => problems.push(format!(
+                "plugin snapshot unavailable ({e}); builtin commands only"
+            )),
+        }
+        let project_plugins = std::env::current_dir()
+            .ok()
+            .map(|dir| dir.join(".wf").join("tui-plugins"));
+        let scan = wf_cli_shared::local_cli::scan_local_cli(
+            wf_cli_shared::local_cli::default_global_dir().as_deref(),
+            project_plugins.as_deref(),
+            wf_cli_shared::local_cli::default_approvals_path().as_deref(),
+        );
+        problems.extend(scan.notices.iter().cloned());
+        self.local_snapshot = Some(wf_cli_shared::local_cli::local_snapshot(&scan));
+        if let Some(snapshot) = self.plugin_snapshot.as_ref() {
+            for tab in self.sessions.iter_mut() {
+                tab.controller.set_snapshot_commands(snapshot);
+            }
+        }
+        if let Some(local) = self.local_snapshot.as_ref() {
+            for tab in self.sessions.iter_mut() {
+                tab.controller.set_local_commands(local);
+            }
+        }
+        if !problems.is_empty() {
+            self.app.notice.set(problems.join(" | "));
+        }
     }
 
     pub async fn run(mut self) -> CliResult<()> {
@@ -1123,11 +1172,13 @@ impl TuiApp {
                         tui_core::command::PalettePick::Plugin(index) => {
                             match self.command_palette.plugin_command(*index) {
                                 Some(command) => {
-                                    let mut row = format!(
-                                        "{} — {}",
-                                        command.palette_label(),
-                                        command.title
-                                    );
+                                    let mut row =
+                                        format!("{} — {}", command.palette_label(), command.title);
+                                    let origin = match command.origin {
+                                        tui_core::command::CliCommandOrigin::Local => "local",
+                                        tui_core::command::CliCommandOrigin::Snapshot => "server",
+                                    };
+                                    row.push_str(&format!(" [{origin}]"));
                                     if let Some(hint) = command.key_hint.as_deref() {
                                         row.push_str(&format!(" ({hint})"));
                                     }

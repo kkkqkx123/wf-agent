@@ -228,7 +228,10 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                     OutputEnvelope::success("template-version-list", data).with_entity(id.clone()),
                 )
             }
-            TemplateVersionSub::Show { id, version_label: version } => {
+            TemplateVersionSub::Show {
+                id,
+                version_label: version,
+            } => {
                 let data: serde_json::Value = client
                     .get_json(&format!(
                         "/api/v1/agent-definitions/{id}/versions/{version}"
@@ -241,7 +244,10 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
         },
-        TemplateSub::Rollback { id, target_version: version } => {
+        TemplateSub::Rollback {
+            id,
+            target_version: version,
+        } => {
             let body = serde_json::json!({ "version": version });
             client
                 .post_json::<_, serde_json::Value>(

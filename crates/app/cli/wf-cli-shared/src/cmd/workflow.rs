@@ -344,9 +344,8 @@ pub(crate) async fn run_with_client(
                 .get_json(&format!("/api/v1/workflows/{id}/export"))
                 .await?;
             let value: serde_json::Value = match raw {
-                serde_json::Value::String(s) => serde_json::from_str(&s).map_err(|e| {
-                    CliError::Configuration(format!("export decode failed: {e}"))
-                })?,
+                serde_json::Value::String(s) => serde_json::from_str(&s)
+                    .map_err(|e| CliError::Configuration(format!("export decode failed: {e}")))?,
                 v => v,
             };
             if *format == "toml" {
@@ -426,7 +425,10 @@ pub(crate) async fn run_with_client(
                     OutputEnvelope::success("workflow-version-list", data).with_entity(id.clone()),
                 )
             }
-            WorkflowVersionSub::Show { id, version_label: ver } => {
+            WorkflowVersionSub::Show {
+                id,
+                version_label: ver,
+            } => {
                 let data: serde_json::Value = client
                     .get_json(&format!("/api/v1/workflows/{id}/versions/{ver}"))
                     .await?;
@@ -519,7 +521,10 @@ pub(crate) async fn run_with_client(
                 )
             }
         },
-        WorkflowSub::Rollback { id, target_version: version } => {
+        WorkflowSub::Rollback {
+            id,
+            target_version: version,
+        } => {
             let body = serde_json::json!({ "version": version });
             client
                 .post_json::<_, serde_json::Value>(

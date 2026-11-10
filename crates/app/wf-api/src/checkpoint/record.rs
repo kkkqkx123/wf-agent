@@ -312,19 +312,17 @@ pub async fn list_by_entity_unified(
     let lookup_failed = |e: wf_checkpoint::CheckpointError| {
         crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
     };
-    let workflow =
-        wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone())
-            .list_by_entity(entity_id)
-            .await
-            .map_err(lookup_failed)?;
+    let workflow = wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone())
+        .list_by_entity(entity_id)
+        .await
+        .map_err(lookup_failed)?;
     let agent = wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone())
         .list_by_entity(entity_id)
         .await
         .map_err(lookup_failed)?;
-    let legacy =
-        list_checkpoints_by_entity(&ctx.storage, entity_id, entity_type)
-            .await
-            .unwrap_or_default();
+    let legacy = list_checkpoints_by_entity(&ctx.storage, entity_id, entity_type)
+        .await
+        .unwrap_or_default();
     let mut merged: Vec<Checkpoint> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for cp in workflow.into_iter().chain(agent) {
@@ -340,11 +338,7 @@ pub async fn list_by_entity_unified(
             merged.push(cp);
         }
     }
-    merged.sort_by(|a, b| {
-        a.timestamp
-            .cmp(&b.timestamp)
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    merged.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
     Ok(merged)
 }
 

@@ -190,6 +190,53 @@ impl PluginEngine {
             }
         }
     }
+    /// Register manifest-inline declarative CLI contributions with the
+    /// same validation and conflict policy as programmatic ones. The
+    /// `cli_ui` permission gates all five kinds: without it the inline
+    /// declarations are skipped with a warning, mirroring the
+    /// `llm_providers` permission gate. Runs after the plugin's own
+    /// `register_contributions` so programmatic errors keep surfacing
+    /// first; an inline conflict fails activation instead of silently
+    /// winning.
+    pub(crate) fn sync_manifest_cli_contributions(&self, plugin_id: &str) -> PluginResult<()> {
+        let info = match self.registry.get(plugin_id) {
+            Some(info) => info,
+            None => return Ok(()),
+        };
+        let manifest = &info.manifest;
+        if manifest.cli_commands.is_empty()
+            && manifest.completion_sources.is_empty()
+            && manifest.setting_fields.is_empty()
+            && manifest.tool_summaries.is_empty()
+            && manifest.markdown_rules.is_empty()
+        {
+            return Ok(());
+        }
+        if !manifest.permissions.contains(&PluginPermission::CliUi) {
+            tracing::warn!(
+                plugin_id,
+                "manifest declares inline CLI contributions but lacks the cli_ui permission; skipping"
+            );
+            return Ok(());
+        }
+        let mut registrar = self.contribution_manager.as_registrar();
+        for command in &manifest.cli_commands {
+            registrar.register_cli_command(command.clone())?;
+        }
+        for source in &manifest.completion_sources {
+            registrar.register_completion_provider(source.clone())?;
+        }
+        for field in &manifest.setting_fields {
+            registrar.register_setting_field(field.clone())?;
+        }
+        for summary in &manifest.tool_summaries {
+            registrar.register_tool_summary(summary.clone())?;
+        }
+        for rule in &manifest.markdown_rules {
+            registrar.register_markdown_transformer(rule.clone())?;
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn convert_provider_definition(

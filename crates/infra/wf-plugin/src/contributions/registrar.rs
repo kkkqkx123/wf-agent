@@ -112,10 +112,7 @@ pub trait ContributionRegistrar {
     fn register_cli_command(&mut self, command: PluginCliCommand) -> PluginResult<()>;
     /// Register one static completion source for trigger characters.
     /// `source.id` is the registry key.
-    fn register_completion_provider(
-        &mut self,
-        source: PluginCompletionSource,
-    ) -> PluginResult<()>;
+    fn register_completion_provider(&mut self, source: PluginCompletionSource) -> PluginResult<()>;
     /// Register one settings row under `plugins.<plugin>.<name>`.
     /// `field.key` is the registry key.
     fn register_setting_field(&mut self, field: PluginSettingField) -> PluginResult<()>;

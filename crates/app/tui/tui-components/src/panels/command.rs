@@ -11,13 +11,23 @@ use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::command::{self, CommandSpec, RuntimeCommand};
 use tui_core::keymap::KeyAction;
 
+/// One selectable `/` panel row: a builtin command or an owned plugin
+/// command. The cursor, filter and viewport treat both uniformly;
+/// execution still branches on the variant at commit time.
+#[derive(Debug, Clone)]
+pub enum PanelCommand {
+    Builtin(&'static CommandSpec),
+    Plugin(RuntimeCommand),
+}
+
 /// The `/` command palette.
 #[derive(Debug, Clone)]
 pub struct CommandPalette {
-    list: SelectList<&'static CommandSpec>,
+    list: SelectList<PanelCommand>,
     /// Filter text typed while the palette is open.
     filter: PanelFilter,
-    /// Plugin commands resolved for direct `/name` submits.
+    /// Plugin commands resolved for direct `/name` submits and listed
+    /// after the builtin groups.
     plugin_commands: Vec<RuntimeCommand>,
 }
 
@@ -34,9 +44,8 @@ impl CommandPalette {
 
     /// Palette commands narrowed by `filter`.
     pub fn with_filter(filter: &str) -> Self {
-        let list = Self::build_list();
         let mut panel = Self {
-            list,
+            list: Self::build_list(&[]),
             filter: PanelFilter::new(),
             plugin_commands: Vec::new(),
         };
@@ -69,9 +78,10 @@ impl CommandPalette {
         apply(&mut self.list, &command);
     }
 
-    /// Registry order grouped by command group.
-    fn build_list() -> SelectList<&'static CommandSpec> {
-        let mut groups: Vec<Group<&'static CommandSpec>> = Vec::new();
+    /// Registry order grouped by command group, builtins first in
+    /// registry order, then plugin rows grouped by their own group.
+    fn build_list(plugin_commands: &[RuntimeCommand]) -> SelectList<PanelCommand> {
+        let mut groups: Vec<Group<PanelCommand>> = Vec::new();
         for spec in command::palette_commands() {
             let position = groups
                 .iter()
@@ -92,17 +102,41 @@ impl CommandPalette {
                     label.push_str(slash.argument);
                 }
             }
-            groups[index]
-                .items
-                .push(GroupItem::new(label, spec).described(spec.description));
+            groups[index].items.push(
+                GroupItem::new(label, PanelCommand::Builtin(spec)).described(spec.description),
+            );
+        }
+        for command in plugin_commands.iter().filter(|command| command.palette) {
+            let position = groups
+                .iter()
+                .position(|group| group.title.as_deref() == Some(command.group.as_str()));
+            let index = if let Some(index) = position {
+                index
+            } else {
+                groups.push(Group::new(Some(command.group.as_str())));
+                groups.len() - 1
+            };
+            let origin = match command.origin {
+                command::CliCommandOrigin::Local => "local",
+                command::CliCommandOrigin::Snapshot => "server",
+            };
+            groups[index].items.push(
+                GroupItem::new(
+                    command.palette_label(),
+                    PanelCommand::Plugin(command.clone()),
+                )
+                .described(format!("{} [{origin}]", command.description)),
+            );
         }
         SelectList::groups(groups).with_group_titles(true)
     }
 
-    /// Replace the plugin command list (converted from engine snapshots
-    /// by the shell) without touching the typed filter.
+    /// Replace the plugin command list and rebuild the rows (builtins
+    /// first, then plugin groups) without touching the typed filter.
     pub fn set_plugin_commands(&mut self, commands: Vec<RuntimeCommand>) {
         self.plugin_commands = commands;
+        self.list = Self::build_list(&self.plugin_commands);
+        self.apply_filter();
     }
 
     /// Plugin command behind a typed slash name or alias (`/review`,
@@ -140,9 +174,28 @@ impl CommandPalette {
         })
     }
 
-    /// The command highlighted by the cursor.
+    /// The builtin command highlighted by the cursor, if the cursor sits
+    /// on a builtin row.
     pub fn selected_command(&self) -> Option<&'static CommandSpec> {
-        self.list.selected().map(|item| item.data)
+        match self.list.selected() {
+            Some(item) => match &item.data {
+                PanelCommand::Builtin(spec) => Some(*spec),
+                PanelCommand::Plugin(_) => None,
+            },
+            None => None,
+        }
+    }
+
+    /// The plugin command highlighted by the cursor, if the cursor sits
+    /// on a plugin row.
+    pub fn selected_plugin(&self) -> Option<RuntimeCommand> {
+        match self.list.selected() {
+            Some(item) => match &item.data {
+                PanelCommand::Plugin(command) => Some(command.clone()),
+                PanelCommand::Builtin(_) => None,
+            },
+            None => None,
+        }
     }
 
     /// Apply a keymap action; returns `true` when the action was consumed.

@@ -243,9 +243,33 @@ fn longest_common_prefix(candidates: &[&str]) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginCompletionSource {
     /// Trigger characters activating this source (`#`, `@`, `/`).
-    pub trigger: String,
-    /// Static items offered while the trigger is active.
+    pub triggers: Vec<String>,
+    /// Static items offered while a trigger is active.
     pub items: Vec<String>,
+}
+
+impl PluginCompletionSource {
+    /// Convert one snapshot completion source, keeping valid trigger
+    /// characters and non-empty item values. Sources with no usable
+    /// trigger or no items are rejected.
+    pub fn from_view(view: &wf_types::cli::CliCompletionSource) -> Option<Self> {
+        let triggers: Vec<String> = view
+            .trigger_chars
+            .iter()
+            .filter(|trigger| !trigger.is_empty() && !trigger.chars().any(char::is_whitespace))
+            .cloned()
+            .collect();
+        let items: Vec<String> = view
+            .items
+            .iter()
+            .map(|item| item.value.clone())
+            .filter(|value| !value.is_empty())
+            .collect();
+        if triggers.is_empty() || items.is_empty() {
+            return None;
+        }
+        Some(Self { triggers, items })
+    }
 }
 
 /// Plugin completion: each source watches its trigger prefix and offers
@@ -268,7 +292,11 @@ impl SuggestStrategy for PluginCompletionStrategy {
 
     fn suggest(&self, buffer: &str, _ctx: &SuggestCtx) -> Option<String> {
         for source in &self.sources {
-            if source.trigger.is_empty() || !buffer.starts_with(&source.trigger) {
+            let active = source
+                .triggers
+                .iter()
+                .any(|trigger| !trigger.is_empty() && buffer.starts_with(trigger));
+            if !active {
                 continue;
             }
             if buffer.chars().any(char::is_whitespace) {
@@ -516,7 +544,7 @@ mod tests {
     #[test]
     fn plugin_completion_serves_trigger_items() {
         let strategy = PluginCompletionStrategy::new(vec![PluginCompletionSource {
-            trigger: "#".to_string(),
+            triggers: vec!["#".to_string()],
             items: vec!["#12".to_string()],
         }]);
         let history = Vec::new();
@@ -527,7 +555,7 @@ mod tests {
         assert_eq!(strategy.suggest("#1 x", &ctx), None);
 
         let ambiguous = PluginCompletionStrategy::new(vec![PluginCompletionSource {
-            trigger: "#".to_string(),
+            triggers: vec!["#".to_string()],
             items: vec!["#review-a".to_string(), "#review-b".to_string()],
         }]);
         assert_eq!(
@@ -537,19 +565,42 @@ mod tests {
         assert_eq!(ambiguous.suggest("#review-", &ctx), None);
     }
 
+    fn snapshot_source(triggers: &[&str], values: &[&str]) -> wf_types::cli::CliCompletionSource {
+        wf_types::cli::CliCompletionSource {
+            id: "review.paths".to_string(),
+            trigger_chars: triggers.iter().map(|trigger| trigger.to_string()).collect(),
+            items: values
+                .iter()
+                .map(|value| wf_types::cli::CliCompletionItem {
+                    value: value.to_string(),
+                    label: None,
+                    description: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn plugin_completion_from_view_keeps_valid_triggers_and_values() {
+        let source = PluginCompletionSource::from_view(&snapshot_source(&["#", "@"], &["#12"]))
+            .expect("valid source converts");
+        assert_eq!(source.triggers, vec!["#".to_string(), "@".to_string()]);
+        assert!(PluginCompletionSource::from_view(&snapshot_source(&[], &["#12"])).is_none());
+        assert!(PluginCompletionSource::from_view(&snapshot_source(&["#"], &[])).is_none());
+        assert!(
+            PluginCompletionSource::from_view(&snapshot_source(&["has space"], &["#12"])).is_none()
+        );
+    }
+
     #[test]
     fn plugin_engine_places_sources_before_builtin_commands() {
-        let engine =
-            SuggestEngine::with_plugin_sources(vec![PluginCompletionSource {
-                trigger: "/".to_string(),
-                items: vec!["/review".to_string()],
-            }]);
+        let engine = SuggestEngine::with_plugin_sources(vec![PluginCompletionSource {
+            triggers: vec!["/".to_string()],
+            items: vec!["/review".to_string()],
+        }]);
         let history = Vec::new();
         let ctx = mk_ctx(&history, None);
-        assert_eq!(
-            engine.suggest("/rev", &ctx),
-            Some("/review".to_string())
-        );
+        assert_eq!(engine.suggest("/rev", &ctx), Some("/review".to_string()));
     }
 
     #[test]

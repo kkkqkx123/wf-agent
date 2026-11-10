@@ -46,6 +46,12 @@ impl TuiApp {
     /// empty while restored tabs replay their server history.
     async fn start_tab_controller(&self, id: &str) -> InteractiveController {
         let mut session = InteractiveController::start(self.client.clone(), id.to_string()).await;
+        if let Some(snapshot) = self.plugin_snapshot.as_ref() {
+            session.set_snapshot_commands(snapshot);
+        }
+        if let Some(local) = self.local_snapshot.as_ref() {
+            session.set_local_commands(local);
+        }
         session.set_session_context(self.initial_context.clone());
         session.set_keymap(self.keymap.clone());
         session.set_perf_tier(self.perf_tier.marker());

@@ -10,6 +10,12 @@ serde_json.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+utoipa = { workspace = true, optional = true }
+
+[features]
+# OpenAPI schema derives for the CLI snapshot DTOs, enabled by the
+# transport crate alone so the default foundation build stays lean.
+utoipa = ["dep:utoipa"]
 
 [dev-dependencies]
 toml.workspace = true

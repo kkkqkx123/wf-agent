@@ -89,6 +89,36 @@ pub struct PluginSlash {
     pub name: String,
     pub aliases: Vec<String>,
     pub description: String,
+    /// Where the entry was declared: local plugins shadow same-name
+    /// snapshot entries in the merged registry.
+    pub origin: wf_types::cli::CliCommandOrigin,
+}
+
+impl PluginSlash {
+    /// Convert one snapshot command view into a routable slash entry,
+    /// re-validating the spelling the same way the engine does. Palette-only
+    /// commands (no slash name) and malformed spellings are rejected so
+    /// the shell never lists an unroutable command.
+    pub fn from_view(
+        view: &wf_types::cli::CliCommandView,
+        origin: wf_types::cli::CliCommandOrigin,
+    ) -> Option<Self> {
+        let bare = |name: &str| {
+            !name.trim().is_empty()
+                && !name.starts_with('/')
+                && !name.chars().any(char::is_whitespace)
+        };
+        let name = view.slash_name.as_deref().filter(|name| bare(name))?;
+        if view.slash_aliases.iter().any(|alias| !bare(alias)) {
+            return None;
+        }
+        Some(Self {
+            name: name.to_string(),
+            aliases: view.slash_aliases.clone(),
+            description: view.description.clone(),
+            origin,
+        })
+    }
 }
 
 /// Arguments of the `/image` staging command.
@@ -596,6 +626,7 @@ mod tests {
             name: "review".to_string(),
             aliases: vec!["rev".to_string()],
             description: "Review the diff".to_string(),
+            origin: wf_types::cli::CliCommandOrigin::Snapshot,
         }]
     }
 
@@ -621,6 +652,7 @@ mod tests {
             name: "help".to_string(),
             aliases: vec![],
             description: "shadow".to_string(),
+            origin: wf_types::cli::CliCommandOrigin::Snapshot,
         }];
         assert_eq!(
             parse_command_with("/help", &shadowed),
@@ -628,6 +660,41 @@ mod tests {
         );
         assert_eq!(parse_command_with("/unknown", &plugins), None);
         assert_eq!(parse_command_with("plain text", &plugins), None);
+    }
+
+    fn snapshot_view(name: Option<&str>) -> wf_types::cli::CliCommandView {
+        wf_types::cli::CliCommandView {
+            id: "review.run".to_string(),
+            title: "Run review".to_string(),
+            group: "Review".to_string(),
+            description: "Review the diff".to_string(),
+            slash_name: name.map(str::to_string),
+            slash_aliases: Vec::new(),
+            slash_argument: String::new(),
+            palette: true,
+            key_hint: None,
+            when: wf_types::cli::CliCommandCondition::default(),
+        }
+    }
+
+    #[test]
+    fn plugin_slash_from_view_tags_origin_and_rejects_unroutable() {
+        use wf_types::cli::CliCommandOrigin;
+        let local = PluginSlash::from_view(&snapshot_view(Some("review")), CliCommandOrigin::Local)
+            .expect("valid view converts");
+        assert_eq!(local.name, "review");
+        assert_eq!(local.origin, CliCommandOrigin::Local);
+        assert!(PluginSlash::from_view(&snapshot_view(None), CliCommandOrigin::Snapshot).is_none());
+        assert!(PluginSlash::from_view(
+            &snapshot_view(Some("/review")),
+            CliCommandOrigin::Snapshot
+        )
+        .is_none());
+        assert!(PluginSlash::from_view(
+            &snapshot_view(Some("has space")),
+            CliCommandOrigin::Snapshot
+        )
+        .is_none());
     }
 
     #[test]

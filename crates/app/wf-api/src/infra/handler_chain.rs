@@ -59,6 +59,13 @@ pub trait PluginHandlerSource: Send + Sync {
 
     /// Plugin middleware handlers registered for `phase`.
     fn middleware(&self, phase: &MiddlewarePhase) -> Vec<Arc<dyn PluginMiddlewareBridge>>;
+
+    /// Versioned CLI snapshot (commands, completions, settings, tool
+    /// summaries, Markdown rules) published to shells. Empty by default
+    /// so plugin-less servers behave builtin-only without any wiring.
+    fn cli_snapshot(&self) -> wf_types::cli::CliSnapshot {
+        wf_types::cli::CliSnapshot::empty()
+    }
 }
 
 /// No-op contribution source; the default when no plugin engine is wired.

@@ -183,6 +183,11 @@ fn test_manifest(id: &str, wasm: wf_plugin_sdk::manifest::WasmConfig) -> PluginM
         llm_providers: vec![],
         tools: vec![],
         tool_descriptions: vec![],
+        cli_commands: vec![],
+        completion_sources: vec![],
+        setting_fields: vec![],
+        tool_summaries: vec![],
+        markdown_rules: vec![],
         wasm: Some(wasm),
         lua: None,
     }

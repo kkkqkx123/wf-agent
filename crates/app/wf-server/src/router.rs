@@ -93,6 +93,8 @@ pub fn api_router_with_dirs(
         .merge(api::agent::locks::routes())
         // chat domain (tool-free multi-turn executor)
         .merge(api::chat::routes())
+        // cli snapshot (data-only plugin CLI projection for shells)
+        .merge(api::cli::routes())
         // screen-only recap reads (chat sessions + agent loops share the face)
         .merge(api::recap::routes())
         .merge(api::title::routes())

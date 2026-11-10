@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod chat;
 pub mod checkpoint;
+pub mod cli;
 pub mod definition;
 pub mod entity;
 pub mod fs;

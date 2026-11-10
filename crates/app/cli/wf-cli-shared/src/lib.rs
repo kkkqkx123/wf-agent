@@ -21,6 +21,7 @@ pub mod cmd;
 pub mod connection;
 pub mod display;
 pub mod error;
+pub mod local_cli;
 pub mod mode;
 pub mod notify;
 pub mod output;

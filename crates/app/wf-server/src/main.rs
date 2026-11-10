@@ -191,7 +191,9 @@ async fn main() {
     }
 
     let registry = metrics_registry.clone().unwrap_or_else(|| {
-        tracing::info!("metrics not configured; serving observability endpoints with an empty registry");
+        tracing::info!(
+            "metrics not configured; serving observability endpoints with an empty registry"
+        );
         std::sync::Arc::new(wf_metrics::MetricsRegistry::default())
     });
     let handle = {

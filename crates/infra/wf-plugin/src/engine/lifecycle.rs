@@ -141,6 +141,20 @@ impl PluginEngine {
 
         self.check_manifest_contributions(plugin_id);
 
+        // Manifest-inline declarative CLI contributions register after
+        // the plugin's own code with identical validation and conflict
+        // policy, so one declaration serves both the server snapshot and
+        // machine-local loaders. A conflict fails activation exactly like
+        // a programmatic double registration instead of silently winning.
+        if let Err(e) = self.sync_manifest_cli_contributions(plugin_id) {
+            self.registry.set_error(plugin_id, e.to_string());
+            self.publish(PluginEvent::Error {
+                plugin_id: plugin_id.to_owned(),
+                error: e.to_string(),
+            });
+            return Err(e);
+        }
+
         // Record the registered contributions on the registry record so
         // `list_by_contribution` / plugin info expose them.
         let records: Vec<crate::registry::ContributionRecord> = self
@@ -453,5 +467,129 @@ impl PluginEngine {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use crate::contributions::ContributionManager;
+    use crate::manifest::PluginPermission;
+    use crate::registry::PluginRegistry;
+    use wf_plugin_sdk::{PluginCliCommand, PluginCliCondition, PluginMarkdownRule};
+
+    struct NoopInstance {
+        manifest: PluginManifest,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::plugin::Plugin for NoopInstance {
+        fn manifest(&self) -> &PluginManifest {
+            &self.manifest
+        }
+    }
+
+    fn inline_manifest(permissions: Vec<PluginPermission>) -> PluginManifest {
+        PluginManifest {
+            id: "inline".into(),
+            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            plugin_type: None,
+            entry_point: String::new(),
+            versioned_entry_points: Default::default(),
+            dependencies: Default::default(),
+            optional_dependencies: Default::default(),
+            contributions: vec!["cli-command".to_string()],
+            permissions,
+            config_schema: None,
+            config: None,
+            hooks: None,
+            llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
+            cli_commands: vec![PluginCliCommand {
+                id: "inline.run".into(),
+                title: "Run".into(),
+                group: "Inline".into(),
+                description: "Inline command".into(),
+                slash_name: Some("inlinerun".into()),
+                slash_aliases: Vec::new(),
+                slash_argument: String::new(),
+                palette: true,
+                key_hint: None,
+                when: PluginCliCondition::default(),
+            }],
+            completion_sources: vec![],
+            setting_fields: vec![],
+            tool_summaries: vec![],
+            markdown_rules: vec![PluginMarkdownRule {
+                id: "inline.rule".into(),
+                pattern: "[I]".into(),
+                replacement: "inline".into(),
+                surfaces: Vec::new(),
+            }],
+            wasm: None,
+            lua: None,
+        }
+    }
+
+    fn engine_with(manifest: PluginManifest) -> PluginEngine {
+        let registry = Arc::new(PluginRegistry::new());
+        let instance = Arc::new(NoopInstance {
+            manifest: manifest.clone(),
+        });
+        registry.register(manifest, instance).expect("registers");
+        let manager = Arc::new(ContributionManager::new());
+        manager.start_registration("inline");
+        PluginEngine::new(
+            registry,
+            manager,
+            None,
+            crate::engine::PluginSystemConfig::default(),
+        )
+    }
+
+    #[test]
+    fn inline_cli_registers_behind_the_cli_ui_permission() {
+        let engine = engine_with(inline_manifest(vec![PluginPermission::CliUi]));
+        engine
+            .sync_manifest_cli_contributions("inline")
+            .expect("registers");
+        let manager = &engine.contribution_manager;
+        assert_eq!(
+            manager.get_cli_command("inline.run").expect("kept").title,
+            "Run"
+        );
+        assert!(manager.get_markdown_transformer("inline.rule").is_some());
+        assert!(manager
+            .contributions_for("inline")
+            .contains(&("cli-command".to_string(), "inline.run".to_string())));
+    }
+
+    #[test]
+    fn inline_cli_without_permission_registers_nothing() {
+        let engine = engine_with(inline_manifest(vec![]));
+        engine
+            .sync_manifest_cli_contributions("inline")
+            .expect("skips without failing");
+        assert!(engine.contribution_manager.all_cli_commands().is_empty());
+    }
+
+    #[test]
+    fn inline_cli_conflict_fails_instead_of_silently_winning() {
+        let engine = engine_with(inline_manifest(vec![PluginPermission::CliUi]));
+        engine
+            .sync_manifest_cli_contributions("inline")
+            .expect("first registers");
+        let err = engine
+            .sync_manifest_cli_contributions("inline")
+            .expect_err("duplicate inline id must fail");
+        assert!(
+            err.to_string().contains("inline.run"),
+            "conflict names the id: {err}"
+        );
     }
 }

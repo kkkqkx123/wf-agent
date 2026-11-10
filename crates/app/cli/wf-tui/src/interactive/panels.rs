@@ -626,12 +626,16 @@ impl InteractiveController {
         match self.footer.panel.as_ref() {
             Some(PanelState::Command(panel)) => {
                 let command = panel.selected_command();
-                let plugin = panel.resolve_plugin();
+                let cursor_plugin = panel.selected_plugin();
+                let typed_plugin = panel.resolve_plugin();
                 let argument = panel.argument().to_string();
                 self.close_panel();
                 match command {
                     Some(command) => self.run_command(command, &argument),
-                    None => match plugin {
+                    None => match cursor_plugin
+                        .map(|plugin| (plugin, argument))
+                        .or(typed_plugin)
+                    {
                         Some((plugin, plugin_argument)) => {
                             self.run_plugin_command(&plugin, &plugin_argument)
                         }
@@ -1300,26 +1304,97 @@ impl InteractiveController {
         InteractiveAction::Continue
     }
 
-    /// Replace the plugin command registry (converted from engine
-    /// snapshots by the loader) and refresh the open `/` panel, if any.
-    /// Duplicate ids keep the first registration; the conflict is
-    /// reported instead of silently overriding. Public so the server-sync
-    /// loader and embedding shells can populate the registry.
-    pub fn set_plugin_commands(&mut self, commands: Vec<RuntimeCommand>) {
+    /// Replace the server snapshot command set (converted from the
+    /// versioned CLI snapshot) and rebuild the merged registry. Equal
+    /// revisions are a no-op so periodic refreshes stay quiet; returns
+    /// whether the registry changed. Public so the snapshot sync in the
+    /// shell entry point can populate it.
+    pub fn set_snapshot_commands(&mut self, snapshot: &wf_types::cli::CliSnapshot) -> bool {
+        self.set_commands(snapshot, command::CliCommandOrigin::Snapshot, true)
+    }
+
+    /// Replace the machine-local command set (converted from the local
+    /// declarative scan) and rebuild the merged registry.
+    pub fn set_local_commands(&mut self, snapshot: &wf_types::cli::CliSnapshot) {
+        self.set_commands(snapshot, command::CliCommandOrigin::Local, false);
+    }
+
+    /// Convert one source snapshot into registry commands with `origin`
+    /// and rebuild. Local entries shadow same-id entries from the other
+    /// source; the shadowing is reported once per rebuild instead of
+    /// failing. `track_revision` selects which revision counter gates
+    /// the no-op path.
+    fn set_commands(
+        &mut self,
+        snapshot: &wf_types::cli::CliSnapshot,
+        origin: command::CliCommandOrigin,
+        track_snapshot: bool,
+    ) -> bool {
+        let revision = if track_snapshot {
+            &mut self.snapshot_revision
+        } else {
+            &mut self.local_revision
+        };
+        if snapshot.revision == *revision && snapshot.revision != 0 {
+            return false;
+        }
+        *revision = snapshot.revision;
+        let converted: Vec<RuntimeCommand> = snapshot
+            .commands
+            .iter()
+            .filter_map(|view| RuntimeCommand::from_view(view, origin))
+            .collect();
+        let rejected = snapshot.commands.len() - converted.len();
+        if track_snapshot {
+            self.snapshot_commands = converted;
+        } else {
+            self.local_commands = converted;
+        }
+        if rejected > 0 {
+            self.footer.show_notice(format!(
+                "ignoring {rejected} invalid {} command{}: fails host validation",
+                if track_snapshot { "snapshot" } else { "local" },
+                if rejected == 1 { "" } else { "s" }
+            ));
+        }
+        self.rebuild_plugin_commands();
+        true
+    }
+
+    /// Rebuild the merged registry: local commands first, then snapshot
+    /// commands whose ids are not shadowed. Duplicate ids keep the first
+    /// registration; the conflict is reported instead of silently
+    /// overriding.
+    fn rebuild_plugin_commands(&mut self) {
         let mut registry = CommandRegistry::new();
-        let mut conflicts = Vec::new();
-        for command in commands {
-            if let Err(message) = registry.register(command) {
-                conflicts.push(message);
+        let mut shadowed = Vec::new();
+        for command in self
+            .local_commands
+            .iter()
+            .chain(self.snapshot_commands.iter())
+        {
+            if registry.get(&command.id).is_some() {
+                if command.origin == command::CliCommandOrigin::Snapshot {
+                    shadowed.push(command.id.clone());
+                }
+                continue;
             }
+            if let Err(message) = registry.register(command.clone()) {
+                self.footer.show_notice(message);
+            }
+        }
+        if !shadowed.is_empty() {
+            shadowed.sort();
+            shadowed.dedup();
+            self.footer.show_notice(format!(
+                "local plugins shadow snapshot commands: {}",
+                shadowed.join(", ")
+            ));
         }
         self.plugin_commands = registry;
         let snapshot = self.plugin_snapshot();
         if let Some(PanelState::Command(panel)) = self.footer.panel.as_mut() {
             panel.set_plugin_commands(snapshot);
-        }
-        for message in conflicts {
-            self.footer.show_notice(message);
         }
     }
 

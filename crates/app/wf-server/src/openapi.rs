@@ -160,6 +160,8 @@ use utoipa::OpenApi;
         crate::api::chat::starters::handle_resolve_starter,
         crate::api::recap::handle_chat_recap,
         crate::api::title::handle_chat_title,
+        // ── cli ──
+        crate::api::cli::handle_cli_snapshot,
         // ── workflow ──
         crate::api::workflow::approvals::handle_request_approval,
         crate::api::workflow::approvals::handle_check_approval,

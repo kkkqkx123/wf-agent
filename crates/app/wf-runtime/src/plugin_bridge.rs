@@ -704,6 +704,121 @@ impl PluginHandlerSource for WfPluginHandlerSource {
         vec![Arc::new(WfPluginMiddlewareRunner(self.manager.clone()))
             as Arc<dyn PluginMiddlewareBridge>]
     }
+
+    fn cli_snapshot(&self) -> wf_types::cli::CliSnapshot {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        use wf_types::cli::*;
+
+        let mut commands: Vec<CliCommandView> = self
+            .manager
+            .cli_command_snapshot()
+            .into_iter()
+            .map(|command| CliCommandView {
+                id: command.id,
+                title: command.title,
+                group: command.group,
+                description: command.description,
+                slash_name: command.slash_name,
+                slash_aliases: command.slash_aliases,
+                slash_argument: command.slash_argument,
+                palette: command.palette,
+                key_hint: command.key_hint,
+                when: CliCommandCondition {
+                    screens: command.when.screens,
+                    roles: command.when.roles,
+                    require_connected: command.when.require_connected,
+                    hide_when_overlay: command.when.hide_when_overlay,
+                },
+            })
+            .collect();
+        commands.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut completions: Vec<CliCompletionSource> = self
+            .manager
+            .completion_provider_snapshot()
+            .into_iter()
+            .map(|source| CliCompletionSource {
+                id: source.id,
+                trigger_chars: source.trigger_chars,
+                items: source
+                    .items
+                    .into_iter()
+                    .map(|item| CliCompletionItem {
+                        value: item.value,
+                        label: item.label,
+                        description: item.description,
+                    })
+                    .collect(),
+            })
+            .collect();
+        completions.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut settings: Vec<CliSettingField> = self
+            .manager
+            .setting_field_snapshot()
+            .into_iter()
+            .map(|field| CliSettingField {
+                key: field.key,
+                label: field.label,
+                values: field.values,
+                fallback: field.fallback,
+            })
+            .collect();
+        settings.sort_by(|a, b| a.key.cmp(&b.key));
+        let mut tool_summaries: Vec<CliToolSummary> = self
+            .manager
+            .tool_summary_snapshot()
+            .into_iter()
+            .map(|summary| CliToolSummary {
+                tool_name: summary.tool_name,
+                call_template: summary.call_template,
+                result_template: summary.result_template,
+            })
+            .collect();
+        tool_summaries.sort_by(|a, b| a.tool_name.cmp(&b.tool_name));
+        let mut markdown_rules: Vec<CliMarkdownRule> = self
+            .manager
+            .markdown_transformer_snapshot()
+            .into_iter()
+            .map(|rule| CliMarkdownRule {
+                id: rule.id,
+                pattern: rule.pattern,
+                replacement: rule.replacement,
+                surfaces: rule.surfaces,
+            })
+            .collect();
+        markdown_rules.sort_by(|a, b| a.id.cmp(&b.id));
+        // Content fingerprint over sorted keys: shells compare revisions
+        // for equality and replace the whole snapshot on change.
+        let mut hasher = DefaultHasher::new();
+        for command in &commands {
+            "cli-command".hash(&mut hasher);
+            command.id.hash(&mut hasher);
+        }
+        for source in &completions {
+            "completion-provider".hash(&mut hasher);
+            source.id.hash(&mut hasher);
+        }
+        for field in &settings {
+            "setting-field".hash(&mut hasher);
+            field.key.hash(&mut hasher);
+        }
+        for summary in &tool_summaries {
+            "tool-summary".hash(&mut hasher);
+            summary.tool_name.hash(&mut hasher);
+        }
+        for rule in &markdown_rules {
+            "markdown-transformer".hash(&mut hasher);
+            rule.id.hash(&mut hasher);
+        }
+        CliSnapshot {
+            revision: hasher.finish(),
+            commands,
+            completions,
+            settings,
+            tool_summaries,
+            markdown_rules,
+        }
+    }
 }
 
 struct WfPluginNodeExecutor(Arc<dyn wf_plugin::PluginNodeHandler>);
@@ -1140,5 +1255,107 @@ mod tests {
         assert!(rag_core::plugin::find_retrieval_advisor("bridge-test-advisor").is_none());
         assert!(rag_core::plugin::find_vector_encoding("bridge-test-encoding").is_none());
         assert!(rag_core::plugin::find_snapshot_policy("bridge-test-snap").is_none());
+    }
+
+    fn snapshot_command(id: &str, slash: &str) -> wf_plugin::PluginCliCommand {
+        wf_plugin::PluginCliCommand {
+            id: id.into(),
+            title: "Review".into(),
+            group: "Review".into(),
+            description: "Review the diff".into(),
+            slash_name: Some(slash.into()),
+            slash_aliases: Vec::new(),
+            slash_argument: String::new(),
+            palette: true,
+            key_hint: None,
+            when: wf_plugin::PluginCliCondition::default(),
+        }
+    }
+
+    #[test]
+    fn cli_snapshot_projects_all_five_contribution_kinds_sorted() {
+        let manager = Arc::new(ContributionManager::new());
+        manager.start_registration("p1");
+        manager
+            .as_registrar()
+            .register_cli_command(snapshot_command("zeta.run", "zeta"))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_cli_command(snapshot_command("alpha.run", "alpha"))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_completion_provider(wf_plugin::PluginCompletionSource {
+                id: "alpha.paths".to_string(),
+                trigger_chars: vec!["@".to_string()],
+                items: vec![wf_plugin::PluginCompletionItem {
+                    value: "src/".to_string(),
+                    label: None,
+                    description: None,
+                }],
+            })
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_setting_field(wf_plugin::PluginSettingField {
+                key: "alpha.level".to_string(),
+                label: "Level".to_string(),
+                values: vec!["low".to_string()],
+                fallback: "low".to_string(),
+            })
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_tool_summary(wf_plugin::PluginToolSummary {
+                tool_name: "grep".to_string(),
+                call_template: "search {args}".to_string(),
+                result_template: String::new(),
+            })
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_markdown_transformer(wf_plugin::PluginMarkdownRule {
+                id: "alpha.tickets".to_string(),
+                pattern: "[T]".to_string(),
+                replacement: "ticket".to_string(),
+                surfaces: Vec::new(),
+            })
+            .unwrap();
+        let source = WfPluginHandlerSource::new(manager);
+        let snapshot = source.cli_snapshot();
+        assert_eq!(
+            snapshot
+                .commands
+                .iter()
+                .map(|command| command.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.run", "zeta.run"],
+            "snapshot commands sort by id for deterministic consumers"
+        );
+        assert_eq!(snapshot.completions.len(), 1);
+        assert_eq!(snapshot.settings.len(), 1);
+        assert_eq!(snapshot.tool_summaries.len(), 1);
+        assert_eq!(snapshot.markdown_rules.len(), 1);
+        assert_ne!(snapshot.revision, 0, "non-empty snapshot fingerprints");
+        assert!(!snapshot.is_empty());
+    }
+
+    #[test]
+    fn cli_snapshot_revision_changes_with_content() {
+        let manager = Arc::new(ContributionManager::new());
+        manager.start_registration("p1");
+        let source = WfPluginHandlerSource::new(manager.clone());
+        let empty = source.cli_snapshot();
+        assert!(empty.is_empty());
+        manager
+            .as_registrar()
+            .register_cli_command(snapshot_command("alpha.run", "alpha"))
+            .unwrap();
+        let full = source.cli_snapshot();
+        assert_ne!(
+            empty.revision, full.revision,
+            "revision distinguishes empty from populated snapshots"
+        );
     }
 }

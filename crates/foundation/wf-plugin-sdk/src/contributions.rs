@@ -300,9 +300,7 @@ impl PluginToolSummary {
 /// text, `{result}` the truncated result text. Display-only; the stored
 /// tool payload never changes.
 pub fn render_tool_summary(template: &str, args: &str, result: &str) -> String {
-    template
-        .replace("{args}", args)
-        .replace("{result}", result)
+    template.replace("{args}", args).replace("{result}", result)
 }
 
 /// One literal Markdown rewrite applied to transcript surfaces before the

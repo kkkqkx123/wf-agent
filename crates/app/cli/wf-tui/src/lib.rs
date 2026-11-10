@@ -109,6 +109,7 @@ async fn run_interactive(
             )
             .map_err(CliError::Arguments)?;
             app.set_initial_context(initial);
+            app.sync_plugin_snapshot().await;
             if cli.session.is_some() || cli.resume {
                 app.queue_session_restore(cli.session.clone(), cli.resume)
                     .await;

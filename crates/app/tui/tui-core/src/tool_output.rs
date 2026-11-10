@@ -484,8 +484,7 @@ mod tests {
     #[test]
     fn missing_template_falls_back_to_the_builtin_card() {
         let plain = format_tool_summary("grep", "-r foo", None, 0, false, true);
-        let fallback =
-            format_tool_summary_with("grep", "-r foo", None, 0, false, true, &[]);
+        let fallback = format_tool_summary_with("grep", "-r foo", None, 0, false, true, &[]);
         assert_eq!(plain, fallback);
         assert!(fallback.contains("(-r foo)"));
     }

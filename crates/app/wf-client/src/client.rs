@@ -269,6 +269,17 @@ impl WfClient {
         unwrap_generated_envelope(envelope.into_inner())
     }
 
+    /// CLI snapshot path served by `wf-server` (`GET /api/v1/cli/snapshot`).
+    /// Single source so shells and tests cannot drift from the route.
+    pub const CLI_SNAPSHOT_PATH: &'static str = "/api/v1/cli/snapshot";
+
+    /// Typed CLI snapshot fetch: the versioned, data-only projection of
+    /// plugin CLI contributions. Callers re-validate every entry and fall
+    /// back to builtin-only behavior on any transport error.
+    pub async fn cli_snapshot(&self) -> ClientResult<wf_types::cli::CliSnapshot> {
+        self.get(Self::CLI_SNAPSHOT_PATH).await
+    }
+
     /// Typed single agent-loop run (`POST /api/v1/agent-loops/{id}/run`).
     pub async fn run_agent_loop(
         &self,

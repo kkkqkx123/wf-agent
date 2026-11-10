@@ -131,7 +131,9 @@ pub(crate) async fn handle_set_variable(
     if let Err(e) = result {
         return error_response(e);
     }
-    match wf_api::entity::variable::get(&state.ctx, &body.name, scope, body.execution_id.as_deref()).await {
+    match wf_api::entity::variable::get(&state.ctx, &body.name, scope, body.execution_id.as_deref())
+        .await
+    {
         Ok(variable) => ok(variable).into_response(),
         Err(e) => error_response(e),
     }

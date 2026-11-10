@@ -19,6 +19,10 @@ use std::collections::HashMap;
 
 use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
 
+/// Re-exported so shells name command origins without depending on
+/// `wf-types` directly for this vocabulary.
+pub use wf_types::cli::CliCommandOrigin;
+
 /// The key that starts a leader sequence.
 ///
 /// `Ctrl-X` is already the transcript decision-anchor shortcut, so the
@@ -1195,6 +1199,11 @@ pub struct RuntimeCommand {
     /// Display-only default key hint; the host keymap always wins.
     #[serde(default)]
     pub key_hint: Option<String>,
+    /// Where this command was declared: machine-local plugins shadow
+    /// snapshot entries sharing one id. Absent on older wire payloads,
+    /// which always arrived over the snapshot channel.
+    #[serde(default)]
+    pub origin: wf_types::cli::CliCommandOrigin,
 }
 
 fn default_palette() -> bool {
@@ -1202,6 +1211,48 @@ fn default_palette() -> bool {
 }
 
 impl RuntimeCommand {
+    /// Convert one snapshot view into a registry command, re-validating
+    /// the entry the same way the engine does: empty ids, whitespace,
+    /// leading slashes and palette rows without a slash name are
+    /// rejected so the shell never lists an unroutable command. Invalid
+    /// entries fail per-entry; the caller keeps the rest of the snapshot.
+    pub fn from_view(
+        view: &wf_types::cli::CliCommandView,
+        origin: wf_types::cli::CliCommandOrigin,
+    ) -> Option<Self> {
+        if view.id.trim().is_empty() || view.id.chars().any(char::is_whitespace) {
+            return None;
+        }
+        if view.id.starts_with('/') || view.title.trim().is_empty() {
+            return None;
+        }
+        let bare = |name: &str| {
+            !name.trim().is_empty()
+                && !name.starts_with('/')
+                && !name.chars().any(char::is_whitespace)
+        };
+        match view.slash_name.as_deref() {
+            None if view.palette => return None,
+            Some(name) if !bare(name) => return None,
+            _ => {}
+        }
+        if view.slash_aliases.iter().any(|alias| !bare(alias)) {
+            return None;
+        }
+        Some(Self {
+            id: view.id.clone(),
+            title: view.title.clone(),
+            group: view.group.clone(),
+            description: view.description.clone(),
+            slash_name: view.slash_name.clone(),
+            slash_aliases: view.slash_aliases.clone(),
+            slash_argument: view.slash_argument.clone(),
+            palette: view.palette,
+            key_hint: view.key_hint.clone(),
+            origin,
+        })
+    }
+
     /// Every slash spelling of this command: the primary name first.
     pub fn slash_names(&self) -> Vec<&str> {
         let mut names = Vec::new();
@@ -1286,9 +1337,7 @@ impl CommandRegistry {
 
     /// Plugin commands in registration order.
     pub fn ordered(&self) -> impl Iterator<Item = &RuntimeCommand> {
-        self.order
-            .iter()
-            .filter_map(|id| self.commands.get(id))
+        self.order.iter().filter_map(|id| self.commands.get(id))
     }
 
     /// Look a plugin command up by its typed slash name or alias
@@ -1332,10 +1381,7 @@ impl SlashHit<'_> {
 
 /// Resolve a typed slash command against builtins first, then plugins.
 /// Returns `None` for an empty word, exactly like [`lookup_slash`].
-pub fn lookup_slash_with<'a>(
-    typed: &str,
-    plugins: &'a CommandRegistry,
-) -> Option<SlashHit<'a>> {
+pub fn lookup_slash_with<'a>(typed: &str, plugins: &'a CommandRegistry) -> Option<SlashHit<'a>> {
     if let Some(spec) = lookup_slash(typed) {
         return Some(SlashHit::Builtin(spec));
     }
@@ -1344,11 +1390,7 @@ pub fn lookup_slash_with<'a>(
 
 /// Closest slash names for an unknown command, builtins first in builtin
 /// order, then plugin names in registration order, capped at `limit`.
-pub fn slash_suggestions_with(
-    typed: &str,
-    limit: usize,
-    plugins: &CommandRegistry,
-) -> Vec<String> {
+pub fn slash_suggestions_with(typed: &str, limit: usize, plugins: &CommandRegistry) -> Vec<String> {
     let mut out = slash_suggestions_inner(typed, limit);
     if out.len() >= limit {
         return out;
@@ -1829,27 +1871,36 @@ mod tests {
             slash_argument: "[path]".to_string(),
             palette: true,
             key_hint: None,
+            origin: wf_types::cli::CliCommandOrigin::Snapshot,
         }
     }
 
     #[test]
     fn runtime_registry_refuses_duplicate_ids() {
         let mut registry = CommandRegistry::new();
-        registry.register(plugin_command("review.run", "review")).unwrap();
+        registry
+            .register(plugin_command("review.run", "review"))
+            .unwrap();
         assert!(registry
             .register(plugin_command("review.run", "other"))
             .is_err());
         assert!(registry.unregister("review.run"));
         assert!(!registry.unregister("review.run"));
-        registry.register(plugin_command("review.run", "review")).unwrap();
+        registry
+            .register(plugin_command("review.run", "review"))
+            .unwrap();
         assert_eq!(registry.len(), 1);
     }
 
     #[test]
     fn merged_lookup_prefers_builtin_over_plugin_shadow() {
         let mut plugins = CommandRegistry::new();
-        plugins.register(plugin_command("review.run", "review")).unwrap();
-        plugins.register(plugin_command("model.alt", "model")).unwrap();
+        plugins
+            .register(plugin_command("review.run", "review"))
+            .unwrap();
+        plugins
+            .register(plugin_command("model.alt", "model"))
+            .unwrap();
         // Plugin-only name resolves to the plugin command.
         assert!(matches!(
             lookup_slash_with("/review", &plugins),
@@ -1870,7 +1921,9 @@ mod tests {
     #[test]
     fn merged_suggestions_include_plugin_names() {
         let mut plugins = CommandRegistry::new();
-        plugins.register(plugin_command("review.run", "review")).unwrap();
+        plugins
+            .register(plugin_command("review.run", "review"))
+            .unwrap();
         let suggestions = slash_suggestions_with("revie", 5, &plugins);
         assert!(suggestions.contains(&"/review".to_string()));
         let builtin_only = slash_suggestions("revie", 5);
@@ -1880,7 +1933,9 @@ mod tests {
     #[test]
     fn plugin_palette_rows_follow_registration_order() {
         let mut plugins = CommandRegistry::new();
-        plugins.register(plugin_command("review.run", "review")).unwrap();
+        plugins
+            .register(plugin_command("review.run", "review"))
+            .unwrap();
         let mut hidden = plugin_command("quiet.clean", "clean");
         hidden.palette = false;
         plugins.register(hidden).unwrap();
@@ -1898,5 +1953,63 @@ mod tests {
         assert_eq!(command, back);
         assert_eq!(back.palette_label(), "/review [path]");
         assert_eq!(back.slash_names(), vec!["review", "rev"]);
+    }
+
+    fn snapshot_view(id: &str, slash: Option<&str>) -> wf_types::cli::CliCommandView {
+        wf_types::cli::CliCommandView {
+            id: id.to_string(),
+            title: "Run review".to_string(),
+            group: "Review".to_string(),
+            description: "Review the current diff".to_string(),
+            slash_name: slash.map(str::to_string),
+            slash_aliases: Vec::new(),
+            slash_argument: String::new(),
+            palette: true,
+            key_hint: None,
+            when: wf_types::cli::CliCommandCondition::default(),
+        }
+    }
+
+    #[test]
+    fn from_view_accepts_valid_snapshot_entries() {
+        use wf_types::cli::CliCommandOrigin;
+        let command = RuntimeCommand::from_view(
+            &snapshot_view("review.run", Some("review")),
+            CliCommandOrigin::Snapshot,
+        )
+        .expect("valid view converts");
+        assert_eq!(command.id, "review.run");
+        assert_eq!(command.origin, CliCommandOrigin::Snapshot);
+        let local = RuntimeCommand::from_view(
+            &snapshot_view("local.fix", Some("fix")),
+            CliCommandOrigin::Local,
+        )
+        .expect("valid view converts");
+        assert_eq!(local.origin, CliCommandOrigin::Local);
+    }
+
+    #[test]
+    fn from_view_rejects_unroutable_entries() {
+        use wf_types::cli::CliCommandOrigin;
+        assert!(RuntimeCommand::from_view(
+            &snapshot_view("", Some("review")),
+            CliCommandOrigin::Snapshot,
+        )
+        .is_none());
+        assert!(RuntimeCommand::from_view(
+            &snapshot_view("bad id", Some("review")),
+            CliCommandOrigin::Snapshot,
+        )
+        .is_none());
+        let mut slashed = snapshot_view("review.run", Some("/review"));
+        assert!(RuntimeCommand::from_view(&slashed, CliCommandOrigin::Snapshot).is_none());
+        slashed = snapshot_view("review.run", None);
+        assert!(
+            RuntimeCommand::from_view(&slashed, CliCommandOrigin::Snapshot).is_none(),
+            "palette rows without a slash name stay uninvokable"
+        );
+        let mut aliased = snapshot_view("review.run", Some("review"));
+        aliased.slash_aliases.push("has space".to_string());
+        assert!(RuntimeCommand::from_view(&aliased, CliCommandOrigin::Snapshot).is_none());
     }
 }

@@ -138,6 +138,25 @@ pub struct PluginManifest {
     /// Lua-only execution limits. Ignored for other types.
     #[serde(default)]
     pub lua: Option<LuaConfig>,
+    /// Inline declarative CLI commands. Honored by the engine on
+    /// activation exactly like programmatic `cli-command` registrations
+    /// (same validation, same conflict policy) and read directly by the
+    /// TUI local loader, so one declaration serves both the server
+    /// snapshot and machine-local plugins without running any code.
+    #[serde(default)]
+    pub cli_commands: Vec<crate::PluginCliCommand>,
+    /// Inline declarative completion sources (same dual path as commands).
+    #[serde(default)]
+    pub completion_sources: Vec<crate::PluginCompletionSource>,
+    /// Inline declarative settings rows (same dual path as commands).
+    #[serde(default)]
+    pub setting_fields: Vec<crate::PluginSettingField>,
+    /// Inline declarative tool summary templates (same dual path).
+    #[serde(default)]
+    pub tool_summaries: Vec<crate::PluginToolSummary>,
+    /// Inline declarative Markdown rewrite rules (same dual path).
+    #[serde(default)]
+    pub markdown_rules: Vec<crate::PluginMarkdownRule>,
 }
 
 /// Declarative LLM connection template in the plugin manifest.
@@ -483,5 +502,57 @@ flow = "pkce_paste"
             Some("pkce_paste")
         );
         assert_eq!(params.get("client_id").and_then(Value::as_str), Some("cid"));
+    }
+
+    #[test]
+    fn manifest_parses_inline_cli_contributions() {
+        let raw = r#"
+id = "inline"
+version = "1.0.0"
+entry_point = ""
+permissions = ["cli_ui"]
+
+[[cli_commands]]
+id = "inline.run"
+title = "Run"
+group = "Inline"
+description = "Inline command"
+slash_name = "inlinerun"
+
+[[completion_sources]]
+id = "inline.paths"
+trigger_chars = ["@"]
+
+[[markdown_rules]]
+id = "inline.rule"
+pattern = "[I]"
+replacement = "inline"
+"#;
+        let manifest: PluginManifest = toml::from_str(raw).expect("parse manifest");
+        assert!(manifest.permissions.contains(&PluginPermission::CliUi));
+        let command = manifest.cli_commands.first().expect("command");
+        assert_eq!(command.id, "inline.run");
+        command.validate().expect("inline command validates");
+        let source = manifest.completion_sources.first().expect("source");
+        source.validate().expect("inline source validates");
+        let rule = manifest.markdown_rules.first().expect("rule");
+        assert_eq!(rule.pattern, "[I]");
+        assert!(manifest.setting_fields.is_empty());
+        assert!(manifest.tool_summaries.is_empty());
+    }
+
+    #[test]
+    fn manifest_without_cli_fields_stays_empty() {
+        let raw = r#"
+id = "bare"
+version = "1.0.0"
+entry_point = "main.lua"
+"#;
+        let manifest: PluginManifest = toml::from_str(raw).expect("parse manifest");
+        assert!(manifest.cli_commands.is_empty());
+        assert!(manifest.completion_sources.is_empty());
+        assert!(manifest.setting_fields.is_empty());
+        assert!(manifest.tool_summaries.is_empty());
+        assert!(manifest.markdown_rules.is_empty());
     }
 }

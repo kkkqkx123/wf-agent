@@ -122,12 +122,26 @@ pub struct NativeSession {
     /// Session-level structured agent context: set once via `--context` /
     /// `--context-file` or `/context`, carried on every subsequent turn.
     session_context: serde_json::Map<String, serde_json::Value>,
-    /// Plugin slash names resolved before builtin misses fall through to
-    /// the prompt. Populated from engine snapshots by the loader; empty
-    /// keeps the builtin-only behavior.
+    /// Merged plugin slash names resolved before builtin misses fall
+    /// through to the prompt: machine-local entries first, then the
+    /// server snapshot. Empty keeps the builtin-only behavior.
     plugin_slash: Vec<PluginSlash>,
-    /// Plugin completion sources backing the suggestion pipeline.
+    /// Merged plugin completion sources backing the suggestion pipeline,
+    /// local first then snapshot, exact duplicates dropped.
     plugin_completions: Vec<PluginCompletionSource>,
+    /// Server snapshot slash entries, kept to rebuild the merged
+    /// registry when local entries change.
+    snapshot_slash: Vec<PluginSlash>,
+    /// Server snapshot completion sources.
+    snapshot_completions: Vec<PluginCompletionSource>,
+    /// Machine-local slash entries, shadowing same-name snapshot entries.
+    local_slash: Vec<PluginSlash>,
+    /// Machine-local completion sources.
+    local_completions: Vec<PluginCompletionSource>,
+    /// Snapshot revision behind the snapshot sets; equal revisions skip
+    /// the rebuild. The local fingerprint has its own counter.
+    snapshot_revision: u64,
+    local_revision: u64,
     /// Image files staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts hands them back.
     staged_images: Vec<wf_types::message::UserImageInput>,
@@ -219,7 +233,7 @@ impl NativeSession {
             cli.context_file.as_deref(),
         )
         .map_err(CliError::Arguments)?;
-        Ok(Self {
+        let mut session = Self {
             client,
             timeout_ms: cli.timeout,
             agent: cli.agent.clone(),
@@ -250,21 +264,146 @@ impl NativeSession {
             staged_image_detail: None,
             plugin_slash: Vec::new(),
             plugin_completions: Vec::new(),
-        })
+            snapshot_slash: Vec::new(),
+            snapshot_completions: Vec::new(),
+            local_slash: Vec::new(),
+            local_completions: Vec::new(),
+            snapshot_revision: 0,
+            local_revision: 0,
+        };
+        session.sync_plugin_sources().await;
+        Ok(session)
     }
 
-    /// Replace the plugin slash and completion registries (converted from
-    /// engine snapshots by the loader) and rebuild the suggestion
-    /// pipeline around them. Empty registries restore builtin-only
-    /// behavior; unknown plugin commands never reach the model.
-    pub fn set_plugin_commands(
+    /// Replace the server snapshot sets (converted from the versioned
+    /// CLI snapshot) and rebuild the merged registries. Equal revisions
+    /// are a no-op; returns whether anything changed.
+    pub fn set_snapshot_commands(&mut self, snapshot: &wf_types::cli::CliSnapshot) -> bool {
+        use wf_types::cli::CliCommandOrigin;
+        self.set_source_commands(snapshot, CliCommandOrigin::Snapshot, true)
+    }
+
+    /// Replace the machine-local sets (converted from the local
+    /// declarative scan) and rebuild the merged registries. Local slash
+    /// entries shadow same-name snapshot entries; the shadowing is
+    /// reported instead of failing.
+    pub fn set_local_snapshot(&mut self, snapshot: &wf_types::cli::CliSnapshot) {
+        use wf_types::cli::CliCommandOrigin;
+        self.set_source_commands(snapshot, CliCommandOrigin::Local, false);
+    }
+
+    /// Convert one source snapshot with `origin` and rebuild: local slash
+    /// entries first, then snapshot entries whose names are not shadowed;
+    /// completion sources concatenate with exact duplicates dropped.
+    fn set_source_commands(
         &mut self,
-        slash: Vec<PluginSlash>,
-        completions: Vec<PluginCompletionSource>,
-    ) {
+        snapshot: &wf_types::cli::CliSnapshot,
+        origin: wf_types::cli::CliCommandOrigin,
+        track_snapshot: bool,
+    ) -> bool {
+        let revision = if track_snapshot {
+            &mut self.snapshot_revision
+        } else {
+            &mut self.local_revision
+        };
+        if snapshot.revision == *revision && snapshot.revision != 0 {
+            return false;
+        }
+        *revision = snapshot.revision;
+        let slash: Vec<PluginSlash> = snapshot
+            .commands
+            .iter()
+            .filter_map(|view| PluginSlash::from_view(view, origin))
+            .collect();
+        let completions: Vec<PluginCompletionSource> = snapshot
+            .completions
+            .iter()
+            .filter_map(PluginCompletionSource::from_view)
+            .collect();
+        let rejected =
+            snapshot.commands.len() - slash.len() + snapshot.completions.len() - completions.len();
+        if track_snapshot {
+            self.snapshot_slash = slash;
+            self.snapshot_completions = completions;
+        } else {
+            self.local_slash = slash;
+            self.local_completions = completions;
+        }
+        if rejected > 0 {
+            output::diag_line(&format!(
+                "ignoring {rejected} invalid {} entr{}: fails host validation",
+                if track_snapshot { "snapshot" } else { "local" },
+                if rejected == 1 { "y" } else { "ies" }
+            ));
+        }
+        self.rebuild_plugin_commands();
+        true
+    }
+
+    /// Rebuild the merged slash and completion registries from the two
+    /// sources and rewire the suggestion pipeline around them. Empty
+    /// sources restore builtin-only behavior; unknown plugin commands
+    /// never reach the model.
+    fn rebuild_plugin_commands(&mut self) {
+        let mut slash: Vec<PluginSlash> = Vec::new();
+        let mut shadowed: Vec<String> = Vec::new();
+        for entry in self.local_slash.iter().chain(self.snapshot_slash.iter()) {
+            if slash.iter().any(|kept| kept.name == entry.name) {
+                if entry.origin == wf_types::cli::CliCommandOrigin::Snapshot {
+                    shadowed.push(entry.name.clone());
+                }
+                continue;
+            }
+            slash.push(entry.clone());
+        }
+        if !shadowed.is_empty() {
+            shadowed.sort();
+            shadowed.dedup();
+            output::diag_line(&format!(
+                "local plugins shadow snapshot commands: {}",
+                shadowed.join(", ")
+            ));
+        }
+        let mut completions: Vec<PluginCompletionSource> = Vec::new();
+        for source in self
+            .local_completions
+            .iter()
+            .chain(self.snapshot_completions.iter())
+        {
+            if !completions.contains(source) {
+                completions.push(source.clone());
+            }
+        }
         self.plugin_slash = slash;
         self.plugin_completions = completions.clone();
         self.suggest = Arc::new(SuggestEngine::with_plugin_sources(completions));
+    }
+
+    /// Fetch the server CLI snapshot and scan machine-local declarative
+    /// plugins, then merge both into the registries. Any failure
+    /// degrades to builtin-only behavior with one diag line instead of
+    /// blocking the session.
+    async fn sync_plugin_sources(&mut self) {
+        match self.client.cli_snapshot().await {
+            Ok(snapshot) => {
+                self.set_snapshot_commands(&snapshot);
+            }
+            Err(e) => output::diag_line(&format!(
+                "plugin snapshot unavailable ({e}); builtin commands only"
+            )),
+        }
+        let project_plugins = std::env::current_dir()
+            .ok()
+            .map(|dir| dir.join(".wf").join("tui-plugins"));
+        let scan = wf_cli_shared::local_cli::scan_local_cli(
+            wf_cli_shared::local_cli::default_global_dir().as_deref(),
+            project_plugins.as_deref(),
+            wf_cli_shared::local_cli::default_approvals_path().as_deref(),
+        );
+        for notice in &scan.notices {
+            output::diag_line(notice);
+        }
+        self.set_local_snapshot(&wf_cli_shared::local_cli::local_snapshot(&scan));
     }
 
     /// Run the prompt loop until EOF or a quit command.
@@ -309,9 +448,7 @@ impl NativeSession {
                     if trimmed.is_empty() {
                         continue;
                     }
-                    if let Some(command) =
-                        input::parse_command_with(&trimmed, &self.plugin_slash)
-                    {
+                    if let Some(command) = input::parse_command_with(&trimmed, &self.plugin_slash) {
                         match self.handle_command(command).await {
                             CommandAction::Exit => break,
                             CommandAction::Continue => continue,
@@ -418,14 +555,26 @@ impl NativeSession {
                     "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image rm <n> removes one, /image clear drops them; /attach <path>... stage text files, /attach lists staged, /attach rm <n> removes one, /attach clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
                 );
                 if !self.plugin_slash.is_empty() {
-                    let mut names: Vec<String> = self
-                        .plugin_slash
-                        .iter()
-                        .map(|plugin| format!("/{}", plugin.name))
-                        .collect();
-                    names.sort();
-                    names.dedup();
-                    output::diag_line(&format!("plugins: {}", names.join(" ")));
+                    let mut local: Vec<String> = Vec::new();
+                    let mut remote: Vec<String> = Vec::new();
+                    for plugin in &self.plugin_slash {
+                        let target = if plugin.origin == wf_types::cli::CliCommandOrigin::Local {
+                            &mut local
+                        } else {
+                            &mut remote
+                        };
+                        target.push(format!("/{}", plugin.name));
+                    }
+                    local.sort();
+                    local.dedup();
+                    remote.sort();
+                    remote.dedup();
+                    if !local.is_empty() {
+                        output::diag_line(&format!("plugins (local): {}", local.join(" ")));
+                    }
+                    if !remote.is_empty() {
+                        output::diag_line(&format!("plugins (server): {}", remote.join(" ")));
+                    }
                 }
                 CommandAction::Continue
             }

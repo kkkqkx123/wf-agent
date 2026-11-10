@@ -446,10 +446,21 @@ pub struct InteractiveController {
     expanded_version: u64,
     /// Model profiles cached for the model panel.
     panel_profiles: Vec<wf_types::llm::LlmProfile>,
-    /// Plugin command registry backing the `/` panel and slash submit.
-    /// Converted from engine snapshots by the loader; empty keeps the
-    /// builtin-only shell.
+    /// Merged plugin command registry backing the `/` panel and slash
+    /// submit: machine-local commands first, then the server snapshot.
+    /// Empty keeps the builtin-only shell.
     plugin_commands: tui_core::command::CommandRegistry,
+    /// Server snapshot commands (origin snapshot), kept to rebuild the
+    /// merged registry when local commands change.
+    snapshot_commands: Vec<tui_core::command::RuntimeCommand>,
+    /// Machine-local plugin commands (origin local), shadowing same-id
+    /// snapshot entries on rebuild.
+    local_commands: Vec<tui_core::command::RuntimeCommand>,
+    /// Snapshot revision behind `snapshot_commands`; equal revisions
+    /// skip the rebuild.
+    snapshot_revision: u64,
+    /// Fingerprint behind `local_commands`; equal values skip the rebuild.
+    local_revision: u64,
     /// Skills cached for the skill panel.
     panel_skills: Vec<wf_types::skill::SkillMetadata>,
     /// Workflow summaries cached for the workflow panel.
@@ -740,6 +751,10 @@ impl InteractiveController {
             panel_profiles: Vec::new(),
             panel_skills: Vec::new(),
             plugin_commands: tui_core::command::CommandRegistry::new(),
+            snapshot_commands: Vec::new(),
+            local_commands: Vec::new(),
+            snapshot_revision: 0,
+            local_revision: 0,
             panel_workflows: Vec::new(),
             panel_auth: Vec::new(),
             panel_mention_files: Vec::new(),

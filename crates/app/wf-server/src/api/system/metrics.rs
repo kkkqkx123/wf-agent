@@ -22,8 +22,6 @@ use crate::envelope::{err, InvalidParams};
 
 pub(crate) const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
-
-
 #[derive(Clone)]
 pub(crate) struct RegistryState {
     pub(crate) registry: Arc<MetricsRegistry>,
@@ -193,8 +191,12 @@ pub(crate) async fn handle_export(
     Query(query): Query<ExportQuery>,
 ) -> Response {
     match query.format.as_deref() {
-        Some("json") | None => crate::envelope::ok(format_registry_json(&state.registry)).into_response(),
-        Some("prometheus") => crate::envelope::ok(format_registry_prometheus(&state.registry)).into_response(),
+        Some("json") | None => {
+            crate::envelope::ok(format_registry_json(&state.registry)).into_response()
+        }
+        Some("prometheus") => {
+            crate::envelope::ok(format_registry_prometheus(&state.registry)).into_response()
+        }
         Some(other) => err(InvalidParams::validation(format!(
             "unsupported export format: {other}"
         )))

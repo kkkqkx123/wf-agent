@@ -107,6 +107,16 @@ impl ContributionManager {
         self.setting_field_registry.all()
     }
 
+    /// Owned tool summary snapshot for hosts that render without
+    /// holding the manager (served through the CLI snapshot API).
+    pub fn tool_summary_snapshot(&self) -> Vec<PluginToolSummary> {
+        self.tool_summary_registry
+            .all_with_values()
+            .into_iter()
+            .map(|(_, _, summary)| (*summary).clone())
+            .collect()
+    }
+
     pub fn get_tool_summary(&self, tool_name: &str) -> Option<Arc<PluginToolSummary>> {
         self.tool_summary_registry.get(tool_name)
     }
@@ -128,6 +138,16 @@ impl ContributionManager {
             .collect();
         rules.sort_by(|a, b| a.id.cmp(&b.id));
         rules
+    }
+
+    /// Owned Markdown rule snapshot covering every surface (the
+    /// per-surface `markdown_rules_for` filters at render time instead).
+    pub fn markdown_transformer_snapshot(&self) -> Vec<PluginMarkdownRule> {
+        self.markdown_transformer_registry
+            .all_with_values()
+            .into_iter()
+            .map(|(_, _, rule)| (*rule).clone())
+            .collect()
     }
 
     pub fn get_markdown_transformer(&self, id: &str) -> Option<Arc<PluginMarkdownRule>> {

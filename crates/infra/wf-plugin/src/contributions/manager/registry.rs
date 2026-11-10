@@ -144,8 +144,7 @@ impl ContributionManager {
         self.cli_command_registry.unregister_by_plugin(plugin_id);
         self.completion_provider_registry
             .unregister_by_plugin(plugin_id);
-        self.setting_field_registry
-            .unregister_by_plugin(plugin_id);
+        self.setting_field_registry.unregister_by_plugin(plugin_id);
         self.tool_summary_registry.unregister_by_plugin(plugin_id);
         self.markdown_transformer_registry
             .unregister_by_plugin(plugin_id);

@@ -21,9 +21,10 @@ pub use contributions::{
     PluginAuthPrompt, PluginCliCommand, PluginCliCondition, PluginCompactionAdvisor,
     PluginCompletionItem, PluginCompletionSource, PluginEventData, PluginEventHandler,
     PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
-    PluginLoginStep, PluginMarkdownRule, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
-    PluginRetrievalAdvisor, PluginSettingField, PluginTextAnalyzer, PluginToolContext,
-    PluginToolExecutor, PluginToolResult, PluginToolSummary, PluginVectorEncoding,
+    PluginLoginStep, PluginMarkdownRule, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginNodeResult, PluginRetrievalAdvisor, PluginSettingField, PluginTextAnalyzer,
+    PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
+    PluginVectorEncoding,
 };
 pub use error::{PluginError, PluginResult};
 pub use manifest::{

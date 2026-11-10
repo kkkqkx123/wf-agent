@@ -19,6 +19,7 @@ pub mod validation;
 pub mod agent;
 pub mod agent_execution;
 pub mod checkpoint;
+pub mod cli;
 pub mod config;
 pub mod errors;
 pub use errors::*;

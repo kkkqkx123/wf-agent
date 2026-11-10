@@ -81,8 +81,7 @@ impl CommandPalette {
                 let title = spec.title.to_lowercase();
                 let id = spec.id.to_lowercase();
                 let description = spec.description.to_lowercase();
-                if title.contains(needle) || id.contains(needle) || description.contains(needle)
-                {
+                if title.contains(needle) || id.contains(needle) || description.contains(needle) {
                     return true;
                 }
                 if let Some(slash) = spec.slash {
@@ -268,6 +267,7 @@ mod tests {
             slash_argument: "[path]".to_string(),
             palette: true,
             key_hint: None,
+            origin: tui_core::command::CliCommandOrigin::default(),
         }
     }
 

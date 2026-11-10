@@ -72,12 +72,12 @@ pub fn parse_select_answer(line: &str, options: usize) -> Option<usize> {
 /// EOF) fails closed: denied confirm, dismissed select and input.
 pub fn answer_headless(request: &DialogRequest, line: Option<&str>) -> DialogOutcome {
     match request {
-        DialogRequest::Confirm { .. } => DialogOutcome::Confirmed(
-            line.is_some_and(parse_confirm_answer),
-        ),
-        DialogRequest::Select { options, .. } => DialogOutcome::Selected(
-            line.and_then(|text| parse_select_answer(text, options.len())),
-        ),
+        DialogRequest::Confirm { .. } => {
+            DialogOutcome::Confirmed(line.is_some_and(parse_confirm_answer))
+        }
+        DialogRequest::Select { options, .. } => {
+            DialogOutcome::Selected(line.and_then(|text| parse_select_answer(text, options.len())))
+        }
         DialogRequest::Input { .. } => match line {
             Some(text) => DialogOutcome::Entered(Some(text.to_string())),
             None => DialogOutcome::Cancelled,

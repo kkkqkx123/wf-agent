@@ -72,6 +72,23 @@ pub enum SlashCommand {
     /// Show or set the render detail for newly staged images
     /// (`/image-detail [auto|low|high|original|clear]`). Empty shows current.
     ImageDetail(Option<String>),
+    /// Plugin-contributed slash command (`/<name> [argument]`). The shell
+    /// resolves the name through its plugin registry; execution dispatch
+    /// stays server-side through the host command protocol.
+    Plugin {
+        name: String,
+        argument: Option<String>,
+    },
+}
+
+/// A plugin-contributed slash spelling: bare names without the slash.
+/// The shell converts engine snapshots into this shape; matching stays
+/// ASCII case-insensitive like the builtin table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSlash {
+    pub name: String,
+    pub aliases: Vec<String>,
+    pub description: String,
 }
 
 /// Arguments of the `/image` staging command.
@@ -335,6 +352,35 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
     }
 }
 
+/// Parse with plugin slash names merged in: builtins first so the shell
+/// keeps its own commands; a plugin name shadowed by a builtin stays
+/// unreachable through slash but remains listed under its own id.
+pub fn parse_command_with(line: &str, plugins: &[PluginSlash]) -> Option<SlashCommand> {
+    if let Some(builtin) = parse_command(line) {
+        return Some(builtin);
+    }
+    let trimmed = line.trim();
+    let (word, argument) = match trimmed.split_once(char::is_whitespace) {
+        Some((word, rest)) => (word, rest.trim()),
+        None => (trimmed, ""),
+    };
+    let name = word.strip_prefix('/')?;
+    if name.is_empty() {
+        return None;
+    }
+    plugins.iter().find(|plugin| {
+        plugin.name.eq_ignore_ascii_case(name)
+            || plugin
+                .aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(name))
+    })?;
+    Some(SlashCommand::Plugin {
+        name: name.to_string(),
+        argument: (!argument.is_empty()).then(|| argument.to_string()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,6 +589,45 @@ mod tests {
         assert_eq!(parse_command("/image rm 0"), None);
         assert_eq!(parse_command("/image rm x"), None);
         assert_eq!(parse_command("/attach rm 0"), None);
+    }
+
+    fn plugin_slash() -> Vec<PluginSlash> {
+        vec![PluginSlash {
+            name: "review".to_string(),
+            aliases: vec!["rev".to_string()],
+            description: "Review the diff".to_string(),
+        }]
+    }
+
+    #[test]
+    fn parses_plugin_slash_with_builtin_precedence() {
+        let plugins = plugin_slash();
+        assert_eq!(
+            parse_command_with("/review", &plugins),
+            Some(SlashCommand::Plugin {
+                name: "review".to_string(),
+                argument: None,
+            })
+        );
+        assert_eq!(
+            parse_command_with("/rev --staged", &plugins),
+            Some(SlashCommand::Plugin {
+                name: "rev".to_string(),
+                argument: Some("--staged".to_string()),
+            })
+        );
+        // Builtins keep their commands even when a plugin claims the name.
+        let shadowed = vec![PluginSlash {
+            name: "help".to_string(),
+            aliases: vec![],
+            description: "shadow".to_string(),
+        }];
+        assert_eq!(
+            parse_command_with("/help", &shadowed),
+            Some(SlashCommand::Help)
+        );
+        assert_eq!(parse_command_with("/unknown", &plugins), None);
+        assert_eq!(parse_command_with("plain text", &plugins), None);
     }
 
     #[test]

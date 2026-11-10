@@ -47,6 +47,311 @@ pub struct PluginEventData {
 /// chain (and any response-side rewrites on the way back up).
 pub type NextFn = Box<dyn FnOnce(Value) -> BoxFuture<'static, PluginResult<Value>> + Send>;
 
+// ── CLI contributions (declarative, host-rendered) ──────────────────────
+// A CLI contribution describes interface surface as data: the host owns
+// every widget, key binding and rendering decision. Sandboxed backends
+// (Wasm, Lua) may only send these descriptions; executable UI stays on
+// the native backend behind an explicit dispatch channel. The host
+// validates each description and falls back to built-in behavior on any
+// failure, so a bad contribution never breaks the session.
+/// Applicability condition for a CLI command. Every listed screen or role
+/// admits the command; empty lists admit everywhere. The host evaluates
+/// the conjunction; unknown future fields must be ignored, never assumed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PluginCliCondition {
+    /// Screen names admitting the command (empty means every screen).
+    #[serde(default)]
+    pub screens: Vec<String>,
+    /// Identity roles admitting the command (`owner`, `guest`; empty
+    /// means every role).
+    #[serde(default)]
+    pub roles: Vec<String>,
+    /// Only offer the command while connected to the server.
+    #[serde(default)]
+    pub require_connected: bool,
+    /// Hide the command while any overlay or modal is open.
+    #[serde(default)]
+    pub hide_when_overlay: bool,
+}
+
+/// One user-facing command contributed by a plugin: slash entry, palette
+/// row and help line share this definition. The plugin id owns the
+/// namespace: two plugins registering one id is a conflict, never an
+/// override. Execution dispatch stays server-side; the CLI resolves the
+/// name and routes arguments through the host command protocol.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginCliCommand {
+    /// Stable command id (`<plugin>.<verb>`); doubles as the registry key.
+    pub id: String,
+    /// Short display title for palette rows and help.
+    pub title: String,
+    /// Palette group and help section.
+    pub group: String,
+    /// One-line description for palette filtering and help.
+    pub description: String,
+    /// Slash name without the leading slash (`None` hides the slash entry
+    /// while keeping the palette row).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slash_name: Option<String>,
+    /// Extra slash spellings, all without the leading slash.
+    #[serde(default)]
+    pub slash_aliases: Vec<String>,
+    /// Argument syntax shown in help (`""` when the command takes none).
+    #[serde(default)]
+    pub slash_argument: String,
+    /// Whether the command appears in the command palette.
+    #[serde(default = "default_palette")]
+    pub palette: bool,
+    /// Display-only default key hint (`"ctrl+k"`); the host keymap wins
+    /// and launcher-owned keys are never granted through this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_hint: Option<String>,
+    /// Applicability condition evaluated by the host.
+    #[serde(default)]
+    pub when: PluginCliCondition,
+}
+
+fn default_palette() -> bool {
+    true
+}
+
+impl PluginCliCommand {
+    /// Reject ids and slash spellings the host could never route: empty
+    /// keys, whitespace, or a leading slash. Palette rows without a slash
+    /// name are also rejected so every listed command stays invokable.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("cli-command id must not be empty".to_string());
+        }
+        if self.id.chars().any(char::is_whitespace) {
+            return Err(format!(
+                "cli-command id '{}' must not contain whitespace",
+                self.id
+            ));
+        }
+        if self.id.starts_with('/') {
+            return Err(format!(
+                "cli-command id '{}' must not start with '/'",
+                self.id
+            ));
+        }
+        if self.title.trim().is_empty() {
+            return Err(format!("cli-command '{}' needs a title", self.id));
+        }
+        match &self.slash_name {
+            None if self.palette => {
+                return Err(format!(
+                    "cli-command '{}' is in the palette but has no slash name",
+                    self.id
+                ));
+            }
+            Some(name) => check_slash_spelling(&self.id, name)?,
+            None => {}
+        }
+        for alias in &self.slash_aliases {
+            check_slash_spelling(&self.id, alias)?;
+        }
+        Ok(())
+    }
+}
+
+fn check_slash_spelling(id: &str, name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err(format!("cli-command '{id}' has an empty slash name"));
+    }
+    if name.starts_with('/') || name.chars().any(char::is_whitespace) {
+        return Err(format!(
+            "cli-command '{id}' slash name '{name}' must be a bare word"
+        ));
+    }
+    Ok(())
+}
+
+/// One completion source contributed by a plugin: a set of trigger
+/// characters plus the static items offered under them. The host tries
+/// sources in registration order and shows the first hit; dynamic
+/// providers re-register on change instead of holding callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginCompletionItem {
+    /// Text inserted on accept.
+    pub value: String,
+    /// Display label (defaults to the value in the host).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// One-line description shown beside the label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Static completion source; `id` is the registry key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginCompletionSource {
+    pub id: String,
+    /// Trigger characters activating this source (`#`, `@`, `/`).
+    pub trigger_chars: Vec<String>,
+    /// Items offered while the trigger is active.
+    #[serde(default)]
+    pub items: Vec<PluginCompletionItem>,
+}
+
+impl PluginCompletionSource {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("completion-provider id must not be empty".to_string());
+        }
+        if self.trigger_chars.is_empty() {
+            return Err(format!(
+                "completion-provider '{}' needs at least one trigger character",
+                self.id
+            ));
+        }
+        for trigger in &self.trigger_chars {
+            if trigger.is_empty() || trigger.chars().any(char::is_whitespace) {
+                return Err(format!(
+                    "completion-provider '{}' has an invalid trigger",
+                    self.id
+                ));
+            }
+        }
+        for item in &self.items {
+            if item.value.is_empty() {
+                return Err(format!(
+                    "completion-provider '{}' has an item with an empty value",
+                    self.id
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One settings row contributed by a plugin. Values live under the
+/// visitor's `plugins.<plugin>.<key>` namespace; changing one redraws
+/// every settings card through the host, never through plugin code.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginSettingField {
+    /// Dotted key (`<plugin>.<name>`); doubles as the registry key.
+    pub key: String,
+    /// Display label for the settings row.
+    pub label: String,
+    /// Allowed values; empty means free-form text.
+    #[serde(default)]
+    pub values: Vec<String>,
+    /// Value used when nothing is stored.
+    pub fallback: String,
+}
+
+impl PluginSettingField {
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.key.contains('.') || self.key.trim().is_empty() {
+            return Err(format!(
+                "setting-field key '{}' must look like '<plugin>.<name>'",
+                self.key
+            ));
+        }
+        if self.key.chars().any(char::is_whitespace) {
+            return Err(format!(
+                "setting-field key '{}' must not contain whitespace",
+                self.key
+            ));
+        }
+        if !self.values.is_empty() && !self.values.contains(&self.fallback) {
+            return Err(format!(
+                "setting-field '{}' fallback is not one of its values",
+                self.key
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Declarative tool-call and tool-result summaries for one tool. The host
+/// substitutes `{args}` (compact argument text) and `{result}` (truncated
+/// result text) into the templates and renders the outcome with the
+/// theme; unknown placeholders stay verbatim so typos stay visible.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginToolSummary {
+    /// Tool name this summary renders; doubles as the registry key.
+    pub tool_name: String,
+    /// Template for the pending/running call line.
+    #[serde(default)]
+    pub call_template: String,
+    /// Template for the settled result line.
+    #[serde(default)]
+    pub result_template: String,
+}
+
+impl PluginToolSummary {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_name.trim().is_empty() {
+            return Err("tool-summary tool name must not be empty".to_string());
+        }
+        if self.call_template.is_empty() && self.result_template.is_empty() {
+            return Err(format!(
+                "tool-summary '{}' needs at least one template",
+                self.tool_name
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Render one tool summary template: `{args}` takes the compact argument
+/// text, `{result}` the truncated result text. Display-only; the stored
+/// tool payload never changes.
+pub fn render_tool_summary(template: &str, args: &str, result: &str) -> String {
+    template
+        .replace("{args}", args)
+        .replace("{result}", result)
+}
+
+/// One literal Markdown rewrite applied to transcript surfaces before the
+/// host renders. Rules run in registration order; each sees the previous
+/// rule's output. Literal replacement only, so a rule can never diverge
+/// into backtracking or capture-group surprises.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginMarkdownRule {
+    /// Rule id; doubles as the registry key.
+    pub id: String,
+    /// Literal text to replace (never empty, never a pattern).
+    pub pattern: String,
+    /// Replacement text.
+    #[serde(default)]
+    pub replacement: String,
+    /// Surfaces the rule runs on (`user`, `assistant`, `thinking`,
+    /// `custom`, `summary`); empty means every surface.
+    #[serde(default)]
+    pub surfaces: Vec<String>,
+}
+
+impl PluginMarkdownRule {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("markdown-transformer id must not be empty".to_string());
+        }
+        if self.pattern.is_empty() {
+            return Err(format!(
+                "markdown-transformer '{}' needs a non-empty pattern",
+                self.id
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Apply literal Markdown rules in order. Rules whose pattern is empty
+/// are skipped so one bad entry cannot erase the whole document.
+pub fn apply_markdown_rules(text: &str, rules: &[PluginMarkdownRule]) -> String {
+    let mut out = text.to_string();
+    for rule in rules {
+        if rule.pattern.is_empty() {
+            continue;
+        }
+        out = out.replace(rule.pattern.as_str(), rule.replacement.as_str());
+    }
+    out
+}
+
 /// Outcome of one middleware guest call: whether the chain continues and
 /// which context travels onward.
 #[derive(Debug, Clone, PartialEq)]
@@ -466,5 +771,123 @@ mod tests {
             assert!(out.proceed, "response: {response}");
             assert_eq!(out.context, incoming, "response: {response}");
         }
+    }
+
+    fn cli_command() -> PluginCliCommand {
+        PluginCliCommand {
+            id: "review.run".to_string(),
+            title: "Run review".to_string(),
+            group: "Review".to_string(),
+            description: "Review the current diff".to_string(),
+            slash_name: Some("review".to_string()),
+            slash_aliases: vec!["rev".to_string()],
+            slash_argument: "[path]".to_string(),
+            palette: true,
+            key_hint: None,
+            when: PluginCliCondition::default(),
+        }
+    }
+
+    #[test]
+    fn cli_command_accepts_a_routable_definition() {
+        assert!(cli_command().validate().is_ok());
+    }
+
+    #[test]
+    fn cli_command_rejects_unroutable_definitions() {
+        let mut bad = cli_command();
+        bad.id = "has space".to_string();
+        assert!(bad.validate().is_err());
+        let mut bad = cli_command();
+        bad.slash_name = None;
+        assert!(bad.validate().is_err());
+        let mut bad = cli_command();
+        bad.slash_aliases = vec!["/lead".to_string()];
+        assert!(bad.validate().is_err());
+        let mut ok = cli_command();
+        ok.palette = false;
+        ok.slash_name = None;
+        assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn completion_source_rejects_missing_triggers() {
+        let source = PluginCompletionSource {
+            id: "issues".to_string(),
+            trigger_chars: vec!["#".to_string()],
+            items: vec![PluginCompletionItem {
+                value: "#12".to_string(),
+                label: None,
+                description: None,
+            }],
+        };
+        assert!(source.validate().is_ok());
+        let empty = PluginCompletionSource {
+            id: "issues".to_string(),
+            trigger_chars: vec![],
+            items: vec![],
+        };
+        assert!(empty.validate().is_err());
+    }
+
+    #[test]
+    fn setting_field_requires_dotted_key_and_known_fallback() {
+        let field = PluginSettingField {
+            key: "review.style".to_string(),
+            label: "Review style".to_string(),
+            values: vec!["short".to_string(), "full".to_string()],
+            fallback: "short".to_string(),
+        };
+        assert!(field.validate().is_ok());
+        let bad = PluginSettingField {
+            key: "nodot".to_string(),
+            ..field.clone()
+        };
+        assert!(bad.validate().is_err());
+        let bad = PluginSettingField {
+            fallback: "other".to_string(),
+            ..field.clone()
+        };
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn tool_summary_renders_placeholders_literally() {
+        let summary = PluginToolSummary {
+            tool_name: "grep".to_string(),
+            call_template: "search {args}".to_string(),
+            result_template: "{result} hits".to_string(),
+        };
+        assert!(summary.validate().is_ok());
+        assert_eq!(
+            render_tool_summary(&summary.call_template, "-r foo", ""),
+            "search -r foo"
+        );
+        assert_eq!(
+            render_tool_summary(&summary.result_template, "", "12"),
+            "12 hits"
+        );
+        assert_eq!(render_tool_summary("{oops}", "a", "b"), "{oops}");
+    }
+
+    #[test]
+    fn markdown_rules_chain_in_order_and_skip_empty() {
+        let rules = vec![
+            PluginMarkdownRule {
+                id: "arrows".to_string(),
+                pattern: "-->".to_string(),
+                replacement: "→".to_string(),
+                surfaces: vec![],
+            },
+            PluginMarkdownRule {
+                id: "empty".to_string(),
+                pattern: String::new(),
+                replacement: "gone".to_string(),
+                surfaces: vec![],
+            },
+        ];
+        assert!(rules[0].validate().is_ok());
+        assert!(rules[1].validate().is_err());
+        assert_eq!(apply_markdown_rules("a --> b", &rules), "a → b");
     }
 }

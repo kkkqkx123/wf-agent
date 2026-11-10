@@ -56,4 +56,85 @@ impl ContributionManager {
     pub fn all_snapshot_policies(&self) -> Vec<(String, String)> {
         self.snapshot_policy_registry.all()
     }
+
+    /// Owned CLI command snapshot for hosts that render without holding
+    /// the manager (the CLI shells fetch this projection over the API).
+    pub fn cli_command_snapshot(&self) -> Vec<PluginCliCommand> {
+        self.cli_command_registry
+            .all_with_values()
+            .into_iter()
+            .map(|(_, _, command)| (*command).clone())
+            .collect()
+    }
+
+    pub fn get_cli_command(&self, id: &str) -> Option<Arc<PluginCliCommand>> {
+        self.cli_command_registry.get(id)
+    }
+
+    pub fn all_cli_commands(&self) -> Vec<(String, String)> {
+        self.cli_command_registry.all()
+    }
+
+    pub fn completion_provider_snapshot(&self) -> Vec<PluginCompletionSource> {
+        self.completion_provider_registry
+            .all_with_values()
+            .into_iter()
+            .map(|(_, _, source)| (*source).clone())
+            .collect()
+    }
+
+    pub fn get_completion_provider(&self, id: &str) -> Option<Arc<PluginCompletionSource>> {
+        self.completion_provider_registry.get(id)
+    }
+
+    pub fn all_completion_providers(&self) -> Vec<(String, String)> {
+        self.completion_provider_registry.all()
+    }
+
+    pub fn setting_field_snapshot(&self) -> Vec<PluginSettingField> {
+        self.setting_field_registry
+            .all_with_values()
+            .into_iter()
+            .map(|(_, _, field)| (*field).clone())
+            .collect()
+    }
+
+    pub fn get_setting_field(&self, key: &str) -> Option<Arc<PluginSettingField>> {
+        self.setting_field_registry.get(key)
+    }
+
+    pub fn all_setting_fields(&self) -> Vec<(String, String)> {
+        self.setting_field_registry.all()
+    }
+
+    pub fn get_tool_summary(&self, tool_name: &str) -> Option<Arc<PluginToolSummary>> {
+        self.tool_summary_registry.get(tool_name)
+    }
+
+    pub fn all_tool_summaries(&self) -> Vec<(String, String)> {
+        self.tool_summary_registry.all()
+    }
+
+    /// Markdown rules in registration order for one surface (empty
+    /// surface list means every surface). The host applies the returned
+    /// rules in order and keeps them display-only.
+    pub fn markdown_rules_for(&self, surface: &str) -> Vec<PluginMarkdownRule> {
+        let mut rules: Vec<PluginMarkdownRule> = self
+            .markdown_transformer_registry
+            .all_with_values()
+            .into_iter()
+            .map(|(_, _, rule)| (*rule).clone())
+            .filter(|rule| rule.surfaces.is_empty() || rule.surfaces.iter().any(|s| s == surface))
+            .collect();
+        rules.sort_by(|a, b| a.id.cmp(&b.id));
+        rules
+    }
+
+    pub fn get_markdown_transformer(&self, id: &str) -> Option<Arc<PluginMarkdownRule>> {
+        self.markdown_transformer_registry.get(id)
+    }
+
+    pub fn all_markdown_transformers(&self) -> Vec<(String, String)> {
+        self.markdown_transformer_registry.all()
+    }
 }

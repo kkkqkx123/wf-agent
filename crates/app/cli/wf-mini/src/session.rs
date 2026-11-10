@@ -27,9 +27,9 @@ use wf_cli_shared::turn::{TurnKind, TurnParams};
 use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
 use crate::editor::{terminal_cols, EditorSnapshot, PromptEvent};
-use crate::input::{self, AttachArgs, History, ImageArgs, LineReader, SlashCommand};
+use crate::input::{self, AttachArgs, History, ImageArgs, LineReader, PluginSlash, SlashCommand};
 use crate::output::{self};
-use crate::suggest::{SuggestBroker, SuggestEngine};
+use crate::suggest::{PluginCompletionSource, SuggestBroker, SuggestEngine};
 use crate::transcript::Transcript;
 
 mod turn_renderer;
@@ -122,6 +122,12 @@ pub struct NativeSession {
     /// Session-level structured agent context: set once via `--context` /
     /// `--context-file` or `/context`, carried on every subsequent turn.
     session_context: serde_json::Map<String, serde_json::Value>,
+    /// Plugin slash names resolved before builtin misses fall through to
+    /// the prompt. Populated from engine snapshots by the loader; empty
+    /// keeps the builtin-only behavior.
+    plugin_slash: Vec<PluginSlash>,
+    /// Plugin completion sources backing the suggestion pipeline.
+    plugin_completions: Vec<PluginCompletionSource>,
     /// Image files staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts hands them back.
     staged_images: Vec<wf_types::message::UserImageInput>,
@@ -242,7 +248,23 @@ impl NativeSession {
             staged_images: Vec::new(),
             staged_attachments: Vec::new(),
             staged_image_detail: None,
+            plugin_slash: Vec::new(),
+            plugin_completions: Vec::new(),
         })
+    }
+
+    /// Replace the plugin slash and completion registries (converted from
+    /// engine snapshots by the loader) and rebuild the suggestion
+    /// pipeline around them. Empty registries restore builtin-only
+    /// behavior; unknown plugin commands never reach the model.
+    pub fn set_plugin_commands(
+        &mut self,
+        slash: Vec<PluginSlash>,
+        completions: Vec<PluginCompletionSource>,
+    ) {
+        self.plugin_slash = slash;
+        self.plugin_completions = completions.clone();
+        self.suggest = Arc::new(SuggestEngine::with_plugin_sources(completions));
     }
 
     /// Run the prompt loop until EOF or a quit command.
@@ -287,7 +309,9 @@ impl NativeSession {
                     if trimmed.is_empty() {
                         continue;
                     }
-                    if let Some(command) = input::parse_command(&trimmed) {
+                    if let Some(command) =
+                        input::parse_command_with(&trimmed, &self.plugin_slash)
+                    {
                         match self.handle_command(command).await {
                             CommandAction::Exit => break,
                             CommandAction::Continue => continue,
@@ -393,6 +417,16 @@ impl NativeSession {
                 output::diag_line(
                     "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image rm <n> removes one, /image clear drops them; /attach <path>... stage text files, /attach lists staged, /attach rm <n> removes one, /attach clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
                 );
+                if !self.plugin_slash.is_empty() {
+                    let mut names: Vec<String> = self
+                        .plugin_slash
+                        .iter()
+                        .map(|plugin| format!("/{}", plugin.name))
+                        .collect();
+                    names.sort();
+                    names.dedup();
+                    output::diag_line(&format!("plugins: {}", names.join(" ")));
+                }
                 CommandAction::Continue
             }
             SlashCommand::Clear => {
@@ -678,6 +712,12 @@ impl NativeSession {
             }
             SlashCommand::Delete(target) => {
                 self.delete_session(target).await;
+                CommandAction::Continue
+            }
+            SlashCommand::Plugin { name, .. } => {
+                output::diag_line(&format!(
+                    "plugin command '/{name}' is registered but not executable in this shell"
+                ));
                 CommandAction::Continue
             }
         }

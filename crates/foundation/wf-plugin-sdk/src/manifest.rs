@@ -72,6 +72,15 @@ pub enum PluginPermission {
     /// Declare snapshot expectations (`snapshot-policy` contribution).
     /// Execution stays host-owned; the plugin only declares policy.
     SnapshotPolicy,
+    /// Contribute declarative CLI surface (`cli-command`,
+    /// `completion-provider`, `setting-field`, `tool-summary` and
+    /// `markdown-transformer` contributions). Declarative only: the host
+    /// renders every contribution, sandboxed backends never construct UI.
+    CliUi,
+    /// Request host-mediated dialogs (confirm / select / text input).
+    /// The host presents the prompt with its own widgets and returns the
+    /// answer; the plugin never touches the terminal directly.
+    CliDialog,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

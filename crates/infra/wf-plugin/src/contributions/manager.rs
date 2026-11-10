@@ -402,4 +402,128 @@ mod tests {
         assert!(manager.all_llm_providers().is_empty());
         assert!(manager.all_llm_provider_definitions().is_empty());
     }
+
+    fn cli_command(id: &str, slash: &str) -> PluginCliCommand {
+        PluginCliCommand {
+            id: id.into(),
+            title: "Review".into(),
+            group: "Review".into(),
+            description: "Review the diff".into(),
+            slash_name: Some(slash.into()),
+            slash_aliases: Vec::new(),
+            slash_argument: String::new(),
+            palette: true,
+            key_hint: None,
+            when: PluginCliCondition::default(),
+        }
+    }
+
+    #[test]
+    fn cli_command_registers_and_conflicts_forbid_reclaim() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        manager
+            .as_registrar()
+            .register_cli_command(cli_command("review.run", "review"))
+            .unwrap();
+        assert_eq!(
+            manager.all_cli_commands(),
+            vec![("review.run".to_string(), "p1".to_string())]
+        );
+        assert!(manager
+            .contributions_for("p1")
+            .contains(&("cli-command".to_string(), "review.run".to_string())));
+
+        manager.start_registration("p2");
+        let err = manager
+            .as_registrar()
+            .register_cli_command(cli_command("review.run", "review"))
+            .unwrap_err();
+        assert!(matches!(err, PluginError::ContributionConflict(_)));
+        assert_eq!(
+            manager.get_cli_command("review.run").expect("kept").title,
+            "Review"
+        );
+
+        manager.unregister_all("p1");
+        assert!(manager.all_cli_commands().is_empty());
+        manager
+            .as_registrar()
+            .register_cli_command(cli_command("review.run", "review"))
+            .unwrap();
+        assert_eq!(
+            manager.all_cli_commands(),
+            vec![("review.run".to_string(), "p2".to_string())]
+        );
+    }
+
+    #[test]
+    fn cli_command_validation_rejects_unroutable_definitions() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        let mut bad = cli_command("review.run", "review");
+        bad.slash_name = None;
+        let err = manager
+            .as_registrar()
+            .register_cli_command(bad)
+            .unwrap_err();
+        assert!(matches!(err, PluginError::InvalidContribution { .. }));
+        assert!(manager.all_cli_commands().is_empty());
+    }
+
+    #[test]
+    fn cli_surrogates_round_trip_and_unregister_by_owner() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        manager
+            .as_registrar()
+            .register_completion_provider(PluginCompletionSource {
+                id: "issues".into(),
+                trigger_chars: vec!["#".into()],
+                items: vec![PluginCompletionItem {
+                    value: "#12".into(),
+                    label: None,
+                    description: None,
+                }],
+            })
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_setting_field(PluginSettingField {
+                key: "review.style".into(),
+                label: "Style".into(),
+                values: vec!["short".into(), "full".into()],
+                fallback: "short".into(),
+            })
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_tool_summary(PluginToolSummary {
+                tool_name: "grep".into(),
+                call_template: "search {args}".into(),
+                result_template: String::new(),
+            })
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_markdown_transformer(PluginMarkdownRule {
+                id: "arrows".into(),
+                pattern: "-->".into(),
+                replacement: "→".into(),
+                surfaces: vec![],
+            })
+            .unwrap();
+
+        assert_eq!(manager.completion_provider_snapshot().len(), 1);
+        assert_eq!(manager.setting_field_snapshot().len(), 1);
+        assert!(manager.get_tool_summary("grep").is_some());
+        assert_eq!(manager.markdown_rules_for("assistant").len(), 1);
+        assert!(manager.markdown_rules_for("user").len() == 1);
+
+        manager.unregister_all("p1");
+        assert!(manager.all_completion_providers().is_empty());
+        assert!(manager.all_setting_fields().is_empty());
+        assert!(manager.all_tool_summaries().is_empty());
+        assert!(manager.all_markdown_transformers().is_empty());
+    }
 }

@@ -22,7 +22,7 @@ use tui_components::panels::{
     AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
     MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
 };
-use tui_core::command::{self, CommandSpec};
+use tui_core::command::{self, CommandRegistry, CommandSpec, RuntimeCommand};
 use tui_core::keymap::KeyAction;
 
 /// Entity kinds requested from the mention search endpoint. Files are not
@@ -255,7 +255,8 @@ impl InteractiveController {
     /// Open the `/` command palette. The filter starts at the typed `/`, so
     /// the command word narrows the list and the rest is the argument.
     pub(crate) fn open_command_panel(&mut self) {
-        let palette = CommandPalette::with_filter("/");
+        let mut palette = CommandPalette::with_filter("/");
+        palette.set_plugin_commands(self.plugin_snapshot());
         self.footer
             .open_panel(FooterRoute::Command, PanelState::Command(palette));
     }
@@ -625,11 +626,17 @@ impl InteractiveController {
         match self.footer.panel.as_ref() {
             Some(PanelState::Command(panel)) => {
                 let command = panel.selected_command();
+                let plugin = panel.resolve_plugin();
                 let argument = panel.argument().to_string();
                 self.close_panel();
                 match command {
                     Some(command) => self.run_command(command, &argument),
-                    None => InteractiveAction::Continue,
+                    None => match plugin {
+                        Some((plugin, plugin_argument)) => {
+                            self.run_plugin_command(&plugin, &plugin_argument)
+                        }
+                        None => InteractiveAction::Continue,
+                    },
                 }
             }
             Some(PanelState::Model(panel)) => {
@@ -1252,10 +1259,15 @@ impl InteractiveController {
             _ => {}
         }
 
-        match command::lookup_slash(command_text) {
-            Some(spec) => Some(self.run_command(spec, argument)),
+        match command::lookup_slash_with(command_text, &self.plugin_commands) {
+            Some(command::SlashHit::Builtin(spec)) => Some(self.run_command(spec, argument)),
+            Some(command::SlashHit::Plugin(plugin)) => {
+                let plugin = plugin.clone();
+                Some(self.run_plugin_command(&plugin, argument))
+            }
             None => {
-                let suggestions = command::slash_suggestions(command_text, 3);
+                let suggestions =
+                    command::slash_suggestions_with(command_text, 3, &self.plugin_commands);
                 let message = if suggestions.is_empty() {
                     format!("unknown command: {command_text}")
                 } else {
@@ -1268,6 +1280,52 @@ impl InteractiveController {
                 Some(InteractiveAction::Continue)
             }
         }
+    }
+
+    /// Run a plugin command chosen in the `/` panel or typed as slash.
+    /// The shell resolves the name through its plugin registry; execution
+    /// dispatch stays server-side through the host command protocol, so an
+    /// unhandled command fails visible instead of vanishing into the model.
+    pub(crate) fn run_plugin_command(
+        &mut self,
+        plugin: &RuntimeCommand,
+        argument: &str,
+    ) -> InteractiveAction {
+        let _ = argument;
+        self.footer.show_notice(format!(
+            "plugin command '/{}' ({}) is registered but not executable in this shell",
+            plugin.slash_name.as_deref().unwrap_or(plugin.id.as_str()),
+            plugin.id
+        ));
+        InteractiveAction::Continue
+    }
+
+    /// Replace the plugin command registry (converted from engine
+    /// snapshots by the loader) and refresh the open `/` panel, if any.
+    /// Duplicate ids keep the first registration; the conflict is
+    /// reported instead of silently overriding. Public so the server-sync
+    /// loader and embedding shells can populate the registry.
+    pub fn set_plugin_commands(&mut self, commands: Vec<RuntimeCommand>) {
+        let mut registry = CommandRegistry::new();
+        let mut conflicts = Vec::new();
+        for command in commands {
+            if let Err(message) = registry.register(command) {
+                conflicts.push(message);
+            }
+        }
+        self.plugin_commands = registry;
+        let snapshot = self.plugin_snapshot();
+        if let Some(PanelState::Command(panel)) = self.footer.panel.as_mut() {
+            panel.set_plugin_commands(snapshot);
+        }
+        for message in conflicts {
+            self.footer.show_notice(message);
+        }
+    }
+
+    /// Shell-held plugin commands in registration order.
+    fn plugin_snapshot(&self) -> Vec<RuntimeCommand> {
+        self.plugin_commands.ordered().cloned().collect()
     }
 
     // ── queued prompts ─────────────────────────────────────────────────

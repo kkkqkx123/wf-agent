@@ -8,6 +8,14 @@ use crate::infra::context::ApiContext;
 
 use super::*;
 
+/// Default bound for one inline mention after rendering.
+const MENTION_CHAR_LIMIT: usize = 1000;
+/// Explicit skill references carry the full instruction body plus a
+/// resource inventory, so they use a larger bound than metadata-only kinds.
+const SKILL_MENTION_CHAR_LIMIT: usize = 8000;
+/// Listed paths per skill resource kind inside an explicit skill mention.
+const SKILL_RESOURCE_LIST_LIMIT: usize = 20;
+
 /// Per-reference resolution receipt of one turn's inline mentions. The server
 /// reports it back beside the stored conversation so clients can show which
 /// image references actually rode the turn and which were skipped.
@@ -152,7 +160,12 @@ pub async fn resolve_mentions(
         };
 
         if let Some(summary) = summary {
-            let trimmed: String = summary.chars().take(1000).collect();
+            let limit = if kind == "skill" {
+                SKILL_MENTION_CHAR_LIMIT
+            } else {
+                MENTION_CHAR_LIMIT
+            };
+            let trimmed: String = summary.chars().take(limit).collect();
             receipts.push(MentionReceipt {
                 reference: format!("{kind}:{id}"),
                 kind: kind.to_string(),
@@ -273,13 +286,72 @@ fn resolve_file_mention(ctx: &ApiContext, raw: &str) -> Option<String> {
 }
 
 fn resolve_skill_mention(ctx: &ApiContext, id: &str) -> Option<String> {
-    let meta = crate::entity::skill::get_skill(ctx, id).ok()?;
-    Some(format!(
-        "skill: {} ({})\n{}",
+    let loader = ctx.tool_registry.skill_loader()?;
+    let meta = loader.get_skill(id)?;
+    if !loader.is_skill_enabled(id) {
+        return Some(format!(
+            "skill: {} (disabled)\n{}\nEnable the skill before use.",
+            meta.name, meta.description
+        ));
+    }
+    let Ok(body) = loader.load_content(id) else {
+        return Some(format!(
+            "skill: {} ({})\n{}",
+            meta.name,
+            meta.version.as_deref().unwrap_or("unknown"),
+            meta.description
+        ));
+    };
+    let mut out = format!(
+        "skill: {} ({})\n{}\n\n{}",
         meta.name,
         meta.version.as_deref().unwrap_or("unknown"),
-        meta.description
-    ))
+        meta.description,
+        body.trim()
+    );
+    let inventory = skill_resource_inventory(loader.as_ref(), id);
+    if !inventory.is_empty() {
+        out.push_str("\n\nAvailable resources:\n");
+        out.push_str(&inventory);
+    }
+    Some(out)
+}
+
+/// One-line-per-kind inventory of bundled skill files. Binary attachments
+/// list paths only and are never inlined.
+fn skill_resource_inventory(loader: &wf_tools::skill::SkillLoader, name: &str) -> String {
+    let kinds = [
+        (wf_types::skill::SkillResourceType::References, "references"),
+        (wf_types::skill::SkillResourceType::Examples, "examples"),
+        (wf_types::skill::SkillResourceType::Scripts, "scripts"),
+        (wf_types::skill::SkillResourceType::Assets, "assets"),
+    ];
+    let mut lines = Vec::new();
+    for (kind, label) in kinds {
+        let mut paths = loader.list_skill_resources(name, kind);
+        if paths.is_empty() {
+            continue;
+        }
+        paths.sort();
+        let total = paths.len();
+        let shown: Vec<&str> = paths
+            .iter()
+            .take(SKILL_RESOURCE_LIST_LIMIT)
+            .map(String::as_str)
+            .collect();
+        if total > shown.len() {
+            lines.push(format!(
+                "- {} ({}): {} and {} more",
+                label,
+                total,
+                shown.join(", "),
+                total - shown.len()
+            ));
+        } else {
+            lines.push(format!("- {} ({}): {}", label, total, shown.join(", ")));
+        }
+    }
+    lines.join("\n")
 }
 
 fn resolve_tool_mention(ctx: &ApiContext, id: &str) -> Option<String> {

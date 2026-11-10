@@ -3,6 +3,7 @@
 pub mod anchor;
 pub mod command;
 pub mod copy;
+pub mod dialog;
 pub mod event_dispatch;
 pub mod events;
 pub mod frame_metrics;

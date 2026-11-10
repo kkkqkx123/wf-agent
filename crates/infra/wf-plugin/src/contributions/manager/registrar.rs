@@ -337,6 +337,106 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(name.into(), plugin_id, Arc::new(policy));
         Ok(())
     }
+    fn register_cli_command(&mut self, command: PluginCliCommand) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        if let Err(message) = command.validate() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message,
+            });
+        }
+        let key = command.id.clone();
+        self.validate(&plugin_id, ContributionType::CliCommand, &key)?;
+        self.manager
+            .check_conflict(ContributionType::CliCommand.as_str(), &key, || {
+                self.manager.cli_command_registry.get_owner(&key)
+            })?;
+        self.manager
+            .cli_command_registry
+            .register(key, plugin_id, Arc::new(command));
+        Ok(())
+    }
+    fn register_completion_provider(
+        &mut self,
+        source: PluginCompletionSource,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        if let Err(message) = source.validate() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message,
+            });
+        }
+        let key = source.id.clone();
+        self.validate(&plugin_id, ContributionType::CompletionProvider, &key)?;
+        self.manager.check_conflict(
+            ContributionType::CompletionProvider.as_str(),
+            &key,
+            || self.manager.completion_provider_registry.get_owner(&key),
+        )?;
+        self.manager
+            .completion_provider_registry
+            .register(key, plugin_id, Arc::new(source));
+        Ok(())
+    }
+    fn register_setting_field(&mut self, field: PluginSettingField) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        if let Err(message) = field.validate() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message,
+            });
+        }
+        let key = field.key.clone();
+        self.validate(&plugin_id, ContributionType::SettingField, &key)?;
+        self.manager
+            .check_conflict(ContributionType::SettingField.as_str(), &key, || {
+                self.manager.setting_field_registry.get_owner(&key)
+            })?;
+        self.manager
+            .setting_field_registry
+            .register(key, plugin_id, Arc::new(field));
+        Ok(())
+    }
+    fn register_tool_summary(&mut self, summary: PluginToolSummary) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        if let Err(message) = summary.validate() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message,
+            });
+        }
+        let key = summary.tool_name.clone();
+        self.validate(&plugin_id, ContributionType::ToolSummary, &key)?;
+        self.manager
+            .check_conflict(ContributionType::ToolSummary.as_str(), &key, || {
+                self.manager.tool_summary_registry.get_owner(&key)
+            })?;
+        self.manager
+            .tool_summary_registry
+            .register(key, plugin_id, Arc::new(summary));
+        Ok(())
+    }
+    fn register_markdown_transformer(&mut self, rule: PluginMarkdownRule) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        if let Err(message) = rule.validate() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message,
+            });
+        }
+        let key = rule.id.clone();
+        self.validate(&plugin_id, ContributionType::MarkdownTransformer, &key)?;
+        self.manager.check_conflict(
+            ContributionType::MarkdownTransformer.as_str(),
+            &key,
+            || self.manager.markdown_transformer_registry.get_owner(&key),
+        )?;
+        self.manager
+            .markdown_transformer_registry
+            .register(key, plugin_id, Arc::new(rule));
+        Ok(())
+    }
     fn register_middleware(
         &mut self,
         phase: MiddlewarePhase,

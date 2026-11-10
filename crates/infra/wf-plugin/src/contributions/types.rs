@@ -3,12 +3,14 @@
 // valid. `ContributionType` stays host-side: it describes
 // registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
-    parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, MiddlewareOutcome, NextFn,
-    PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginCompactionAdvisor,
-    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
-    PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler,
-    PluginNodeHandler, PluginNodeResult, PluginRetrievalAdvisor, PluginTextAnalyzer,
-    PluginToolContext, PluginToolExecutor, PluginToolResult, PluginVectorEncoding,
+    apply_markdown_rules, parse_middleware_outcome, render_tool_summary, AuthDescriptor,
+    CodecHttpRequest, MiddlewareOutcome, NextFn, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
+    PluginAuthPrompt, PluginCliCommand, PluginCliCondition, PluginCompactionAdvisor, PluginCompletionItem,
+    PluginCompletionSource, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth,
+    PluginLlmCodec, PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMarkdownRule,
+    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginRetrievalAdvisor,
+    PluginSettingField, PluginTextAnalyzer, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    PluginToolSummary, PluginVectorEncoding,
 };
 
 // ============================================================
@@ -53,6 +55,17 @@ pub enum ContributionType {
     VectorEncoding,
     /// Deferred snapshot expectations as declarative JSON (stage 6 reservation).
     SnapshotPolicy,
+    /// One user-facing command: slash entry, palette row and help line
+    /// share the definition (`cli-command`). Declarative; the host renders.
+    CliCommand,
+    /// Static completion source for trigger characters (`#`, `@`, `/`).
+    CompletionProvider,
+    /// One settings row under `plugins.<plugin>.<name>` (`setting-field`).
+    SettingField,
+    /// Declarative tool-call and tool-result summary templates.
+    ToolSummary,
+    /// One literal Markdown rewrite applied before rendering.
+    MarkdownTransformer,
 }
 
 impl ContributionType {
@@ -79,6 +92,11 @@ impl ContributionType {
             Self::RetrievalAdvisor => "retrieval-advisor",
             Self::VectorEncoding => "vector-encoding",
             Self::SnapshotPolicy => "snapshot-policy",
+            Self::CliCommand => "cli-command",
+            Self::CompletionProvider => "completion-provider",
+            Self::SettingField => "setting-field",
+            Self::ToolSummary => "tool-summary",
+            Self::MarkdownTransformer => "markdown-transformer",
         }
     }
 
@@ -105,6 +123,11 @@ impl ContributionType {
             Self::RetrievalAdvisor,
             Self::VectorEncoding,
             Self::SnapshotPolicy,
+            Self::CliCommand,
+            Self::CompletionProvider,
+            Self::SettingField,
+            Self::ToolSummary,
+            Self::MarkdownTransformer,
         ]
     }
 }

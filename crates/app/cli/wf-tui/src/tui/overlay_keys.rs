@@ -426,7 +426,7 @@ impl TuiApp {
     /// Shared by the Enter key and pointer clicks; closes the overlay
     /// before running, matching the key path.
     pub(super) async fn run_selected_palette_command(&mut self) -> CliResult<LoopAction> {
-        let Some(command) = self.command_palette.selected_command() else {
+        let Some(pick) = self.command_palette.selected_pick() else {
             self.app.notice.set("No matching command.".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
             return Ok(LoopAction::Continue);
@@ -434,7 +434,22 @@ impl TuiApp {
         let argument = self.command_palette.argument();
         self.overlay = OverlayMode::None;
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
-        self.run_palette_command(command, &argument).await
+        match pick {
+            tui_core::command::PalettePick::Builtin(command) => {
+                self.run_palette_command(command, &argument).await
+            }
+            tui_core::command::PalettePick::Plugin(index) => {
+                let label = self
+                    .command_palette
+                    .plugin_command(index)
+                    .map(|command| command.id.clone())
+                    .unwrap_or_else(|| "(removed)".to_string());
+                self.app.notice.set(format!(
+                    "plugin command '{label}' is registered but not executable in this shell"
+                ));
+                Ok(LoopAction::Continue)
+            }
+        }
     }
 
     async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {

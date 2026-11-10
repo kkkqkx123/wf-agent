@@ -106,4 +106,22 @@ pub trait ContributionRegistrar {
     /// Declare deferred snapshot expectations as JSON. Stage 6 reservation
     /// only; execution stays host-owned.
     fn register_snapshot_policy(&mut self, name: &str, policy: Value) -> PluginResult<()>;
+    /// Register one user-facing command (slash, palette and help share the
+    /// definition). `command.id` is the registry key; a second plugin
+    /// claiming the id fails loudly instead of overriding it.
+    fn register_cli_command(&mut self, command: PluginCliCommand) -> PluginResult<()>;
+    /// Register one static completion source for trigger characters.
+    /// `source.id` is the registry key.
+    fn register_completion_provider(
+        &mut self,
+        source: PluginCompletionSource,
+    ) -> PluginResult<()>;
+    /// Register one settings row under `plugins.<plugin>.<name>`.
+    /// `field.key` is the registry key.
+    fn register_setting_field(&mut self, field: PluginSettingField) -> PluginResult<()>;
+    /// Register declarative call/result summary templates for one tool.
+    /// `summary.tool_name` is the registry key.
+    fn register_tool_summary(&mut self, summary: PluginToolSummary) -> PluginResult<()>;
+    /// Register one literal Markdown rewrite rule. `rule.id` is the key.
+    fn register_markdown_transformer(&mut self, rule: PluginMarkdownRule) -> PluginResult<()>;
 }

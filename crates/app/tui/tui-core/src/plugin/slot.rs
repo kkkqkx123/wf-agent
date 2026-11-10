@@ -23,6 +23,21 @@ impl Slot {
 
     /// Session side panel. Contributions stack top to bottom by `order`.
     pub const SIDEBAR: Slot = Slot::new("sidebar");
+    /// Composer chips contributed by plugins (slash sources, modes).
+    /// Rendered as one row under the editor in key order.
+    pub const COMPOSER_CHIP: Slot = Slot::new("composer.chip");
+    /// Transcript entry renderers by entry kind. The first content that
+    /// reports a non-zero height wins; empty means the default renderer.
+    pub const TRANSCRIPT_ENTRY: Slot = Slot::new("transcript.entry");
+    /// Tool call line override by tool name. Empty keeps the builtin card.
+    pub const TOOL_CALL: Slot = Slot::new("tool.call");
+    /// Tool result line override by tool name. Empty keeps the builtin card.
+    pub const TOOL_RESULT: Slot = Slot::new("tool.result");
+    /// Session sidebar sections (files, todos, context, bridges).
+    /// Contributions stack top to bottom by `order`.
+    pub const SESSION_SECTION: Slot = Slot::new("session.section");
+    /// Settings dialog rows contributed by extensions.
+    pub const SETTING_ROW: Slot = Slot::new("setting.row");
 
     /// Welcome-screen regions.
     pub const HOME_TIPS: Slot = Slot::new("home.tips");

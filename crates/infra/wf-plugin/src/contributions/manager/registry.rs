@@ -47,6 +47,18 @@ pub struct ContributionManager {
     pub(crate) retrieval_advisor_registry: Registry<String, Arc<dyn PluginRetrievalAdvisor>>,
     pub(crate) vector_encoding_registry: Registry<String, Arc<dyn PluginVectorEncoding>>,
     pub(crate) snapshot_policy_registry: Registry<String, Arc<Value>>,
+    /// User-facing commands contributed by plugins (slash, palette, help
+    /// share one definition). The host renders; execution dispatch stays
+    /// server-side through the command protocol.
+    pub(crate) cli_command_registry: Registry<String, Arc<PluginCliCommand>>,
+    /// Static completion sources keyed by source id.
+    pub(crate) completion_provider_registry: Registry<String, Arc<PluginCompletionSource>>,
+    /// Settings rows keyed by dotted `plugins.<plugin>.<name>` key.
+    pub(crate) setting_field_registry: Registry<String, Arc<PluginSettingField>>,
+    /// Declarative tool summary templates keyed by tool name.
+    pub(crate) tool_summary_registry: Registry<String, Arc<PluginToolSummary>>,
+    /// Literal Markdown rewrite rules keyed by rule id.
+    pub(crate) markdown_transformer_registry: Registry<String, Arc<PluginMarkdownRule>>,
 }
 
 impl Default for ContributionManager {
@@ -81,6 +93,11 @@ impl ContributionManager {
             retrieval_advisor_registry: Registry::new(),
             vector_encoding_registry: Registry::new(),
             snapshot_policy_registry: Registry::new(),
+            cli_command_registry: Registry::new(),
+            completion_provider_registry: Registry::new(),
+            setting_field_registry: Registry::new(),
+            tool_summary_registry: Registry::new(),
+            markdown_transformer_registry: Registry::new(),
         }
     }
 
@@ -123,6 +140,14 @@ impl ContributionManager {
         self.vector_encoding_registry
             .unregister_by_plugin(plugin_id);
         self.snapshot_policy_registry
+            .unregister_by_plugin(plugin_id);
+        self.cli_command_registry.unregister_by_plugin(plugin_id);
+        self.completion_provider_registry
+            .unregister_by_plugin(plugin_id);
+        self.setting_field_registry
+            .unregister_by_plugin(plugin_id);
+        self.tool_summary_registry.unregister_by_plugin(plugin_id);
+        self.markdown_transformer_registry
             .unregister_by_plugin(plugin_id);
     }
 
@@ -276,6 +301,31 @@ impl ContributionManager {
         for (key, owner) in self.all_snapshot_policies() {
             if owner == plugin_id {
                 records.push((ContributionType::SnapshotPolicy.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_cli_commands() {
+            if owner == plugin_id {
+                records.push((ContributionType::CliCommand.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_completion_providers() {
+            if owner == plugin_id {
+                records.push((ContributionType::CompletionProvider.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_setting_fields() {
+            if owner == plugin_id {
+                records.push((ContributionType::SettingField.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_tool_summaries() {
+            if owner == plugin_id {
+                records.push((ContributionType::ToolSummary.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_markdown_transformers() {
+            if owner == plugin_id {
+                records.push((ContributionType::MarkdownTransformer.as_str().into(), key));
             }
         }
         let mut seen = std::collections::BTreeSet::new();

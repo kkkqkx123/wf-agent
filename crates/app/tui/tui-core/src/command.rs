@@ -8,6 +8,14 @@
 //! Execution is addressed by id: commands that map onto a low-level
 //! [`KeyAction`] carry one, while session commands are dispatched by the
 //! caller from the id alone.
+//!
+//! Plugin commands live beside the builtin table in [`CommandRegistry`]:
+//! owned definitions converted from engine snapshots through JSON, merged
+//! into slash lookup, palette rows and suggestions. Builtins win an exact
+//! slash-name collision; the conflicting plugin row stays listed with its
+//! own id so the shadowing stays visible instead of silent.
+
+use std::collections::HashMap;
 
 use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
 
@@ -1156,6 +1164,274 @@ pub fn lookup_slash(typed: &str) -> Option<&'static CommandSpec> {
 
 /// Closest slash command names for an unknown command.
 pub fn slash_suggestions(typed: &str, limit: usize) -> Vec<String> {
+    slash_suggestions_with(typed, limit, &CommandRegistry::new())
+}
+
+/// Owned plugin command: the same JSON shape the engine publishes, so a
+/// shell converts snapshots through `serde_json::Value` without depending
+/// on the plugin crates. Builtins stay `&'static`; plugins stay owned.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RuntimeCommand {
+    /// Stable command id (`<plugin>.<verb>`); doubles as the registry key.
+    pub id: String,
+    /// Short display title for palette rows and help.
+    pub title: String,
+    /// Palette group and help section.
+    pub group: String,
+    /// One-line description for palette filtering and help.
+    pub description: String,
+    /// Slash name without the leading slash, if the command has one.
+    #[serde(default)]
+    pub slash_name: Option<String>,
+    /// Extra slash spellings, all without the leading slash.
+    #[serde(default)]
+    pub slash_aliases: Vec<String>,
+    /// Argument syntax shown in help (`""` when the command takes none).
+    #[serde(default)]
+    pub slash_argument: String,
+    /// Whether the command appears in the command palette.
+    #[serde(default = "default_palette")]
+    pub palette: bool,
+    /// Display-only default key hint; the host keymap always wins.
+    #[serde(default)]
+    pub key_hint: Option<String>,
+}
+
+fn default_palette() -> bool {
+    true
+}
+
+impl RuntimeCommand {
+    /// Every slash spelling of this command: the primary name first.
+    pub fn slash_names(&self) -> Vec<&str> {
+        let mut names = Vec::new();
+        if let Some(name) = self.slash_name.as_deref() {
+            names.push(name);
+        }
+        names.extend(self.slash_aliases.iter().map(String::as_str));
+        names
+    }
+
+    /// Palette label: `/<name> <argument>` mirroring the builtin rows.
+    pub fn palette_label(&self) -> String {
+        let mut label = match self.slash_name.as_deref() {
+            Some(name) => format!("/{name}"),
+            None => format!("/{}", self.id),
+        };
+        if !self.slash_argument.is_empty() {
+            label.push(' ');
+            label.push_str(&self.slash_argument);
+        }
+        label
+    }
+}
+
+/// Runtime registry for plugin commands. Registration order decides
+/// palette and suggestion order; a duplicate id is refused so two plugins
+/// never silently share one command.
+#[derive(Debug, Default)]
+pub struct CommandRegistry {
+    commands: HashMap<String, RuntimeCommand>,
+    order: Vec<String>,
+}
+
+impl CommandRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register one plugin command. Empty ids and duplicate ids fail so
+    /// activation surfaces the conflict instead of dropping a command.
+    pub fn register(&mut self, command: RuntimeCommand) -> Result<(), String> {
+        if command.id.trim().is_empty() {
+            return Err("plugin command id must not be empty".to_string());
+        }
+        if self.commands.contains_key(&command.id) {
+            return Err(format!(
+                "plugin command '{}' is already registered",
+                command.id
+            ));
+        }
+        self.order.push(command.id.clone());
+        self.commands.insert(command.id.clone(), command);
+        Ok(())
+    }
+
+    /// Remove one plugin command; `false` means the id was not present.
+    pub fn unregister(&mut self, id: &str) -> bool {
+        if self.commands.remove(id).is_none() {
+            return false;
+        }
+        self.order.retain(|item| item != id);
+        true
+    }
+
+    /// Drop every plugin command without touching the builtin table.
+    pub fn clear(&mut self) {
+        self.commands.clear();
+        self.order.clear();
+    }
+
+    pub fn get(&self, id: &str) -> Option<&RuntimeCommand> {
+        self.commands.get(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
+    /// Plugin commands in registration order.
+    pub fn ordered(&self) -> impl Iterator<Item = &RuntimeCommand> {
+        self.order
+            .iter()
+            .filter_map(|id| self.commands.get(id))
+    }
+
+    /// Look a plugin command up by its typed slash name or alias
+    /// (leading slash optional, ASCII case-insensitive).
+    pub fn lookup_slash(&self, typed: &str) -> Option<&RuntimeCommand> {
+        let needle = typed.trim().trim_start_matches('/');
+        if needle.is_empty() {
+            return None;
+        }
+        self.ordered().find(|command| {
+            command
+                .slash_names()
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(needle))
+        })
+    }
+
+    /// Plugin commands shown in the palette, in registration order.
+    pub fn palette(&self) -> impl Iterator<Item = &RuntimeCommand> {
+        self.ordered().filter(|command| command.palette)
+    }
+}
+
+/// What a typed slash word resolved to: builtins win an exact collision
+/// so the shell keeps its own commands; the shadowed plugin row stays
+/// listed under its own id.
+#[derive(Debug, Clone, Copy)]
+pub enum SlashHit<'a> {
+    Builtin(&'static CommandSpec),
+    Plugin(&'a RuntimeCommand),
+}
+
+impl SlashHit<'_> {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Builtin(spec) => spec.id,
+            Self::Plugin(command) => command.id.as_str(),
+        }
+    }
+}
+
+/// Resolve a typed slash command against builtins first, then plugins.
+/// Returns `None` for an empty word, exactly like [`lookup_slash`].
+pub fn lookup_slash_with<'a>(
+    typed: &str,
+    plugins: &'a CommandRegistry,
+) -> Option<SlashHit<'a>> {
+    if let Some(spec) = lookup_slash(typed) {
+        return Some(SlashHit::Builtin(spec));
+    }
+    plugins.lookup_slash(typed).map(SlashHit::Plugin)
+}
+
+/// Closest slash names for an unknown command, builtins first in builtin
+/// order, then plugin names in registration order, capped at `limit`.
+pub fn slash_suggestions_with(
+    typed: &str,
+    limit: usize,
+    plugins: &CommandRegistry,
+) -> Vec<String> {
+    let mut out = slash_suggestions_inner(typed, limit);
+    if out.len() >= limit {
+        return out;
+    }
+    let needle = typed.trim().trim_start_matches('/').to_lowercase();
+    if needle.is_empty() {
+        return out;
+    }
+    let mut plugin_names: Vec<&str> = Vec::new();
+    for command in plugins.ordered() {
+        for name in command.slash_names() {
+            let lower = name.to_lowercase();
+            if (lower.starts_with(&needle) || edit_distance(&needle, &lower) <= 2)
+                && !plugin_names.contains(&name)
+            {
+                plugin_names.push(name);
+            }
+        }
+    }
+    plugin_names.sort_unstable();
+    for name in plugin_names {
+        let formatted = format!("/{name}");
+        if !out.contains(&formatted) {
+            out.push(formatted);
+        }
+        if out.len() == limit {
+            break;
+        }
+    }
+    out
+}
+
+/// One plugin palette row: display label, description and group follow
+/// the builtin row conventions; the id routes execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginPaletteRow {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub group: String,
+}
+
+/// Plugin palette rows in registration order for shells that render
+/// builtin and plugin rows through one list.
+pub fn plugin_palette_rows(plugins: &CommandRegistry) -> Vec<PluginPaletteRow> {
+    plugins
+        .palette()
+        .map(|command| PluginPaletteRow {
+            id: command.id.clone(),
+            label: command.palette_label(),
+            description: command.description.clone(),
+            group: command.group.clone(),
+        })
+        .collect()
+}
+
+/// One selectable palette row: a builtin command or a plugin command by
+/// index into the shell-held plugin list. Shells keep one index space
+/// over the combined rows so pointer hits and keyboard selection agree.
+#[derive(Debug, Clone, Copy)]
+pub enum PalettePick {
+    Builtin(&'static CommandSpec),
+    Plugin(usize),
+}
+
+/// Whether a plugin command matches a palette filter needle: title, id,
+/// description or any slash spelling contains the needle
+/// (case-insensitive). Empty needles match everything.
+pub fn plugin_matches_filter(command: &RuntimeCommand, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let needle = needle.to_lowercase();
+    command.title.to_lowercase().contains(&needle)
+        || command.id.to_lowercase().contains(&needle)
+        || command.description.to_lowercase().contains(&needle)
+        || command
+            .slash_names()
+            .iter()
+            .any(|name| name.to_lowercase().contains(&needle))
+}
+
+fn slash_suggestions_inner(typed: &str, limit: usize) -> Vec<String> {
     let needle = typed.trim().trim_start_matches('/').to_lowercase();
     if needle.is_empty() {
         return Vec::new();
@@ -1540,5 +1816,87 @@ mod tests {
         let sections = help_sections();
         assert!(sections.iter().any(|(group, _)| *group == "App"));
         assert!(sections.iter().any(|(group, _)| *group == "Leader"));
+    }
+
+    fn plugin_command(id: &str, slash: &str) -> RuntimeCommand {
+        RuntimeCommand {
+            id: id.to_string(),
+            title: "Run review".to_string(),
+            group: "Review".to_string(),
+            description: "Review the current diff".to_string(),
+            slash_name: Some(slash.to_string()),
+            slash_aliases: vec!["rev".to_string()],
+            slash_argument: "[path]".to_string(),
+            palette: true,
+            key_hint: None,
+        }
+    }
+
+    #[test]
+    fn runtime_registry_refuses_duplicate_ids() {
+        let mut registry = CommandRegistry::new();
+        registry.register(plugin_command("review.run", "review")).unwrap();
+        assert!(registry
+            .register(plugin_command("review.run", "other"))
+            .is_err());
+        assert!(registry.unregister("review.run"));
+        assert!(!registry.unregister("review.run"));
+        registry.register(plugin_command("review.run", "review")).unwrap();
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn merged_lookup_prefers_builtin_over_plugin_shadow() {
+        let mut plugins = CommandRegistry::new();
+        plugins.register(plugin_command("review.run", "review")).unwrap();
+        plugins.register(plugin_command("model.alt", "model")).unwrap();
+        // Plugin-only name resolves to the plugin command.
+        assert!(matches!(
+            lookup_slash_with("/review", &plugins),
+            Some(SlashHit::Plugin(command)) if command.id == "review.run"
+        ));
+        assert!(matches!(
+            lookup_slash_with("rev", &plugins),
+            Some(SlashHit::Plugin(command)) if command.id == "review.run"
+        ));
+        // An exact builtin collision keeps the builtin.
+        assert!(matches!(
+            lookup_slash_with("/model", &plugins),
+            Some(SlashHit::Builtin(spec)) if spec.id == "session.model"
+        ));
+        assert!(lookup_slash_with("/nope", &plugins).is_none());
+    }
+
+    #[test]
+    fn merged_suggestions_include_plugin_names() {
+        let mut plugins = CommandRegistry::new();
+        plugins.register(plugin_command("review.run", "review")).unwrap();
+        let suggestions = slash_suggestions_with("revie", 5, &plugins);
+        assert!(suggestions.contains(&"/review".to_string()));
+        let builtin_only = slash_suggestions("revie", 5);
+        assert!(!builtin_only.contains(&"/review".to_string()));
+    }
+
+    #[test]
+    fn plugin_palette_rows_follow_registration_order() {
+        let mut plugins = CommandRegistry::new();
+        plugins.register(plugin_command("review.run", "review")).unwrap();
+        let mut hidden = plugin_command("quiet.clean", "clean");
+        hidden.palette = false;
+        plugins.register(hidden).unwrap();
+        let rows = plugin_palette_rows(&plugins);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "review.run");
+        assert_eq!(rows[0].label, "/review [path]");
+    }
+
+    #[test]
+    fn runtime_command_round_trips_through_json() {
+        let command = plugin_command("review.run", "review");
+        let value = serde_json::to_value(&command).expect("serializes");
+        let back: RuntimeCommand = serde_json::from_value(value).expect("deserializes");
+        assert_eq!(command, back);
+        assert_eq!(back.palette_label(), "/review [path]");
+        assert_eq!(back.slash_names(), vec!["review", "rev"]);
     }
 }

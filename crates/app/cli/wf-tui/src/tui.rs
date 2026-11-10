@@ -1099,25 +1099,43 @@ impl TuiApp {
                 ));
             }
             OverlayMode::CommandPalette => {
-                let filtered = self.command_palette.filtered();
-                let rows: Vec<String> = filtered
+                let picks = self.command_palette.picks();
+                let rows: Vec<String> = picks
                     .iter()
-                    .map(|spec| {
-                        let mut label = match spec.slash {
-                            Some(slash) => format!("/{}", slash.name),
-                            None => spec.title.to_string(),
-                        };
-                        if let Some(slash) = spec.slash {
-                            if !slash.argument.is_empty() {
-                                label.push(' ');
-                                label.push_str(slash.argument);
+                    .map(|pick| match pick {
+                        tui_core::command::PalettePick::Builtin(spec) => {
+                            let mut label = match spec.slash {
+                                Some(slash) => format!("/{}", slash.name),
+                                None => spec.title.to_string(),
+                            };
+                            if let Some(slash) = spec.slash {
+                                if !slash.argument.is_empty() {
+                                    label.push(' ');
+                                    label.push_str(slash.argument);
+                                }
+                            }
+                            let mut row = format!("{} — {}", label, spec.title);
+                            if let Some(shortcut) = spec.shortcut() {
+                                row.push_str(&format!(" ({shortcut})"));
+                            }
+                            row
+                        }
+                        tui_core::command::PalettePick::Plugin(index) => {
+                            match self.command_palette.plugin_command(*index) {
+                                Some(command) => {
+                                    let mut row = format!(
+                                        "{} — {}",
+                                        command.palette_label(),
+                                        command.title
+                                    );
+                                    if let Some(hint) = command.key_hint.as_deref() {
+                                        row.push_str(&format!(" ({hint})"));
+                                    }
+                                    row
+                                }
+                                None => "plugin command (removed)".to_string(),
                             }
                         }
-                        let mut row = format!("{} — {}", label, spec.title);
-                        if let Some(shortcut) = spec.shortcut() {
-                            row.push_str(&format!(" ({shortcut})"));
-                        }
-                        row
                     })
                     .collect();
                 let view = crate::screen_draw::CommandPaletteView {

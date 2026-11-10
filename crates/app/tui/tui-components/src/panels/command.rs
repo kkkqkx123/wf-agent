@@ -1,9 +1,14 @@
 //! The `/` command palette: a view over the command registry with typed
 //! filtering and keymap-driven navigation.
+//!
+//! Plugin commands ride alongside the builtin rows for direct `/name`
+//! submits: the panel resolves them through its own plugin list and
+//! hands the owned definition to the shell, which reports the routing.
+//! Execution dispatch stays server-side through the host command protocol.
 
 use crate::panels::filter::{apply, PanelFilter};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
-use tui_core::command::{self, CommandSpec};
+use tui_core::command::{self, CommandSpec, RuntimeCommand};
 use tui_core::keymap::KeyAction;
 
 /// The `/` command palette.
@@ -12,6 +17,8 @@ pub struct CommandPalette {
     list: SelectList<&'static CommandSpec>,
     /// Filter text typed while the palette is open.
     filter: PanelFilter,
+    /// Plugin commands resolved for direct `/name` submits.
+    plugin_commands: Vec<RuntimeCommand>,
 }
 
 impl Default for CommandPalette {
@@ -31,6 +38,7 @@ impl CommandPalette {
         let mut panel = Self {
             list,
             filter: PanelFilter::new(),
+            plugin_commands: Vec::new(),
         };
         panel.filter.set(filter);
         panel.apply_filter();
@@ -89,6 +97,47 @@ impl CommandPalette {
                 .push(GroupItem::new(label, spec).described(spec.description));
         }
         SelectList::groups(groups).with_group_titles(true)
+    }
+
+    /// Replace the plugin command list (converted from engine snapshots
+    /// by the shell) without touching the typed filter.
+    pub fn set_plugin_commands(&mut self, commands: Vec<RuntimeCommand>) {
+        self.plugin_commands = commands;
+    }
+
+    /// Plugin command behind a typed slash name or alias (`/review`,
+    /// leading slash optional, ASCII case-insensitive).
+    pub fn find_plugin(&self, typed: &str) -> Option<RuntimeCommand> {
+        let needle = typed.trim().trim_start_matches('/');
+        if needle.is_empty() {
+            return None;
+        }
+        self.plugin_commands
+            .iter()
+            .find(|command| {
+                command
+                    .slash_name
+                    .as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(needle))
+                    || command
+                        .slash_aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(needle))
+            })
+            .cloned()
+    }
+
+    /// Plugin command matching the filter's command word, with the typed
+    /// argument. Used when no builtin row is selected.
+    pub fn resolve_plugin(&self) -> Option<(RuntimeCommand, String)> {
+        let word = match self.filter.text().split_once(' ') {
+            Some((command, _)) => command,
+            None => self.filter.text(),
+        };
+        self.find_plugin(word).map(|command| {
+            let argument = self.argument().to_string();
+            (command, argument)
+        })
     }
 
     /// The command highlighted by the cursor.

@@ -4,13 +4,14 @@
 //! so any screen can open it without leaving the current page and without
 //! touching the session composer draft.
 
-use tui_core::command::{self, CommandSpec};
+use tui_core::command::{self, CommandSpec, PalettePick, RuntimeCommand};
 
 /// Shell command palette backing the `Ctrl-P` overlay.
 #[derive(Debug, Default)]
 pub struct CommandPalette {
     filter: String,
     selected: usize,
+    plugin_commands: Vec<RuntimeCommand>,
 }
 
 impl CommandPalette {
@@ -68,7 +69,10 @@ impl CommandPalette {
 
     /// Commands matching the current filter in registry order.
     pub fn filtered(&self) -> Vec<&'static CommandSpec> {
-        let needle = self.command_word();
+        self.builtin_matches(&self.command_word())
+    }
+
+    fn builtin_matches(&self, needle: &str) -> Vec<&'static CommandSpec> {
         command::palette_commands()
             .filter(|spec| {
                 if needle.is_empty() {
@@ -77,18 +81,18 @@ impl CommandPalette {
                 let title = spec.title.to_lowercase();
                 let id = spec.id.to_lowercase();
                 let description = spec.description.to_lowercase();
-                if title.contains(&needle) || id.contains(&needle) || description.contains(&needle)
+                if title.contains(needle) || id.contains(needle) || description.contains(needle)
                 {
                     return true;
                 }
                 if let Some(slash) = spec.slash {
-                    if slash.name.to_lowercase().contains(&needle) {
+                    if slash.name.to_lowercase().contains(needle) {
                         return true;
                     }
                     if slash
                         .aliases
                         .iter()
-                        .any(|alias| alias.to_lowercase().contains(&needle))
+                        .any(|alias| alias.to_lowercase().contains(needle))
                     {
                         return true;
                     }
@@ -98,13 +102,46 @@ impl CommandPalette {
             .collect()
     }
 
-    pub fn selected_command(&self) -> Option<&'static CommandSpec> {
-        let filtered = self.filtered();
-        filtered.get(self.selected).copied()
+    /// Replace the plugin command list (converted from engine snapshots
+    /// by the loader) and reset the selection. Empty restores the
+    /// builtin-only palette.
+    pub fn set_plugin_commands(&mut self, commands: Vec<RuntimeCommand>) {
+        self.plugin_commands = commands;
+        self.selected = 0;
+    }
+
+    /// Plugin command behind a [`PalettePick::Plugin`] row.
+    pub fn plugin_command(&self, index: usize) -> Option<&RuntimeCommand> {
+        self.plugin_commands.get(index)
+    }
+
+    /// Builtin plus plugin rows matching the current filter: builtins in
+    /// registry order first, then plugins in registration order.
+    pub fn picks(&self) -> Vec<PalettePick> {
+        let needle = self.command_word();
+        let mut picks: Vec<PalettePick> = self
+            .builtin_matches(&needle)
+            .into_iter()
+            .map(PalettePick::Builtin)
+            .collect();
+        picks.extend(
+            self.plugin_commands
+                .iter()
+                .enumerate()
+                .filter(|(_, command)| {
+                    command.palette && command::plugin_matches_filter(command, &needle)
+                })
+                .map(|(index, _)| PalettePick::Plugin(index)),
+        );
+        picks
+    }
+
+    pub fn selected_pick(&self) -> Option<PalettePick> {
+        self.picks().get(self.selected).copied()
     }
 
     pub fn move_next(&mut self) {
-        let len = self.filtered().len();
+        let len = self.picks().len();
         if len == 0 {
             return;
         }
@@ -112,7 +149,7 @@ impl CommandPalette {
     }
 
     pub fn move_prev(&mut self) {
-        let len = self.filtered().len();
+        let len = self.picks().len();
         if len == 0 {
             return;
         }
@@ -124,7 +161,7 @@ impl CommandPalette {
     }
 
     pub fn page_down(&mut self) {
-        let len = self.filtered().len();
+        let len = self.picks().len();
         if len == 0 {
             return;
         }
@@ -132,7 +169,7 @@ impl CommandPalette {
     }
 
     pub fn page_up(&mut self) {
-        if self.filtered().is_empty() {
+        if self.picks().is_empty() {
             return;
         }
         self.selected = self.selected.saturating_sub(10);
@@ -141,7 +178,7 @@ impl CommandPalette {
     /// Focus one filtered row from a pointer hit. Out-of-range rows keep
     /// the current selection so stale hits stay inert.
     pub fn select(&mut self, index: usize) {
-        let len = self.filtered().len();
+        let len = self.picks().len();
         if index < len {
             self.selected = index;
         }
@@ -157,7 +194,7 @@ mod tests {
         let palette = CommandPalette::new();
         assert!(!palette.filtered().is_empty());
         assert_eq!(palette.selected(), 0);
-        assert!(palette.selected_command().is_some());
+        assert!(palette.selected_pick().is_some());
     }
 
     #[test]
@@ -170,7 +207,10 @@ mod tests {
         palette.push_char('l');
         let filtered = palette.filtered();
         assert!(filtered.iter().any(|spec| spec.id == "session.model"));
-        assert_eq!(palette.selected_command().unwrap().id, "session.model");
+        assert!(matches!(
+            palette.selected_pick(),
+            Some(PalettePick::Builtin(spec)) if spec.id == "session.model"
+        ));
     }
 
     #[test]
@@ -210,10 +250,45 @@ mod tests {
     #[test]
     fn pointer_focus_clamps_to_filtered_rows() {
         let mut palette = CommandPalette::new();
-        let len = palette.filtered().len();
+        let len = palette.picks().len();
         palette.select(1.min(len - 1));
         assert_eq!(palette.selected(), 1.min(len - 1));
         palette.select(len + 10);
         assert_eq!(palette.selected(), 1.min(len - 1));
+    }
+
+    fn plugin_review() -> RuntimeCommand {
+        RuntimeCommand {
+            id: "review.run".to_string(),
+            title: "Run review".to_string(),
+            group: "Review".to_string(),
+            description: "Review the current diff".to_string(),
+            slash_name: Some("review".to_string()),
+            slash_aliases: vec![],
+            slash_argument: "[path]".to_string(),
+            palette: true,
+            key_hint: None,
+        }
+    }
+
+    #[test]
+    fn plugin_rows_join_the_palette_after_builtins() {
+        let mut palette = CommandPalette::new();
+        let builtin_len = palette.picks().len();
+        palette.set_plugin_commands(vec![plugin_review()]);
+        let picks = palette.picks();
+        assert_eq!(picks.len(), builtin_len + 1);
+        assert!(matches!(picks[builtin_len], PalettePick::Plugin(0)));
+        for c in "review".chars() {
+            palette.push_char(c);
+        }
+        let picks = palette.picks();
+        assert!(picks
+            .iter()
+            .any(|pick| matches!(pick, PalettePick::Plugin(0))));
+        assert_eq!(
+            palette.plugin_command(0).map(|command| command.id.as_str()),
+            Some("review.run")
+        );
     }
 }

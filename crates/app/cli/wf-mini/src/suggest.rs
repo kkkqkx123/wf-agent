@@ -237,6 +237,65 @@ fn longest_common_prefix(candidates: &[&str]) -> Option<String> {
     prefix
 }
 
+/// Static completion source contributed by a plugin. The shell converts
+/// engine snapshots into this shape; suggestions stay in-memory prefix
+/// matches so untrusted items can never execute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginCompletionSource {
+    /// Trigger characters activating this source (`#`, `@`, `/`).
+    pub trigger: String,
+    /// Static items offered while the trigger is active.
+    pub items: Vec<String>,
+}
+
+/// Plugin completion: each source watches its trigger prefix and offers
+/// its static items. Sources run after the mention strategy and before
+/// the builtin slash-name completion, in registration order.
+pub struct PluginCompletionStrategy {
+    sources: Vec<PluginCompletionSource>,
+}
+
+impl PluginCompletionStrategy {
+    pub fn new(sources: Vec<PluginCompletionSource>) -> Self {
+        Self { sources }
+    }
+}
+
+impl SuggestStrategy for PluginCompletionStrategy {
+    fn name(&self) -> &'static str {
+        "plugin"
+    }
+
+    fn suggest(&self, buffer: &str, _ctx: &SuggestCtx) -> Option<String> {
+        for source in &self.sources {
+            if source.trigger.is_empty() || !buffer.starts_with(&source.trigger) {
+                continue;
+            }
+            if buffer.chars().any(char::is_whitespace) {
+                continue;
+            }
+            let mut candidates: Vec<&str> = source
+                .items
+                .iter()
+                .map(String::as_str)
+                .filter(|item| item.starts_with(buffer))
+                .collect();
+            candidates.sort_unstable();
+            candidates.dedup();
+            match candidates.as_slice() {
+                [only] if only.len() > buffer.len() => return Some((*only).to_string()),
+                _ => {
+                    let prefix = longest_common_prefix(&candidates)?;
+                    if prefix.len() > buffer.len() {
+                        return Some(prefix);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 /// Cancel-pending guard for suggestion fetches, ported from
 /// zsh-autosuggestions' async request lifecycle (`async.zsh:12-27`): a new
 /// keystroke invalidates every fetch opened before it, and a late result is
@@ -287,6 +346,21 @@ impl SuggestEngine {
                 Box::new(HistoryStrategy),
                 Box::new(MatchPrevCmdStrategy),
                 Box::new(MentionStrategy),
+                Box::new(CommandStrategy),
+            ],
+        }
+    }
+
+    /// Engine with plugin completion sources merged in: the plugin
+    /// strategy runs after the mention strategy and before the builtin
+    /// slash-name completion, so project sources win over generic names.
+    pub fn with_plugin_sources(sources: Vec<PluginCompletionSource>) -> Self {
+        Self {
+            strategies: vec![
+                Box::new(HistoryStrategy),
+                Box::new(MatchPrevCmdStrategy),
+                Box::new(MentionStrategy),
+                Box::new(PluginCompletionStrategy::new(sources)),
                 Box::new(CommandStrategy),
             ],
         }
@@ -437,6 +511,45 @@ mod tests {
         let second = broker.begin();
         assert!(broker.is_current(second));
         assert!(!broker.is_current(first), "first fetch is stale now");
+    }
+
+    #[test]
+    fn plugin_completion_serves_trigger_items() {
+        let strategy = PluginCompletionStrategy::new(vec![PluginCompletionSource {
+            trigger: "#".to_string(),
+            items: vec!["#12".to_string()],
+        }]);
+        let history = Vec::new();
+        let ctx = mk_ctx(&history, None);
+        assert_eq!(strategy.suggest("#1", &ctx), Some("#12".to_string()));
+        assert_eq!(strategy.suggest("#12", &ctx), None);
+        assert_eq!(strategy.suggest("hi", &ctx), None);
+        assert_eq!(strategy.suggest("#1 x", &ctx), None);
+
+        let ambiguous = PluginCompletionStrategy::new(vec![PluginCompletionSource {
+            trigger: "#".to_string(),
+            items: vec!["#review-a".to_string(), "#review-b".to_string()],
+        }]);
+        assert_eq!(
+            ambiguous.suggest("#review", &ctx),
+            Some("#review-".to_string())
+        );
+        assert_eq!(ambiguous.suggest("#review-", &ctx), None);
+    }
+
+    #[test]
+    fn plugin_engine_places_sources_before_builtin_commands() {
+        let engine =
+            SuggestEngine::with_plugin_sources(vec![PluginCompletionSource {
+                trigger: "/".to_string(),
+                items: vec!["/review".to_string()],
+            }]);
+        let history = Vec::new();
+        let ctx = mk_ctx(&history, None);
+        assert_eq!(
+            engine.suggest("/rev", &ctx),
+            Some("/review".to_string())
+        );
     }
 
     #[test]

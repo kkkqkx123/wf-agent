@@ -321,6 +321,32 @@ pub fn preview_tone(kind: DisplayKind, line: &str) -> PreviewTone {
     PreviewTone::Muted
 }
 
+/// Declarative tool summary contributed by a plugin: the host
+/// substitutes `{args}` (compact argument text) and `{result}` (truncated
+/// result text) and renders the outcome with the theme. Unknown
+/// placeholders stay verbatim so typos stay visible.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolSummaryTemplate {
+    /// Tool name this summary renders.
+    pub tool_name: String,
+    /// Template for the pending/running call line.
+    pub call_template: String,
+    /// Template for the settled result line.
+    pub result_template: String,
+}
+
+impl ToolSummaryTemplate {
+    /// Render the call portion: `{args}` takes the compact argument text.
+    /// `None` means no template is set and the builtin card applies.
+    pub fn render_call(&self, args: &str) -> Option<String> {
+        (!self.call_template.is_empty()).then(|| {
+            self.call_template
+                .replace("{args}", args)
+                .replace("{result}", "")
+        })
+    }
+}
+
 /// Assemble one tool summary row: status mark, tool name, optional call
 /// summary, optional elapsed time and optional overflow suffix. Callers
 /// pass the payload fields through unchanged; empty call summaries and
@@ -333,15 +359,50 @@ pub fn format_tool_summary(
     truncated: bool,
     success: bool,
 ) -> String {
+    format_tool_summary_with(
+        tool_name,
+        call_summary,
+        elapsed_ms,
+        hidden_lines,
+        truncated,
+        success,
+        &[],
+    )
+}
+
+/// [`format_tool_summary`] with plugin templates: a matching template
+/// replaces the parenthetical call portion; without a match (or with an
+/// empty template) the builtin card applies, so a bad contribution
+/// degrades to the default row instead of breaking the transcript.
+pub fn format_tool_summary_with(
+    tool_name: &str,
+    call_summary: &str,
+    elapsed_ms: Option<u64>,
+    hidden_lines: usize,
+    truncated: bool,
+    success: bool,
+    templates: &[ToolSummaryTemplate],
+) -> String {
     let mark = if success {
         tui_style::icons::SUCCESS
     } else {
         tui_style::icons::FAILURE
     };
     let mut summary = format!("{mark} {tool_name}");
-    let call = call_summary.trim();
+    let call = templates
+        .iter()
+        .find(|template| template.tool_name == tool_name)
+        .and_then(|template| template.render_call(call_summary.trim()))
+        .unwrap_or_else(|| {
+            let call = call_summary.trim();
+            if call.is_empty() {
+                String::new()
+            } else {
+                format!("({call})")
+            }
+        });
     if !call.is_empty() {
-        summary.push_str(&format!("({call})"));
+        summary.push_str(&call);
     }
     if let Some(elapsed) = elapsed_ms {
         summary.push_str(&format!(" ({elapsed}ms)"));
@@ -406,6 +467,28 @@ pub fn fit_footer_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_template_replaces_the_call_portion() {
+        let templates = [ToolSummaryTemplate {
+            tool_name: "grep".to_string(),
+            call_template: "search {args}".to_string(),
+            result_template: String::new(),
+        }];
+        let row = format_tool_summary_with("grep", "-r foo", None, 0, false, true, &templates);
+        assert!(row.contains("grep"));
+        assert!(row.contains("search -r foo"));
+        assert!(!row.contains("-r foo)"));
+    }
+
+    #[test]
+    fn missing_template_falls_back_to_the_builtin_card() {
+        let plain = format_tool_summary("grep", "-r foo", None, 0, false, true);
+        let fallback =
+            format_tool_summary_with("grep", "-r foo", None, 0, false, true, &[]);
+        assert_eq!(plain, fallback);
+        assert!(fallback.contains("(-r foo)"));
+    }
 
     #[test]
     fn short_text_passes_through_verbatim() {

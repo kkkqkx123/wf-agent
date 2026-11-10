@@ -17,7 +17,9 @@ mod commands;
 mod history;
 mod reader;
 
-pub use commands::{parse_command, AttachArgs, ImageArgs, SlashCommand};
+pub use commands::{
+    parse_command, parse_command_with, AttachArgs, ImageArgs, PluginSlash, SlashCommand,
+};
 pub use history::{
     load_file_config as load_history_file_config, resolve_history_limit, resolve_history_path,
     History,

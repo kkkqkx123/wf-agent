@@ -446,6 +446,10 @@ pub struct InteractiveController {
     expanded_version: u64,
     /// Model profiles cached for the model panel.
     panel_profiles: Vec<wf_types::llm::LlmProfile>,
+    /// Plugin command registry backing the `/` panel and slash submit.
+    /// Converted from engine snapshots by the loader; empty keeps the
+    /// builtin-only shell.
+    plugin_commands: tui_core::command::CommandRegistry,
     /// Skills cached for the skill panel.
     panel_skills: Vec<wf_types::skill::SkillMetadata>,
     /// Workflow summaries cached for the workflow panel.
@@ -735,6 +739,7 @@ impl InteractiveController {
             expanded_version: 0,
             panel_profiles: Vec::new(),
             panel_skills: Vec::new(),
+            plugin_commands: tui_core::command::CommandRegistry::new(),
             panel_workflows: Vec::new(),
             panel_auth: Vec::new(),
             panel_mention_files: Vec::new(),

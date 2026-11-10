@@ -14778,7 +14778,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_String"
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
                 }
               }
             }
@@ -14855,7 +14855,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_String"
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
                 }
               }
             }

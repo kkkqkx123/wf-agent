@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat};
 
 pub fn render_envelope(format: OutputFormat, envelope: OutputEnvelope) -> CliResult<()> {
@@ -27,4 +27,14 @@ pub fn render_envelope(format: OutputFormat, envelope: OutputEnvelope) -> CliRes
         }
         OutputFormat::Silent => Ok(()),
     }
+}
+
+/// Render a failure envelope, then fail the command with the same message.
+///
+/// Resource-missing business failures stay machine-readable on stdout
+/// while the process still exits non-zero for scripts and CI.
+/// Validation verdicts are data, not failures, and do not use this path.
+pub fn render_failure(format: OutputFormat, kind: &str, message: String) -> CliResult<()> {
+    render_envelope(format, OutputEnvelope::failure(kind, message.clone()))?;
+    Err(CliError::Business(message))
 }

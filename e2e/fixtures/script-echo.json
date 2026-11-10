@@ -1,0 +1,9 @@
+{
+  "id": "e2e-echo",
+  "name": "e2e-echo",
+  "description": "Script registered for the headless e2e local execution tier",
+  "language": "javascript",
+  "enabled": true,
+  "created_at": 0,
+  "updated_at": 0
+}

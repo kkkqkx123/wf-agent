@@ -14,9 +14,10 @@
       "node_type": "SCRIPT",
       "name": "say-hello",
       "config": {
-        "script_name": "echo",
+        "script_name": "e2e-echo",
         "risk": "none",
-        "inline": "echo hello"
+        "executor": "javascript",
+        "inline": "1 + 1"
       }
     },
     {

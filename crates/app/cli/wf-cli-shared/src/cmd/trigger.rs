@@ -1,7 +1,7 @@
 //! Trigger domain commands: template registry plus the firing ledger.
 
 use crate::args::{Cli, TriggerSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -118,9 +118,10 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
                     OutputEnvelope::success("trigger-delete", data).with_entity(id.clone()),
                 )
             } else {
-                render_envelope(
+                render_failure(
                     cli.output,
-                    OutputEnvelope::failure("trigger-delete", format!("trigger not found: {id}")),
+                    "trigger-delete",
+                    format!("trigger not found: {id}"),
                 )
             }
         }

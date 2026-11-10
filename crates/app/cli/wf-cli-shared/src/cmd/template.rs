@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::args::{Cli, TemplateSub, TemplateVersionSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -64,9 +64,10 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                     cli.output,
                     OutputEnvelope::success("template-show", t).with_entity(id.clone()),
                 ),
-                None => render_envelope(
+                None => render_failure(
                     cli.output,
-                    OutputEnvelope::failure("template-show", format!("template not found: {id}")),
+                    "template-show",
+                    format!("template not found: {id}"),
                 ),
             }
         }

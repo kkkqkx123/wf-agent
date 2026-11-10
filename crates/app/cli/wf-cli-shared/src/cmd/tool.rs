@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::args::{Cli, ToolSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -98,9 +98,10 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
                     OutputEnvelope::success("tool-delete", data).with_entity(id.clone()),
                 )
             } else {
-                render_envelope(
+                render_failure(
                     cli.output,
-                    OutputEnvelope::failure("tool-delete", format!("tool not found: {id}")),
+                    "tool-delete",
+                    format!("tool not found: {id}"),
                 )
             }
         }

@@ -24,6 +24,12 @@ require_file() {
   [ -f "$path" ] || die "missing required file: $path"
 }
 
+# Require a command to exist on PATH.
+require_cmd() {
+  local name="$1"
+  command -v "$name" >/dev/null || die "$name is required"
+}
+
 # Wait until the health endpoint answers 200 or the deadline passes.
 wait_for_health() {
   local base_url="$1"
@@ -58,15 +64,43 @@ run_headless() {
     --output json --no-color "$@" >"$out_file" 2>"$err_file"
 }
 
-# Assert that a JSON file carries .success == true.
+# Assert that a JSON file carries .success == true (stdlib python3 only).
 assert_success_envelope() {
   local file="$1"
-  jq -e '.success == true' "$file" >/dev/null 2>&1
+  python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("success") is True else 1)' "$file" 2>/dev/null
+}
+
+# Extract `.data.status` from an execution envelope (empty when absent).
+envelope_status_of() {
+  local file="$1"
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("data", {}); print(v.get("status", "") if isinstance(v, dict) else "")' "$file" 2>/dev/null
+}
+
+# Extract a top-level field from a JSON file (empty string when absent).
+json_field() {
+  local file="$1" field="$2"
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2], ""); print(v if isinstance(v,str) else ("" if v is None else json.dumps(v)))' "$file" "$field" 2>/dev/null
+}
+
+# Extract the execution id from an execution-run envelope: `.data` carries
+# either the id string or an object holding `execution_id`.
+execution_id_of() {
+  local file="$1"
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("data"); print(v.get("execution_id", "") if isinstance(v, dict) else (v if isinstance(v, str) else ""))' "$file" 2>/dev/null
 }
 
 # Normalize volatile fields so golden comparison stays stable.
 normalize_json() {
   local src="$1" dest="$2"
-  jq 'walk(if type == "object" then with_entries(select(.key | test("timestamp|createdAt|created_at|updatedAt|updated_at|executionId|execution_id|traceId") | not)) else . end)' \
-    "$src" >"$dest"
+  python3 - "$src" "$dest" <<'EOF'
+import json, re, sys
+pat = re.compile(r"timestamp|createdAt|created_at|updatedAt|updated_at|executionId|execution_id|traceId")
+def clean(v):
+    if isinstance(v, dict):
+        return {k: clean(x) for k, x in v.items() if not pat.search(k)}
+    if isinstance(v, list):
+        return [clean(x) for x in v]
+    return v
+open(sys.argv[2], "w").write(json.dumps(clean(json.load(open(sys.argv[1]))), indent=2, sort_keys=True) + "\n")
+EOF
 }

@@ -567,16 +567,13 @@ impl WfClient {
         unwrap_generated_envelope(envelope.into_inner())
     }
 
-    /// Typed execution detail (`GET /api/v1/executions/{id}`).
-    /// Response `data` is a plain string on this route, so the path and
-    /// envelope stay typed while the payload passes through as JSON.
+    /// Execution detail (`GET /api/v1/executions/{id}`).
+    /// Uses the JSON escape hatch instead of the generated operation: the
+    /// server serves a detail object here while the generated operation
+    /// types the payload as a plain string, so the typed path rejects
+    /// real responses (including completed executions).
     pub async fn execution_detail(&self, id: &str) -> ClientResult<serde_json::Value> {
-        let envelope = self
-            .generated
-            .handle_get_execution(id)
-            .await
-            .map_err(map_typed_error)?;
-        unwrap_generated_envelope(envelope.into_inner())
+        self.get_json(&format!("/api/v1/executions/{id}")).await
     }
 
     /// Typed execution hierarchy (`GET /api/v1/executions/{id}/hierarchy`).

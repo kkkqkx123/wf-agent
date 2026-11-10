@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::args::{Cli, WorkflowSub, WorkflowVersionSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -241,9 +241,10 @@ pub(crate) async fn run_with_client(
                 .get_json::<serde_json::Value>(&format!("/api/v1/workflows/{id}"))
                 .await
             {
-                Err(_) => render_envelope(
+                Err(_) => render_failure(
                     cli.output,
-                    OutputEnvelope::failure("workflow-delete", format!("workflow not found: {id}")),
+                    "workflow-delete",
+                    format!("workflow not found: {id}"),
                 ),
                 Ok(_) => {
                     // Workflows have no cross-resource reference check today
@@ -260,12 +261,10 @@ pub(crate) async fn run_with_client(
                                 .with_entity(id.clone()),
                         )
                     } else {
-                        render_envelope(
+                        render_failure(
                             cli.output,
-                            OutputEnvelope::failure(
-                                "workflow-delete",
-                                format!("workflow not found: {id}"),
-                            ),
+                            "workflow-delete",
+                            format!("workflow not found: {id}"),
                         )
                     }
                 }

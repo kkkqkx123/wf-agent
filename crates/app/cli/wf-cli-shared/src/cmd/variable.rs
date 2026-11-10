@@ -1,5 +1,5 @@
 use crate::args::{Cli, VariableSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
@@ -90,12 +90,10 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
                         .with_entity(format!("{execution}:{scope}:{name}")),
                 )
             } else {
-                render_envelope(
+                render_failure(
                     cli.output,
-                    OutputEnvelope::failure(
-                        "variable-delete",
-                        format!("variable not found: {name}"),
-                    ),
+                    "variable-delete",
+                    format!("variable not found: {name}"),
                 )
             }
         }

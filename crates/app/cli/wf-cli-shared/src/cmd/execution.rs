@@ -11,7 +11,7 @@ use super::execution_stream::{run_workflow_streaming, watch_execution};
 use super::execution_view::{print_hierarchy, print_history, print_subtree};
 
 use crate::args::{Cli, ExecutionSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -658,9 +658,10 @@ async fn show_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()>
             cli.output,
             OutputEnvelope::success("execution-show", exec).with_entity(id.to_string()),
         ),
-        Err(_) => render_envelope(
+        Err(_) => render_failure(
             cli.output,
-            OutputEnvelope::failure("execution-show", format!("execution not found: {id}")),
+            "execution-show",
+            format!("execution not found: {id}"),
         ),
     }
 }
@@ -697,9 +698,10 @@ async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<(
                 OutputEnvelope::success("execution-status", data).with_entity(id.to_string()),
             )
         }
-        Err(_) => render_envelope(
+        Err(_) => render_failure(
             cli.output,
-            OutputEnvelope::failure("execution-status", format!("execution not found: {id}")),
+            "execution-status",
+            format!("execution not found: {id}"),
         ),
     }
 }

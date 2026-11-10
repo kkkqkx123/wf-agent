@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::args::{Cli, ScriptSub};
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{render_envelope, render_failure};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -89,9 +89,10 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
                     OutputEnvelope::success("script-delete", data).with_entity(id.clone()),
                 )
             } else {
-                render_envelope(
+                render_failure(
                     cli.output,
-                    OutputEnvelope::failure("script-delete", format!("script not found: {id}")),
+                    "script-delete",
+                    format!("script not found: {id}"),
                 )
             }
         }

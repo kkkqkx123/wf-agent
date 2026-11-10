@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
-ROOT="$(e2e_root)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN_DIR="$ROOT/e2e/bin"
 FIX_DIR="$ROOT/e2e/fixtures"
 ACTUAL_DIR="$ROOT/e2e/outputs/actual"
@@ -35,8 +35,8 @@ done
 
 require_file "$SERVER_BIN"
 require_file "$HEADLESS_BIN"
-command -v curl >/dev/null || die "curl is required"
-command -v jq >/dev/null || die "jq is required"
+require_cmd curl
+require_cmd python3
 
 mkdir -p "$ACTUAL_DIR"
 WORK_DIR="$(mktemp -d "$ACTUAL_DIR/workspace.XXXXXX")"
@@ -95,9 +95,32 @@ run_negative_case() {
     echo "PASS $name"
     PASS=$((PASS+1))
   else
-    echo "FAIL $name (expected non-zero exit)"
+    echo "FAIL $name (expected non-zero exit; failure envelope alone is not enough)"
     FAIL=$((FAIL+1))
   fi
+}
+
+# Non-fatal read-model probe: watch and show read different stores, so log
+# whether their terminal statuses converge within a bounded poll. This
+# never fails the gate; it only accumulates evidence for the follow-up.
+probe_status_consistency() {
+  local id="$1"
+  local watch_status show_status="unknown" polls=0 converged="no"
+  watch_status="$(envelope_status_of "$ACTUAL_DIR/execution-watch.stdout.json")"
+  while [ "$polls" -lt 5 ]; do
+    run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
+      "$ACTUAL_DIR/consistency-show.stdout.json" "$ACTUAL_DIR/consistency-show.stderr.txt" \
+      -- execution show "$id" || true
+    show_status="$(envelope_status_of "$ACTUAL_DIR/consistency-show.stdout.json")"
+    polls=$((polls + 1))
+    if [ -n "$show_status" ] && [ "$show_status" = "$watch_status" ]; then
+      converged="yes"
+      break
+    fi
+    sleep 1
+  done
+  echo "consistency watch=$watch_status show=$show_status converged=$converged polls=$polls" > "$ACTUAL_DIR/consistency-show-watch.txt"
+  echo "consistency probe: watch=$watch_status show=$show_status converged=$converged polls=$polls"
 }
 
 section "health and diagnostics tier"
@@ -135,15 +158,26 @@ run_case registry-template-list template list
 if [ "$SKIP_LOCAL_EXECUTION" -eq 0 ]; then
   section "local execution tier"
   SCRIPT_WF="e2e-script"
+  SCRIPT_ID="e2e-echo"
   set +e
   run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
-    "$ACTUAL_DIR/workflow-create-script.stdout.json" "$ACTUAL_DIR/workflow-create-script.stderr.txt" \
-    -- workflow create --file "$FIX_DIR/workflow-script.json" --format json
-  create_code=$?
+    "$ACTUAL_DIR/script-save.stdout.json" "$ACTUAL_DIR/script-save.stderr.txt" \
+    -- script save --file "$FIX_DIR/script-echo.json"
+  save_code=$?
   set -e
-  if [ "$create_code" -ne 0 ]; then
-    echo "SKIP local execution (script workflow not accepted here)"
+  if [ "$save_code" -ne 0 ]; then
+    echo "SKIP local execution (cannot register fixture script here)"
   else
+    check script-save 0 "$save_code" "$ACTUAL_DIR/script-save.stdout.json"
+    set +e
+    run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
+      "$ACTUAL_DIR/workflow-create-script.stdout.json" "$ACTUAL_DIR/workflow-create-script.stderr.txt" \
+      -- workflow create --file "$FIX_DIR/workflow-script.json" --format json
+    create_code=$?
+    set -e
+    if [ "$create_code" -ne 0 ]; then
+      echo "SKIP local execution run (script workflow not accepted here)"
+    else
     check workflow-create-script 0 "$create_code" "$ACTUAL_DIR/workflow-create-script.stdout.json"
     set +e
     run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
@@ -155,15 +189,20 @@ if [ "$SKIP_LOCAL_EXECUTION" -eq 0 ]; then
       echo "SKIP local execution run (environment cannot run scripts)"
     else
       check execution-run 0 "$run_code" "$ACTUAL_DIR/execution-run.stdout.json"
-      EXEC_ID="$(jq -r '.data // empty' "$ACTUAL_DIR/execution-run.stdout.json" | head -n 1)"
+      EXEC_ID="$(execution_id_of "$ACTUAL_DIR/execution-run.stdout.json")"
       if [ -n "$EXEC_ID" ] && [ "$EXEC_ID" != "null" ]; then
         run_case execution-watch execution watch "$EXEC_ID" --once
         run_case execution-show execution show "$EXEC_ID"
+        probe_status_consistency "$EXEC_ID"
       fi
     fi
     run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
       "$ACTUAL_DIR/workflow-delete-script.stdout.json" "$ACTUAL_DIR/workflow-delete-script.stderr.txt" \
       -- workflow delete "$SCRIPT_WF" --force >/dev/null 2>&1 || true
+    run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
+      "$ACTUAL_DIR/script-delete.stdout.json" "$ACTUAL_DIR/script-delete.stderr.txt" \
+      -- script delete "$SCRIPT_ID" --force >/dev/null 2>&1 || true
+    fi
   fi
 fi
 

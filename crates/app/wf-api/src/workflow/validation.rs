@@ -245,13 +245,49 @@ pub async fn validate_workflow_for_publish(
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
     if let Some(ref config) = workflow.config {
-        if let Some(ref template_id) = config.system_prompt_template_id {
-            if !ctx.registries.templates.has(template_id) {
-                return Err(ApiError::Validation(format!(
-                    "workflow '{}' references prompt template '{}' which is not registered",
-                    workflow.id, template_id
-                )));
-            }
+        // Workflow-level initial prompts have no runtime consumer: execution
+        // merges only limits and input defaults, node prompts read node
+        // config, and rich assembly lives behind AGENT_LOOP nodes. Reject
+        // set values instead of silently ignoring them so authors place
+        // initial prompts where they actually run.
+        let mut dormant = Vec::new();
+        if config
+            .initial_messages
+            .as_ref()
+            .is_some_and(|messages| !messages.is_empty())
+        {
+            dormant.push("initial_messages");
+        }
+        if config
+            .system_prompt
+            .as_ref()
+            .is_some_and(|prompt| !prompt.trim().is_empty())
+        {
+            dormant.push("system_prompt");
+        }
+        if config.system_prompt_template_id.is_some() {
+            dormant.push("system_prompt_template_id");
+        }
+        if config
+            .system_prompt_template_variables
+            .as_ref()
+            .is_some_and(|variables| !variables.is_empty())
+        {
+            dormant.push("system_prompt_template_variables");
+        }
+        if config
+            .static_contexts
+            .as_ref()
+            .is_some_and(|contexts| !contexts.is_empty())
+        {
+            dormant.push("static_contexts");
+        }
+        if !dormant.is_empty() {
+            return Err(ApiError::Validation(format!(
+                "workflow '{}' sets {} which no workflow runtime consumes; put initial prompts on nodes (LLM node system_prompt/messages, or an AGENT_LOOP node) instead",
+                workflow.id,
+                dormant.join(", ")
+            )));
         }
     }
 

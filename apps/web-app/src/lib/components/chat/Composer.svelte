@@ -110,6 +110,13 @@
 
 	let draft = $state('');
 	const mentionChips = $derived(textRuns(draft).filter((run) => run.kind !== null));
+	// Turn cap shared with the server (`TURN_MENTION_LIMIT` in wf-common):
+	// display-only pre-send hint, never blocks sending. Chip text is the raw
+	// `@kind:value` reference, so set size matches the server dedup key.
+	const MENTION_TURN_LIMIT = 8;
+	const mentionOverLimit = $derived(
+		new Set(mentionChips.map((chip) => chip.text)).size - MENTION_TURN_LIMIT
+	);
 	let attachments = $state<MessageAttachment[]>([]);
 	let images = $state<ImageAttachment[]>([]);
 	let queue = $state<OutgoingMessage[]>([]);
@@ -956,6 +963,11 @@
 					</button>
 				</span>
 			{/each}
+			{#if mentionOverLimit > 0}
+				<p class="w-full text-micro text-muted-foreground">
+					{t('chat.composer.mentionOverLimit', { count: mentionOverLimit })}
+				</p>
+			{/if}
 		</div>
 	{/if}
 

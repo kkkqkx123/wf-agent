@@ -215,6 +215,72 @@ pub fn staged_placeholder_len(rest: &str) -> Option<usize> {
     staged_placeholder_parts(rest).map(|(_, _, len)| len)
 }
 
+/// Cap on distinct references resolved in one turn. The server resolves the
+/// first entries and reports the remainder visibly; clients use the same cap
+/// for pre-send hints so both sides agree without sharing resolution logic.
+pub const TURN_MENTION_LIMIT: usize = 8;
+
+/// Distinct `kind:value` references in `text`, in first-seen order. Only
+/// tokens that parse as references count, mirroring the server resolver:
+/// bare words without a separator are queries, not references, and never
+/// ride a turn. Clients use this for pre-send hints; the server stays the
+/// single authority on what actually resolves.
+pub fn distinct_mention_keys(text: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'@' {
+            let mut end = i + 1;
+            while end < bytes.len() {
+                let b = bytes[end];
+                if b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' || b == b'@' {
+                    break;
+                }
+                end += 1;
+            }
+            if end > i + 1 {
+                let mut raw = text[i + 1..end].to_string();
+                while raw.ends_with('.') || raw.ends_with(',') || raw.ends_with(';') {
+                    raw.pop();
+                }
+                if let Some((kind, value)) = parse_reference(&raw) {
+                    let key = format!("{kind}:{value}");
+                    if seen.insert(key.clone()) {
+                        out.push(key);
+                    }
+                }
+            }
+            i = end.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// References in `text` beyond the turn cap. Zero means every reference
+/// resolves; clients show a non-blocking hint when this is positive.
+pub fn omitted_mention_count(text: &str) -> usize {
+    distinct_mention_keys(text)
+        .len()
+        .saturating_sub(TURN_MENTION_LIMIT)
+}
+
+/// Pre-send hint when `text` carries more references than one turn resolves.
+/// Returns `None` when everything fits. The wording matches the server
+/// omission notice so pre-send and post-send read as one story.
+pub fn mention_turn_hint(text: &str) -> Option<String> {
+    let omitted = omitted_mention_count(text);
+    if omitted == 0 {
+        return None;
+    }
+    Some(format!(
+        "{omitted} mention(s) over the turn cap of {TURN_MENTION_LIMIT}: only the first {TURN_MENTION_LIMIT} resolve; split references across turns to include all."
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,6 +347,27 @@ mod tests {
         assert_eq!(staged_placeholder_parts("[Image 0]"), None);
         assert_eq!(staged_placeholder_parts("[Image ]"), None);
         assert_eq!(staged_placeholder_parts("[Note 1]"), None);
+    }
+
+    #[test]
+    fn distinct_keys_dedup_and_skip_bare_words() {
+        let keys = distinct_mention_keys("@skill:pdf and @skill:pdf plus @file:a/b.rs and plain");
+        assert_eq!(
+            keys,
+            vec!["skill:pdf".to_string(), "file:a/b.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn turn_hint_appears_only_over_the_cap() {
+        assert!(mention_turn_hint("@skill:a").is_none());
+        let text = (0..TURN_MENTION_LIMIT)
+            .map(|i| format!("@skill:s{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(mention_turn_hint(&text).is_none());
+        let hint = mention_turn_hint(&format!("{text} @skill:extra")).expect("hint over cap");
+        assert!(hint.contains("1 mention(s) over the turn cap"));
     }
 
     #[test]

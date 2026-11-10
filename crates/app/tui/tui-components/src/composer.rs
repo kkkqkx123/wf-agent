@@ -941,6 +941,12 @@ impl Composer {
         parse_mentions(&self.buf)
     }
 
+    /// Pre-send hint when the buffer carries more references than one turn
+    /// resolves. Pure and non-blocking; the server stays authoritative.
+    pub fn mention_hint(&self) -> Option<String> {
+        wf_common::mention::mention_turn_hint(&self.buf)
+    }
+
     /// All staged attachment placeholders in the buffer.
     pub fn attachment_spans(&self) -> Vec<AttachmentSpan> {
         parse_attachments(&self.buf)
@@ -1105,18 +1111,21 @@ impl Composer {
         }
         let rows = self.visual_rows(width);
         let cursor_idx = self.cursor_visual_index_for_rows(&rows);
+        let hint = self.mention_hint();
+        let hint_rows = usize::from(hint.is_some());
         let visible = usize::from(area.height);
-        let start = if rows.len() <= visible {
+        let body_visible = visible.saturating_sub(hint_rows);
+        let start = if rows.len() <= body_visible {
             0
         } else {
             (cursor_idx + 1)
-                .saturating_sub(visible)
-                .min(rows.len() - visible)
+                .saturating_sub(body_visible)
+                .min(rows.len() - body_visible)
         };
         let mention_ranges = self.mention_ranges();
         let attachment_spans = self.attachment_spans();
         let ghost = self.ghost_for_render();
-        for (slot, row) in rows.iter().skip(start).take(visible).enumerate() {
+        for (slot, row) in rows.iter().skip(start).take(body_visible).enumerate() {
             let y = area.y + slot as u16;
             let mut col: u16 = 0;
             let end = row.end.min(self.buf.len());
@@ -1184,6 +1193,21 @@ impl Composer {
                         buf.set_string(area.x + col, y, grapheme, dim);
                         col += w;
                     }
+                }
+            }
+        }
+        if let Some(ref hint) = hint {
+            if body_visible < visible {
+                let y = area.y + body_visible as u16;
+                let dim = style.add_modifier(Modifier::DIM);
+                let mut col: u16 = 0;
+                for grapheme in hint.graphemes(true) {
+                    let w = grapheme.width() as u16;
+                    if col + w > width {
+                        break;
+                    }
+                    buf.set_string(area.x + col, y, grapheme, dim);
+                    col += w;
                 }
             }
         }
@@ -1340,19 +1364,22 @@ impl tui_core::renderable::Renderable for Composer {
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        self.visual_row_count(width.max(1)) as u16
+        self.visual_row_count(width.max(1))
+            .saturating_add(usize::from(self.mention_hint().is_some())) as u16
     }
 
     fn cursor_pos(&self, area: ratatui::layout::Rect) -> Option<(u16, u16)> {
         let (col, row) = self.cursor_visual_pos(area.width.max(1));
+        let hint_rows = usize::from(self.mention_hint().is_some());
         let visible = usize::from(area.height.max(1));
+        let body_visible = visible.saturating_sub(hint_rows).max(1);
         let total = self.visual_row_count(area.width.max(1));
-        let start = if total <= visible {
+        let start = if total <= body_visible {
             0
         } else {
             (row as usize + 1)
-                .saturating_sub(visible)
-                .min(total - visible)
+                .saturating_sub(body_visible)
+                .min(total - body_visible)
         };
         Some((col, (row as usize).saturating_sub(start) as u16))
     }
@@ -1829,6 +1856,28 @@ mod tests {
         assert!(col < 20, "cursor stays visible, got col {col}");
         c.home();
         assert_eq!(c.cursor_col(20), 0);
+    }
+
+    #[test]
+    fn over_limit_mentions_render_a_hint_row() {
+        let mut c = Composer::new();
+        let text = (0..9)
+            .map(|i| format!("@skill:s{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        c.set_text(&text);
+        assert!(c.mention_hint().is_some());
+        let width = 80u16;
+        let height = (c.visual_row_count(width) + 1) as u16;
+        let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
+        c.render(Rect::new(0, 0, width, height), &mut buf, Style::default());
+        let bottom: String = (0..width)
+            .map(|x| buf[(x, height - 1)].symbol().to_string())
+            .collect();
+        assert!(
+            bottom.contains("mention(s) over the turn cap"),
+            "hint row reads: {bottom}"
+        );
     }
 
     #[test]

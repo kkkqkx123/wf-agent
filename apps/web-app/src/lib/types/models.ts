@@ -447,7 +447,7 @@ export interface MentionReceipt {
 	/** Reference without the leading `@`, e.g. `file:shots/a.png`. */
 	reference: string;
 	kind: string;
-	/** `attached` | `resolved` | `skipped` | `unmatched`. */
+	/** `attached` | `resolved` | `skipped` | `unmatched` | `omitted`. */
 	outcome: string;
 }
 

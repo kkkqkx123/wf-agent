@@ -263,8 +263,10 @@ impl Footer {
         if width == 0 {
             return COMPOSER_MIN_HEIGHT;
         }
+        let hint_rows = usize::from(self.composer.mention_hint().is_some());
         self.composer
             .visual_row_count(width)
+            .saturating_add(hint_rows)
             .clamp(COMPOSER_MIN_HEIGHT as usize, MAX_COMPOSER_HEIGHT as usize) as u16
     }
 

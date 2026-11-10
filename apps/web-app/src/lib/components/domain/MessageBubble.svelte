@@ -90,7 +90,8 @@
 
 	function receiptIcon(outcome: string): IconName {
 		if (outcome === 'attached' || outcome === 'resolved') return 'check-circle';
-		if (outcome === 'skipped' || outcome === 'unmatched') return 'alert-circle';
+		if (outcome === 'skipped' || outcome === 'unmatched' || outcome === 'omitted')
+			return 'alert-circle';
 		return 'info';
 	}
 
@@ -104,6 +105,8 @@
 				return t('chat.mentionReceipt.skipped');
 			case 'unmatched':
 				return t('chat.mentionReceipt.unmatched');
+			case 'omitted':
+				return t('chat.mentionReceipt.omitted');
 			default:
 				return t('chat.mentionReceipt.unmatched');
 		}

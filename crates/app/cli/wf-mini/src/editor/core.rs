@@ -127,6 +127,12 @@ impl EditorCore {
         self.buffer.iter().collect()
     }
 
+    /// Pre-send hint when the buffer carries more references than one turn
+    /// resolves. Pure and non-blocking; the server stays authoritative.
+    pub fn mention_hint(&self) -> Option<String> {
+        wf_common::mention::mention_turn_hint(&self.buffer.iter().collect::<String>())
+    }
+
     /// Suffix to draw dim after the cursor; only meaningful at end of
     /// buffer, which is where every suggestion-producing action leaves the
     /// cursor anyway. Returns the complete suggestion so callers that need
@@ -605,6 +611,24 @@ mod tests {
 
     fn buffer_str(core: &EditorCore) -> String {
         core.line()
+    }
+
+    #[test]
+    fn mention_hint_appears_only_over_the_cap() {
+        let mut nine = core(&[], None);
+        let over: String = (0..9)
+            .map(|i| format!("@skill:s{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        type_str(&mut nine, &over);
+        assert!(nine.mention_hint().is_some());
+        let mut eight = core(&[], None);
+        let fits: String = (0..8)
+            .map(|i| format!("@skill:s{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        type_str(&mut eight, &fits);
+        assert_eq!(eight.mention_hint(), None);
     }
 
     #[test]

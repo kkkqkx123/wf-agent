@@ -12,7 +12,9 @@ use futures::StreamExt;
 
 use crate::suggest::{SuggestBroker, SuggestEngine};
 
-use super::core::{CoreAction, EditorCore, EditorSnapshot, PromptEvent};
+use super::core::{
+    truncate_suggestion_with_limit, CoreAction, EditorCore, EditorSnapshot, PromptEvent,
+};
 use super::keymap::{map_key_event, Key};
 
 /// Current terminal width for prompt layout; zero on failure so callers can
@@ -178,7 +180,7 @@ fn redraw(out: &mut impl Write, core: &EditorCore, state: &mut RedrawState) {
     let cols = core.term_cols();
     if cols == 0 {
         redraw_single(out, core);
-        state.rows = 1;
+        state.rows = 1 + usize::from(core.mention_hint().is_some());
         state.cursor_row = 0;
         return;
     }
@@ -200,13 +202,22 @@ fn redraw(out: &mut impl Write, core: &EditorCore, state: &mut RedrawState) {
         let _ = out.write_all(suffix.as_bytes());
         let _ = crossterm::queue!(out, crossterm::style::ResetColor);
     }
+    let hint = wf_common::mention::mention_turn_hint(&core.line());
+    if let Some(ref hint) = hint {
+        let shown = truncate_suggestion_with_limit(hint, cols);
+        let _ = crossterm::queue!(out, crossterm::style::SetForegroundColor(Color::DarkGrey));
+        let _ = out.write_all(b"\r\n");
+        let _ = out.write_all(shown.as_bytes());
+        let _ = crossterm::queue!(out, crossterm::style::ResetColor);
+    }
+    let hint_rows = usize::from(hint.is_some());
     let full_w = core.full_line_width();
     let rows = full_w.max(1).div_ceil(cols);
     let cursor_w = core.width_left_of_cursor();
     let cursor_row = cursor_w / cols;
     let cursor_col = cursor_w % cols;
-    if rows > 1 || cursor_row > 0 {
-        let end_row = rows - 1;
+    if rows + hint_rows > 1 || cursor_row > 0 {
+        let end_row = rows - 1 + hint_rows;
         if end_row > cursor_row {
             let _ = crossterm::queue!(out, MoveUp((end_row - cursor_row) as u16));
         }
@@ -219,7 +230,7 @@ fn redraw(out: &mut impl Write, core: &EditorCore, state: &mut RedrawState) {
     }
     let _ = crossterm::queue!(out, Show);
     let _ = out.flush();
-    state.rows = rows.max(1);
+    state.rows = rows.max(1) + hint_rows;
     state.cursor_row = cursor_row;
 }
 
@@ -235,6 +246,13 @@ fn redraw_single(out: &mut impl Write, core: &EditorCore) {
         let _ = crossterm::queue!(out, crossterm::style::ResetColor);
     }
     let back = core.width_right_of_cursor();
+    if let Some(hint) = core.mention_hint() {
+        let _ = crossterm::queue!(out, crossterm::style::SetForegroundColor(Color::DarkGrey));
+        let _ = out.write_all(b"\r\n");
+        let _ = out.write_all(hint.as_bytes());
+        let _ = crossterm::queue!(out, crossterm::style::ResetColor);
+        let _ = crossterm::queue!(out, MoveUp(1));
+    }
     if back > 0 {
         let _ = crossterm::queue!(out, MoveLeft(back as u16));
     }

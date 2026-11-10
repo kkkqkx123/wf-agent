@@ -8,11 +8,7 @@ use crate::infra::context::ApiContext;
 
 use super::*;
 
-/// Default bound for one inline mention after rendering.
-const MENTION_CHAR_LIMIT: usize = 1000;
-/// Explicit skill references carry the full instruction body plus a
-/// resource inventory, so they use a larger bound than metadata-only kinds.
-const SKILL_MENTION_CHAR_LIMIT: usize = 8000;
+use wf_common::mention::TURN_MENTION_LIMIT;
 /// Listed paths per skill resource kind inside an explicit skill mention.
 const SKILL_RESOURCE_LIST_LIMIT: usize = 20;
 
@@ -28,7 +24,8 @@ pub struct MentionReceipt {
     pub kind: String,
     /// Resolution result: `attached` (image riding the structured payload),
     /// `resolved` (text context joined), `skipped` (image unreadable or
-    /// oversized) or `unmatched` (nothing found).
+    /// oversized), `unmatched` (nothing found) or `omitted` (over the turn
+    /// cap; refine the turn instead of silently dropping the reference).
     pub outcome: String,
 }
 
@@ -44,14 +41,12 @@ pub async fn resolve_mentions(
     ) else {
         return (Vec::new(), Vec::new(), Vec::new());
     };
-    let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut images = Vec::new();
     let mut receipts = Vec::new();
+    let mut ordered: Vec<(String, String)> = Vec::new();
+    let mut seen_keys = HashSet::new();
     for capture in re.captures_iter(text) {
-        if out.len() + images.len() >= 8 {
-            break;
-        }
         let (kind, id) = if let Some(kind_match) = capture.name("kind") {
             let Some(value_match) = capture.name("value") else {
                 continue;
@@ -64,9 +59,16 @@ pub async fn resolve_mentions(
             ("file", path_match.as_str())
         };
         let key = format!("{kind}:{id}");
-        if !seen.insert(key) {
+        if !seen_keys.insert(key) {
             continue;
         }
+        ordered.push((kind.to_string(), id.to_string()));
+    }
+    let omitted = ordered.len().saturating_sub(TURN_MENTION_LIMIT);
+    let active = ordered.len().min(TURN_MENTION_LIMIT);
+    for (kind, id) in ordered.into_iter().take(active) {
+        let kind = kind.as_str();
+        let id = id.as_str();
 
         let summary = match kind {
             "workflow" | "wf" => resolve_workflow_context(&ctx.registries, id).ok(),
@@ -116,7 +118,11 @@ pub async fn resolve_mentions(
                 .ok()
                 .map(|record| {
                     let text = crate::entity::message::message_text(&record.message);
-                    let snippet: String = text.chars().take(120).collect();
+                    let mut snippet: String = text.chars().take(121).collect();
+                    if snippet.chars().count() > 120 {
+                        snippet = snippet.chars().take(120).collect();
+                        snippet.push('…');
+                    }
                     format!(
                         "message: {} (execution {})\n{}",
                         record.id, record.execution_id, snippet
@@ -160,19 +166,13 @@ pub async fn resolve_mentions(
         };
 
         if let Some(summary) = summary {
-            let limit = if kind == "skill" {
-                SKILL_MENTION_CHAR_LIMIT
-            } else {
-                MENTION_CHAR_LIMIT
-            };
-            let trimmed: String = summary.chars().take(limit).collect();
             receipts.push(MentionReceipt {
                 reference: format!("{kind}:{id}"),
                 kind: kind.to_string(),
                 outcome: "resolved".to_string(),
             });
             out.push(crate::dynamic_context_message(format!(
-                "Referenced {kind} context:\n{trimmed}"
+                "Referenced {kind} context:\n{summary}"
             )));
         } else {
             receipts.push(MentionReceipt {
@@ -181,6 +181,16 @@ pub async fn resolve_mentions(
                 outcome: "unmatched".to_string(),
             });
         }
+    }
+    if omitted > 0 {
+        receipts.push(MentionReceipt {
+            reference: "mention:turn-limit".to_string(),
+            kind: "mention".to_string(),
+            outcome: "omitted".to_string(),
+        });
+        out.push(crate::dynamic_context_message(format!(
+            "Omitted {omitted} mention(s): turn limit is {TURN_MENTION_LIMIT}; keep the turn focused or split references across turns."
+        )));
     }
     (out, images, receipts)
 }
@@ -248,21 +258,24 @@ fn resolve_file_mention(ctx: &ApiContext, raw: &str) -> Option<String> {
         return None;
     }
     if canonical.is_dir() {
+        // Probe one past the display bound so overflow stays visible.
         let mut entries: Vec<String> = std::fs::read_dir(&canonical)
             .ok()?
             .flatten()
-            .take(50)
+            .take(51)
             .map(|entry| entry.file_name().to_string_lossy().to_string())
             .collect();
         entries.sort();
-        return Some(format!(
-            "directory: {path}
-{}",
-            entries.join(
-                "
-"
-            )
-        ));
+        let folded = entries.len() > 50;
+        entries.truncate(50);
+        let mut body = entries.join("\n");
+        if folded {
+            if !body.is_empty() {
+                body.push('\n');
+            }
+            body.push_str("… and more (narrow the reference to a subdirectory)");
+        }
+        return Some(format!("directory: {path}\n{body}"));
     }
     let content = std::fs::read_to_string(&canonical).ok()?;
     let lines: Vec<&str> = content.lines().collect();

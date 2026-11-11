@@ -417,6 +417,22 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(name.into(), plugin_id, judge);
         Ok(())
     }
+    fn register_hook_handler(
+        &mut self,
+        name: &str,
+        handler: Arc<dyn PluginHookHandler>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::HookHandler, name)?;
+        self.manager
+            .check_conflict(ContributionType::HookHandler.as_str(), name, || {
+                self.manager.hook_handler_registry.get_owner(name)
+            })?;
+        self.manager
+            .hook_handler_registry
+            .register(name.into(), plugin_id, handler);
+        Ok(())
+    }
     fn register_cli_command(&mut self, command: PluginCliCommand) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         if let Err(message) = command.validate() {

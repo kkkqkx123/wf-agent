@@ -121,6 +121,9 @@ pub struct ContributionRegistrarC {
     /// Answer scoring under `name`; dispatched on `eval-judge`.
     pub register_eval_judge:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Sync hook handler under `name`; dispatched on `hook`.
+    pub register_hook_handler:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
 }
 
 /// Host dispatch function: calls a registered handler by type and name.

@@ -188,6 +188,11 @@ impl NativeRegistrar {
         self.record("eval-judge", name);
     }
 
+    /// Register a sync hook handler; dispatched on `hook`.
+    pub fn register_hook_handler(&self, name: &str) {
+        self.record("hook-handler", name);
+    }
+
     /// Register a vector encoding; dispatched on `vector-encoding`.
     pub fn register_vector_encoding(&self, name: &str) {
         self.record("vector-encoding", name);
@@ -510,6 +515,7 @@ pub mod __private {
                 "setting-field" => host.register_setting_field.map(|f| f(ctx, first_ptr)),
                 "tool-summary" => host.register_tool_summary.map(|f| f(ctx, first_ptr)),
                 "markdown-transformer" => host.register_markdown_rule.map(|f| f(ctx, first_ptr)),
+                "hook-handler" => host.register_hook_handler.map(|f| f(ctx, first_ptr)),
                 _ => None,
             };
             if matches!(ok, Some(code) if code != 0) {
@@ -979,6 +985,7 @@ mod tests {
             "register_route_selector",
             "register_postprocessor",
             "register_eval_judge",
+            "register_hook_handler",
             "WfContributionRegistrar",
             "wf_plugin_dispatch_handler",
         ] {

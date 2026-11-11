@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use crate::contributions::types::PluginEventData;
 use crate::contributions::types::{
-    PluginEventHandler, PluginExecutionContext, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    PluginEventHandler, PluginExecutionContext, PluginHookHandler, PluginMiddlewareHandler,
+    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 use crate::contributions::NextFn;
 use crate::error::{PluginError, PluginResult};
@@ -35,6 +35,55 @@ pub struct LuaMiddlewareHandler {
     pub lua: Arc<Mutex<mlua::Lua>>,
     pub func_key: Arc<mlua::RegistryKey>,
     pub limits: super::pool::LuaExecutionLimits,
+}
+
+pub struct LuaHookHandler {
+    pub lua: Arc<Mutex<mlua::Lua>>,
+    pub func_key: Arc<mlua::RegistryKey>,
+    pub limits: super::pool::LuaExecutionLimits,
+}
+
+impl PluginHookHandler for LuaHookHandler {
+    fn handle(&self, data: Value, snapshot: Option<Value>) -> PluginResult<Value> {
+        let lua = self.lua.clone();
+        let func_key = self.func_key.clone();
+        let limits = self.limits;
+        let invoke = move || {
+            super::bridge::with_guarded_lua(&lua, limits, |locked| {
+                let func: mlua::Function = locked
+                    .registry_value(&func_key)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let arg = locked
+                    .create_table()
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                arg.set(
+                    "data",
+                    super::bridge::to_lua_value(locked, &data),
+                )
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                match snapshot {
+                    Some(ref value) => arg
+                        .set("snapshot", super::bridge::to_lua_value(locked, value))
+                        .map_err(|e| PluginError::LuaError(e.to_string()))?,
+                    None => arg
+                        .set("snapshot", mlua::Value::Nil)
+                        .map_err(|e| PluginError::LuaError(e.to_string()))?,
+                }
+                let result: mlua::Value = func
+                    .call(arg)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                Ok(super::bridge::from_lua_value(result))
+            })
+        };
+        // Codec precedent: offload through the blocking pool while a
+        // runtime is present; run inline only with no runtime at all.
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| {
+                handle.block_on(super::bridge::run_lua_blocking(invoke))
+            }),
+            Err(_) => invoke(),
+        }
+    }
 }
 
 #[async_trait]

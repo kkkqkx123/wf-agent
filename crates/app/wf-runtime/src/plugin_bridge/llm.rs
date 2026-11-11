@@ -97,7 +97,13 @@ mod tests {
         let registries = Arc::new(ResourceRegistries::new());
         let tool_registry = Arc::new(ToolRegistry::new());
         let gateway = Arc::new(wf_llm::LlmGateway::new());
-        let bridge = WfPluginBridge::new(registries, tool_registry, gateway.clone());
+        let bridge = WfPluginBridge::new(
+            registries,
+            tool_registry,
+            gateway.clone(),
+            Arc::new(wf_execution_shared::hooks::HookHandlerRegistry::new()),
+            Arc::new(wf_plugin::PluginRegistry::new()),
+        );
 
         let manager = ContributionManager::new();
         manager.start_registration("p1");

@@ -302,7 +302,11 @@ impl Plugin for LuaPlugin {
                 // Retrieval extensions stay native-only: no analyzer, advisor,
                 // encoding, extractor, splitter, selector, postprocessor or
                 // judge tables are read here, matching the Wasm declaration.
+                // Sync hook handlers are backend-agnostic: a missing `handle`
+                // function skips the point, mirroring the lifecycle hook
+                // missing semantics.
                 extract("event_handlers", "handle", 4);
+                extract("hook_handlers", "handle", 9);
             }
 
             if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("middleware") {
@@ -426,6 +430,14 @@ impl Plugin for LuaPlugin {
                 4 => registrar.register_event_handler(
                     &e.name,
                     Arc::new(handlers::LuaEventHandler {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                        limits: self.limits,
+                    }),
+                )?,
+                9 => registrar.register_hook_handler(
+                    &e.name,
+                    Arc::new(handlers::LuaHookHandler {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                         limits: self.limits,

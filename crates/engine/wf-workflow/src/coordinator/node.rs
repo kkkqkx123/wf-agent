@@ -126,6 +126,9 @@ impl NodeCoordinator {
         hook_handler_registry: Option<&HookHandlerRegistry>,
         checkpoint: Option<&WorkflowCheckpointIntegration>,
     ) -> WorkflowResult<NodeExecutionResult> {
+        // Static definitions become visible to emission points through the
+        // node context; assigned once here where they are in reach.
+        ctx.hook_definitions = hooks.to_vec();
         let node_id = ctx.node_id.clone();
         let node_name = ctx.node_name.clone().unwrap_or_default();
         let node_type = ctx.node_type.canonical_name().to_string();

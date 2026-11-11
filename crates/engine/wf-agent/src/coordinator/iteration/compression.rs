@@ -183,6 +183,9 @@ impl AgentIterationCoordinator {
             effective_limit,
             &limits,
         );
+        // Known boundary: the forced safety-net path runs the stateless plan,
+        // which never consults planning advice, so no request-level directive
+        // can reach it.
         let compression_request = wf_execution_shared::context_store::compression_request(
             wf_execution_shared::CONVERSATION_CONTEXT_ID,
             tokens_used,
@@ -192,6 +195,7 @@ impl AgentIterationCoordinator {
             true,
             &messages,
             &forced_plan,
+            "",
         );
         // Snapshot the pre-compression state before the safety-net summary
         // workflow runs; the compressed view is checkpointed on write-back.
@@ -200,6 +204,8 @@ impl AgentIterationCoordinator {
             wf_types::checkpoint::CheckpointTiming::BeforeCompression,
         )
         .await;
+        // The agent hook vocabulary has no compression point, so the static
+        // slice stays empty by design (vocabulary extension is out of scope).
         let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
@@ -207,6 +213,7 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             entity.get_abort_signal(),
             &compression_request,
+            &[],
         )
         .await;
         let mut audit = wf_execution_shared::context_store::compression_event(
@@ -434,9 +441,12 @@ impl AgentIterationCoordinator {
                     return;
                 }
                 // Budget, count and snapshot share the active view so the
-                // plan indices stay valid for the service run.
+                // plan indices stay valid for the service run. The pending
+                // store keeps items and drops only; the directive travels
+                // in the signal request.
                 let messages = conversation.view_messages();
                 let items = plan.items.clone();
+                let directive = plan.directive.clone().unwrap_or_default();
                 let capped = plan.capped;
                 let legacy = items.is_empty();
                 conversation.set_pending_compaction(plan.items, plan.drops);
@@ -449,6 +459,7 @@ impl AgentIterationCoordinator {
                         context_limit,
                         messages,
                         items,
+                        directive,
                     )
                     .await
                 {
@@ -467,6 +478,7 @@ impl AgentIterationCoordinator {
     /// the summary chain once per item and write back one result. Returns
     /// whether the signal reached a taker (only then is the flight
     /// anchored and the emission counted).
+    #[allow(clippy::too_many_arguments)]
     async fn emit_compaction_signal(
         &self,
         entity: &AgentLoopEntity,
@@ -475,6 +487,7 @@ impl AgentIterationCoordinator {
         context_limit: u64,
         messages: Vec<wf_types::message::Message>,
         plan: Vec<wf_execution_shared::CompactionPlanItem>,
+        directive: String,
     ) -> bool {
         let execution_id = entity.id().clone();
         let compression_request = wf_execution_shared::context_store::compression_request(
@@ -486,6 +499,7 @@ impl AgentIterationCoordinator {
             false,
             &messages,
             &plan,
+            &directive,
         );
         // Snapshot the pre-compression state; the compacted view lands in
         // a post-compression checkpoint when the summary workflow writes
@@ -499,6 +513,8 @@ impl AgentIterationCoordinator {
         // channel; delivery is the synchronous hook dispatch (the
         // compression service takes over here). Dispatch first so the audit
         // copy can persist the taker outcome.
+        // The agent hook vocabulary has no compression point, so the static
+        // slice stays empty by design (vocabulary extension is out of scope).
         let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
@@ -506,6 +522,7 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             entity.get_abort_signal(),
             &compression_request,
+            &[],
         )
         .await;
         let mut audit = wf_execution_shared::context_store::compression_event(

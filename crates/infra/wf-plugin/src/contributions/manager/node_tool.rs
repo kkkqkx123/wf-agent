@@ -89,6 +89,14 @@ impl ContributionManager {
         self.eval_judge_registry.get(name)
     }
 
+    pub fn get_hook_handler(&self, name: &str) -> Option<Arc<dyn PluginHookHandler>> {
+        self.hook_handler_registry.get(name)
+    }
+
+    pub fn all_hook_handlers(&self) -> Vec<(String, String)> {
+        self.hook_handler_registry.all()
+    }
+
     pub fn all_eval_judges(&self) -> Vec<(String, String)> {
         self.eval_judge_registry.all()
     }

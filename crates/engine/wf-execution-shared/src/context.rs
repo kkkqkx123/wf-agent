@@ -329,6 +329,11 @@ pub struct NodeExecutionContext {
     /// execution. Branch and sub-workflow children derive their own scope
     /// from it; `None` keeps legacy global behavior.
     pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
+    /// Static hook definitions of the owning execution, assigned once at
+    /// the node entry. Compression dispatch threads them through so
+    /// node-declared definitions can veto at the signal point; empty by
+    /// default and untouched by existing constructors.
+    pub hook_definitions: Vec<crate::hooks::HookDefinition>,
 }
 
 impl NodeExecutionContext {
@@ -370,6 +375,7 @@ impl NodeExecutionContext {
             parent_max_execution_time_ms: None,
             parent_checkpoints_enabled: None,
             file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
+            hook_definitions: Vec::new(),
         }
     }
 

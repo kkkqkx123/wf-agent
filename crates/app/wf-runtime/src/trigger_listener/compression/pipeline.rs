@@ -135,6 +135,9 @@ pub(crate) struct CompressionRequest {
     /// single-summary mode; non-empty runs the summary chain once per item
     /// and writes back one aggregated result.
     pub(super) plan: Vec<wf_execution_shared::CompactionPlanItem>,
+    /// Request-level instruction, prepended as a system message to every
+    /// slice after extraction. Empty when the suggestion carried none.
+    pub(super) directive: String,
     pub(super) agent_loop_id: Option<String>,
 }
 
@@ -276,6 +279,7 @@ impl CompressionPipeline {
             })?;
         let messages = wf_execution_shared::compression_routed_messages(event);
         let plan = wf_execution_shared::compression_routed_plan(event);
+        let directive = meta.directive.clone();
         if messages.is_empty() {
             debug!(
                 "Trigger '{}' routed a snapshot-less compression handoff for {execution_id}:{}:{}; skipping",
@@ -297,6 +301,7 @@ impl CompressionPipeline {
             depth,
             messages,
             plan,
+            directive,
             agent_loop_id: event.agent_loop_id.as_ref().map(|id| id.to_string()),
         });
         Ok(())
@@ -378,14 +383,38 @@ impl CompressionPipeline {
         // input headroom (this covers forced safety-net re-emissions, whose
         // real request was rejected by the provider).
         let plan = request.plan;
+        let directive = request.directive;
+        // Headroom trim applies to history only: the directive is inserted
+        // afterwards (dynamic `transform_context` injection) and counted
+        // against the same headroom, so plan indices stay valid while the
+        // final input never exceeds the budget. Templates consume the head
+        // as an ordinary message and need no changes.
+        let directive_tokens = if directive.is_empty() {
+            0
+        } else {
+            u64::from(wf_llm::count::estimate_message_tokens(
+                &Message::system_text(directive.clone()),
+            ))
+        };
         let snapshot = if token_limit > 0 {
             trim_messages_to_budget(
                 request.messages,
-                token_limit * SUMMARY_INPUT_HEADROOM_NUM / SUMMARY_INPUT_HEADROOM_DEN,
+                (token_limit * SUMMARY_INPUT_HEADROOM_NUM / SUMMARY_INPUT_HEADROOM_DEN)
+                    .saturating_sub(directive_tokens),
                 policy.tail_keep,
             )
         } else {
             request.messages
+        };
+        // Request-level semantics: the same directive heads every slice.
+        let head_directive = |slice: Vec<Message>| -> Vec<Message> {
+            if directive.is_empty() {
+                return slice;
+            }
+            let mut headed = Vec::with_capacity(slice.len() + 1);
+            headed.push(Message::system_text(directive.clone()));
+            headed.extend(slice);
+            headed
         };
         // Work items over the headroom-trimmed snapshot: an empty plan is
         // the legacy single-summary mode (one item over the whole snapshot);
@@ -396,14 +425,14 @@ impl CompressionPipeline {
         // template (processor fold node before the summary node), so each
         // slice feeds the chain untouched here.
         let work_items: Vec<(Vec<String>, u32, Vec<Message>)> = if plan.is_empty() {
-            vec![(Vec::new(), 0, snapshot.clone())]
+            vec![(Vec::new(), 0, head_directive(snapshot.clone()))]
         } else {
             plan.iter()
                 .filter_map(|item| {
                     let (start, end) = item.clamped_range(snapshot.len())?;
                     let mut covered = vec![item.block_id.clone()];
                     covered.extend(item.extra_block_ids.iter().cloned());
-                    Some((covered, item.depth, snapshot[start..end].to_vec()))
+                    Some((covered, item.depth, head_directive(snapshot[start..end].to_vec())))
                 })
                 .collect()
         };

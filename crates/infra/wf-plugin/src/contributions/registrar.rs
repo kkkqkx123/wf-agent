@@ -142,6 +142,14 @@ pub trait ContributionRegistrar {
         name: &str,
         judge: Arc<dyn PluginEvalJudge>,
     ) -> PluginResult<()>;
+    /// Register a sync hook handler under a plugin hook name; the runtime
+    /// bridge maps it to an engine hook type through the manifest `hooks`
+    /// table. Only native and Lua backends dispatch; Wasm has no channel.
+    fn register_hook_handler(
+        &mut self,
+        name: &str,
+        handler: Arc<dyn PluginHookHandler>,
+    ) -> PluginResult<()>;
     /// Register one user-facing command (slash, palette and help share the
     /// definition). `command.id` is the registry key; a second plugin
     /// claiming the id fails loudly instead of overriding it.

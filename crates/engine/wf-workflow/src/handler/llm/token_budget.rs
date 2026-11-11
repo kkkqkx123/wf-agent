@@ -158,6 +158,8 @@ pub async fn emit_token_usage_events(
                 context_limit,
                 &limits,
             );
+            // The workflow budget path runs the stateless plan, which never
+            // consults planning advice, so no request-level directive applies.
             let compression_request = wf_execution_shared::context_store::compression_request(
                 &context_id,
                 estimated,
@@ -167,6 +169,7 @@ pub async fn emit_token_usage_events(
                 false,
                 &context_messages,
                 &stateless_plan,
+                "",
             );
             // Synchronous signal delivery first so the audit copy can persist
             // the taker outcome. A missing registry is already warned inside

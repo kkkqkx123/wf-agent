@@ -110,6 +110,10 @@ pub const KEY_INJECTED_MESSAGE_COUNT: &str = "injected_message_count";
 pub const KEY_PLAN: &str = "plan";
 /// Metadata key: number of compaction work items on an audit copy.
 pub const KEY_PLAN_COUNT: &str = "plan_count";
+/// Hook data and audit key: request-level instruction from the planning
+/// suggestion, carried by every slice of the emission. Empty means the
+/// suggestion carried none; the forced safety-net path never carries one.
+pub const KEY_DIRECTIVE: &str = "directive";
 /// Payload key: serialized conversation messages carried by the compression
 pub const KEY_MESSAGES: &str = "messages";
 /// Metadata key: per-block outcomes of a plan-mode compression completion.
@@ -268,6 +272,10 @@ pub struct ContextCompressionRequest<'a> {
     /// single-summary mode; a non-empty plan makes the service run the
     /// summary chain once per item and write back one aggregated result.
     pub plan: &'a [crate::compaction::CompactionPlanItem],
+    /// Request-level instruction from the planning suggestion, prepended
+    /// as a system message to every slice. Empty when the suggestion
+    /// carried none; the forced safety-net path always leaves it empty.
+    pub directive: &'a str,
 }
 
 /// Convert a [`ContextCompressionRequest`] into the hook payload map shared
@@ -308,6 +316,10 @@ pub fn compression_request_hook_data(
     data.insert(
         KEY_PLAN_COUNT.to_string(),
         serde_json::json!(request.plan.len()),
+    );
+    data.insert(
+        KEY_DIRECTIVE.to_string(),
+        serde_json::json!(request.directive),
     );
     data
 }
@@ -354,6 +366,7 @@ pub fn build_context_compression_requested_event(
     ));
     pairs.push((KEY_NO_TAKER, serde_json::json!(false)));
     pairs.push((KEY_PLAN_COUNT, serde_json::json!(request.plan.len())));
+    pairs.push((KEY_DIRECTIVE, serde_json::json!(request.directive)));
     event.metadata = Some(metadata(pairs));
     event
 }
@@ -745,6 +758,9 @@ pub struct ContextCompressionRequestedMeta {
     /// Work plan carried by routed handoffs; empty on audit copies and on
     /// old events predating the key (legacy single-summary mode).
     pub plan: Vec<crate::compaction::CompactionPlanItem>,
+    /// Request-level instruction; empty when the suggestion carried none
+    /// and on old events predating the key.
+    pub directive: String,
 }
 
 /// Typed metadata of a [`EventType::ContextCompressionCompleted`] event.
@@ -946,6 +962,11 @@ impl TryFrom<&BaseEvent> for ContextCompressionRequestedMeta {
                 .get(KEY_PLAN)
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default(),
+            directive: meta
+                .get(KEY_DIRECTIVE)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
         })
     }
 }
@@ -1102,6 +1123,7 @@ mod tests {
                 forced: false,
                 messages: &[],
                 plan: &[],
+                directive: "",
             },
         );
         assert_eq!(event.r#type, EventType::ContextCompressionRequested);
@@ -1126,6 +1148,7 @@ mod tests {
                 forced: true,
                 messages: &[],
                 plan: &[],
+                directive: "",
             },
         );
         let forced_meta = forced.metadata.unwrap();
@@ -1146,6 +1169,7 @@ mod tests {
                 forced: true,
                 messages: &[],
                 plan: &[],
+                directive: "",
             },
         );
         let unknown_meta = unknown.metadata.unwrap();
@@ -1175,14 +1199,17 @@ mod tests {
             forced: false,
             messages: std::slice::from_ref(&msg),
             plan: &[],
+            directive: "",
         };
         let event = build_context_compression_requested_event("exec-1", None, &request);
         let meta = event.metadata.unwrap();
         assert!(!meta.contains_key(KEY_MESSAGES));
         // The hook data map stays slim: the snapshot rides the context
-        // attachment, never the JSON map.
+        // attachment, never the JSON map. The directive rides the map so
+        // it enters the audit vocabulary.
         let hook_data = compression_request_hook_data(&request);
         assert!(!hook_data.contains_key(KEY_MESSAGES));
+        assert_eq!(hook_data[KEY_DIRECTIVE], serde_json::json!(""));
     }
 
     #[test]
@@ -1316,6 +1343,7 @@ mod tests {
                 forced: true,
                 messages: std::slice::from_ref(&msg),
                 plan: &[],
+                directive: "",
             },
         );
         let meta = ContextCompressionRequestedMeta::try_from(&event).unwrap();
@@ -1346,6 +1374,7 @@ mod tests {
                 forced: false,
                 messages: &[],
                 plan: &[],
+                directive: "",
             },
         );
         let meta = ContextCompressionRequestedMeta::try_from(&bare).unwrap();
@@ -1384,17 +1413,29 @@ mod tests {
             forced: false,
             messages: std::slice::from_ref(&msg),
             plan: &plan,
+            directive: "focus on decisions",
         };
         // The audit copy carries the plan length, never the plan itself.
         let audit = build_context_compression_requested_event("exec-1", None, &request);
         let audit_meta = audit.metadata.as_ref().unwrap();
         assert_eq!(audit_meta[KEY_PLAN_COUNT], serde_json::json!(1));
         assert!(!audit_meta.contains_key(KEY_PLAN));
-        // The routed handoff carries the full plan; the meta parses it back.
+        // The routed handoff carries the full plan and the directive; the
+        // meta parses both back.
         let routed = build_context_compression_routed_event("exec-1", None, &request, 0);
         assert_eq!(compression_routed_plan(&routed), plan);
+        assert_eq!(
+            routed.metadata.as_ref().unwrap()[KEY_DIRECTIVE],
+            serde_json::json!("focus on decisions")
+        );
         let meta = ContextCompressionRequestedMeta::try_from(&routed).unwrap();
         assert_eq!(meta.plan, plan);
+        assert_eq!(meta.directive, "focus on decisions");
+        // The audit copy carries the directive as vocabulary, never the plan.
+        assert_eq!(
+            audit_meta[KEY_DIRECTIVE],
+            serde_json::json!("focus on decisions")
+        );
         // Empty plans report an explicit zero length on the audit copy.
         let bare = ContextCompressionRequest {
             plan: &[],
@@ -1506,6 +1547,7 @@ mod tests {
                 forced: false,
                 messages: &[],
                 plan: &[],
+                directive: "",
             },
         );
         let err = ConversationWritebackCompletedMeta::try_from(&compression).unwrap_err();

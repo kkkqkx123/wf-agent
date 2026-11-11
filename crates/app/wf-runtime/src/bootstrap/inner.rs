@@ -244,6 +244,7 @@ impl Runtime {
             registries.clone(),
             tool_registry.clone(),
             llm_gateway.clone(),
+            hook_handler_registry.clone(),
         )
         .await?;
         config.resource.apply_custom_source();

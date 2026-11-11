@@ -74,6 +74,7 @@ pub async fn init_plugins(
     registries: Arc<wf_resource::registry::ResourceRegistries>,
     tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     llm_gateway: Arc<LlmGateway>,
+    hook_registry: Arc<wf_execution_shared::hooks::HookHandlerRegistry>,
 ) -> RuntimeResult<Option<wf_plugin::PluginEngine>> {
     if !config.enabled {
         return Ok(None);
@@ -100,7 +101,13 @@ pub async fn init_plugins(
     let registry = Arc::new(wf_plugin::PluginRegistry::new());
     let contribution_manager = Arc::new(wf_plugin::ContributionManager::new());
     let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> = Some(Arc::new(
-        crate::plugin_bridge::WfPluginBridge::new(registries, tool_registry, llm_gateway),
+        crate::plugin_bridge::WfPluginBridge::new(
+            registries,
+            tool_registry,
+            llm_gateway,
+            hook_registry,
+            registry.clone(),
+        ),
     ));
 
     let event_bus = wf_core::EventBus::new(256);

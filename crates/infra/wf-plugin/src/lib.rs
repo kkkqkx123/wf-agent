@@ -44,10 +44,12 @@ pub use contributions::{
     OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt,
     PluginChunkSplitter, PluginCliCommand, PluginCliCondition, PluginCompactionAdvisor,
     PluginCompletionItem, PluginCompletionSource, PluginEvalJudge, PluginEventData,
-    PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages,
+    PluginEventHandler, PluginExecutionContext, PluginHookHandler, PluginHookOutcome,
+    PluginLlmAuth, PluginLlmCodec, PluginLlmImages,
     PluginLoginChallenge, PluginLoginStep, PluginMarkdownRule, PluginMetadataExtractor,
     PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginPostprocessor,
     PluginRetrievalAdvisor, PluginRouteSelector, PluginSettingField, PluginTextAnalyzer,
+    parse_hook_outcome,
     PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
     PluginVectorEncoding, RegistrarGuard,
 };

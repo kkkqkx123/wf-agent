@@ -839,6 +839,68 @@ pub trait PluginEvalJudge: Send + Sync {
     fn judge(&self, input: Value) -> PluginResult<Value>;
 }
 
+/// Outcome of one plugin hook call, parsed from the guest response.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginHookOutcome {
+    Continue,
+    Veto { reason: String },
+    Replace { summaries: Value },
+}
+
+/// Parse one hook guest response. Shapes: JSON `true` continues,
+/// `false` vetoes with a default reason (legacy boolean protocol);
+/// `{"action": "continue"}` continues,
+/// `{"action": "veto", "reason": "..."}` vetoes,
+/// `{"action": "replace", "summaries": [...]}` replaces.
+/// Anything else continues so old guests never break dispatch.
+/// Replacement is whole-value; the host validates the summaries shape
+/// before applying.
+pub fn parse_hook_outcome(response: &Value) -> PluginHookOutcome {
+    if let Some(proceed) = response.as_bool() {
+        if proceed {
+            return PluginHookOutcome::Continue;
+        }
+        return PluginHookOutcome::Veto {
+            reason: "plugin veto".to_string(),
+        };
+    }
+    if let Some(object) = response.as_object() {
+        match object
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("continue")
+        {
+            "veto" => {
+                let reason = object
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("plugin veto");
+                return PluginHookOutcome::Veto {
+                    reason: reason.to_string(),
+                };
+            }
+            "replace" => {
+                let summaries = object.get("summaries").cloned().unwrap_or(Value::Null);
+                return PluginHookOutcome::Replace { summaries };
+            }
+            _ => return PluginHookOutcome::Continue,
+        }
+    }
+    PluginHookOutcome::Continue
+}
+
+/// Sync hook handler contributed by a plugin: observes one engine hook
+/// point. Called with the hook data map plus an optional snapshot; the
+/// returned value encodes the outcome via [`parse_hook_outcome`].
+/// Only the native and Lua backends dispatch this; Wasm exposes no hook
+/// channel, mirroring the compaction advisor precedent.
+pub trait PluginHookHandler: Send + Sync {
+    /// Handle one hook notification. `snapshot` carries the calling
+    /// point's message snapshot as JSON when the point has one (the
+    /// compression signal), `None` otherwise.
+    fn handle(&self, data: Value, snapshot: Option<Value>) -> PluginResult<Value>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1047,5 +1109,39 @@ mod tests {
         assert!(rules[0].validate().is_ok());
         assert!(rules[1].validate().is_err());
         assert_eq!(apply_markdown_rules("a --> b", &rules), "a → b");
+    }
+
+    #[test]
+    fn hook_outcome_passes_continues_and_vetoes_in_order() {
+        assert_eq!(
+            parse_hook_outcome(&json!(true)),
+            PluginHookOutcome::Continue
+        );
+        assert_eq!(
+            parse_hook_outcome(&json!(false)),
+            PluginHookOutcome::Veto {
+                reason: "plugin veto".to_string()
+            }
+        );
+        assert_eq!(
+            parse_hook_outcome(&json!({"action": "continue"})),
+            PluginHookOutcome::Continue
+        );
+        assert_eq!(
+            parse_hook_outcome(&json!({"action": "veto", "reason": "no"})),
+            PluginHookOutcome::Veto {
+                reason: "no".to_string()
+            }
+        );
+        assert_eq!(
+            parse_hook_outcome(&json!({"action": "replace", "summaries": [1]})),
+            PluginHookOutcome::Replace {
+                summaries: json!([1])
+            }
+        );
+        assert_eq!(
+            parse_hook_outcome(&json!(null)),
+            PluginHookOutcome::Continue
+        );
     }
 }

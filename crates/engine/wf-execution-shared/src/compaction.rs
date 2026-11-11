@@ -688,6 +688,13 @@ fn try_advisor_plan_with(
             }
         }
     }
+    match sanitize_directive(output.get("directive").and_then(|v| v.as_str())) {
+        Ok(directive) => plan.directive = directive,
+        Err(()) => {
+            tracing::warn!(strategy = %strategy, "compaction advisor directive over limit; falling back to built-in plan");
+            return None;
+        }
+    }
     if plan.is_empty() {
         return None;
     }
@@ -735,6 +742,33 @@ fn merge_adjacent_items(items: &mut Vec<CompactionPlanItem>, costs: &[u64], budg
     *items = merged;
 }
 
+/// Maximum request-level directive length from a planning suggestion:
+/// 2000 characters with roughly 500 estimated tokens, dual-constrained.
+/// Sized against the summary-input headroom (the pipeline trims history
+/// to 90% of the emission budget while the smallest single-call budget is
+/// 8000 tokens): a capped directive always fits the headroom with
+/// estimation error to spare, so it never eats the history budget.
+/// Over either limit rejects the whole suggestion and the engine falls
+/// back to the built-in plan.
+pub const DIRECTIVE_MAX_CHARS: usize = 2000;
+pub const DIRECTIVE_MAX_EST_TOKENS: u64 = 500;
+
+/// Sanitize a suggested request-level directive: trim, drop empties, and
+/// reject over-long values under the dual constraint. `Ok(None)` means no
+/// directive was suggested; `Err` means one was suggested but over-long,
+/// and the caller must reject the whole suggestion for the built-in plan.
+fn sanitize_directive(raw: Option<&str>) -> Result<Option<String>, ()> {
+    let Some(trimmed) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    if trimmed.chars().count() > DIRECTIVE_MAX_CHARS
+        || wf_llm::estimate_tokens(trimmed) as u64 > DIRECTIVE_MAX_EST_TOKENS
+    {
+        return Err(());
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
 /// One compaction emission: work items plus block ids to deactivate on
 /// success, plus the freed token estimate the decision uses.
 pub struct CompactionPlan {
@@ -745,6 +779,10 @@ pub struct CompactionPlan {
     /// reclaim target was still unmet (the remainder waits for the next
     /// settlement round).
     pub capped: bool,
+    /// Request-level instruction from the planning suggestion, carried by
+    /// every slice of this emission. Never stored in the pending plan;
+    /// emitters move it into the signal request.
+    pub directive: Option<String>,
 }
 
 impl CompactionPlan {
@@ -754,6 +792,7 @@ impl CompactionPlan {
             drops: Vec::new(),
             freed_tokens: 0,
             capped: false,
+            directive: None,
         }
     }
 
@@ -1362,6 +1401,80 @@ mod tests {
     }
 
     #[test]
+    fn advisor_directive_trims_and_travels_with_plan() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({
+                    "items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}],
+                    "directive": "  focus on decisions  ",
+                }),
+            });
+        let plan = try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false,
+        )
+        .expect("directive rides alongside the items");
+        assert_eq!(plan.directive.as_deref(), Some("focus on decisions"));
+        assert_eq!(plan.items.len(), 1);
+    }
+
+    #[test]
+    fn advisor_blank_directive_means_no_directive() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({
+                    "items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}],
+                    "directive": "   ",
+                }),
+            });
+        let plan = try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false,
+        )
+        .expect("blank directive keeps the plan");
+        assert_eq!(plan.directive, None);
+    }
+
+    #[test]
+    fn advisor_directive_only_defers_to_builtin() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({"directive": "focus on decisions"}),
+            });
+        assert!(try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn advisor_overlong_directive_rejects_whole_suggestion() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let long = "x".repeat(DIRECTIVE_MAX_CHARS + 1);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({
+                    "items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}],
+                    "directive": long,
+                }),
+            });
+        assert!(try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false
+        )
+        .is_none(),
+        "over-long directive falls back to the built-in plan");
+    }
+
+    #[test]
     fn advisor_protocol_mismatch_falls_back_to_builtin() {
         let limits = limits();
         let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
@@ -1394,6 +1507,7 @@ mod tests {
             drops: Vec::new(),
             freed_tokens: 0,
             capped: false,
+            directive: None,
         };
         assert!(plan_covers_snapshot(&good, 2));
         assert!(!plan_covers_snapshot(&good, 1));

@@ -1,16 +1,19 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use wf_plugin::{ContributionBridge, ContributionManager, PluginResult};
+use wf_execution_shared::hooks::HookHandlerRegistry;
+use wf_plugin::{ContributionBridge, ContributionManager, PluginRegistry, PluginResult};
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::registry::ToolRegistry;
 
-use super::{advisors, auth, images, llm, resources, retrieval};
+use super::{advisors, auth, hooks, images, llm, resources, retrieval};
 
 pub struct WfPluginBridge {
     registries: Arc<ResourceRegistries>,
     tool_registry: Arc<ToolRegistry>,
     llm_gateway: Arc<wf_llm::LlmGateway>,
+    hook_registry: Arc<HookHandlerRegistry>,
+    plugin_registry: Arc<PluginRegistry>,
 }
 
 impl WfPluginBridge {
@@ -18,11 +21,15 @@ impl WfPluginBridge {
         registries: Arc<ResourceRegistries>,
         tool_registry: Arc<ToolRegistry>,
         llm_gateway: Arc<wf_llm::LlmGateway>,
+        hook_registry: Arc<HookHandlerRegistry>,
+        plugin_registry: Arc<PluginRegistry>,
     ) -> Self {
         Self {
             registries,
             tool_registry,
             llm_gateway,
+            hook_registry,
+            plugin_registry,
         }
     }
 }
@@ -43,6 +50,11 @@ impl ContributionBridge for WfPluginBridge {
         images::sync_images(plugin_id, manager);
         advisors::sync_advisors(plugin_id, manager)?;
         retrieval::sync_retrieval(plugin_id, manager)?;
+        // Hook handlers resolve through the manifest mapping; registries
+        // without a manifest (tests, minimal embedding) skip this step.
+        if let Some(info) = self.plugin_registry.get(plugin_id) {
+            hooks::sync_hooks(plugin_id, manager, &info.manifest, &self.hook_registry)?;
+        }
 
         Ok(())
     }
@@ -55,6 +67,7 @@ impl ContributionBridge for WfPluginBridge {
         images::unsync_images(plugin_id, manager);
         advisors::unsync_advisors(plugin_id, manager);
         retrieval::unsync_retrieval(plugin_id, manager);
+        hooks::unsync_hooks(plugin_id, manager, &self.hook_registry);
 
         let bundle = resources::collect_bundle(plugin_id, manager);
         resources::uninstall_resources(&self.registries, &self.tool_registry, &bundle);
@@ -121,7 +134,13 @@ mod tests {
         let registries = Arc::new(ResourceRegistries::new());
         let tool_registry = Arc::new(ToolRegistry::new());
         let gateway = Arc::new(wf_llm::LlmGateway::new());
-        let bridge = WfPluginBridge::new(registries, tool_registry.clone(), gateway.clone());
+        let bridge = WfPluginBridge::new(
+            registries,
+            tool_registry.clone(),
+            gateway.clone(),
+            Arc::new(wf_execution_shared::hooks::HookHandlerRegistry::new()),
+            Arc::new(wf_plugin::PluginRegistry::new()),
+        );
         let manager = manager_with_tool("p1", "echo_type", "p1.echo");
 
         bridge.sync_all("p1", &manager).await.unwrap();
@@ -139,7 +158,13 @@ mod tests {
         let registries = Arc::new(ResourceRegistries::new());
         let tool_registry = Arc::new(ToolRegistry::new());
         let gateway = Arc::new(wf_llm::LlmGateway::new());
-        let bridge = WfPluginBridge::new(registries, tool_registry.clone(), gateway.clone());
+        let bridge = WfPluginBridge::new(
+            registries,
+            tool_registry.clone(),
+            gateway.clone(),
+            Arc::new(wf_execution_shared::hooks::HookHandlerRegistry::new()),
+            Arc::new(wf_plugin::PluginRegistry::new()),
+        );
 
         let m1 = manager_with_tool("p1", "t1", "p1.a");
         let m2 = manager_with_tool("p2", "t2", "p2.b");

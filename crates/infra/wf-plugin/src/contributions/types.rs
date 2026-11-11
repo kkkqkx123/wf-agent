@@ -4,11 +4,12 @@
 // registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
     apply_cli_input_outcome, apply_markdown_rules, parse_cli_input_outcome,
-    parse_middleware_outcome, render_tool_summary, AuthDescriptor, CliInputOutcome,
+    parse_hook_outcome, parse_middleware_outcome, render_tool_summary, AuthDescriptor, CliInputOutcome,
     CodecHttpRequest, MiddlewareOutcome, NextFn, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
     PluginAuthPrompt, PluginChunkSplitter, PluginCliCommand, PluginCliCondition,
     PluginCompactionAdvisor, PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
-    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
+    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginHookHandler,
+    PluginHookOutcome, PluginLlmAuth, PluginLlmCodec,
     PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMarkdownRule,
     PluginMetadataExtractor, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
     PluginPostprocessor, PluginRetrievalAdvisor, PluginRouteSelector, PluginSettingField,
@@ -72,6 +73,10 @@ pub enum ContributionType {
     Postprocessor,
     /// Answer scoring for evaluation (`eval-judge`). Advisory only; native-dispatched.
     EvalJudge,
+    /// Sync hook observation (`hook-handler`). The bridge wraps these into
+    /// engine hook handlers per the manifest hook mapping; Lua and native
+    /// backends dispatch, Wasm exposes no channel.
+    HookHandler,
     /// One user-facing command: slash entry, palette row and help line
     /// share the definition (`cli-command`). Declarative; the host renders.
     CliCommand,
@@ -114,6 +119,7 @@ impl ContributionType {
             Self::RouteSelector => "route-selector",
             Self::Postprocessor => "postprocessor",
             Self::EvalJudge => "eval-judge",
+            Self::HookHandler => "hook-handler",
             Self::CliCommand => "cli-command",
             Self::CompletionProvider => "completion-provider",
             Self::SettingField => "setting-field",
@@ -150,6 +156,7 @@ impl ContributionType {
             Self::RouteSelector,
             Self::Postprocessor,
             Self::EvalJudge,
+            Self::HookHandler,
             Self::CliCommand,
             Self::CompletionProvider,
             Self::SettingField,

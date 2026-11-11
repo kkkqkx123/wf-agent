@@ -48,6 +48,7 @@ pub fn compression_request<'a>(
     forced: bool,
     messages: &'a [Message],
     plan: &'a [crate::CompactionPlanItem],
+    directive: &'a str,
 ) -> crate::ContextCompressionRequest<'a> {
     crate::ContextCompressionRequest {
         target_context_id,
@@ -58,6 +59,7 @@ pub fn compression_request<'a>(
         forced,
         messages,
         plan,
+        directive,
     }
 }
 
@@ -100,6 +102,13 @@ pub enum CompressionSignalOutcome {
 /// A veto cancels before any work spawns; a replacement skips the summary
 /// chain and lands as the terminal completion. Callers anchor backpressure
 /// only on [`CompressionSignalOutcome::Taken`].
+/// `static_defs` carries the emitting execution's static hook
+/// definitions (workflow node definitions; the agent side passes an empty
+/// slice while its hook vocabulary has no compression point). The fire
+/// filters them by the signal point and reuses condition evaluation,
+/// priority merging and handler-name resolution; unresolvable handlers
+/// fail open at this gate like everywhere else.
+#[allow(clippy::too_many_arguments)]
 pub async fn dispatch_compression_signal(
     registry: Option<&HookHandlerRegistry>,
     bus: Option<&EventBus>,
@@ -107,6 +116,7 @@ pub async fn dispatch_compression_signal(
     agent_loop_id: Option<&Id>,
     cancellation: tokio_util::sync::CancellationToken,
     request: &crate::ContextCompressionRequest<'_>,
+    static_defs: &[crate::hooks::HookDefinition],
 ) -> CompressionSignalOutcome {
     let Some(registry) = registry else {
         tracing::warn!(
@@ -140,7 +150,7 @@ pub async fn dispatch_compression_signal(
     .with_attachment(attachment);
     let summary = fire(
         registry,
-        &[],
+        static_defs,
         crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &ctx,
         bus,
@@ -372,7 +382,7 @@ mod tests {
     #[test]
     fn compression_request_carries_snapshot() {
         let messages = vec![msg(MessageRole::User, "hi")];
-        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
         assert_eq!(request.target_context_id, "chat");
         assert_eq!(request.array_version, 7);
         assert!(!request.forced);
@@ -500,7 +510,7 @@ mod tests {
         );
         let bus = EventBus::new(16);
         let messages = vec![msg(MessageRole::User, "hi")];
-        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
         let outcome = dispatch_compression_signal(
             Some(&registry),
             Some(&bus),
@@ -508,6 +518,7 @@ mod tests {
             None,
             tokio_util::sync::CancellationToken::new(),
             &request,
+            &[],
         )
         .await;
         assert_eq!(
@@ -529,7 +540,7 @@ mod tests {
         let registry = dispatch_registry(calls.clone());
         let bus = EventBus::new(16);
         let messages = vec![msg(MessageRole::User, "hi")];
-        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
         let outcome = dispatch_compression_signal(
             Some(&registry),
             Some(&bus),
@@ -537,6 +548,7 @@ mod tests {
             None,
             tokio_util::sync::CancellationToken::new(),
             &request,
+            &[],
         )
         .await;
         assert_eq!(outcome, CompressionSignalOutcome::Taken);
@@ -555,7 +567,7 @@ mod tests {
         let bus = EventBus::new(16);
         let mut sub = bus.subscribe();
         let messages = vec![msg(MessageRole::User, "hi")];
-        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
         let outcome = dispatch_compression_signal(
             Some(&registry),
             Some(&bus),
@@ -563,6 +575,7 @@ mod tests {
             None,
             tokio_util::sync::CancellationToken::new(),
             &request,
+            &[],
         )
         .await;
         assert_eq!(outcome, CompressionSignalOutcome::Taken);
@@ -596,5 +609,118 @@ mod tests {
         assert!(
             matches!(&supplied[0].content, MessageContentValue::Text(text) if text == "supplied summary")
         );
+    }
+
+    fn static_def(hook_type: &str, handler: Option<&str>, condition: Option<&str>) -> crate::hooks::HookDefinition {
+        crate::hooks::HookDefinition {
+            id: wf_types::Id::new(),
+            hook_type: hook_type.to_string(),
+            priority: 0,
+            condition: condition.map(String::from),
+            enabled: true,
+            payload: None,
+            handler: handler.map(String::from),
+            create_checkpoint: None,
+            checkpoint_description: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn static_veto_cancels_before_takeover() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = dispatch_registry(calls.clone());
+        assert!(registry.register_named(std::sync::Arc::new(VetoHandler {
+            reason: "static policy says no",
+        })));
+        let bus = EventBus::new(16);
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
+        let defs = vec![static_def(
+            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            Some("test-veto"),
+            None,
+        )];
+        // Reuse the named veto handler through a static definition: the
+        // fire resolves the handler name and aggregates its veto.
+        let outcome = dispatch_compression_signal(
+            Some(&registry),
+            Some(&bus),
+            &Id::from("exec-1".to_string()),
+            None,
+            tokio_util::sync::CancellationToken::new(),
+            &request,
+            &defs,
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            CompressionSignalOutcome::Vetoed {
+                reason: "static policy says no".to_string()
+            }
+        );
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "static veto must cancel before takeover"
+        );
+    }
+
+    #[tokio::test]
+    async fn static_condition_filters_before_notification() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = dispatch_registry(calls.clone());
+        assert!(registry.register_named(std::sync::Arc::new(VetoHandler {
+            reason: "filtered veto",
+        })));
+        let bus = EventBus::new(16);
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
+        let defs = vec![static_def(
+            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            Some("test-veto"),
+            Some("missing_flag"),
+        )];
+        let outcome = dispatch_compression_signal(
+            Some(&registry),
+            Some(&bus),
+            &Id::from("exec-1".to_string()),
+            None,
+            tokio_util::sync::CancellationToken::new(),
+            &request,
+            &defs,
+        )
+        .await;
+        assert_eq!(outcome, CompressionSignalOutcome::Taken);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn static_missing_handler_fails_open() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = dispatch_registry(calls.clone());
+        let bus = EventBus::new(16);
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
+        let defs = vec![static_def(
+            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            Some("not-registered"),
+            None,
+        )];
+        let outcome = dispatch_compression_signal(
+            Some(&registry),
+            Some(&bus),
+            &Id::from("exec-1".to_string()),
+            None,
+            tokio_util::sync::CancellationToken::new(),
+            &request,
+            &defs,
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            CompressionSignalOutcome::Taken,
+            "unresolvable static handlers fail open at the gate"
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }

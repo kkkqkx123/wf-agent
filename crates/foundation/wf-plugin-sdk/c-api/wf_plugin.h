@@ -77,6 +77,7 @@ typedef struct WfContributionRegistrar {
     int (*register_route_selector)(void *ctx, const char *name);
     int (*register_postprocessor)(void *ctx, const char *name);
     int (*register_eval_judge)(void *ctx, const char *name);
+    int (*register_hook_handler)(void *ctx, const char *name);
 } WfContributionRegistrar;
 
 /*

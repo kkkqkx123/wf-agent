@@ -142,6 +142,9 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         effective_limit,
         &limits,
     );
+    // Known boundary: the forced safety-net path runs the stateless plan,
+    // which never consults planning advice, so no request-level directive
+    // can reach it.
     let compression_request = wf_execution_shared::context_store::compression_request(
         &target,
         tokens_used,
@@ -151,6 +154,7 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         true,
         &request.messages,
         &stateless_plan,
+        "",
     );
     let outcome = dispatch_compression_signal(ctx, &compression_request).await;
     let mut audit = wf_execution_shared::context_store::compression_event(
@@ -237,6 +241,9 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
 /// Workflow targets have no `agent_loop_id`: the write-back goes through
 /// the execution registry. Callers anchor backpressure only on
 /// [`wf_execution_shared::CompressionSignalOutcome::Taken`].
+/// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal with the
+/// node execution's static definitions threaded through, so node-declared
+/// definitions can veto at the signal point.
 pub async fn dispatch_compression_signal(
     ctx: &NodeExecutionContext,
     request: &wf_execution_shared::ContextCompressionRequest<'_>,
@@ -248,6 +255,7 @@ pub async fn dispatch_compression_signal(
         None,
         ctx.cancellation.clone().unwrap_or_default(),
         request,
+        &ctx.hook_definitions,
     )
     .await
 }

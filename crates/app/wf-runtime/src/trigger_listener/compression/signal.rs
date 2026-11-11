@@ -14,6 +14,9 @@ pub(super) struct CompressionSignal {
     /// Compaction work plan; empty means the legacy single-summary mode.
     /// Malformed plans degrade to empty rather than failing the signal.
     pub(super) plan: Vec<wf_execution_shared::CompactionPlanItem>,
+    /// Request-level instruction, prepended as a system message to every
+    /// slice. Empty when the suggestion carried none.
+    pub(super) directive: String,
     /// Present when the emitting execution is an agent loop (its conversation
     /// self-consumes the completed event); absent for workflow targets.
     pub(super) agent_loop_id: Option<String>,
@@ -26,8 +29,8 @@ pub(super) struct CompressionSignal {
 /// fallback for foreign emitters that build the context by hand.
 pub(super) fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
     use wf_execution_shared::token_events::{
-        KEY_ARRAY_VERSION, KEY_FORCED, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
-        KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
+        KEY_ARRAY_VERSION, KEY_DIRECTIVE, KEY_FORCED, KEY_MESSAGES, KEY_MESSAGE_COUNT,
+        KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
     };
     let get = |key: &str| ctx.data.get(key);
     let (messages, plan) = match ctx.attachment.as_ref() {
@@ -56,6 +59,10 @@ pub(super) fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionS
             .unwrap_or(0),
         messages,
         plan,
+        directive: get(KEY_DIRECTIVE)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
         agent_loop_id: ctx
             .data
             .get("agent_loop_id")
@@ -95,6 +102,22 @@ mod tests {
             data,
             tokio_util::sync::CancellationToken::new(),
         )
+    }
+
+    #[test]
+    fn directive_rides_hook_data() {
+        let mut data = audit_data(1);
+        data.insert(
+            wf_execution_shared::token_events::KEY_DIRECTIVE.to_string(),
+            "focus on decisions".into(),
+        );
+        let ctx = hook_context(data);
+        let signal = parse_compression_signal(&ctx).expect("signal parses");
+        assert_eq!(signal.directive, "focus on decisions");
+
+        let bare = hook_context(audit_data(1));
+        let signal = parse_compression_signal(&bare).expect("signal parses");
+        assert!(signal.directive.is_empty(), "absent directive stays empty");
     }
 
     #[test]

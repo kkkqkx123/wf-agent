@@ -128,6 +128,7 @@ impl Plugin for NativePlugin {
             register_route_selector: Some(ffi_register_route_selector),
             register_postprocessor: Some(ffi_register_postprocessor),
             register_eval_judge: Some(ffi_register_eval_judge),
+            register_hook_handler: Some(ffi_register_hook_handler),
         };
 
         let result =
@@ -1012,6 +1013,26 @@ extern "C" fn ffi_register_eval_judge(
     registrar_ctx.record(result)
 }
 
+extern "C" fn ffi_register_hook_handler(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_hook_handler(
+        &name_str.clone(),
+        Arc::new(NativeHookHandler {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
 // ============================================================
 // Handler structs with dispatch
 // ============================================================
@@ -1399,5 +1420,24 @@ impl PluginEvalJudge for NativeEvalJudge {
         let output = dispatch_call(self.dispatch, "eval-judge", &self.name, &input_json)?;
         serde_json::from_slice::<Value>(&output)
             .map_err(|e| PluginError::NativeError(format!("deserialize judge output: {e}")))
+    }
+}
+
+pub struct NativeHookHandler {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginHookHandler for NativeHookHandler {
+    fn handle(&self, data: Value, snapshot: Option<Value>) -> PluginResult<Value> {
+        let input = serde_json::json!({
+            "data": data,
+            "snapshot": snapshot.unwrap_or(Value::Null),
+        });
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize hook input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "hook", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize hook output: {e}")))
     }
 }

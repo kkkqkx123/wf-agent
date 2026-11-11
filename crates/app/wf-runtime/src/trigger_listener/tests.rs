@@ -1180,6 +1180,7 @@ async fn compression_fire_takes_over_immediately() {
         false,
         &messages,
         &[],
+        "",
     );
 
     // Dispatch returns as soon as the summary sub-workflow is spawned,
@@ -1192,6 +1193,7 @@ async fn compression_fire_takes_over_immediately() {
         None,
         tokio_util::sync::CancellationToken::new(),
         &request,
+        &[],
     )
     .await;
     assert_eq!(
@@ -1337,6 +1339,11 @@ async fn fire_compression_signal(
         .get(KEY_TARGET_CONTEXT_ID)
         .and_then(|v| v.as_str())
         .unwrap_or("chat");
+    let directive = ctx
+        .data
+        .get(wf_execution_shared::token_events::KEY_DIRECTIVE)
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let loop_id = ctx
         .data
         .get("agent_loop_id")
@@ -1351,6 +1358,7 @@ async fn fire_compression_signal(
         false,
         &messages,
         &plan,
+        directive,
     );
     let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
         Some(registry.as_ref()),
@@ -1359,6 +1367,7 @@ async fn fire_compression_signal(
         loop_id.as_ref(),
         ctx.cancellation.clone(),
         &request,
+        &[],
     )
     .await;
     assert_eq!(
@@ -1421,6 +1430,7 @@ async fn run_routed_rejects_non_handoff_without_spawn() {
             forced: false,
             messages: &messages,
             plan: &[],
+            directive: "",
         },
     );
     let template = super::compression::builtin_compression_template();

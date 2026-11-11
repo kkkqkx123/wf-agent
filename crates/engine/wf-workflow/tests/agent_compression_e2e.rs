@@ -246,6 +246,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
         false,
         &snapshot,
         &[],
+        "",
     );
     let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
         Some(hook_handlers.as_ref()),
@@ -254,6 +255,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
         Some(&wf_types::Id::from("agent-1".to_string())),
         tokio_util::sync::CancellationToken::new(),
         &request,
+        &[],
     )
     .await;
     assert_eq!(
@@ -371,6 +373,7 @@ async fn agent_request_does_not_consult_the_registry() {
         false,
         &messages,
         &[],
+        "",
     );
     let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
         Some(hook_handlers.as_ref()),
@@ -379,6 +382,7 @@ async fn agent_request_does_not_consult_the_registry() {
         Some(&wf_types::Id::from("agent-1".to_string())),
         tokio_util::sync::CancellationToken::new(),
         &request,
+        &[],
     )
     .await;
     assert_eq!(

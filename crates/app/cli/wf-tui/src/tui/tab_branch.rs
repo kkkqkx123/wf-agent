@@ -12,7 +12,7 @@ use super::TuiApp;
 impl TuiApp {
     /// Open the session tree browser for the active session and fetch its
     /// model on a background task; the placeholder paints until it lands.
-    pub(super) fn open_session_tree(&mut self) {
+    pub(crate) fn open_session_tree(&mut self) {
         let Some(session_id) = self
             .sessions
             .active()
@@ -32,7 +32,7 @@ impl TuiApp {
     }
 
     /// Bookmarked node ids for one session from the persisted file.
-    fn tree_bookmark_ids(session_id: &str) -> Vec<String> {
+    pub(crate) fn tree_bookmark_ids(session_id: &str) -> Vec<String> {
         crate::tab_persistence::load_bookmarks()
             .bookmarks
             .into_iter()
@@ -43,7 +43,7 @@ impl TuiApp {
 
     /// Toggle the bookmark on the tree selection and persist it. Marking is
     /// client-side only: stale ids simply match nothing on reopen.
-    pub(super) fn toggle_tree_bookmark(&mut self) {
+    pub(crate) fn toggle_tree_bookmark(&mut self) {
         let Some(session_id) = self.session_tree.session_id().map(str::to_owned) else {
             return;
         };
@@ -81,7 +81,7 @@ impl TuiApp {
     /// Restore lands as a new commit under a fresh execution id; the source
     /// tab keeps running untouched. This is a branch, never an in-place
     /// switch, and the notice says so explicitly.
-    pub(super) async fn branch_latest(&mut self) {
+    pub(crate) async fn branch_latest(&mut self) {
         let Some(source) = self
             .sessions
             .active()
@@ -127,7 +127,7 @@ impl TuiApp {
     /// execution id. History is never rewritten; the source keeps running.
     /// Returns the new execution id, trying the agent-loop endpoint first
     /// and falling back to the execution endpoint.
-    async fn restore_checkpoint(
+    pub(crate) async fn restore_checkpoint(
         &self,
         source: &str,
         checkpoint_id: &str,
@@ -187,7 +187,11 @@ impl TuiApp {
     /// the new page, so the source short id rides in the title. The title
     /// stays default-eligible, so content-based auto-naming may replace it
     /// later without any extra bookkeeping.
-    fn mark_branch_title(tab: Option<&mut SessionTab>, new_id: &str, short_source: &str) {
+    pub(crate) fn mark_branch_title(
+        tab: Option<&mut SessionTab>,
+        new_id: &str,
+        short_source: &str,
+    ) {
         if let Some(tab) = tab {
             tab.title = format!(
                 "{} (from {})",
@@ -200,7 +204,7 @@ impl TuiApp {
     /// Latest checkpoint of `source`: agent-loop chain first, execution
     /// chain as fallback. Returns the checkpoint id, which domain served
     /// it, and its timestamp for branch messaging.
-    async fn branch_restore_target(&self, source: &str) -> Option<(String, bool, i64)> {
+    pub(crate) async fn branch_restore_target(&self, source: &str) -> Option<(String, bool, i64)> {
         // Timestamp decides the latest checkpoint, never chain position.
         let pick_latest = |value: serde_json::Value| -> Option<(String, i64)> {
             crate::session_tree::checkpoint_points(&value)
@@ -226,7 +230,7 @@ impl TuiApp {
     /// Load the tree model for the open tree overlay on a background task:
     /// conversation records plus the checkpoint chain, assembled into
     /// display nodes. The newest messages win under the node cap.
-    pub(super) fn request_session_tree(&mut self) {
+    pub(crate) fn request_session_tree(&mut self) {
         let Some(session_id) = self.session_tree.session_id().map(str::to_owned) else {
             return;
         };
@@ -270,7 +274,7 @@ impl TuiApp {
     /// it can be edited and resent. Failures keep the tree open with its
     /// selection; success closes the tree and lands in the new tab.
     /// Resolve the file commit id linked to a state checkpoint, if any.
-    async fn resolve_state_file_commit(&self, checkpoint_id: &str) -> Option<String> {
+    pub(crate) async fn resolve_state_file_commit(&self, checkpoint_id: &str) -> Option<String> {
         let url = format!("/api/v1/file-checkpoint/state-links?ids={}", checkpoint_id);
         let value: serde_json::Value = self.client.get_json(&url).await.ok()?;
         let arr = value.as_array()?;
@@ -284,7 +288,7 @@ impl TuiApp {
             .map(str::to_owned)
     }
 
-    pub(super) async fn branch_from_tree_with_scope(
+    pub(crate) async fn branch_from_tree_with_scope(
         &mut self,
         scope: crate::session_tree::RestoreScope,
     ) {

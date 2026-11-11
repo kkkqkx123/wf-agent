@@ -16,7 +16,7 @@ impl TuiApp {
     /// emulator pass-through. Runs after `draw` returns so terminal bytes
     /// always follow a complete frame. Denied or failed writes surface as
     /// notices and never touch state.
-    pub(super) fn flush_pending_copy(
+    pub(crate) fn flush_pending_copy(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
     ) {
@@ -53,7 +53,7 @@ impl TuiApp {
     /// Route a bracketed-paste body to the currently focused input as one
     /// whole string: no shortcut semantics fire on pasted content. Returns
     /// whether the paste landed somewhere visible.
-    pub(super) fn handle_paste(&mut self, text: &str) -> bool {
+    pub(crate) fn handle_paste(&mut self, text: &str) -> bool {
         if !self.modals.is_empty() {
             return false;
         }
@@ -86,7 +86,7 @@ impl TuiApp {
     }
 
     /// Copy the word at a visible display row and terminal column.
-    pub(super) fn copy_word_at(&mut self, display_row: usize, col: u16) -> bool {
+    pub(crate) fn copy_word_at(&mut self, display_row: usize, col: u16) -> bool {
         let (text, display_col) = match self.sessions.active().and_then(|session| {
             let area = session.last_scroll_area()?;
             let text = session.plain_text_for_display_row(display_row)?;
@@ -102,7 +102,7 @@ impl TuiApp {
     }
 
     /// Copy the full logical line behind a visible display row.
-    pub(super) fn copy_line_at(&mut self, display_row: usize) -> bool {
+    pub(crate) fn copy_line_at(&mut self, display_row: usize) -> bool {
         let Some(text) = self
             .sessions
             .active()
@@ -116,7 +116,7 @@ impl TuiApp {
     /// Copy the logical transcript selection between its anchor and head,
     /// combined with any earlier Alt+Click regions. The ranges are cleared
     /// only after the payload is resolved.
-    pub(super) fn copy_transcript_selection(
+    pub(crate) fn copy_transcript_selection(
         &mut self,
         selection: crate::interactive::TranscriptSelection,
         clear_after: bool,
@@ -139,7 +139,7 @@ impl TuiApp {
     }
 
     /// Copy one word from the composer at a click cell.
-    pub(super) fn copy_composer_word_at(&mut self, col: u16, row: u16) -> bool {
+    pub(crate) fn copy_composer_word_at(&mut self, col: u16, row: u16) -> bool {
         let Some(word) = self
             .sessions
             .active()
@@ -152,7 +152,7 @@ impl TuiApp {
 
     /// Copy the whole composer buffer. Placeholders expand to their
     /// descriptions so the clipboard stays resolvable outside the session.
-    pub(super) fn copy_composer_text(&mut self) -> bool {
+    pub(crate) fn copy_composer_text(&mut self) -> bool {
         let text = match self.sessions.active() {
             Some(session) => session.composer_copy_text(),
             None => return false,
@@ -165,7 +165,7 @@ impl TuiApp {
 
     /// Queue one sanitized selection payload for the post-frame flush.
     /// Denials surface as a notice; an empty sanitized result copies nothing.
-    pub(super) fn queue_selection_copy(&mut self, text: String) -> bool {
+    pub(crate) fn queue_selection_copy(&mut self, text: String) -> bool {
         if !self.copy_policy.allowed {
             self.app
                 .notice

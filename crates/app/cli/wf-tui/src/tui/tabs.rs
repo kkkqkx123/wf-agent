@@ -17,7 +17,7 @@ impl TuiApp {
     /// the per-tab holders, and returning re-attaches the active one, so no
     /// scrollback or stream state is lost. The first open restores saved
     /// tabs from the persisted snapshot before creating a fresh tab.
-    pub(super) async fn ensure_interactive(&mut self) -> crate::error::CliResult<()> {
+    pub(crate) async fn ensure_interactive(&mut self) -> crate::error::CliResult<()> {
         let on_interactive = self.app.screen.navigation.current_kind() == ScreenKind::Interactive;
         if on_interactive {
             if self.sessions.is_empty() {
@@ -37,14 +37,14 @@ impl TuiApp {
     /// Create a new chat session tab over the shared client and focus it.
     /// When the tab list is full the least-recently-active unpinned
     /// background tab is evicted first.
-    pub(super) async fn new_tab(&mut self) {
+    pub(crate) async fn new_tab(&mut self) {
         self.new_tab_with_parent(None).await;
     }
 
     /// Fresh controller for a tab id with the shell-wide policies applied.
     /// Replay and composer state stay with the caller: fresh tabs start
     /// empty while restored tabs replay their server history.
-    async fn start_tab_controller(&self, id: &str) -> InteractiveController {
+    pub(crate) async fn start_tab_controller(&self, id: &str) -> InteractiveController {
         let mut session = InteractiveController::start(self.client.clone(), id.to_string()).await;
         if let Some(snapshot) = self.plugin_snapshot.as_ref() {
             session.set_snapshot_commands(snapshot);
@@ -65,7 +65,7 @@ impl TuiApp {
 
     /// Create a new tab optionally linked to a parent session id. Child
     /// tabs record the linkage so parent/child navigation can find them.
-    pub(super) async fn new_tab_with_parent(&mut self, parent_id: Option<String>) {
+    pub(crate) async fn new_tab_with_parent(&mut self, parent_id: Option<String>) {
         if self.sessions.len() >= tui_core::screen_data::MAX_CHAT_TABS {
             if let Some(victim) = self.sessions.eviction_victim() {
                 if let Some(tab) = self.sessions.remove(victim) {
@@ -93,14 +93,14 @@ impl TuiApp {
     /// would stall the frame while a turn is mid-flight. The owned
     /// controller keeps everything the tasks need alive until they stop,
     /// and the call sites below share no state with the teardown.
-    fn spawn_shutdown(controller: InteractiveController) {
+    pub(crate) fn spawn_shutdown(controller: InteractiveController) {
         tokio::spawn(async move {
             controller.shutdown().await;
         });
     }
 
     /// Close the tab at `index`; its stream tasks stop in the background.
-    pub(super) async fn close_tab(&mut self, index: usize) {
+    pub(crate) async fn close_tab(&mut self, index: usize) {
         if let Some(tab) = self.sessions.remove(index) {
             Self::spawn_shutdown(tab.controller);
         }
@@ -112,7 +112,7 @@ impl TuiApp {
 
     /// Toggle pin on the active tab. Pinned tabs skip LRU eviction and are
     /// persisted across restarts.
-    pub(super) fn toggle_pin_active(&mut self) {
+    pub(crate) fn toggle_pin_active(&mut self) {
         let index = self.sessions.active_index();
         if let Some(pinned) = self.sessions.toggle_pin(index) {
             self.app.notice.set(if pinned {
@@ -126,7 +126,7 @@ impl TuiApp {
     }
 
     /// Move the active tab one slot toward the start or end.
-    pub(super) fn move_active(&mut self, delta: i32) {
+    pub(crate) fn move_active(&mut self, delta: i32) {
         let from = self.sessions.active_index();
         let len = self.sessions.len();
         if len < 2 {
@@ -147,7 +147,7 @@ impl TuiApp {
     /// Open the shell command palette over the current screen. The overlay
     /// owns its filter, so the session composer draft stays untouched while
     /// the palette is open.
-    pub(super) fn open_command_palette(&mut self) {
+    pub(crate) fn open_command_palette(&mut self) {
         self.command_palette.clear();
         self.overlay = OverlayMode::CommandPalette;
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -155,7 +155,7 @@ impl TuiApp {
 
     /// Open the session list browser over the current tab set and refresh
     /// the recent-sessions pane on a background task.
-    pub(super) fn open_session_list(&mut self) {
+    pub(crate) fn open_session_list(&mut self) {
         self.session_list
             .open(self.sessions.active_index(), self.sessions.len());
         self.request_recent_sessions();
@@ -168,7 +168,7 @@ impl TuiApp {
     /// Failures surface as a notice; the tabs pane keeps working regardless.
     /// Rows are newest-first with server titles so the pane matches the mini
     /// `/sessions` listing and empty servers stay explicit instead of silent.
-    pub(super) fn request_recent_sessions(&mut self) {
+    pub(crate) fn request_recent_sessions(&mut self) {
         let client = self.client.clone();
         let tx = self.data_tx.clone();
         let now_ms = self.now_ms();
@@ -225,7 +225,7 @@ impl TuiApp {
     /// Delete the selected recent session from the server (loop plus its
     /// conversation). An open tab for the same session is closed so the UI
     /// never shows a tab without server history; the recent pane refreshes.
-    pub(super) async fn delete_recent_session(&mut self) {
+    pub(crate) async fn delete_recent_session(&mut self) {
         let Some(id) = self.session_list.recent_selected_id() else {
             self.app.notice.set("recent: nothing selected".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -250,7 +250,7 @@ impl TuiApp {
     /// Rename the selected recent session to the current filter text. The
     /// filter doubles as the rename input so no extra prompt is needed:
     /// type the new title, then press Ctrl+R. Blank filters are rejected.
-    pub(super) async fn rename_recent_session(&mut self) {
+    pub(crate) async fn rename_recent_session(&mut self) {
         let Some(id) = self.session_list.recent_selected_id() else {
             self.app.notice.set("recent: nothing selected".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -281,7 +281,7 @@ impl TuiApp {
     /// Open a new tab bound to an existing server session id (branch
     /// restores, replays, restores-from-tabs-file). The tab replays the
     /// server history on attach, matching restored-tab behavior.
-    pub(super) async fn open_tab_for_session(
+    pub(crate) async fn open_tab_for_session(
         &mut self,
         id: String,
         parent_id: Option<String>,
@@ -315,7 +315,7 @@ impl TuiApp {
     /// Open a child execution behind a sub-agent start row: switch to
     /// its tab when already open, otherwise open a new tab whose history
     /// seeds the next turn. Mirrors the recent-sessions continue path.
-    pub(super) async fn open_child_session(&mut self, id: String) {
+    pub(crate) async fn open_child_session(&mut self, id: String) {
         let short = crate::screens::short_id(&id);
         if let Some(index) = self.sessions.index_of_execution(&id) {
             self.sessions.switch(index, self.now_ms());
@@ -332,7 +332,7 @@ impl TuiApp {
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
     /// Snapshot the open tabs for persistence.
-    fn tabs_snapshot(&self) -> crate::tab_persistence::SavedTabs {
+    pub(crate) fn tabs_snapshot(&self) -> crate::tab_persistence::SavedTabs {
         crate::tab_persistence::SavedTabs {
             version: crate::tab_persistence::TABS_SNAPSHOT_VERSION,
             active: self.sessions.active_index(),
@@ -358,19 +358,19 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn save_tabs(&self) {
+    pub(crate) fn save_tabs(&self) {
         crate::tab_persistence::save(&self.tabs_snapshot());
     }
 
     /// Mark the tab snapshot dirty; the event loop flushes it throttled.
     /// High-frequency paths (switch, pin, move, click) use this while
     /// state-critical paths (new, close, open, prune) save immediately.
-    pub(super) fn request_save_tabs(&mut self) {
+    pub(crate) fn request_save_tabs(&mut self) {
         self.tabs_dirty = true;
     }
 
     /// Write the dirty snapshot when the throttle interval elapsed.
-    pub(super) fn flush_tabs(&mut self) {
+    pub(crate) fn flush_tabs(&mut self) {
         if !crate::tab_persistence::save_due(self.tabs_dirty, self.now_ms(), self.tabs_saved_at_ms)
         {
             return;
@@ -383,7 +383,7 @@ impl TuiApp {
     /// Live execution ids known from the cached executions screen. Used
     /// to prune tabs whose server sessions vanished. Returns `None` when
     /// no executions snapshot is cached yet so callers prune nothing.
-    pub(super) fn live_execution_ids(&self) -> Option<std::collections::HashSet<String>> {
+    pub(crate) fn live_execution_ids(&self) -> Option<std::collections::HashSet<String>> {
         let (data, _) = self.app.screen.data_cache.get(&ScreenKind::Executions)?;
         let crate::screens::ScreenData::Executions(rows) = data else {
             return None;
@@ -393,7 +393,7 @@ impl TuiApp {
 
     /// Restore saved tabs from the persisted snapshot. Called once when
     /// the first interactive screen opens with an empty tab list.
-    async fn restore_saved_tabs(&mut self) {
+    pub(crate) async fn restore_saved_tabs(&mut self) {
         let Some(saved) = crate::tab_persistence::load() else {
             return;
         };
@@ -439,7 +439,7 @@ impl TuiApp {
     /// streaming tabs, pinned tabs and tabs touched in the last minute
     /// (fresh local tabs without a server record yet) are always kept.
     /// Returns the number of pruned tabs for notice reporting.
-    pub(super) async fn prune_closed_tabs(
+    pub(crate) async fn prune_closed_tabs(
         &mut self,
         live: &std::collections::HashSet<String>,
     ) -> usize {
@@ -496,7 +496,7 @@ impl TuiApp {
 
     /// Leave the interactive screen when the active tab requests it: close
     /// the active tab and go back. Other tabs keep streaming.
-    pub(super) async fn apply_interactive_exit(&mut self) {
+    pub(crate) async fn apply_interactive_exit(&mut self) {
         if !self.interactive_exit {
             return;
         }
@@ -512,7 +512,7 @@ impl TuiApp {
     /// Executions. The replay replaces the active tab's scrollback exactly
     /// like the previous single-session behavior; open a new tab first
     /// when the current session must be kept.
-    pub(super) async fn apply_pending_replay(&mut self) -> crate::error::CliResult<()> {
+    pub(crate) async fn apply_pending_replay(&mut self) -> crate::error::CliResult<()> {
         let Some(id) = self.pending_replay.take() else {
             return Ok(());
         };

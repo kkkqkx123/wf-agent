@@ -26,7 +26,7 @@ impl TuiApp {
     /// otherwise the interactive snapshot decides between full, bottom-only,
     /// animation-only or no frame. Explicit input requests already sit in
     /// `pending_scope`, so grading never consults a separate dirty flag.
-    pub(super) fn grade_frame(&self) -> crate::redraw::RedrawScope {
+    pub(crate) fn grade_frame(&self) -> crate::redraw::RedrawScope {
         use crate::redraw::RedrawScope;
         if let Some(session) = self.sessions.active() {
             if self.overlay != OverlayMode::None || !self.modals.is_empty() {
@@ -44,12 +44,12 @@ impl TuiApp {
     /// request joined with the freshly graded state. The submit point and the
     /// seeding decision read this single value so a partial frame can never
     /// be composed onto an unseeded surface.
-    pub(super) fn resolve_frame_scope(&self) -> crate::redraw::RedrawScope {
+    pub(crate) fn resolve_frame_scope(&self) -> crate::redraw::RedrawScope {
         self.pending_scope.scope().merge(self.grade_frame())
     }
 
     /// Whether overlays or modals force a full frame at the submit point.
-    pub(super) fn overlay_full(&self) -> bool {
+    pub(crate) fn overlay_full(&self) -> bool {
         self.overlay != OverlayMode::None
             || !self.modals.is_empty()
             || self
@@ -59,7 +59,7 @@ impl TuiApp {
     }
 
     /// Schedule inputs for the current state under the injectable clock.
-    pub(super) fn schedule_inputs(&self, now_ms: u64) -> crate::redraw::ScheduleInputs {
+    pub(crate) fn schedule_inputs(&self, now_ms: u64) -> crate::redraw::ScheduleInputs {
         let (processing, streaming_empty, tail_catchup, animation_on_screen, composer_nonempty) =
             self.sessions
                 .active()
@@ -101,7 +101,7 @@ impl TuiApp {
     /// Millisecond interval for a cadence under the active policy. Decorative
     /// animation is capped so its cost stays linear-bounded; deep-idle states
     /// sleep instead of spinning.
-    fn cadence_interval_ms(&self, cadence: crate::redraw::RedrawCadence) -> u64 {
+    pub(crate) fn cadence_interval_ms(&self, cadence: crate::redraw::RedrawCadence) -> u64 {
         use crate::redraw::RedrawCadence;
         match cadence {
             RedrawCadence::TailCatchup
@@ -135,7 +135,7 @@ impl TuiApp {
     /// Terminal modes for this session: the TUI baseline layered with the
     /// policy input switches. Every enter / resume path reads the policy;
     /// nothing hardcodes sequences at the call site.
-    pub(super) fn active_modes(&self) -> TerminalModes {
+    pub(crate) fn active_modes(&self) -> TerminalModes {
         TerminalModes::TUI.with_input_modes(
             self.perf_policy.enable_focus_change,
             self.perf_policy.enable_mouse_capture,
@@ -147,7 +147,7 @@ impl TuiApp {
     /// Reconcile the live terminal with the runtime policy. Runtime toggles
     /// (mouse capture) update the policy inline; the next loop applies the
     /// delta through the guard without a restart.
-    pub(super) fn sync_terminal_modes(
+    pub(crate) fn sync_terminal_modes(
         &self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
     ) {
@@ -156,7 +156,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn sync_terminal_state(
+    pub(crate) fn sync_terminal_state(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
     ) {
@@ -208,7 +208,7 @@ impl TuiApp {
     /// holds the last frame, so no clear is needed. The catch-up is
     /// bottom-only (footer/input may have gone stale while backgrounded);
     /// scrollback reuses its preparation key.
-    pub(super) fn on_focus_gained(
+    pub(crate) fn on_focus_gained(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
     ) {
@@ -227,12 +227,12 @@ impl TuiApp {
 
     /// Focus lost: record the state only, no frame. Decorative redraws
     /// pause while unfocused; live activity still paints.
-    pub(super) fn on_focus_lost(&mut self) {
+    pub(crate) fn on_focus_lost(&mut self) {
         let (focused, _) = focus_transition(self.app.focused, FocusInput::Lost);
         self.app.focused = focused;
     }
 
-    fn terminal_progress_enabled() -> bool {
+    pub(crate) fn terminal_progress_enabled() -> bool {
         if let Ok(value) = std::env::var("WF_TUI_TERMINAL_PROGRESS") {
             return matches!(value.as_str(), "1" | "true" | "TRUE" | "yes");
         }
@@ -248,7 +248,7 @@ impl TuiApp {
     /// Compensation for dropped focus-gained reports: any key, mouse
     /// (non-move) or paste delivery proves the window is focused right now.
     /// Returns true when the state flipped and a catch-up frame is due.
-    pub(super) fn mark_client_focused(&mut self) -> bool {
+    pub(crate) fn mark_client_focused(&mut self) -> bool {
         let (focused, frame) = focus_transition(self.app.focused, FocusInput::Stream);
         self.app.focused = focused;
         if let Some(controller) = self.sessions.active_mut() {
@@ -267,7 +267,7 @@ impl TuiApp {
     /// cadence (catch-up, focus, dormancy, decorative load), and the timer is
     /// rebuilt only when the period actually changes, so steady states never
     /// churn the scheduler.
-    pub(super) fn refresh_frame_rate(&mut self) {
+    pub(crate) fn refresh_frame_rate(&mut self) {
         let now_ms = self.now_ms();
         let inputs = self.schedule_inputs(now_ms);
         let cadence = crate::redraw::redraw_cadence(&inputs);
@@ -283,7 +283,7 @@ impl TuiApp {
     /// Production frame budget accounting: record elapsed time and count
     /// overruns. The budget is 50ms per frame; overruns trace a warning and
     /// increment the counter without interrupting the loop.
-    pub(super) fn record_prod_budget(&mut self, elapsed: std::time::Duration) {
+    pub(crate) fn record_prod_budget(&mut self, elapsed: std::time::Duration) {
         const PROD_FRAME_BUDGET_MS: u64 = 50;
         let elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
         self.prod_frame_no = self.prod_frame_no.wrapping_add(1);
@@ -310,7 +310,7 @@ impl TuiApp {
     /// resume cycle: restore the terminal so the shell below renders normally,
     /// stop the process with the default disposition, then re-apply the TUI
     /// modes, re-query geometry and force a full redraw.
-    pub(super) fn check_suspend(
+    pub(crate) fn check_suspend(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -357,7 +357,7 @@ impl TuiApp {
     /// the TUI, open `$EDITOR` (or `$VISUAL`, falling back to `vi`) on a
     /// temp file seeded with the composer draft, then resume the TUI and
     /// load the edited text back into the composer.
-    pub(super) async fn apply_pending_editor(
+    pub(crate) async fn apply_pending_editor(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,

@@ -92,7 +92,7 @@ impl InteractiveController {
     }
 
     /// First display row of the viewport in the flat display-row space.
-    pub(super) fn viewport_top_row(&self) -> usize {
+    pub(crate) fn viewport_top_row(&self) -> usize {
         let width = self.last_layout_width.max(1);
         let streaming_rows = self
             .streaming
@@ -206,7 +206,7 @@ impl InteractiveController {
     }
 
     /// Scroll the viewport just enough to show the logical head row.
-    fn ensure_transcript_head_visible(&mut self, head: TextPos) {
+    pub(crate) fn ensure_transcript_head_visible(&mut self, head: TextPos) {
         let upper = self
             .logical_offsets
             .partition_point(|base| *base <= head.line);
@@ -311,7 +311,7 @@ impl InteractiveController {
     }
 
     /// Append one range's visible highlight cells.
-    fn highlight_transcript_range(
+    pub(crate) fn highlight_transcript_range(
         &self,
         area: Rect,
         selection: TranscriptSelection,

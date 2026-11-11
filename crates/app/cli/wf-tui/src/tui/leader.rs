@@ -13,7 +13,7 @@ impl TuiApp {
     /// Resolve a leader sequence: the leader opens a pending sequence, the
     /// following keys either complete a command, extend a prefix (showing
     /// the which-key hint) or miss (the sequence is dropped).
-    pub(super) async fn handle_leader_key(&mut self, key: Key) -> CliResult<Option<LoopAction>> {
+    pub(crate) async fn handle_leader_key(&mut self, key: Key) -> CliResult<Option<LoopAction>> {
         let now = self.now_ms();
         if let Some(pending) = &self.pending_sequence {
             if pending.is_expired(now, self.sequence.timeout_ms()) {
@@ -57,7 +57,7 @@ impl TuiApp {
     }
 
     /// Execute a command reached through the leader sequence.
-    async fn run_leader_command(
+    pub(crate) async fn run_leader_command(
         &mut self,
         command: &'static tui_core::command::CommandSpec,
     ) -> CliResult<LoopAction> {
@@ -67,7 +67,7 @@ impl TuiApp {
     /// Execute a command chosen in the shell command palette with the
     /// argument typed after the command word. Session commands run on the
     /// active session; the overlay is already closed by the caller.
-    pub(super) async fn run_palette_command(
+    pub(crate) async fn run_palette_command(
         &mut self,
         command: &'static tui_core::command::CommandSpec,
         argument: &str,

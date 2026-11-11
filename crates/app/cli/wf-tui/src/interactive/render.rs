@@ -111,7 +111,7 @@ impl InteractiveController {
     /// Scope actually honored for this frame: partial scopes require a warm
     /// preparation under the same key, otherwise fall back to full so a
     /// missing seed never leaves stale cells behind.
-    fn coerce_scope(&self, scope: RedrawScope) -> RedrawScope {
+    pub(crate) fn coerce_scope(&self, scope: RedrawScope) -> RedrawScope {
         if !scope.reuses_scrollback() {
             return scope;
         }
@@ -127,7 +127,7 @@ impl InteractiveController {
 
     /// Text width for the scrollback: full width minus the one-cell gutter
     /// when the bar shows, otherwise the full width.
-    fn effective_text_width(full_width: u16, show: bool) -> u16 {
+    pub(crate) fn effective_text_width(full_width: u16, show: bool) -> u16 {
         if show && full_width > 1 {
             full_width - 1
         } else {
@@ -141,7 +141,7 @@ impl InteractiveController {
     /// path corrects that in the same frame with a second layout. Each
     /// source line yields at least one display row, so the source count is
     /// used as a lower bound to keep cold estimates on the visible side.
-    fn estimated_total_rows(&self, width: u16) -> usize {
+    pub(crate) fn estimated_total_rows(&self, width: u16) -> usize {
         let cached = self.prep.total_rows().max(self.scrollback.len());
         let now_ms = self.now_ms();
         let streaming_len = self
@@ -154,7 +154,7 @@ impl InteractiveController {
 
     /// Estimated text width for snapshots: full width minus the gutter when
     /// the estimate says the bar shows. Empty sessions never show the bar.
-    fn estimated_text_width(&self, full_area: Rect) -> u16 {
+    pub(crate) fn estimated_text_width(&self, full_area: Rect) -> u16 {
         if self.scrollback.is_empty() && self.streaming.is_none() {
             return full_area.width;
         }
@@ -166,7 +166,7 @@ impl InteractiveController {
 
     /// Streaming tail lines rewrapped at `width` with the spinner prefix.
     /// The tail stays out of the preparation cache by design.
-    fn streaming_lines_at(&self, width: u16) -> Vec<Line<'static>> {
+    pub(crate) fn streaming_lines_at(&self, width: u16) -> Vec<Line<'static>> {
         let Some(streaming) = &self.streaming else {
             return Vec::new();
         };
@@ -196,7 +196,7 @@ impl InteractiveController {
     /// Accurate total at the preparation width: cached rows plus the tail
     /// rewrapped at the same width. Used to anchor the badge to the text
     /// area when the bar shows.
-    pub(super) fn accurate_total_rows(&self) -> usize {
+    pub(crate) fn accurate_total_rows(&self) -> usize {
         let width = self.prep.width();
         let now_ms = self.now_ms();
         let streaming_len = self
@@ -207,7 +207,7 @@ impl InteractiveController {
         self.prep.total_rows() + streaming_len
     }
 
-    fn draw_scrollback_scoped(
+    pub(crate) fn draw_scrollback_scoped(
         &mut self,
         frame: &mut Frame,
         area: Rect,
@@ -310,7 +310,11 @@ impl InteractiveController {
     /// bucketed so spinner progress alone grades animation-only and never
     /// invalidates the preparation cache inside a bucket. A pending approval
     /// overlay forces full so the modal never paints over a reused frame.
-    fn redraw_snapshot_for(&self, width: u16, height: u16) -> crate::redraw::RedrawSnapshot {
+    pub(crate) fn redraw_snapshot_for(
+        &self,
+        width: u16,
+        height: u16,
+    ) -> crate::redraw::RedrawSnapshot {
         let now_ms = self.now_ms();
         let streaming_text = self.stream.streaming_text();
         let render_mode = if self.diagram_requested > 0 {
@@ -342,7 +346,7 @@ impl InteractiveController {
     /// Stored as loop-held packed rectangles; animation-only frames repaint
     /// exactly these cells. While detached the streaming tail is hidden
     /// behind the jump badge, so its cell stays untouched.
-    fn record_anim_area(&mut self, scroll_area: Rect, footer_area: Rect) {
+    pub(crate) fn record_anim_area(&mut self, scroll_area: Rect, footer_area: Rect) {
         let streaming_cell = if self.view_scroll > 0 {
             None
         } else {
@@ -372,7 +376,7 @@ impl InteractiveController {
     /// Bottom-only path: reuse the cached preparation without relayout and
     /// repaint the visible window. Footer/input are drawn by the caller.
     /// Draws the same gutter as the full path from the same tail conversion.
-    fn draw_scrollback_cached(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn draw_scrollback_cached(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let full_area = area;
         if self.scrollback.is_empty() && self.streaming.is_none() {
             draw_welcome(frame, full_area, theme);
@@ -437,7 +441,7 @@ impl InteractiveController {
     /// The scrollback and input keep their previous buffer contents; only
     /// the streaming indicator and spinner cells advance. Falls back to
     /// nothing when no cells were recorded.
-    fn draw_anim_cells_only(&mut self, frame: &mut Frame) {
+    pub(crate) fn draw_anim_cells_only(&mut self, frame: &mut Frame) {
         use ratatui::style::{Color, Modifier, Style};
         if self.anim_rows.is_empty() {
             return;
@@ -464,7 +468,7 @@ impl InteractiveController {
     /// session. The panel routes never reach it (they own the footer main
     /// area instead), and the mention route keeps it so the user sees the
     /// query they are typing.
-    fn draw_input(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn draw_input(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         use ratatui::style::Modifier;
         use ratatui::text::{Line, Span};
         let composer = &self.footer.composer;
@@ -516,7 +520,7 @@ impl InteractiveController {
     /// Cell ranges come from the logical selection geometry, so the paint
     /// follows a rewrapped or scrolled viewport without re-deriving rows
     /// here. The gutter column never highlights.
-    fn paint_transcript_selection(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
+    pub(crate) fn paint_transcript_selection(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
         if self.transcript_selection.is_none() {
             return;
         }
@@ -547,7 +551,7 @@ impl InteractiveController {
     /// only: hover never requests a frame itself. The badge paints its own
     /// rectangle and clickable content rows paint the text width; anything
     /// else stays plain. Stale cells simply resolve to no target.
-    fn paint_hover_cell(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
+    pub(crate) fn paint_hover_cell(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
         use ratatui::style::{Modifier, Style};
         let Some((col, row)) = self.hover_cell else {
             return;
@@ -614,7 +618,7 @@ mod tests {
     use ratatui::layout::Rect;
 
     #[test]
-    fn effective_text_width_reserves_one_gutter_cell() {
+    pub(crate) fn effective_text_width_reserves_one_gutter_cell() {
         assert_eq!(InteractiveController::effective_text_width(30, true), 29);
         assert_eq!(InteractiveController::effective_text_width(30, false), 30);
         assert_eq!(InteractiveController::effective_text_width(1, true), 1);
@@ -622,7 +626,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn snapshot_width_uses_text_width() {
+    pub(crate) async fn snapshot_width_uses_text_width() {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         let mut ctl = InteractiveController::start(client, "exec".into()).await;
         for i in 0..50 {
@@ -648,7 +652,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn badge_anchors_to_text_area_when_bar_visible() {
+    pub(crate) async fn badge_anchors_to_text_area_when_bar_visible() {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         let mut ctl = InteractiveController::start(client, "exec".into()).await;
         for i in 0..50 {
@@ -667,7 +671,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn render_open_vs_closed_frames_share_text_and_gutter() {
+    pub(crate) async fn render_open_vs_closed_frames_share_text_and_gutter() {
         use ratatui::backend::TestBackend;
         use ratatui::Terminal;
         let theme = crate::theme::Theme::dark_default();

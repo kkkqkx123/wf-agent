@@ -187,7 +187,7 @@ impl InteractiveController {
     /// Sequence number and scrollback position for a viewport-relative row.
     /// Returns `None` for streaming tail rows and outside rows. Uses the
     /// prepared scrollback row index, so no reflow runs here.
-    fn seq_at_display_row(&self, display_row: usize) -> Option<(u64, usize)> {
+    pub(crate) fn seq_at_display_row(&self, display_row: usize) -> Option<(u64, usize)> {
         let capacity = usize::from(self.last_layout_height.max(1));
         if display_row >= capacity {
             return None;
@@ -202,7 +202,7 @@ impl InteractiveController {
     }
 
     /// Tool hit for a sequence number: an expandable summary row only.
-    fn tool_hit_for_seq(&self, seq: u64) -> Option<String> {
+    pub(crate) fn tool_hit_for_seq(&self, seq: u64) -> Option<String> {
         self.tool_blocks.iter().find_map(|(id, block)| {
             if block.summary_seq == seq && block.expandable {
                 Some(id.clone())
@@ -214,7 +214,7 @@ impl InteractiveController {
 
     /// Sub-agent hit for a sequence number: a live start row of an enabled
     /// kind only.
-    fn sub_hit_for_seq(&self, seq: u64) -> Option<u64> {
+    pub(crate) fn sub_hit_for_seq(&self, seq: u64) -> Option<u64> {
         if self.anchor_disabled.contains(&AnchorKind::SubAgent) {
             return None;
         }
@@ -332,7 +332,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn badge_area_reserves_gutter_when_bar_visible() {
+    pub(crate) fn badge_area_reserves_gutter_when_bar_visible() {
         let area = Rect::new(0, 0, 30, 10);
         let with_bar = badge_area_for(area, true);
         assert_eq!(with_bar.width, 29);
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn badge_rect_anchors_bottom_right() {
+    pub(crate) fn badge_rect_anchors_bottom_right() {
         let area = Rect::new(0, 0, 30, 10);
         let rect = badge_rect(area, "↓ 3 more · End for latest", "↓ 3 more").expect("fits");
         assert_eq!(rect.height, 1);
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn badge_rect_hides_when_narrow() {
+    pub(crate) fn badge_rect_hides_when_narrow() {
         let area = Rect::new(0, 0, 3, 10);
         assert!(badge_rect(area, "↓ 3 more · End for latest", "↓ 3 more").is_none());
         let empty = Rect::new(0, 0, 0, 10);
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn badge_contains_checks_single_row_span() {
+    pub(crate) fn badge_contains_checks_single_row_span() {
         let rect = Rect::new(10, 5, 6, 1);
         assert!(badge_contains(&rect, 10, 5));
         assert!(badge_contains(&rect, 15, 5));
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn composer_contains_checks_input_viewport() {
+    pub(crate) fn composer_contains_checks_input_viewport() {
         let area = Rect::new(0, 20, 40, 3);
         assert!(composer_contains(&area, 0, 20));
         assert!(composer_contains(&area, 39, 22));
@@ -384,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn row_slicing_covers_edges_and_empty() {
+    pub(crate) fn row_slicing_covers_edges_and_empty() {
         assert_eq!(slice_row_chars("hello world", 0, 5), "hello");
         assert_eq!(slice_row_chars("hello world", 6, 11), "world");
         assert_eq!(slice_row_chars("hello", 3, 99), "lo");
@@ -393,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn press_release_requires_same_cell_and_generation() {
+    pub(crate) fn press_release_requires_same_cell_and_generation() {
         assert!(press_matches_release(5, 5, 7, 5, 5, 7));
         assert!(!press_matches_release(5, 5, 7, 6, 5, 7));
         assert!(!press_matches_release(5, 5, 7, 5, 6, 7));
@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn word_selection_picks_token_at_column() {
+    pub(crate) fn word_selection_picks_token_at_column() {
         assert_eq!(word_at_col("hello world", 1), Some("hello".to_string()));
         assert_eq!(word_at_col("hello world", 6), Some("world".to_string()));
         assert_eq!(word_at_col("hello world", 5), None);
@@ -410,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn autoscroll_direction_follows_vertical_overflow() {
+    pub(crate) fn autoscroll_direction_follows_vertical_overflow() {
         let area = Rect::new(0, 5, 40, 10);
         assert_eq!(autoscroll_dir_for_row(4, &area), Some(-1));
         assert_eq!(autoscroll_dir_for_row(5, &area), None);
@@ -422,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn hover_frame_only_on_flips_and_clickable_row_moves() {
+    pub(crate) fn hover_frame_only_on_flips_and_clickable_row_moves() {
         let plain = HoverTarget::None;
         let badge = HoverTarget::Badge;
         let tool = HoverTarget::Content(ClickTarget::Tool {
@@ -438,7 +438,7 @@ mod tests {
         assert!(hover_frame_needed(Some((5, 5)), &tool, 6, 5, &badge));
     }
 
-    async fn hover_controller(rows: usize) -> InteractiveController {
+    pub(crate) async fn hover_controller(rows: usize) -> InteractiveController {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         let mut ctl = InteractiveController::start(client, "exec".into()).await;
         ctl.last_layout_width = 30;
@@ -456,7 +456,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hover_badge_wins_and_plain_rows_stay_dark() {
+    pub(crate) async fn hover_badge_wins_and_plain_rows_stay_dark() {
         let mut ctl = hover_controller(5).await;
         let area = Rect::new(0, 0, 30, 10);
         ctl.last_scroll_area = Some(area);
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hover_gutter_column_never_paints() {
+    pub(crate) async fn hover_gutter_column_never_paints() {
         let mut ctl = hover_controller(50).await;
         ctl.set_session_scrollbar(true);
         let area = Rect::new(0, 0, 30, 10);
@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hover_subagent_start_row_is_clickable() {
+    pub(crate) async fn hover_subagent_start_row_is_clickable() {
         let mut ctl = hover_controller(0).await;
         ctl.record_subagent_started("child", "worker", None, None);
         ctl.settle_scrollback();

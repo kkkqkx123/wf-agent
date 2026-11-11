@@ -147,7 +147,7 @@ impl InteractiveController {
     /// Arm the Ctrl-C double-press exit: first press warns, second exits.
     /// Esc during a running turn shares this channel (see
     /// [`Self::handle_empty_esc`]) so exit arming stays in one place.
-    fn arm_exit(&mut self) -> InteractiveAction {
+    pub(crate) fn arm_exit(&mut self) -> InteractiveAction {
         let now_ms = self.now_ms();
         match self.exit_tracker.press(now_ms) {
             PressOutcome::SecondPress => InteractiveAction::Exit,
@@ -166,7 +166,7 @@ impl InteractiveController {
     /// arming channel; non-empty input resets double-Esc arming and is
     /// otherwise ignored; empty input feeds the double-Esc tracker which
     /// dispatches the configured action on the second press.
-    fn handle_empty_esc(&mut self) -> InteractiveAction {
+    pub(crate) fn handle_empty_esc(&mut self) -> InteractiveAction {
         if self.is_processing() {
             self.escape_tracker.reset();
             return self.arm_exit();
@@ -182,7 +182,7 @@ impl InteractiveController {
     /// Dispatch a double-Esc press with an explicit clock for testing.
     /// The first press inside the window only arms; the second dispatches.
     /// `Off` never arms so disabled configuration stays fully inert.
-    fn dispatch_double_escape(
+    pub(crate) fn dispatch_double_escape(
         &mut self,
         action: crate::app_config::DoubleEscapeActionName,
         now_ms: u64,
@@ -204,7 +204,10 @@ impl InteractiveController {
     /// Route one key to transcript selection when it uses a selection chord.
     /// Returns `None` for every other key so ordinary scrolling, prompt
     /// editing and panel navigation stay untouched.
-    fn handle_transcript_selection_key(&mut self, key: Key) -> Option<InteractiveAction> {
+    pub(crate) fn handle_transcript_selection_key(
+        &mut self,
+        key: Key,
+    ) -> Option<InteractiveAction> {
         if key.ctrl && !key.alt && matches!(key.code, CKey::Char('a') | CKey::Char('A')) {
             self.select_all_transcript();
             return Some(InteractiveAction::Continue);
@@ -309,7 +312,7 @@ impl InteractiveController {
         true
     }
 
-    fn handle_approval_key(&mut self, key: Key) -> InteractiveAction {
+    pub(crate) fn handle_approval_key(&mut self, key: Key) -> InteractiveAction {
         let Some(choice) = self
             .keymap
             .resolve_action(KeymapContext::Approval, key)
@@ -331,7 +334,10 @@ impl InteractiveController {
         InteractiveAction::Continue
     }
 
-    fn resolve_approval(&self, choice: ApprovalChoice) -> crate::approval_overlay::ApprovalAnswer {
+    pub(crate) fn resolve_approval(
+        &self,
+        choice: ApprovalChoice,
+    ) -> crate::approval_overlay::ApprovalAnswer {
         self.footer
             .approval
             .as_ref()
@@ -341,7 +347,7 @@ impl InteractiveController {
             })
     }
 
-    fn handle_question_key(&mut self, key: Key) -> InteractiveAction {
+    pub(crate) fn handle_question_key(&mut self, key: Key) -> InteractiveAction {
         let Some(question) = self.footer.question.as_ref() else {
             self.footer.present(FooterView::Prompt);
             return InteractiveAction::Continue;
@@ -368,7 +374,7 @@ impl InteractiveController {
         InteractiveAction::Continue
     }
 
-    fn finish_question(&mut self, outcome: &QuestionOutcome) {
+    pub(crate) fn finish_question(&mut self, outcome: &QuestionOutcome) {
         let Some(question) = self.footer.question.take() else {
             return;
         };
@@ -390,7 +396,7 @@ impl InteractiveController {
         self.footer.present(FooterView::Prompt);
     }
 
-    fn send_question_reply(&self, interaction_id: &str, response: Value) {
+    pub(crate) fn send_question_reply(&self, interaction_id: &str, response: Value) {
         if interaction_id.is_empty() {
             return;
         }
@@ -410,7 +416,7 @@ impl InteractiveController {
         });
     }
 
-    fn handle_prompt_key(&mut self, key: Key) -> InteractiveAction {
+    pub(crate) fn handle_prompt_key(&mut self, key: Key) -> InteractiveAction {
         // Panel routes own the keys: the panel branch runs before the
         // composer branch so an open panel never leaks text into the
         // composer.
@@ -573,7 +579,7 @@ impl InteractiveController {
     /// Shared Up semantics: single-row input keeps legacy pure history;
     /// multiline input moves the cursor until the first visual row, jumps
     /// to the buffer start, then walks history.
-    fn move_composer_up(&mut self) {
+    pub(crate) fn move_composer_up(&mut self) {
         let width = self.last_layout_width.max(1);
         if self.footer.composer.visual_row_count(width) <= 1 {
             self.footer.composer.history_prev();
@@ -591,7 +597,7 @@ impl InteractiveController {
     }
 
     /// Shared Down semantics, symmetric to [`Self::move_composer_up`].
-    fn move_composer_down(&mut self) {
+    pub(crate) fn move_composer_down(&mut self) {
         let width = self.last_layout_width.max(1);
         if self.footer.composer.visual_row_count(width) <= 1 {
             self.footer.composer.history_next();
@@ -624,13 +630,13 @@ mod tests {
     use crate::keymap::{CKey, Key};
     use crate::reducer::Phase;
 
-    async fn empty_controller() -> crate::interactive::InteractiveController {
+    pub(crate) async fn empty_controller() -> crate::interactive::InteractiveController {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         crate::interactive::InteractiveController::start(client, "exec".into()).await
     }
 
     #[test]
-    fn approval_choice_from_key() {
+    pub(crate) fn approval_choice_from_key() {
         assert_eq!(
             ApprovalChoice::from_action(crate::keymap::KeyAction::Approve),
             Some(ApprovalChoice::Approve)
@@ -639,14 +645,14 @@ mod tests {
     }
 
     #[test]
-    fn paste_normalization_folds_carriage_returns() {
+    pub(crate) fn paste_normalization_folds_carriage_returns() {
         assert_eq!(normalize_paste("a\r\nb\rc"), "a\nb\nc");
         assert_eq!(normalize_paste("plain"), "plain");
         assert_eq!(normalize_paste(""), "");
     }
 
     #[tokio::test]
-    async fn double_esc_with_empty_composer_opens_the_tree() {
+    pub(crate) async fn double_esc_with_empty_composer_opens_the_tree() {
         let mut ctl = empty_controller().await;
         assert!(ctl.footer.composer.is_empty());
         let first = ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 1_000);
@@ -656,7 +662,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn double_esc_fork_action_branches() {
+    pub(crate) async fn double_esc_fork_action_branches() {
         let mut ctl = empty_controller().await;
         assert!(matches!(
             ctl.dispatch_double_escape(DoubleEscapeActionName::Fork, 1_000),
@@ -669,7 +675,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn double_esc_off_stays_inert() {
+    pub(crate) async fn double_esc_off_stays_inert() {
         let mut ctl = empty_controller().await;
         for now in [1_000, 1_100, 1_200] {
             assert!(matches!(
@@ -680,7 +686,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn double_esc_window_expiry_rearms() {
+    pub(crate) async fn double_esc_window_expiry_rearms() {
         let mut ctl = empty_controller().await;
         assert!(matches!(
             ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 1_000),
@@ -698,7 +704,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn esc_with_text_resets_double_esc_arming() {
+    pub(crate) async fn esc_with_text_resets_double_esc_arming() {
         let mut ctl = empty_controller().await;
         ctl.footer.composer.insert_char('x');
         let action = ctl.handle_empty_esc();
@@ -711,7 +717,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn esc_while_processing_arms_exit_like_ctrl_c() {
+    pub(crate) async fn esc_while_processing_arms_exit_like_ctrl_c() {
         let mut ctl = empty_controller().await;
         ctl.footer.state.phase = Phase::Streaming;
         // First Esc arms, second Esc exits: the shared Ctrl-C channel.

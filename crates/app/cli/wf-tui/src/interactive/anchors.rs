@@ -147,12 +147,12 @@ impl InteractiveController {
     }
 
     /// Whether jumps may land on this kind. All kinds jump by default.
-    fn anchor_kind_allowed(&self, kind: AnchorKind) -> bool {
+    pub(crate) fn anchor_kind_allowed(&self, kind: AnchorKind) -> bool {
         !self.anchor_disabled.contains(&kind)
     }
 
     /// Anchors of one kind, newest first.
-    fn anchors_of_kind(&self, kind: AnchorKind) -> Vec<AnchorKey> {
+    pub(crate) fn anchors_of_kind(&self, kind: AnchorKind) -> Vec<AnchorKey> {
         self.anchor_order
             .iter()
             .rev()
@@ -172,7 +172,7 @@ impl InteractiveController {
 
     /// Timeline of enabled anchors, newest first. Every jump target reads
     /// this so a disabled kind disappears from jumps, hints and listings.
-    fn enabled_anchor_timeline(&self) -> Vec<AnchorEntry> {
+    pub(crate) fn enabled_anchor_timeline(&self) -> Vec<AnchorEntry> {
         self.anchor_timeline()
             .into_iter()
             .filter(|entry| self.anchor_kind_allowed(entry.kind))
@@ -181,7 +181,7 @@ impl InteractiveController {
 
     /// Sequence number of the row at the viewport top. Shared by the badge
     /// hint and the cross-kind jumps so all three agree on the cursor.
-    fn viewport_top_seq(&self) -> u64 {
+    pub(crate) fn viewport_top_seq(&self) -> u64 {
         let width = self.last_layout_width.max(1);
         let capacity = usize::from(self.last_layout_height.max(1));
         let total: usize = self
@@ -521,7 +521,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn first_line_label_truncates() {
+    pub(crate) fn first_line_label_truncates() {
         assert_eq!(first_line_label("hello\nworld", 60), "hello");
         let long = "a".repeat(100);
         let label = first_line_label(&long, 10);
@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn anchor_kind_labels_describe_behaviour() {
+    pub(crate) fn anchor_kind_labels_describe_behaviour() {
         assert_eq!(AnchorKind::UserPrompt.label(), "prompt");
         assert_eq!(AnchorKind::TodoUpdate.label(), "todo");
         assert_eq!(AnchorKind::ToolFailure.label(), "failed");
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn anchor_kinds_cover_all_jump_targets_with_distinct_keys() {
+    pub(crate) fn anchor_kinds_cover_all_jump_targets_with_distinct_keys() {
         let all = AnchorKind::all();
         assert_eq!(all.len(), 6);
         let mut hints = all
@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn anchor_key_hashes_by_kind_and_id() {
+    pub(crate) fn anchor_key_hashes_by_kind_and_id() {
         use std::collections::HashSet;
         let mut set = HashSet::new();
         set.insert(AnchorKey {
@@ -571,11 +571,11 @@ mod tests {
     }
 
     #[test]
-    fn unused_import_guard() {
+    pub(crate) fn unused_import_guard() {
         let _ = HashMap::<String, String>::new();
     }
 
-    async fn controller_with_rows(count: usize) -> InteractiveController {
+    pub(crate) async fn controller_with_rows(count: usize) -> InteractiveController {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         let mut ctl = InteractiveController::start(client, "exec".into()).await;
         ctl.last_layout_width = 80;
@@ -589,7 +589,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn jump_lands_target_one_row_below_the_top() {
+    pub(crate) async fn jump_lands_target_one_row_below_the_top() {
         let mut ctl = controller_with_rows(100).await;
         ctl.jump_to_seq(50);
         assert_eq!(ctl.view_scroll, 28);
@@ -597,7 +597,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabled_kinds_stay_out_of_jumps_but_keep_recording() {
+    pub(crate) async fn disabled_kinds_stay_out_of_jumps_but_keep_recording() {
         let mut ctl = controller_with_rows(100).await;
         ctl.record_anchor(AnchorKind::UserPrompt, "prompt-10", "prompt".into(), 10);
         ctl.record_anchor(AnchorKind::TodoUpdate, "todo-20", "todo".into(), 20);

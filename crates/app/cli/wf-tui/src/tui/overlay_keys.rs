@@ -10,7 +10,7 @@ use tui_core::panel_select::Motion;
 use tui_core::screen_data::screen_for_digit;
 
 impl TuiApp {
-    pub(super) async fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(crate) async fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {
         if self.overlay == OverlayMode::SearchPalette {
             return Ok(self.handle_search_palette_key(key));
         }
@@ -109,7 +109,7 @@ impl TuiApp {
     /// History pager selection keys: Ctrl+A selects every loaded row,
     /// Shift+motion extends the logical cursor, Ctrl+Y copies the selection
     /// and Esc clears it before the overlay close key runs.
-    fn handle_history_selection_key(&mut self, key: Key) -> Option<LoopAction> {
+    pub(crate) fn handle_history_selection_key(&mut self, key: Key) -> Option<LoopAction> {
         if key.ctrl && !key.alt && matches!(key.code, CKey::Char('y') | CKey::Char('Y')) {
             match self.history.selection_text() {
                 Some(text) => {
@@ -157,7 +157,7 @@ impl TuiApp {
     /// Ctrl+D/T/A/R select the four filters, Ctrl+O cycles them, Ctrl+B
     /// toggles the bookmark, Left/Right folds sections. Esc clears an
     /// active search first and closes the overlay otherwise.
-    async fn handle_session_tree_key(&mut self, key: Key) -> LoopAction {
+    pub(crate) async fn handle_session_tree_key(&mut self, key: Key) -> LoopAction {
         let plain = !key.ctrl && !key.alt;
         let ctrl = key.ctrl && !key.alt;
         // While the restore-scope selector is open, only the scope keys
@@ -300,7 +300,7 @@ impl TuiApp {
         LoopAction::Continue
     }
 
-    fn handle_search_palette_key(&mut self, key: Key) -> LoopAction {
+    pub(crate) fn handle_search_palette_key(&mut self, key: Key) -> LoopAction {
         match key.code {
             CKey::Esc => {
                 self.overlay = OverlayMode::None;
@@ -368,7 +368,7 @@ impl TuiApp {
     /// printable character types into the palette and never reaches the
     /// session composer. `Ctrl-P`/`Esc` close back to the untouched draft;
     /// `Enter` runs the selected command with the typed argument.
-    async fn handle_command_palette_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(crate) async fn handle_command_palette_key(&mut self, key: Key) -> CliResult<LoopAction> {
         match key.code {
             CKey::Esc => {
                 self.overlay = OverlayMode::None;
@@ -425,7 +425,7 @@ impl TuiApp {
     /// Run the selected command palette row with the typed argument.
     /// Shared by the Enter key and pointer clicks; closes the overlay
     /// before running, matching the key path.
-    pub(super) async fn run_selected_palette_command(&mut self) -> CliResult<LoopAction> {
+    pub(crate) async fn run_selected_palette_command(&mut self) -> CliResult<LoopAction> {
         let Some(pick) = self.command_palette.selected_pick() else {
             self.app.notice.set("No matching command.".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -452,7 +452,7 @@ impl TuiApp {
         }
     }
 
-    async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(crate) async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
         // Tab toggles the tabs/recent panes everywhere in this overlay.
         if key.code == CKey::Tab && !key.ctrl && !key.alt {
             self.session_list.toggle_pane();
@@ -547,7 +547,7 @@ impl TuiApp {
     /// steps (arm, then repeat to confirm), Ctrl+R renames it to the filter
     /// text, Ctrl+N toggles the named-only filter. Esc cancels an armed
     /// delete first, then clears the filter, then closes.
-    async fn handle_recent_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(crate) async fn handle_recent_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
         let plain = !key.ctrl && !key.alt;
         let ctrl = key.ctrl && !key.alt;
         // Delete, rename and named-filter on Ctrl so typing stays a filter.

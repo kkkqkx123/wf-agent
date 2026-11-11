@@ -9,7 +9,7 @@ use crate::theme::Theme;
 
 impl InteractiveController {
     /// Whether the detached-history badge belongs on screen.
-    pub(super) fn should_show_jump_badge(&self) -> bool {
+    pub(crate) fn should_show_jump_badge(&self) -> bool {
         self.view_scroll > 0
     }
 
@@ -19,7 +19,7 @@ impl InteractiveController {
     /// When an anchor sits at or above the viewport top, its kind is
     /// appended so detached readers see the nearest jump target. Returns the
     /// hit rectangle when painted so the event layer can match clicks.
-    pub(super) fn paint_jump_badge(
+    pub(crate) fn paint_jump_badge(
         &self,
         frame: &mut Frame,
         area: Rect,
@@ -86,7 +86,7 @@ mod tests {
     };
 
     #[test]
-    fn badge_text_carries_hidden_count_and_hint() {
+    pub(crate) fn badge_text_carries_hidden_count_and_hint() {
         assert_eq!(jump_badge_text(3), "↓ 3 more · End for latest");
         assert_eq!(jump_badge_short_text(3), "↓ 3 more");
         assert_eq!(
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn badge_text_picks_compact_or_hides_when_narrow() {
+    pub(crate) fn badge_text_picks_compact_or_hides_when_narrow() {
         let full = jump_badge_text(12);
         let short = jump_badge_short_text(12);
         assert_eq!(pick_jump_badge_text(&full, &short, 80), Some(full.as_str()));

@@ -13,7 +13,7 @@ use super::TuiApp;
 use tui_core::keymap::{KeyAction, KeymapContext};
 
 impl TuiApp {
-    pub(super) async fn handle_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(crate) async fn handle_key(&mut self, key: Key) -> CliResult<LoopAction> {
         if key.ctrl && key.code == CKey::Char('z') {
             SUSPEND_PENDING.store(true, std::sync::atomic::Ordering::SeqCst);
             return Ok(LoopAction::Continue);

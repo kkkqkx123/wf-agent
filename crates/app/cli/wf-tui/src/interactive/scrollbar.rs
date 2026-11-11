@@ -9,7 +9,7 @@ impl InteractiveController {
     /// Whether the session scrollbar is visible for the given window.
     /// Combines the explicit switch with the shared overflow and narrow
     /// guards so hidden frames stay pixel-identical to the no-bar path.
-    pub(super) fn scrollbar_visible_for(
+    pub(crate) fn scrollbar_visible_for(
         &self,
         full_area: Rect,
         total: usize,
@@ -19,7 +19,7 @@ impl InteractiveController {
     }
 
     /// Whether the gutter is on screen right now, from the accurate total.
-    pub(super) fn scrollbar_currently_visible(&self, full_area: Rect) -> bool {
+    pub(crate) fn scrollbar_currently_visible(&self, full_area: Rect) -> bool {
         if self.scrollback.is_empty() && self.streaming.is_none() {
             return false;
         }
@@ -44,7 +44,7 @@ impl InteractiveController {
 
     /// Live total, capacity and top for gutter math. `None` without a
     /// published viewport.
-    fn gutter_window(&self) -> Option<(usize, usize, usize)> {
+    pub(crate) fn gutter_window(&self) -> Option<(usize, usize, usize)> {
         let area = self.last_scroll_area?;
         let capacity = usize::from(area.height.max(1));
         let total = self.accurate_total_rows();
@@ -117,7 +117,7 @@ mod tests {
     use tui_components::scrollbar;
 
     #[tokio::test]
-    async fn scrollbar_switch_and_visibility_combos() {
+    pub(crate) async fn scrollbar_switch_and_visibility_combos() {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         let mut on = InteractiveController::start(client.clone(), "exec".into()).await;
         let mut off = InteractiveController::start(client, "exec".into()).await;
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn tail_conversion_includes_streaming_rows() {
+    pub(crate) fn tail_conversion_includes_streaming_rows() {
         let cached = 90usize;
         let streaming = 10usize;
         let total = cached + streaming;

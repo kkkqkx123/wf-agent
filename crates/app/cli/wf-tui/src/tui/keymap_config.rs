@@ -107,14 +107,14 @@ mod tests {
     use tui_core::keymap::CKey;
 
     #[test]
-    fn parses_known_contexts() {
+    pub(crate) fn parses_known_contexts() {
         assert_eq!(parse_context("global"), Some(KeymapContext::Global));
         assert_eq!(parse_context("approval"), Some(KeymapContext::Approval));
         assert_eq!(parse_context("nope"), None);
     }
 
     #[test]
-    fn binds_registry_command_ids_only() {
+    pub(crate) fn binds_registry_command_ids_only() {
         let mut keymap = Keymap::new();
         assert!(keymap.bind_id(
             KeymapContext::List,
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn chord_to_key_maps_named_and_char_keys() {
+    pub(crate) fn chord_to_key_maps_named_and_char_keys() {
         let chord = config_keymap::parse_chord("ctrl+k").unwrap();
         let key = chord_to_key(&chord);
         assert_eq!(key, Key::ctrl(CKey::Char('k')));
@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_settings_dir_yields_empty_overrides() {
+    pub(crate) fn missing_settings_dir_yields_empty_overrides() {
         // No env manipulation: the function must tolerate a missing XDG
         // setup and return an override-free keymap that still resolves
         // builtin chords from the registry.

@@ -87,7 +87,7 @@ pub(super) enum DataResult {
 
 impl TuiApp {
     /// Fetch `kind` unless fresh data is cached or a fetch is in flight.
-    pub(super) fn request_data(&mut self, kind: ScreenKind) {
+    pub(crate) fn request_data(&mut self, kind: ScreenKind) {
         if !kind.has_data() {
             return;
         }
@@ -126,7 +126,7 @@ impl TuiApp {
     /// panel is hidden, a fetch is in flight, or the cache is still fresh. A
     /// session switch bypasses the interval so the file history never lags one
     /// session behind, clearing the stale rows while the new fetch runs.
-    pub(super) fn request_sidebar_data(&mut self) {
+    pub(crate) fn request_sidebar_data(&mut self) {
         if !self.sidebar {
             return;
         }
@@ -161,7 +161,7 @@ impl TuiApp {
 
     /// Fold a fetched sidebar payload into the cache, keeping the previous
     /// rows for any section the fetch could not reach.
-    fn merge_sidebar_fetch(&mut self, fetch: crate::fetch::SidebarFetch) {
+    pub(crate) fn merge_sidebar_fetch(&mut self, fetch: crate::fetch::SidebarFetch) {
         if fetch.git.is_some() {
             self.sidebar_fetch.git = fetch.git;
         }
@@ -174,7 +174,7 @@ impl TuiApp {
     }
 
     /// Fetch search hits for the palette's submitted query.
-    pub(super) fn request_search_palette(&mut self, query: String) {
+    pub(crate) fn request_search_palette(&mut self, query: String) {
         let client = self.client.clone();
         let tx = self.data_tx.clone();
         let handle = tokio::spawn(async move {
@@ -185,14 +185,14 @@ impl TuiApp {
     }
 
     /// Drop cached data for `kind` so the next request refetches.
-    pub(super) fn invalidate(&mut self, kind: ScreenKind) {
+    pub(crate) fn invalidate(&mut self, kind: ScreenKind) {
         self.app.screen.invalidate(kind);
     }
 
     /// Detail key plus viewer title for the current selection when the
     /// active executions/workflow subview needs fetched lines. Overview and
     /// summary render from the cached row and yield no key.
-    pub(super) fn current_detail_key(&self) -> Option<(DetailKey, String)> {
+    pub(crate) fn current_detail_key(&self) -> Option<(DetailKey, String)> {
         match self.app.screen.navigation.current_kind() {
             ScreenKind::Executions => {
                 let view = self.app.screen.exec_view;
@@ -245,7 +245,7 @@ impl TuiApp {
     /// Fetch detail lines for the current selection when the active
     /// executions/workflow subview needs them. Overview and summary render
     /// from the cached row and never fetch.
-    pub(super) fn request_detail_for_current(&mut self) {
+    pub(crate) fn request_detail_for_current(&mut self) {
         let Some((key, title)) = self.current_detail_key() else {
             return;
         };
@@ -300,13 +300,13 @@ impl TuiApp {
 
     /// Reset the settings scroll when fresh settings land so the view
     /// returns to the top instead of pointing past the new content.
-    fn clamp_settings_scroll(&mut self) {
+    pub(crate) fn clamp_settings_scroll(&mut self) {
         self.app.screen.settings_scroll = 0;
     }
 
     /// Reap finished fetches and fold them into the cache. Returns whether the
     /// cache or a notice changed (so the caller can request a repaint).
-    pub(super) fn drain_data(&mut self) -> bool {
+    pub(crate) fn drain_data(&mut self) -> bool {
         let mut changed = false;
         while let Ok(msg) = self.data_rx.try_recv() {
             match msg {
@@ -452,18 +452,18 @@ impl TuiApp {
         changed
     }
 
-    pub(super) fn current_data(&self) -> ScreenData {
+    pub(crate) fn current_data(&self) -> ScreenData {
         self.app.screen.current_data()
     }
 
-    pub(super) fn display_data(&self) -> ScreenData {
+    pub(crate) fn display_data(&self) -> ScreenData {
         self.app.screen.display_data()
     }
 
     /// Session whose scrollback the history overlay opens: the live session
     /// while one is attached, otherwise the row selected on the executions
     /// screen.
-    pub(super) fn history_session_id(&self) -> Option<String> {
+    pub(crate) fn history_session_id(&self) -> Option<String> {
         if let Some(session) = self.sessions.active() {
             if let Some(id) = session.session_id() {
                 return Some(id.to_owned());
@@ -481,7 +481,7 @@ impl TuiApp {
     /// Load one page of the overlay's scrollback on a background task and
     /// send it back through the data channel. `before` is `None` for the tail
     /// page and the previous page's cursor for the one behind it.
-    pub(super) fn request_history_page(&mut self, before: Option<i64>) {
+    pub(crate) fn request_history_page(&mut self, before: Option<i64>) {
         let Some(session_id) = self.history.session_id().map(str::to_owned) else {
             return;
         };

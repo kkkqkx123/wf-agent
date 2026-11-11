@@ -119,7 +119,7 @@ impl InteractiveController {
     /// Source text of the last contiguous assistant segment over the
     /// settled scrollback plus queued (not yet settled) rows. In-flight
     /// streaming text is excluded: only committed rows are copyable.
-    fn last_assistant_source_text(&self) -> Option<String> {
+    pub(crate) fn last_assistant_source_text(&self) -> Option<String> {
         let lines: Vec<CopySourceLine> = self
             .scrollback_rows_for_copy()
             .iter()
@@ -132,7 +132,7 @@ impl InteractiveController {
     }
 
     /// Rows visible to copy: settled scrollback first, then queued rows.
-    fn scrollback_rows_for_copy(&self) -> Vec<crate::transcript::HistoryLine> {
+    pub(crate) fn scrollback_rows_for_copy(&self) -> Vec<crate::transcript::HistoryLine> {
         let mut rows = self.scrollback.clone();
         rows.extend(self.pending_scroll.clone());
         rows

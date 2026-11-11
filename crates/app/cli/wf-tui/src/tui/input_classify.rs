@@ -87,7 +87,7 @@ pub(super) enum MouseOutcome {
 
 impl MouseOutcome {
     /// Whether the outcome warrants a full frame request.
-    pub(super) fn needs_frame(self) -> bool {
+    pub(crate) fn needs_frame(self) -> bool {
         match self {
             MouseOutcome::Scrolled | MouseOutcome::Clicked => true,
             MouseOutcome::Ignored => false,
@@ -419,7 +419,7 @@ mod tests {
     use tui_core::screen_data::{screen_digit, screen_for_digit};
 
     #[test]
-    fn digit_to_screen_follows_the_canonical_map() {
+    pub(crate) fn digit_to_screen_follows_the_canonical_map() {
         let mapped: Vec<_> = ('0'..='9').filter_map(screen_for_digit).collect();
         assert_eq!(
             mapped,
@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_cycles_through_every_value() {
+    pub(crate) fn filter_cycles_through_every_value() {
         let mut filter = ExecStatusFilter::All;
         let mut seen = vec![filter];
         for _ in 0..ExecStatusFilter::ALL.len() - 1 {
@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn paste_routes_to_session_or_swallow() {
+    pub(crate) fn paste_routes_to_session_or_swallow() {
         // Modals swallow every paste regardless of the screen.
         for screen in ScreenKind::all() {
             assert_eq!(classify_paste(true, *screen), PasteTarget::Swallowed);
@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn mouse_kinds_classify_to_scroll_or_button() {
+    pub(crate) fn mouse_kinds_classify_to_scroll_or_button() {
         assert_eq!(
             classify_mouse(MouseEventKind::ScrollUp),
             MouseAction::ScrollUp
@@ -506,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn shift_bypasses_capture_for_native_selection() {
+    pub(crate) fn shift_bypasses_capture_for_native_selection() {
         assert!(mouse_bypasses_capture(KeyModifiers::SHIFT));
         assert!(mouse_bypasses_capture(
             KeyModifiers::SHIFT | KeyModifiers::CONTROL
@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn left_button_detection_covers_press_release_drag() {
+    pub(crate) fn left_button_detection_covers_press_release_drag() {
         assert!(mouse_is_left_button(MouseEventKind::Down(
             MouseButton::Left
         )));
@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn right_button_detection_covers_press_release_drag() {
+    pub(crate) fn right_button_detection_covers_press_release_drag() {
         assert!(mouse_is_right_button(MouseEventKind::Down(
             MouseButton::Right
         )));
@@ -556,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_click_chains_same_cell_inside_window() {
+    pub(crate) fn multi_click_chains_same_cell_inside_window() {
         assert_eq!(next_click_count(0, None, None, None, 1000, 5, 5), 1);
         assert_eq!(
             next_click_count(1, Some(1000), Some(5), Some(5), 1200, 5, 5),
@@ -585,14 +585,14 @@ mod tests {
     }
 
     #[test]
-    fn mouse_outcome_drives_frame_decision() {
+    pub(crate) fn mouse_outcome_drives_frame_decision() {
         assert!(MouseOutcome::Scrolled.needs_frame());
         assert!(MouseOutcome::Clicked.needs_frame());
         assert!(!MouseOutcome::Ignored.needs_frame());
     }
 
     #[test]
-    fn focus_truth_table_covers_gained_lost_and_compensation() {
+    pub(crate) fn focus_truth_table_covers_gained_lost_and_compensation() {
         // Gained always marks focused with a catch-up frame; lost only
         // records the state; any input stream re-asserts focus.
         let gained = focus_transition(true, FocusInput::Gained);

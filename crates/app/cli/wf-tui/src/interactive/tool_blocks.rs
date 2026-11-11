@@ -57,7 +57,7 @@ pub(crate) struct ToolViewerRequest {
 impl ToolBlock {
     /// Preview source: the error wins on failure, the display preview or
     /// the output otherwise.
-    fn preview_source(&self) -> &str {
+    pub(crate) fn preview_source(&self) -> &str {
         if !self.success {
             if let Some(error) = self.error.as_deref() {
                 if !error.trim().is_empty() {
@@ -68,7 +68,7 @@ impl ToolBlock {
         self.display_preview.as_deref().unwrap_or(&self.output)
     }
 
-    fn collapsed_preview(&self, config: &ToolOutputConfig) -> Collapsed {
+    pub(crate) fn collapsed_preview(&self, config: &ToolOutputConfig) -> Collapsed {
         let source = self.preview_source();
         let error_first = !self.success
             && self
@@ -91,7 +91,7 @@ impl ToolBlock {
     /// Retrieval bodies stay hidden by default: the count summary is the
     /// whole inline story and the full text waits in the viewer. This holds
     /// with or without a protocol display payload so live and replay agree.
-    fn hides_body(&self) -> bool {
+    pub(crate) fn hides_body(&self) -> bool {
         self.kind == DisplayKind::Count && self.success
     }
 }
@@ -255,7 +255,7 @@ impl InteractiveController {
     /// Replace the sidebar Todos snapshot from an `update_todo_list` result.
     /// A payload that is not the expected JSON envelope leaves the previous
     /// snapshot in place instead of blanking the section.
-    fn apply_todo_result(&mut self, result: &str) {
+    pub(crate) fn apply_todo_result(&mut self, result: &str) {
         if let Some(todos) = crate::context_sidebar::parse_todo_items(result) {
             self.todos = todos;
         }
@@ -528,7 +528,12 @@ impl InteractiveController {
     /// Replace the body rows after the summary row carrying `summary_seq`.
     /// The drain range is clamped so concurrent trims cannot panic; a lost
     /// summary drops its bookkeeping instead.
-    fn splice_block_rows(&mut self, summary_seq: u64, old_len: usize, new_rows: Vec<HistoryLine>) {
+    pub(crate) fn splice_block_rows(
+        &mut self,
+        summary_seq: u64,
+        old_len: usize,
+        new_rows: Vec<HistoryLine>,
+    ) {
         let Some(summary) = self
             .scrollback
             .iter()

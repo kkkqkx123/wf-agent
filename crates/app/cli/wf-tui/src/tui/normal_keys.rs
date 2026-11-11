@@ -13,7 +13,7 @@ use super::{TuiApp, DASHBOARD_ENTRIES};
 use tui_core::screen_data::screen_for_digit;
 
 impl TuiApp {
-    pub(super) async fn handle_normal_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(crate) async fn handle_normal_key(&mut self, key: Key) -> CliResult<LoopAction> {
         if self.app.screen.navigation.current_kind() == ScreenKind::Settings {
             match key.code {
                 CKey::Char('j') | CKey::Down if !key.ctrl && !key.alt => {

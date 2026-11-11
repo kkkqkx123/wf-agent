@@ -23,6 +23,7 @@ pub mod skill_fs;
 pub mod tool_call;
 pub mod tool_description_generator;
 pub mod tool_exposure;
+pub mod tool_output;
 pub mod tool_schema_formatter;
 
 pub use error::{ToolError, ToolResult};

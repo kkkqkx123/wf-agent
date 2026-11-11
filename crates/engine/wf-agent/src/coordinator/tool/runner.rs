@@ -376,7 +376,7 @@ pub(crate) async fn run_tool(
                     }
                 }
             }
-            let msg = Message {
+            let mut msg = Message {
                 id: wf_types::Id::new(),
                 role: MessageRole::Tool,
                 content: MessageContentValue::Text(
@@ -394,6 +394,7 @@ pub(crate) async fn run_tool(
                 thinking_signature: None,
                 metadata: None,
             };
+            wf_tools::tool_output::apply_overflow_message_metadata(&mut msg.metadata, &tool_result);
             emit_progress(
                 &ctx.progress_tx,
                 &tc.id,

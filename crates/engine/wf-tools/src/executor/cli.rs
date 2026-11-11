@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
 use crate::error::{ToolError, ToolResult};
@@ -43,8 +42,6 @@ pub struct CliExecutionOptions {
     pub args: Vec<String>,
     pub max_lines: Option<usize>,
     pub max_output_bytes: Option<u64>,
-    pub output_dir: Option<PathBuf>,
-    pub call_id: Option<String>,
     pub timeout_ms: Option<u64>,
     pub cwd: Option<String>,
     pub env: Option<Vec<(String, String)>>,
@@ -56,8 +53,6 @@ pub struct CliExecutionResult {
     pub stderr: String,
     pub exit_code: i32,
     pub success: bool,
-    pub stdout_path: Option<PathBuf>,
-    pub stderr_path: Option<PathBuf>,
     pub truncated: bool,
     pub truncated_reason: Option<String>,
     pub total_lines: Option<usize>,
@@ -66,7 +61,6 @@ pub struct CliExecutionResult {
 
 struct PipeOutput {
     text: String,
-    path: Option<PathBuf>,
     truncated: bool,
     truncated_reason: Option<String>,
     total_lines: usize,
@@ -155,27 +149,10 @@ pub trait CliExecutor: Send + Sync {
 
         let mut child = cmd.spawn()?;
 
-        let stdout_path = options
-            .output_dir
-            .as_ref()
-            .zip(options.call_id.as_ref())
-            .map(|(dir, id)| dir.join(format!("{}-stdout.txt", id)));
-        let stderr_path = options
-            .output_dir
-            .as_ref()
-            .zip(options.call_id.as_ref())
-            .map(|(dir, id)| dir.join(format!("{}-stderr.txt", id)));
-
-        if let Some(ref path) = stdout_path {
-            if let Some(parent) = path.parent() {
-                let _ = tokio::fs::create_dir_all(parent).await;
-            }
-        }
-
         let (stdout_res, stderr_res, status) = if let Some(ms) = options.timeout_ms {
             tokio::time::timeout(
                 Duration::from_millis(ms),
-                collect_child_output(&mut child, max_lines, max_bytes, &stdout_path, &stderr_path),
+                collect_child_output(&mut child, max_lines, max_bytes),
             )
             .await
             .map_err(|_| ToolError::Timeout {
@@ -183,8 +160,7 @@ pub trait CliExecutor: Send + Sync {
                 timeout_ms: ms,
             })??
         } else {
-            collect_child_output(&mut child, max_lines, max_bytes, &stdout_path, &stderr_path)
-                .await?
+            collect_child_output(&mut child, max_lines, max_bytes).await?
         };
 
         Ok(CliExecutionResult {
@@ -192,8 +168,6 @@ pub trait CliExecutor: Send + Sync {
             stderr: stderr_res.text,
             exit_code: status.code().unwrap_or(-1),
             success: status.success(),
-            stdout_path: stdout_res.path,
-            stderr_path: stderr_res.path,
             truncated: stdout_res.truncated || stderr_res.truncated,
             truncated_reason: stdout_res
                 .truncated_reason
@@ -209,8 +183,6 @@ async fn collect_child_output(
     child: &mut tokio::process::Child,
     max_lines: usize,
     max_bytes: u64,
-    stdout_path: &Option<PathBuf>,
-    stderr_path: &Option<PathBuf>,
 ) -> ToolResult<(PipeOutput, PipeOutput, std::process::ExitStatus)> {
     let stdout_pipe = child
         .stdout
@@ -222,8 +194,8 @@ async fn collect_child_output(
         .ok_or_else(|| ToolError::Internal("stderr pipe not configured".to_string()))?;
 
     let (stdout_res, stderr_res) = tokio::join!(
-        read_pipe(stdout_pipe, max_lines, max_bytes, stdout_path),
-        read_pipe(stderr_pipe, max_lines, max_bytes, stderr_path),
+        read_pipe(stdout_pipe, max_lines, max_bytes),
+        read_pipe(stderr_pipe, max_lines, max_bytes),
     );
 
     let status = child.wait().await?;
@@ -234,13 +206,7 @@ async fn read_pipe<R: AsyncRead + Unpin>(
     mut reader: R,
     max_lines: usize,
     max_bytes: u64,
-    file_path: &Option<PathBuf>,
 ) -> PipeOutput {
-    let mut file = match file_path {
-        Some(path) => tokio::fs::File::create(path).await.ok(),
-        None => None,
-    };
-
     let mut buf: Vec<u8> = Vec::new();
     let mut total_lines: usize = 0;
     let mut total_bytes: u64 = 0;
@@ -271,25 +237,18 @@ async fn read_pipe<R: AsyncRead + Unpin>(
         total_bytes += take as u64;
         buf.extend_from_slice(&chunk[..take]);
 
-        if let Some(ref mut f) = file {
-            let _ = f.write_all(&chunk[..take]).await;
-        }
-
         if take < n {
             hit_byte_limit = true;
             break;
         }
     }
 
-    drop(file);
-
     let raw = String::from_utf8_lossy(&buf).to_string();
     let (text, truncated, reason) =
-        build_truncated_output(&raw, total_bytes, max_lines, hit_byte_limit, file_path);
+        build_truncated_output(&raw, total_bytes, max_lines, hit_byte_limit);
 
     PipeOutput {
         text,
-        path: file_path.clone(),
         truncated,
         truncated_reason: reason,
         total_lines,
@@ -302,54 +261,32 @@ fn build_truncated_output(
     total_bytes: u64,
     max_lines: usize,
     hit_byte_limit: bool,
-    file_path: &Option<PathBuf>,
 ) -> (String, bool, Option<String>) {
-    let path_hint = file_path
-        .as_ref()
-        .map(|p| {
-            format!(
-                "\nFull output: {}\nYou can use `grep`, `head`, `tail`, `sed` on that file to search or paginate.",
-                p.display()
-            )
-        });
-
     let line_count = raw.lines().count();
     let hit_line_limit = line_count > max_lines;
 
     match (hit_byte_limit, hit_line_limit) {
         (true, true) => {
             let lines: Vec<&str> = raw.lines().take(max_lines).collect();
-            let body = format!(
+            let text = format!(
                 "{}\n... (output limited to {} bytes, truncated {} lines)",
                 lines.join("\n"),
                 total_bytes,
                 line_count - max_lines,
             );
-            let text = match path_hint {
-                Some(ref h) => format!("{}{}", body, h),
-                None => body,
-            };
             (text, true, Some("size+lines".to_string()))
         }
         (true, false) => {
-            let body = format!("... (output limited to {} bytes)", total_bytes);
-            let text = match path_hint {
-                Some(ref h) => format!("{}{}", body, h),
-                None => body,
-            };
+            let text = format!("... (output limited to {} bytes)", total_bytes);
             (text, true, Some("size".to_string()))
         }
         (false, true) => {
             let lines: Vec<&str> = raw.lines().take(max_lines).collect();
-            let body = format!(
+            let text = format!(
                 "{}\n... (truncated {} lines)",
                 lines.join("\n"),
                 line_count - max_lines,
             );
-            let text = match path_hint {
-                Some(ref h) => format!("{}{}", body, h),
-                None => body,
-            };
             (text, true, Some("lines".to_string()))
         }
         (false, false) => (raw.to_string(), false, None),
@@ -374,8 +311,8 @@ async fn run_command(
             .ok_or_else(|| ToolError::Internal("stderr pipe not configured".to_string()))?;
 
         let (stdout_res, stderr_res) = tokio::join!(
-            read_pipe(stdout, max_lines, max_bytes, &None),
-            read_pipe(stderr, max_lines, max_bytes, &None),
+            read_pipe(stdout, max_lines, max_bytes),
+            read_pipe(stderr, max_lines, max_bytes),
         );
         let status = child.wait().await?;
 
@@ -536,8 +473,6 @@ impl RipgrepExecutor {
             args,
             max_lines: Some(500),
             max_output_bytes: None,
-            output_dir: None,
-            call_id: None,
             timeout_ms: Some(30000),
             cwd: None,
             env: None,
@@ -560,8 +495,6 @@ impl RipgrepExecutor {
             args,
             max_lines: Some(1000),
             max_output_bytes: None,
-            output_dir: None,
-            call_id: None,
             timeout_ms: Some(30000),
             cwd: None,
             env: None,
@@ -597,8 +530,7 @@ mod tests {
 
     #[test]
     fn test_build_truncated_output_no_truncation() {
-        let (text, truncated, reason) =
-            build_truncated_output("hello\nworld", 12, 100, false, &None);
+        let (text, truncated, reason) = build_truncated_output("hello\nworld", 12, 100, false);
         assert_eq!(text, "hello\nworld");
         assert!(!truncated);
         assert!(reason.is_none());
@@ -607,7 +539,7 @@ mod tests {
     #[test]
     fn test_build_truncated_output_line_limit() {
         let input = "line1\nline2\nline3\nline4\nline5";
-        let (text, truncated, reason) = build_truncated_output(input, 30, 3, false, &None);
+        let (text, truncated, reason) = build_truncated_output(input, 30, 3, false);
         assert!(truncated);
         assert_eq!(reason.as_deref(), Some("lines"));
         assert!(text.contains("line1"));
@@ -618,8 +550,7 @@ mod tests {
 
     #[test]
     fn test_build_truncated_output_byte_limit() {
-        let (text, truncated, reason) =
-            build_truncated_output("hello\nworld", 12, 100, true, &None);
+        let (text, truncated, reason) = build_truncated_output("hello\nworld", 12, 100, true);
         assert!(truncated);
         assert_eq!(reason.as_deref(), Some("size"));
         assert!(text.contains("limited to 12 bytes"));
@@ -628,22 +559,12 @@ mod tests {
     #[test]
     fn test_build_truncated_output_both_limits() {
         let input = "line1\nline2\nline3\nline4\nline5";
-        let (text, truncated, reason) = build_truncated_output(input, 20, 2, true, &None);
+        let (text, truncated, reason) = build_truncated_output(input, 20, 2, true);
         assert!(truncated);
         assert_eq!(reason.as_deref(), Some("size+lines"));
         assert!(text.contains("line1"));
         assert!(text.contains("line2"));
         assert!(text.contains("limited to 20 bytes"));
         assert!(text.contains("truncated 3 lines"));
-    }
-
-    #[test]
-    fn test_build_truncated_output_with_path_hint() {
-        let path = Some(PathBuf::from("/tmp/output.txt"));
-        let input = "line1\nline2\nline3";
-        let (text, truncated, _) = build_truncated_output(input, 30, 1, false, &path);
-        assert!(truncated);
-        assert!(text.contains("/tmp/output.txt"));
-        assert!(text.contains("grep"));
     }
 }

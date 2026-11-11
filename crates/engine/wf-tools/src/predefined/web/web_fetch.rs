@@ -9,6 +9,7 @@ use crate::executor::StatelessAsyncHandler;
 use crate::predefined::schema::{ToolDefinition, ToolParameter, ToolParameterConstraint};
 use crate::predefined::web::{strip_html_tags, WebToolConfig};
 use crate::registry::ToolRegistry;
+use crate::tool_output::{resolve_spill_dir, truncate_with_spill};
 
 pub static WEB_FETCH: ToolDefinition = ToolDefinition {
     id: "web_fetch",
@@ -64,7 +65,7 @@ pub fn web_fetch_handler(config: &WebToolConfig) -> StatelessAsyncHandler {
             .build()
             .map_err(|e| e.to_string()),
     );
-    Arc::new(move |parameters: serde_json::Value, _ctx| {
+    Arc::new(move |parameters: serde_json::Value, ctx| {
         let config = config.clone();
         let client = client.clone();
         Box::pin(async move {
@@ -104,6 +105,8 @@ pub fn web_fetch_handler(config: &WebToolConfig) -> StatelessAsyncHandler {
             let bytes = response.bytes().await.map_err(|e| {
                 ToolError::ExecutionError(format!("Failed to read response: {}", e))
             })?;
+            // The download guard stays a hard bound against memory
+            // exhaustion; inline overflow past it spills with a pointer.
             if bytes.len() > config.max_content_bytes {
                 return Err(ToolError::ExecutionError(format!(
                     "Response too large: {} bytes (limit {} bytes)",
@@ -119,12 +122,26 @@ pub fn web_fetch_handler(config: &WebToolConfig) -> StatelessAsyncHandler {
                 content = strip_html_tags(&content);
             }
 
+            let spill_dir = resolve_spill_dir(
+                ctx.file_scope
+                    .as_ref()
+                    .and_then(|scope| scope.workdir.as_deref()),
+            );
+            let outcome = truncate_with_spill(&content, &spill_dir);
+            let truncated = outcome.spilled_path.is_some();
+            let content_path = outcome
+                .spilled_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string());
+
             Ok(serde_json::json!({
                 "url": url,
                 "format": format,
                 "content_type": content_type,
                 "size": bytes.len(),
-                "content": content,
+                "content": outcome.kept_text,
+                "content_truncated": truncated,
+                "content_path": content_path,
             }))
         })
     })

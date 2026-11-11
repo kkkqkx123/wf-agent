@@ -193,6 +193,8 @@ pub trait ToolExecutorExt: ToolExecutor {
                     retry_count: 0,
                     // An executor-level timeout is transient by nature.
                     retryable: Some(true),
+                    truncated: None,
+                    output_path: None,
                 }),
             }
         }

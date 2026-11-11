@@ -7,13 +7,12 @@ use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use crate::mcp::analytics::McpUsageAnalytics;
+use crate::tool_output::{apply_overflow_metadata, resolve_spill_dir, truncate_with_spill};
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 use wf_types::tool::DEFAULT_TOOL_TIMEOUT_MS;
 
 pub const USE_MCP_TOOL_ID: &str = "use_mcp";
-
-pub const MAX_MCP_OUTPUT_CHARS: usize = 32_000;
 
 pub struct McpExecutor {
     server_name: String,
@@ -115,14 +114,6 @@ fn ensure_mcp_uri_in_scope(
     }
 }
 
-fn truncate_mcp_output(text: String) -> String {
-    if text.chars().count() <= MAX_MCP_OUTPUT_CHARS {
-        return text;
-    }
-    let truncated: String = text.chars().take(MAX_MCP_OUTPUT_CHARS).collect();
-    format!("{truncated}\n\n[Truncated: output exceeded {MAX_MCP_OUTPUT_CHARS} characters]")
-}
-
 fn direct_mcp_tool_name(tool: &wf_types::tool::Tool) -> ToolResult<String> {
     tool.config
         .as_ref()
@@ -170,7 +161,7 @@ fn process_tool_result(result: &Value) -> String {
     if parts.is_empty() {
         "(No output)".into()
     } else {
-        truncate_mcp_output(parts.join("\n\n"))
+        parts.join("\n\n")
     }
 }
 
@@ -202,7 +193,7 @@ fn process_resource_result(result: &wf_types::tool::McpResourceReadResult) -> St
     if parts.is_empty() {
         "(Empty response)".into()
     } else {
-        truncate_mcp_output(parts.join("\n\n"))
+        parts.join("\n\n")
     }
 }
 
@@ -258,6 +249,13 @@ impl ToolExecutor for McpExecutor {
             String::new()
         };
 
+        let spill_dir = resolve_spill_dir(
+            context
+                .file_scope
+                .as_ref()
+                .and_then(|scope| scope.workdir.as_deref()),
+        );
+
         let result = if let Some(manager) = &self.connection_manager {
             if let Some(uri) = uri {
                 match manager.read_resource(&server_name, uri, timeout_ms).await {
@@ -295,6 +293,19 @@ impl ToolExecutor for McpExecutor {
             )))
         };
 
+        // Overflow policy runs after shaping: the inline result keeps a
+        // bounded prefix plus a spill pointer, the full text stays readable.
+        let mut spill = None;
+        let result = result.map(|value| match value {
+            Value::String(text) => {
+                let outcome = truncate_with_spill(&text, &spill_dir);
+                let kept = outcome.kept_text.clone();
+                spill = Some(outcome);
+                Value::String(kept)
+            }
+            other => other,
+        });
+
         let execution_time = start.elapsed().as_millis() as i64;
         if let Some(analytics) = &self.analytics {
             match &result {
@@ -324,13 +335,14 @@ impl ToolExecutor for McpExecutor {
         }
 
         match result {
-            Ok(value) => Ok(BaseExecutor::build_result(
-                true,
-                Some(value),
-                None,
-                execution_time,
-                0,
-            )),
+            Ok(value) => {
+                let mut built =
+                    BaseExecutor::build_result(true, Some(value), None, execution_time, 0);
+                if let Some(outcome) = &spill {
+                    apply_overflow_metadata(&mut built, outcome);
+                }
+                Ok(built)
+            }
             Err(e) => Ok(BaseExecutor::build_result(
                 false,
                 None,
@@ -381,16 +393,22 @@ mod tests {
     }
 
     #[test]
-    fn test_process_tool_result_truncates_long_output() {
-        let long = "x".repeat(MAX_MCP_OUTPUT_CHARS + 10);
+    fn test_long_output_spills_with_pointer() {
+        use crate::tool_output::{resolve_spill_dir, truncate_with_spill};
+        let dir = resolve_spill_dir(None);
+        let long = "y\n".repeat(5000);
         let result = serde_json::json!({
             "content": [
                 {"type": "text", "text": long},
             ]
         });
-        let text = process_tool_result(&result);
-        assert!(text.contains("[Truncated: output exceeded"));
-        assert!(text.chars().count() < long.chars().count() + 100);
+        let full = process_tool_result(&result);
+        assert_eq!(full, long);
+        let outcome = truncate_with_spill(&full, &dir);
+        let path = outcome.spilled_path.expect("overflow must spill");
+        assert!(outcome.kept_text.contains("full output saved to"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), full);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

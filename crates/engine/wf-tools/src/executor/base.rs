@@ -382,6 +382,8 @@ impl BaseExecutor {
             execution_time: execution_time_ms,
             retry_count,
             retryable: None,
+            truncated: None,
+            output_path: None,
         }
     }
 }

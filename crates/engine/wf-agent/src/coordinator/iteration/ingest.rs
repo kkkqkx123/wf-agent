@@ -68,11 +68,20 @@ pub fn prepare_tool_messages(
             if distill && classify_tool(&tool_name) != ToolOutputKind::File {
                 let distilled = distill_tool_output(classify_tool(&tool_name), &text);
                 if distilled.len() < text.len() {
-                    let blob = archive_original(archive, &message.id, &text);
-                    if let Some(blob) = blob {
-                        set_archive_ref(&mut message, &blob);
+                    // A spilled result already has a recoverable home: keep
+                    // its pointer and skip the checkpoint archive instead of
+                    // storing the same text twice.
+                    if let Some(path) = spilled_output_path(&message) {
+                        message.content = MessageContentValue::Text(format!(
+                            "{distilled}\n[full output saved to {path}]"
+                        ));
+                    } else {
+                        let blob = archive_original(archive, &message.id, &text);
+                        if let Some(blob) = blob {
+                            set_archive_ref(&mut message, &blob);
+                        }
+                        message.content = MessageContentValue::Text(distilled);
                     }
-                    message.content = MessageContentValue::Text(distilled);
                 }
             }
             message
@@ -100,6 +109,18 @@ fn read_file_path(arguments: &str) -> Option<String> {
         .get("path")?
         .as_str()
         .map(String::from)
+}
+
+/// Spill path left by the execution-side overflow policy, if the message
+/// carries one. Such messages skip the checkpoint archive: the full text
+/// already has a recoverable home.
+fn spilled_output_path(message: &Message) -> Option<String> {
+    message
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get(wf_tools::tool_output::OUTPUT_PATH_METADATA_KEY))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
 }
 
 fn set_archive_ref(message: &mut Message, blob_id: &str) {
@@ -214,6 +235,41 @@ mod tests {
         );
         assert!(message_text(&second[0]).contains("already read"));
         assert!(message_text(&second[0]).contains("m0"));
+    }
+
+    fn generic_call(id: &str, name: &str) -> LlmToolCall {
+        LlmToolCall {
+            id: id.to_string(),
+            r#type: "function".to_string(),
+            function: wf_types::message::LlmFunctionCall {
+                name: name.to_string(),
+                arguments: "{}".to_string(),
+            },
+            call_id: None,
+            thought_signature: None,
+        }
+    }
+
+    #[test]
+    fn spilled_message_keeps_pointer_without_archive() {
+        let mut session = ConversationSession::new();
+        let limits = wf_execution_shared::compaction::builtin_compaction_limits();
+        let calls = [generic_call("c1", "web_fetch")];
+        let mut message = result_message("c1", "web_fetch", &"x\n".repeat(3000));
+        message
+            .metadata
+            .get_or_insert_with(Default::default)
+            .insert(
+                wf_tools::tool_output::OUTPUT_PATH_METADATA_KEY.to_string(),
+                serde_json::Value::String("/tmp/spill/tool_abc.txt".to_string()),
+            );
+        let out = prepare_tool_messages(&calls, vec![message], &mut session, None, &limits);
+        assert!(message_text(&out[0]).contains("/tmp/spill/tool_abc.txt"));
+        assert!(out[0]
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get(ARCHIVE_REF_KEY))
+            .is_none());
     }
 
     #[test]

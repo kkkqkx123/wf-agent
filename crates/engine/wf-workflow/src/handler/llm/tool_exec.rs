@@ -371,9 +371,15 @@ pub async fn execute_tool_call(
             let is_error = !exec_result.success;
             let content = exec_result
                 .result
+                .as_ref()
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "".to_string());
-            tool_result_message(&call.id, &tool_name, content, is_error)
+            let mut message = tool_result_message(&call.id, &tool_name, content, is_error);
+            wf_tools::tool_output::apply_overflow_message_metadata(
+                &mut message.metadata,
+                &exec_result,
+            );
+            message
         }
         Err(e) => {
             if e.is_scope_violation() {

@@ -11,6 +11,7 @@ use crate::executor::StatefulInstance;
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::BackgroundShellStore;
+use wf_shell::terminal_session::TerminalSession;
 
 pub static SHELL_WAIT: ToolDefinition = ToolDefinition {
     id: "shell_wait",
@@ -25,7 +26,7 @@ pub static SHELL_WAIT: ToolDefinition = ToolDefinition {
         ToolParameter { name: "timeout", r#type: "number", required: false, description: "Timeout in seconds (default 300)", default_json: Some("300"), constraints: None },
         ToolParameter { name: "pattern", r#type: "string", required: false, description: "Regex; stop waiting once output contains a match", default_json: None, constraints: None },
         ToolParameter { name: "settle_ms", r#type: "number", required: false, description: "After a pattern match, keep polling until output is quiet for this long in milliseconds before returning (debounces output jitter; default 0)", default_json: Some("0"), constraints: None },
-        ToolParameter { name: "max_output_bytes", r#type: "number", required: false, description: "Cap the returned output at this many bytes (tail-kept); sets 'output_truncated' when cut", default_json: None, constraints: None },
+        ToolParameter { name: "max_output_bytes", r#type: "number", required: false, description: "Cap the returned output at this many bytes (tail-kept); sets 'output_truncated' with session window fields for paging the earlier output via shell_output", default_json: None, constraints: None },
     ],
     tips: None,
     examples: Some(&["shell_wait(\"abc123\")", "shell_wait(\"abc123\", pattern=\"BUILD SUCCESS\")"]),
@@ -86,19 +87,20 @@ impl StatefulInstance for ShellWaitInstance {
                     .unwrap_or_default()
                     .to_string();
                 let exit_code = snapshot.get("exit_code").cloned().unwrap_or(Value::Null);
-                let (capped_output, output_truncated) =
-                    cap_response_output(&output, max_output_bytes);
-                return Ok(serde_json::json!({
+                let capped = capped_output(&session, &output, max_output_bytes);
+                let mut response = serde_json::json!({
                     "session_id": session_id,
                     "status": status,
                     "exit_code": exit_code,
-                    "output": capped_output,
-                    "output_truncated": output_truncated,
+                    "output": capped.text.clone(),
+                    "output_truncated": capped.truncated,
                     "timed_out": false,
                     "matched": false,
                     "backgrounded": true,
                     "guidance": "Command moved to the background. Do not wait, sleep or poll until its completion event arrives; then read the result with shell_output or shell_tasks.",
-                }));
+                });
+                attach_session_pointer(&mut response, session_id, &capped);
+                return Ok(response);
             }
             let snapshot = session.snapshot();
             let output = snapshot
@@ -117,80 +119,90 @@ impl StatefulInstance for ShellWaitInstance {
                 last_len = output.len();
                 last_growth = Instant::now();
             }
-            let (capped_output, output_truncated) = cap_response_output(&output, max_output_bytes);
+            let capped = capped_output(&session, &output, max_output_bytes);
 
             if let Some(ref re) = matcher {
                 if let Some(hit) = output.lines().find(|line| re.is_match(line)) {
                     let matched_line = hit.to_string();
                     if settle_ms == 0 {
-                        return Ok(serde_json::json!({
+                        let mut response = serde_json::json!({
                             "session_id": session_id,
                             "status": status,
                             "exit_code": exit_code,
-                            "output": capped_output,
-                            "output_truncated": output_truncated,
+                            "output": capped.text.clone(),
+                            "output_truncated": capped.truncated,
                             "timed_out": false,
                             "matched": true,
                             "matched_line": matched_line,
                             "backgrounded": false,
-                        }));
+                        });
+                        attach_session_pointer(&mut response, session_id, &capped);
+                        return Ok(response);
                     }
                     let first = *matched_at.get_or_insert_with(Instant::now);
                     let quiet = last_growth.elapsed() >= Duration::from_millis(settle_ms);
                     let starved = first.elapsed()
                         >= Duration::from_millis(settle_ms.saturating_mul(5).max(settle_ms + 5000));
                     if quiet || starved {
-                        return Ok(serde_json::json!({
+                        let mut response = serde_json::json!({
                             "session_id": session_id,
                             "status": status,
                             "exit_code": exit_code,
-                            "output": capped_output,
-                            "output_truncated": output_truncated,
+                            "output": capped.text.clone(),
+                            "output_truncated": capped.truncated,
                             "timed_out": false,
                             "matched": true,
                             "matched_line": matched_line,
                             "backgrounded": false,
-                        }));
+                        });
+                        attach_session_pointer(&mut response, session_id, &capped);
+                        return Ok(response);
                     }
                 } else {
                     matched_at = None;
                 }
             } else if status != "busy" {
-                return Ok(serde_json::json!({
+                let mut response = serde_json::json!({
                     "session_id": session_id,
                     "status": status,
                     "exit_code": exit_code,
-                    "output": capped_output,
-                    "output_truncated": output_truncated,
+                    "output": capped.text.clone(),
+                    "output_truncated": capped.truncated,
                     "timed_out": false,
                     "matched": false,
                     "backgrounded": false,
-                }));
+                });
+                attach_session_pointer(&mut response, session_id, &capped);
+                return Ok(response);
             }
 
             if Instant::now() >= deadline {
-                return Ok(serde_json::json!({
+                let mut response = serde_json::json!({
                     "session_id": session_id,
                     "status": status,
                     "exit_code": exit_code,
-                    "output": capped_output,
-                    "output_truncated": output_truncated,
+                    "output": capped.text.clone(),
+                    "output_truncated": capped.truncated,
                     "timed_out": true,
                     "matched": false,
                     "backgrounded": false,
-                }));
+                });
+                attach_session_pointer(&mut response, session_id, &capped);
+                return Ok(response);
             }
             if status != "busy" {
-                return Ok(serde_json::json!({
+                let mut response = serde_json::json!({
                     "session_id": session_id,
                     "status": status,
                     "exit_code": exit_code,
-                    "output": capped_output,
-                    "output_truncated": output_truncated,
+                    "output": capped.text.clone(),
+                    "output_truncated": capped.truncated,
                     "timed_out": false,
                     "matched": false,
                     "backgrounded": false,
-                }));
+                });
+                attach_session_pointer(&mut response, session_id, &capped);
+                return Ok(response);
             }
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -201,16 +213,92 @@ impl StatefulInstance for ShellWaitInstance {
     }
 }
 
-/// Cap a tool response payload at `max_bytes` tail bytes. `None` keeps the
-/// historical full-output behavior.
-fn cap_response_output(output: &str, max_bytes: Option<usize>) -> (String, bool) {
-    match max_bytes {
-        Some(cap) => {
-            let (kept, truncated) = wf_script::truncate_tail(output, cap);
-            (kept, truncated)
-        }
-        None => (output.to_string(), false),
+/// Capped view of the session output. The full stream stays in the session;
+/// truncation only narrows the returned window.
+struct CappedOutput {
+    text: String,
+    truncated: bool,
+    window_start: Option<usize>,
+    window_end: Option<usize>,
+    total_written: Option<usize>,
+    prefix_dropped: bool,
+}
+
+/// Cap the session output at `max_bytes` tail bytes through the session
+/// window protocol, so the returned cursor stays absolute and recoverable
+/// via shell_output. `None` keeps the historical full-output behavior.
+fn capped_output(
+    session: &TerminalSession,
+    output: &str,
+    max_bytes: Option<usize>,
+) -> CappedOutput {
+    let empty = CappedOutput {
+        text: output.to_string(),
+        truncated: false,
+        window_start: None,
+        window_end: None,
+        total_written: None,
+        prefix_dropped: false,
+    };
+    let Some(cap) = max_bytes else {
+        return empty;
+    };
+    let total = session
+        .output_window(0, 0)
+        .get("total_written")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(output.len());
+    let window = session.output_window(total.saturating_sub(cap), cap);
+    let text = window
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let start = window
+        .get("window_start")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(0);
+    let end = window
+        .get("window_end")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(total);
+    CappedOutput {
+        text,
+        truncated: start > 0,
+        window_start: Some(start),
+        window_end: Some(end),
+        total_written: Some(total),
+        prefix_dropped: window
+            .get("prefix_dropped")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
+}
+
+/// Attach the session recovery cursor to a truncated wait response: the
+/// earlier output is paged through shell_output, not lost.
+fn attach_session_pointer(response: &mut Value, session_id: &str, capped: &CappedOutput) {
+    if !capped.truncated {
+        return;
+    }
+    let (Some(start), Some(end), Some(total)) =
+        (capped.window_start, capped.window_end, capped.total_written)
+    else {
+        return;
+    };
+    response["output_window_start"] = start.into();
+    response["output_window_end"] = end.into();
+    response["output_total_written"] = total.into();
+    response["output_prefix_dropped"] = capped.prefix_dropped.into();
+    response["output_pointer"] = serde_json::json!({
+        "tool": "shell_output",
+        "session_id": session_id,
+        "start": 0,
+        "window_end": end,
+    });
 }
 
 /// Register the shell_wait stateful factory into the registry.

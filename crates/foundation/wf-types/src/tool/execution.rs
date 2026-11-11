@@ -43,6 +43,13 @@ pub struct ToolExecutionResult {
     /// field instead of parsing the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retryable: Option<bool>,
+    /// Whether the inline result was cut by the overflow policy. The full
+    /// text lives at `output_path` when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    /// Spilled full output of a truncated result, readable on demand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -721,6 +721,9 @@ pub trait PluginMiddlewareHandler: Send + Sync {
 /// Every suggestion is validated and clamped by the engine, so unknown
 /// block ids, out-of-range indices and over-cap plans never reach
 /// execution. Implementations must stay synchronous and side-effect free.
+///
+/// Only the native backend dispatches this hook; Lua and Wasm sandboxes
+/// expose no compaction channel, mirroring the retrieval extensions below.
 pub trait PluginCompactionAdvisor: Send + Sync {
     /// Suggest a compaction plan for one settlement point.
     fn advise(&self, input: Value) -> PluginResult<Value>;

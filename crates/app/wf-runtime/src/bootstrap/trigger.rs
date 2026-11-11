@@ -120,11 +120,21 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     };
     // The repress chain is optional: older registries may only carry the
     // main chain, and the pipeline falls back to it for re-compressions.
+    // A missing candidate is debug-logged (not warned): absence is a
+    // supported shape, but silent absence would hide a typo'd strategy.
     let repress_workflow_id = candidate_repress.and_then(|id| {
-        registries
+        let resolved = registries
             .workflows
             .get(&id)
-            .map(|template| template.id.clone())
+            .map(|template| template.id.clone());
+        if resolved.is_none() {
+            tracing::debug!(
+                strategy = %strategy,
+                candidate = %id,
+                "compression strategy repress workflow missing; re-compressions reuse the main chain"
+            );
+        }
+        resolved
     });
     let compression_fallback = registries
         .workflows
@@ -136,6 +146,22 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
                 .and_then(|c| c.compression_fallback)
         })
         .unwrap_or_default();
+    // Structural precheck at assembly: a summary chain without the
+    // triggered-subworkflow config silently degrades the terminal-failure
+    // policy to `fail`. Warn once here instead of failing every
+    // compression at runtime.
+    if registries
+        .workflows
+        .get(&summary_workflow_id)
+        .map(|t| t.definition.triggered_subworkflow_config.is_none())
+        .unwrap_or(true)
+    {
+        tracing::warn!(
+            strategy = %strategy,
+            summary_workflow_id = %summary_workflow_id,
+            "compression summary workflow declares no triggered-subworkflow config; terminal-failure policy degrades to fail"
+        );
+    }
     let compression_policy = crate::trigger_listener::CompressionPolicy {
         tail_keep: limits
             .compression

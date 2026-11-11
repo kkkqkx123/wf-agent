@@ -31,9 +31,10 @@ pub struct CompressionHandlerDeps {
     pub policy: CompressionPolicy,
 }
 
-/// Build the builtin context-compression hook handler and register it on
-/// the shared hook registry under the `CONTEXT_COMPRESSION_REQUESTED` signal
-/// point.
+/// Build the builtin context-compression takeover and register it by name
+/// on the shared hook registry. The signal dispatch resolves it after the
+/// gate check; observer vetoes cancel before the takeover runs and
+/// replacements skip it entirely.
 ///
 /// Returns the registered service (kept alive by the registry; the returned
 /// handle is optional). The service shares the listener's shutdown token so
@@ -65,21 +66,18 @@ pub fn register_compression_handler(
         service = service.with_repress_workflow_id(repress_workflow_id);
     }
     let service = Arc::new(service);
-    // The builtin handler runs first (priority above any user handler): the
-    // takeover must be immediate once the engine fires.
-    if !registry.register(
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        service.clone(),
-        1000,
-    ) {
+    // Name-only registration: the fire never notifies the service
+    // automatically. The signal dispatch resolves it by name after the
+    // gate check, so an observer veto cancels before any work spawns.
+    if !registry.register_named(service.clone()) {
         warn!("Compression handler registration skipped: name already registered");
     }
     service
 }
 
-/// Build the routed-mode builtin context-compression hook handler and
-/// register it on the shared hook registry under the
-/// `CONTEXT_COMPRESSION_REQUESTED` signal point.
+/// Build the routed-mode builtin context-compression takeover and register
+/// it by name on the shared hook registry. The signal dispatch resolves it
+/// after the gate check; observer vetoes cancel before anything publishes.
 ///
 /// Unlike [`register_compression_handler`], the service publishes the
 /// snapshot-carrying handoff instead of spawning: the caller must arm the
@@ -114,13 +112,10 @@ pub fn register_routed_compression_handler(
         service = service.with_repress_workflow_id(repress_workflow_id);
     }
     let service = Arc::new(service);
-    // The builtin handler runs first (priority above any user handler): the
-    // handoff must publish synchronously once the engine fires.
-    if !registry.register(
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        service.clone(),
-        1000,
-    ) {
+    // Name-only registration: the fire never notifies the service
+    // automatically. The signal dispatch resolves it by name after the
+    // gate check, so an observer veto cancels before anything publishes.
+    if !registry.register_named(service.clone()) {
         warn!("Compression handler registration skipped: name already registered");
     }
     service

@@ -43,7 +43,10 @@ pub fn register_hook_handler(
 /// skipped. Each remaining hook type in `hook_types` must have at least one
 /// dynamically registered sync handler; missing ones are returned so the
 /// caller can warn or fail assembly (e.g. the internal compression signal
-/// must be wired or compression silently degrades to audit only).
+/// must be wired or compression silently degrades to audit only). A
+/// name-only takeover (the compression service, resolved by the dispatch
+/// after its gate check) satisfies the wiring outside this check: it is
+/// verified at dispatch with a loud warning instead of here.
 /// Trigger rules never satisfy this check: they run asynchronously after
 /// the fire and cannot provide synchronous handling.
 pub fn missing_request_handlers(

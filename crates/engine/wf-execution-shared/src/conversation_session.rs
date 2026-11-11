@@ -66,6 +66,11 @@ fn projected_view_estimate(history: &[Message], seqs: &[u64], view: &MessageView
 pub struct ConversationSession {
     pub state: ConversationState,
     tracker: TokenUsageTracker,
+    /// Whether appends maintain the layered block table. Disabled for the
+    /// single-summary strategy, which plans no blocks: thresholds still
+    /// gate emission, but no block sync cost is paid. Session-local only,
+    /// never checkpointed; recomputed on every window install.
+    block_tracking_enabled: bool,
 }
 
 impl Default for ConversationSession {
@@ -95,6 +100,7 @@ impl ConversationSession {
                 compaction: CompactionState::default(),
             },
             tracker: TokenUsageTracker::new(token_limit),
+            block_tracking_enabled: true,
         }
     }
 
@@ -113,12 +119,15 @@ impl ConversationSession {
         self.state.messages.push(message);
         // Block sync skips known summaries internally, so compaction
         // write-backs can append through this path without absorbing
-        // their own summaries into the trailing raw block.
-        crate::compaction::sync_blocks(
-            &mut self.state.compaction,
-            &self.state.messages,
-            &self.state.seqs,
-        );
+        // their own summaries into the trailing raw block. Single-summary
+        // sessions skip the sync entirely: no plan ever reads the table.
+        if self.block_tracking_enabled {
+            crate::compaction::sync_blocks(
+                &mut self.state.compaction,
+                &self.state.messages,
+                &self.state.seqs,
+            );
+        }
         // The hot tail always includes later appends: extend a trailing
         // range to the new sequence, or open one after a summary segment.
         if let MessageView::Compacted { segments } = &mut self.state.active_view {
@@ -192,6 +201,18 @@ impl ConversationSession {
         compaction.thresholds =
             crate::compaction::resolve_compaction_thresholds(window_tokens, limits);
         compaction.dirty = true;
+        // The layered block table only serves strategies that plan
+        // blocks; the single-summary strategy keeps threshold gating
+        // without paying the sync cost on every append.
+        self.block_tracking_enabled = !crate::compaction::is_single_summary_strategy(
+            &crate::compaction::compaction_strategy_name(limits),
+        );
+    }
+
+    /// Whether appends maintain the layered block table (false under the
+    /// single-summary strategy, where thresholds still gate emission).
+    pub fn block_tracking_enabled(&self) -> bool {
+        self.block_tracking_enabled
     }
 
     /// Refresh the cached hot-view estimate from the current projection.
@@ -883,6 +904,7 @@ impl ConversationSession {
         self.state.view_stable_estimate = 0;
         self.state.ledger = TokenLedger::default();
         self.state.compaction = CompactionState::default();
+        self.block_tracking_enabled = true;
         let mut tracker = TokenUsageTracker::new(self.tracker.token_limit());
         tracker.set_context_limit(self.tracker.context_limit());
         self.tracker = tracker;
@@ -1219,6 +1241,29 @@ mod tests {
             created_at: 0,
             compressed_at: None,
         }
+    }
+
+    #[test]
+    fn single_summary_strategy_skips_block_sync() {
+        let mut single = crate::compaction::builtin_compaction_limits();
+        single.strategy = Some(crate::compaction::SINGLE_SUMMARY_STRATEGY_NAME.to_string());
+        let mut session = ConversationSession::new();
+        session.set_compaction_window(100_000, &single);
+        assert!(!session.block_tracking_enabled());
+        for i in 0..4 {
+            session.add_message(user(&format!("message {i}")));
+        }
+        assert!(session.compaction_blocks().is_empty());
+        // Threshold gating still works: the hot estimate is maintained.
+        assert!(session.estimated_view_tokens() > 0);
+
+        let mut layered = ConversationSession::new();
+        layered.set_compaction_window(100_000, &crate::compaction::builtin_compaction_limits());
+        assert!(layered.block_tracking_enabled());
+        for i in 0..4 {
+            layered.add_message(user(&format!("message {i}")));
+        }
+        assert_eq!(layered.compaction_blocks().len(), 1);
     }
 
     #[test]

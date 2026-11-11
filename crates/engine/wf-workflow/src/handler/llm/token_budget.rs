@@ -172,7 +172,7 @@ pub async fn emit_token_usage_events(
             // the taker outcome. A missing registry is already warned inside
             // the dispatch; the audit event is kept but backpressure must not
             // anchor without a taker.
-            let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
+            let outcome = dispatch_compression_signal(ctx, &compression_request).await;
             let mut event = wf_execution_shared::context_store::compression_event(
                 &ctx.execution_id.to_string(),
                 None,
@@ -186,12 +186,23 @@ pub async fn emit_token_usage_events(
                     );
                 }
             }
-            if !dispatched {
-                if let Some(meta) = event.metadata.as_mut() {
-                    meta.insert(
-                        wf_execution_shared::KEY_NO_TAKER.to_string(),
-                        Value::Bool(true),
-                    );
+            match &outcome {
+                wf_execution_shared::CompressionSignalOutcome::Taken => {}
+                wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
+                    if let Some(meta) = event.metadata.as_mut() {
+                        meta.insert(
+                            wf_execution_shared::KEY_CANCELLED.to_string(),
+                            Value::Bool(true),
+                        );
+                    }
+                }
+                wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                    if let Some(meta) = event.metadata.as_mut() {
+                        meta.insert(
+                            wf_execution_shared::KEY_NO_TAKER.to_string(),
+                            Value::Bool(true),
+                        );
+                    }
                 }
             }
             bus.publish_logged(
@@ -202,17 +213,32 @@ pub async fn emit_token_usage_events(
                 ),
             )
             .ok();
-            if !dispatched {
-                let streak = tracker.record_no_taker(&context_id);
-                wf_execution_shared::report_no_taker(&context_id, version, streak);
-            } else {
-                tracker.reset_no_taker(&context_id);
+            match &outcome {
+                wf_execution_shared::CompressionSignalOutcome::Taken => {
+                    tracker.reset_no_taker(&context_id);
+                }
+                wf_execution_shared::CompressionSignalOutcome::Vetoed { reason } => {
+                    tracing::warn!(
+                        execution_id = %ctx.execution_id,
+                        node_id = %ctx.node_id,
+                        target = %context_id,
+                        reason = %reason,
+                        "compression signal vetoed; flight not anchored"
+                    );
+                }
+                wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                    let streak = tracker.record_no_taker(&context_id);
+                    wf_execution_shared::report_no_taker(&context_id, version, streak);
+                }
             }
             message_context::mark_compression_emitted(&ctx.variables, &context_id, version);
             // Backpressure anchor: the next node waits for this version to
             // settle before re-sending the over-budget array. Anchored only
-            // when the signal was actually dispatched.
-            if dispatched {
+            // when the takeover ran.
+            if matches!(
+                outcome,
+                wf_execution_shared::CompressionSignalOutcome::Taken
+            ) {
                 tracker.begin_compression_flight(&context_id, version, false);
             }
             persist_tracker_state(ctx, &tracker);

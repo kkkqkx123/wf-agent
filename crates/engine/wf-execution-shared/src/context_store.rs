@@ -72,16 +72,34 @@ pub fn compression_event(
     crate::build_context_compression_requested_event(execution_id, agent_loop_id, request)
 }
 
-/// Deliver the compression signal synchronously to registered receivers
-/// (the compression service takes over immediately). Agent targets attach
-/// their loop id so the agent conversation self-consumes the completed
-/// event; workflow targets carry no loop id and write back through the
-/// execution registry.
+/// Outcome of one compression signal dispatch: the emitter anchors
+/// backpressure only on [`CompressionSignalOutcome::Taken`]. A vetoed
+/// signal still counts as emitted (the same version must not re-fire every
+/// settlement) but clears the pending plan and never anchors a flight; an
+/// untaken signal keeps the legacy no-taker path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompressionSignalOutcome {
+    /// The takeover handler ran (or a supplied replacement was published):
+    /// the caller anchors the flight and clears the no-taker streak.
+    Taken,
+    /// An observer vetoed (or a replacement could not land): the caller
+    /// marks the audit copy cancelled, clears the pending plan and records
+    /// no no-taker streak. Denial, not a missing service.
+    Vetoed { reason: String },
+    /// No registry or no named takeover could take over: the caller keeps
+    /// the audit event with the no-taker marker and must not anchor.
+    Untaken,
+}
+
+/// Deliver the compression signal synchronously: observers fire first, then
+/// — unless vetoed — the named takeover runs (or a supplied replacement is
+/// published). Agent targets attach their loop id so the agent conversation
+/// self-consumes the completed event; workflow targets carry no loop id and
+/// write back through the execution registry.
 ///
-/// Returns true when a registry was present and the signal was dispatched.
-/// Returns false when no registry can take over: callers keep the audit
-/// event but must not anchor backpressure, and should warn so the dropped
-/// compression is explicit instead of silent.
+/// A veto cancels before any work spawns; a replacement skips the summary
+/// chain and lands as the terminal completion. Callers anchor backpressure
+/// only on [`CompressionSignalOutcome::Taken`].
 pub async fn dispatch_compression_signal(
     registry: Option<&HookHandlerRegistry>,
     bus: Option<&EventBus>,
@@ -89,7 +107,7 @@ pub async fn dispatch_compression_signal(
     agent_loop_id: Option<&Id>,
     cancellation: tokio_util::sync::CancellationToken,
     request: &crate::ContextCompressionRequest<'_>,
-) -> bool {
+) -> CompressionSignalOutcome {
     let Some(registry) = registry else {
         tracing::warn!(
             execution_id = %execution_id,
@@ -97,7 +115,7 @@ pub async fn dispatch_compression_signal(
             version = request.array_version,
             "compression signal dropped: no hook registry to take over"
         );
-        return false;
+        return CompressionSignalOutcome::Untaken;
     };
     let mut data = crate::compression_request_hook_data(request);
     if let Some(loop_id) = agent_loop_id {
@@ -113,21 +131,128 @@ pub async fn dispatch_compression_signal(
         messages: std::sync::Arc::new(request.messages.to_vec()),
         plan: std::sync::Arc::new(request.plan.to_vec()),
     };
-    fire(
+    let ctx = HookContext::new(
+        execution_id.clone(),
+        crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+        data,
+        cancellation,
+    )
+    .with_attachment(attachment);
+    let summary = fire(
         registry,
         &[],
         crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        &HookContext::new(
-            execution_id.clone(),
-            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
-            data,
-            cancellation,
-        )
-        .with_attachment(attachment),
+        &ctx,
         bus,
     )
     .await;
-    true
+    // Gate: an observer veto cancels before the takeover runs. The builtin
+    // service registers by name only (never auto-notified), so no work has
+    // spawned at this point; the pending plan dies with the cancelled
+    // signal and the caller anchors nothing.
+    if let Some(reason) = summary.vetoed_reason() {
+        tracing::warn!(
+            execution_id = %execution_id,
+            target = %request.target_context_id,
+            version = request.array_version,
+            reason = %reason,
+            "compression signal vetoed: cancelled before takeover"
+        );
+        return CompressionSignalOutcome::Vetoed {
+            reason: reason.to_string(),
+        };
+    }
+    if let Some(summaries) = summary.replacement {
+        return publish_replacement(bus, execution_id, agent_loop_id, request, summaries).await;
+    }
+    let Some(takeover) = registry.get(crate::token_events::COMPRESSION_TAKEOVER_HANDLER_NAME)
+    else {
+        tracing::warn!(
+            execution_id = %execution_id,
+            target = %request.target_context_id,
+            version = request.array_version,
+            "compression signal dropped: no takeover registered under the well-known name"
+        );
+        return CompressionSignalOutcome::Untaken;
+    };
+    registry
+        .notify(
+            &ctx,
+            &crate::hooks::registry::RegisteredHandler {
+                name: takeover.name().to_string(),
+                priority: 0,
+                handler: takeover,
+                condition: None,
+            },
+        )
+        .await;
+    CompressionSignalOutcome::Taken
+}
+
+/// Publish a handler-supplied compression result as the terminal COMPLETED
+/// event: the legacy single-summary shape (summary batch plus empty block
+/// outcomes), so the version anchor and the consumer apply it unchanged.
+/// Without a bus the replacement cannot land: cancel loudly instead of
+/// downgrading to the builtin chain behind the supplier's back.
+async fn publish_replacement(
+    bus: Option<&EventBus>,
+    execution_id: &Id,
+    agent_loop_id: Option<&Id>,
+    request: &crate::ContextCompressionRequest<'_>,
+    summaries: Vec<Message>,
+) -> CompressionSignalOutcome {
+    if summaries.is_empty() {
+        tracing::warn!(
+            execution_id = %execution_id,
+            target = %request.target_context_id,
+            version = request.array_version,
+            "compression replacement carries no summaries: cancelling"
+        );
+        return CompressionSignalOutcome::Vetoed {
+            reason: "empty compression replacement".to_string(),
+        };
+    }
+    let Some(bus) = bus else {
+        tracing::warn!(
+            execution_id = %execution_id,
+            target = %request.target_context_id,
+            version = request.array_version,
+            "compression replacement has no event bus to publish on: cancelling"
+        );
+        return CompressionSignalOutcome::Vetoed {
+            reason: "compression replacement without event bus".to_string(),
+        };
+    };
+    let tokens_after: u64 = summaries
+        .iter()
+        .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
+        .sum();
+    let run_id = wf_common::generate_id();
+    let mut completed = crate::build_context_compression_completed_event(
+        &execution_id.to_string(),
+        agent_loop_id.map(|id| id.to_string()).as_deref(),
+        &crate::ContextCompressionCompleted {
+            target_context_id: request.target_context_id,
+            array_version: request.array_version,
+            tokens_after,
+            messages: Some(&summaries),
+            tail_keep: 0,
+            degraded: false,
+            still_over_budget: request.token_limit > 0 && tokens_after > request.token_limit,
+            blocks: &[],
+        },
+    );
+    crate::set_compression_run_id(&mut completed, &run_id);
+    if let Err(error) = bus.publish(completed) {
+        tracing::error!(
+            execution_id = %execution_id,
+            target = %request.target_context_id,
+            version = request.array_version,
+            error = %error,
+            "compression replacement completion publish failed"
+        );
+    }
+    CompressionSignalOutcome::Taken
 }
 
 /// Anchor check shared by every versioned write-back path: the result only
@@ -307,5 +432,169 @@ mod tests {
     fn flight_expiry_uses_timeout() {
         assert!(!flight_expired(1000, 1000, 60_000));
         assert!(flight_expired(0, 60_001, 60_000));
+    }
+
+    struct VetoHandler {
+        reason: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::hooks::HookHandler for VetoHandler {
+        fn name(&self) -> &str {
+            "test-veto"
+        }
+        async fn on_point(&self, _ctx: &crate::hooks::HookContext) -> crate::hooks::HookOutcome {
+            crate::hooks::HookOutcome::Veto {
+                reason: self.reason.to_string(),
+            }
+        }
+    }
+
+    struct TakeoverDouble {
+        calls: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::hooks::HookHandler for TakeoverDouble {
+        fn name(&self) -> &str {
+            crate::token_events::COMPRESSION_TAKEOVER_HANDLER_NAME
+        }
+        async fn on_point(&self, _ctx: &crate::hooks::HookContext) -> crate::hooks::HookOutcome {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            crate::hooks::HookOutcome::Continue
+        }
+    }
+
+    struct ReplaceDouble;
+
+    #[async_trait::async_trait]
+    impl crate::hooks::HookHandler for ReplaceDouble {
+        fn name(&self) -> &str {
+            "test-replace"
+        }
+        async fn on_point(&self, _ctx: &crate::hooks::HookContext) -> crate::hooks::HookOutcome {
+            crate::hooks::HookOutcome::Replace {
+                summaries: vec![msg(MessageRole::User, "supplied summary")],
+            }
+        }
+    }
+
+    fn dispatch_registry(
+        calls: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    ) -> HookHandlerRegistry {
+        let registry = HookHandlerRegistry::new();
+        assert!(registry.register_named(std::sync::Arc::new(TakeoverDouble { calls })));
+        registry
+    }
+
+    #[tokio::test]
+    async fn veto_cancels_before_takeover() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = dispatch_registry(calls.clone());
+        registry.register(
+            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            std::sync::Arc::new(VetoHandler {
+                reason: "policy says no",
+            }),
+            0,
+        );
+        let bus = EventBus::new(16);
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let outcome = dispatch_compression_signal(
+            Some(&registry),
+            Some(&bus),
+            &Id::from("exec-1".to_string()),
+            None,
+            tokio_util::sync::CancellationToken::new(),
+            &request,
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            CompressionSignalOutcome::Vetoed {
+                reason: "policy says no".to_string()
+            }
+        );
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "veto must cancel before takeover"
+        );
+    }
+
+    #[tokio::test]
+    async fn takeover_runs_without_veto() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = dispatch_registry(calls.clone());
+        let bus = EventBus::new(16);
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let outcome = dispatch_compression_signal(
+            Some(&registry),
+            Some(&bus),
+            &Id::from("exec-1".to_string()),
+            None,
+            tokio_util::sync::CancellationToken::new(),
+            &request,
+        )
+        .await;
+        assert_eq!(outcome, CompressionSignalOutcome::Taken);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn replace_publishes_completion_without_takeover() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = dispatch_registry(calls.clone());
+        registry.register(
+            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            std::sync::Arc::new(ReplaceDouble),
+            0,
+        );
+        let bus = EventBus::new(16);
+        let mut sub = bus.subscribe();
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
+        let outcome = dispatch_compression_signal(
+            Some(&registry),
+            Some(&bus),
+            &Id::from("exec-1".to_string()),
+            None,
+            tokio_util::sync::CancellationToken::new(),
+            &request,
+        )
+        .await;
+        assert_eq!(outcome, CompressionSignalOutcome::Taken);
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "replacement skips the takeover"
+        );
+        let event = loop {
+            match sub.try_recv() {
+                Ok(event)
+                    if event.r#type == wf_types::events::EventType::ContextCompressionCompleted =>
+                {
+                    break event;
+                }
+                // The fire's audit copy lands first; skip it.
+                Ok(_) => continue,
+                Err(error) => panic!("replacement completion must publish: {error}"),
+            }
+        };
+        let supplied: Vec<Message> = serde_json::from_value(
+            event
+                .metadata
+                .as_ref()
+                .and_then(|meta| meta.get(crate::token_events::KEY_MESSAGES))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        )
+        .expect("completion carries the supplied summaries");
+        assert_eq!(supplied.len(), 1);
+        assert!(
+            matches!(&supplied[0].content, MessageContentValue::Text(text) if text == "supplied summary")
+        );
     }
 }

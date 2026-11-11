@@ -13,7 +13,6 @@
 //! Regression: a stale compression result (conversation moved on) is
 //! discarded.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_core::EventBus;
@@ -87,7 +86,7 @@ struct AgentCompressionHandler {
 #[async_trait::async_trait]
 impl HookHandler for AgentCompressionHandler {
     fn name(&self) -> &str {
-        "e2e_agent_compression"
+        wf_execution_shared::COMPRESSION_TAKEOVER_HANDLER_NAME
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
@@ -103,13 +102,22 @@ impl HookHandler for AgentCompressionHandler {
         else {
             return HookOutcome::Continue;
         };
-        let Some(messages) = ctx
-            .data
-            .get(KEY_MESSAGES)
-            .and_then(|v| serde_json::from_value::<Vec<Message>>(v.clone()).ok())
-        else {
+        // The snapshot rides the context attachment on the dispatch path
+        // (hook data keeps the audit fields only); the JSON field stays as
+        // the fallback for foreign emitters.
+        let messages: Vec<Message> = ctx
+            .attachment
+            .as_ref()
+            .map(|attachment| attachment.messages.as_ref().clone())
+            .or_else(|| {
+                ctx.data
+                    .get(KEY_MESSAGES)
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+            })
+            .unwrap_or_default();
+        if messages.is_empty() {
             return HookOutcome::Continue;
-        };
+        }
         let array_version = ctx
             .data
             .get(KEY_ARRAY_VERSION)
@@ -155,39 +163,6 @@ impl HookHandler for AgentCompressionHandler {
             .expect("compression completed event must publish to live subscribers");
         });
         HookOutcome::Continue
-    }
-}
-
-/// The signal the agent engine dispatches when its conversation exceeds the
-/// token limit: named conversation array + snapshot + `agent_loop_id`.
-fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
-    use wf_execution_shared::token_events::{
-        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
-        KEY_TOKEN_LIMIT,
-    };
-    let mut data = HashMap::new();
-    data.insert(
-        KEY_TARGET_CONTEXT_ID.to_string(),
-        serde_json::json!(wf_execution_shared::CONVERSATION_CONTEXT_ID),
-    );
-    data.insert(KEY_TOKENS_USED.to_string(), serde_json::json!(200));
-    data.insert(KEY_TOKEN_LIMIT.to_string(), serde_json::json!(100));
-    data.insert(
-        KEY_MESSAGE_COUNT.to_string(),
-        serde_json::json!(snapshot.len()),
-    );
-    data.insert(KEY_ARRAY_VERSION.to_string(), serde_json::json!(version));
-    data.insert(
-        KEY_MESSAGES.to_string(),
-        serde_json::to_value(snapshot).unwrap(),
-    );
-    data.insert("agent_loop_id".to_string(), serde_json::json!("agent-1"));
-    HookContext {
-        execution_id: wf_types::Id::from("agent-1".to_string()),
-        hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
-        data,
-        cancellation: tokio_util::sync::CancellationToken::new(),
-        attachment: None,
     }
 }
 
@@ -253,27 +228,38 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     // sub-workflow. The registry has no entry for the agent (agent-owned
     // targets are consumed by the agent itself).
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
-    hook_handlers.register(
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        Arc::new(AgentCompressionHandler {
-            runner: Arc::new(SummaryRunner),
-            bus: bus.clone(),
-        }),
-        0,
-    );
+    hook_handlers.register_named(Arc::new(AgentCompressionHandler {
+        runner: Arc::new(SummaryRunner),
+        bus: bus.clone(),
+    }));
     // One receiver: the conversation compression consumer.
     wait_for_listener(&bus, 1).await;
 
     // The agent emitted a compression request over its conversation.
     let snapshot = conversation.read().await.messages().to_vec();
-    wf_execution_shared::hooks::fire(
-        &hook_handlers,
+    let request = wf_execution_shared::context_store::compression_request(
+        wf_execution_shared::CONVERSATION_CONTEXT_ID,
+        200,
+        100,
+        snapshot.len(),
+        version,
+        false,
+        &snapshot,
         &[],
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        &agent_compression_signal(&snapshot, version),
-        Some(&bus),
+    );
+    let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
+        Some(hook_handlers.as_ref()),
+        Some(bus.as_ref()),
+        &wf_types::Id::from("agent-1".to_string()),
+        Some(&wf_types::Id::from("agent-1".to_string())),
+        tokio_util::sync::CancellationToken::new(),
+        &request,
     )
     .await;
+    assert_eq!(
+        outcome,
+        wf_execution_shared::CompressionSignalOutcome::Taken
+    );
 
     // The conversation starts with a single long message, so wait for the
     // compression view to narrow to the summary while the history keeps
@@ -370,24 +356,35 @@ async fn agent_request_does_not_consult_the_registry() {
     let mut sub = bus.subscribe();
 
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
-    hook_handlers.register(
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        Arc::new(AgentCompressionHandler {
-            runner: Arc::new(SummaryRunner),
-            bus: bus.clone(),
-        }),
-        0,
-    );
+    hook_handlers.register_named(Arc::new(AgentCompressionHandler {
+        runner: Arc::new(SummaryRunner),
+        bus: bus.clone(),
+    }));
 
     let messages = vec![text_message(MessageRole::User, "long conversation")];
-    wf_execution_shared::hooks::fire(
-        &hook_handlers,
+    let request = wf_execution_shared::context_store::compression_request(
+        wf_execution_shared::CONVERSATION_CONTEXT_ID,
+        200,
+        100,
+        messages.len(),
+        3,
+        false,
+        &messages,
         &[],
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        &agent_compression_signal(&messages, 3),
-        Some(&bus),
+    );
+    let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
+        Some(hook_handlers.as_ref()),
+        Some(bus.as_ref()),
+        &wf_types::Id::from("agent-1".to_string()),
+        Some(&wf_types::Id::from("agent-1".to_string())),
+        tokio_util::sync::CancellationToken::new(),
+        &request,
     )
     .await;
+    assert_eq!(
+        outcome,
+        wf_execution_shared::CompressionSignalOutcome::Taken
+    );
 
     // The completed event closes the chain for the agent even though the
     // registry never knew the execution (no write-back attempt).

@@ -12,7 +12,11 @@ use super::policy::CompressionPolicy;
 use super::signal::{parse_compression_signal, CompressionSignal};
 use crate::trigger_listener::{ExecutionContextRegistry, TriggerLedger};
 
-pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
+/// Stable takeover name, canonical in `wf-execution-shared`: the signal
+/// dispatch resolves it after the gate check. Kept here so trigger-side
+/// references (trigger-state records, route names) stay on one spelling.
+pub const COMPRESSION_SERVICE_HANDLER_NAME: &str =
+    wf_execution_shared::COMPRESSION_TAKEOVER_HANDLER_NAME;
 
 /// How the hook adapter hands a parsed signal over for execution.
 /// Decided at construction: production wires the routed mode, tests and

@@ -200,7 +200,7 @@ impl AgentIterationCoordinator {
             wf_types::checkpoint::CheckpointTiming::BeforeCompression,
         )
         .await;
-        let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
+        let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
             entity.id(),
@@ -214,27 +214,44 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             &compression_request,
         );
-        if !dispatched {
-            if let Some(meta) = audit.metadata.as_mut() {
-                meta.insert(
-                    wf_execution_shared::KEY_NO_TAKER.to_string(),
-                    serde_json::Value::Bool(true),
-                );
+        match &outcome {
+            wf_execution_shared::CompressionSignalOutcome::Taken => {}
+            wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
+                if let Some(meta) = audit.metadata.as_mut() {
+                    meta.insert(
+                        wf_execution_shared::KEY_CANCELLED.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+            }
+            wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                if let Some(meta) = audit.metadata.as_mut() {
+                    meta.insert(
+                        wf_execution_shared::KEY_NO_TAKER.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
             }
         }
         let _ = bus.publish(audit);
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
-        if dispatched {
-            session.reset_compression_no_taker();
-            session.begin_compression_flight(version, true);
-        } else {
-            let streak = session.record_compression_no_taker();
-            wf_execution_shared::report_no_taker(
-                wf_execution_shared::CONVERSATION_CONTEXT_ID,
-                version,
-                streak,
-            );
+        match outcome {
+            wf_execution_shared::CompressionSignalOutcome::Taken => {
+                session.reset_compression_no_taker();
+                session.begin_compression_flight(version, true);
+            }
+            wf_execution_shared::CompressionSignalOutcome::Vetoed { reason } => {
+                tracing::warn!("forced compression vetoed at version {version}: {reason}");
+            }
+            wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                let streak = session.record_compression_no_taker();
+                wf_execution_shared::report_no_taker(
+                    wf_execution_shared::CONVERSATION_CONTEXT_ID,
+                    version,
+                    streak,
+                );
+            }
         }
     }
 
@@ -482,7 +499,7 @@ impl AgentIterationCoordinator {
         // channel; delivery is the synchronous hook dispatch (the
         // compression service takes over here). Dispatch first so the audit
         // copy can persist the taker outcome.
-        let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
+        let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
             entity.id(),
@@ -496,12 +513,23 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             &compression_request,
         );
-        if !dispatched {
-            if let Some(meta) = audit.metadata.as_mut() {
-                meta.insert(
-                    wf_execution_shared::KEY_NO_TAKER.to_string(),
-                    serde_json::Value::Bool(true),
-                );
+        match &outcome {
+            wf_execution_shared::CompressionSignalOutcome::Taken => {}
+            wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
+                if let Some(meta) = audit.metadata.as_mut() {
+                    meta.insert(
+                        wf_execution_shared::KEY_CANCELLED.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+            }
+            wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                if let Some(meta) = audit.metadata.as_mut() {
+                    meta.insert(
+                        wf_execution_shared::KEY_NO_TAKER.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
             }
         }
         if let Some(ref bus) = self.event_bus {
@@ -509,23 +537,36 @@ impl AgentIterationCoordinator {
         }
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
-        // Backpressure only anchors when the signal was actually
-        // dispatched; without a taker nothing settles the flight and later
-        // iterations would wait in vain. A pending plan dies with the
+        // Backpressure only anchors when the takeover ran; a vetoed signal
+        // clears the pending plan without a no-taker streak, and without a
+        // taker nothing settles the flight. A pending plan dies with the
         // undelivered signal so a late completion can never apply it.
-        if dispatched {
-            session.reset_compression_no_taker();
-            session.begin_compression_flight(version, false);
-        } else {
-            session.clear_pending_compaction();
-            let streak = session.record_compression_no_taker();
-            wf_execution_shared::report_no_taker(
-                wf_execution_shared::CONVERSATION_CONTEXT_ID,
-                version,
-                streak,
-            );
+        match &outcome {
+            wf_execution_shared::CompressionSignalOutcome::Taken => {
+                session.reset_compression_no_taker();
+                session.begin_compression_flight(version, false);
+            }
+            wf_execution_shared::CompressionSignalOutcome::Vetoed { reason } => {
+                tracing::warn!(
+                    "compaction signal vetoed at version {version}: {reason}; \
+                     pending plan cleared without anchoring a flight"
+                );
+                session.clear_pending_compaction();
+            }
+            wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                session.clear_pending_compaction();
+                let streak = session.record_compression_no_taker();
+                wf_execution_shared::report_no_taker(
+                    wf_execution_shared::CONVERSATION_CONTEXT_ID,
+                    version,
+                    streak,
+                );
+            }
         }
-        dispatched
+        matches!(
+            outcome,
+            wf_execution_shared::CompressionSignalOutcome::Taken
+        )
     }
 
     /// Count one emitted compaction signal on the shared metrics registry

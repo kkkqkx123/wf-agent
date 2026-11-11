@@ -183,7 +183,7 @@ struct CompressionHandler {
 #[async_trait::async_trait]
 impl HookHandler for CompressionHandler {
     fn name(&self) -> &str {
-        "e2e_compression"
+        wf_execution_shared::COMPRESSION_TAKEOVER_HANDLER_NAME
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
@@ -363,6 +363,13 @@ fn llm_node_config(token_limit: u64, context_id: Option<&str>) -> serde_json::Va
 
 #[tokio::test]
 async fn over_limit_named_array_flows_through_compression_chain() {
+    // Integration tests run without a bootstrap, so install the built-in
+    // compaction limits first (mirrors the unit-test setup): the emission
+    // path fails loudly on a missing installation instead of silently
+    // falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let bus = Arc::new(EventBus::new(64));
     let mut sub = bus.subscribe();
 
@@ -398,16 +405,12 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     // The engine's LLM handler dispatches the compression signal to the
     // hook registry; the receiver takes over immediately.
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
-    hook_handlers.register(
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        Arc::new(CompressionHandler {
-            runner,
-            contexts: contexts.clone(),
-            bus: bus.clone(),
-            summary_workflow_id: "llm_summary".to_string(),
-        }),
-        0,
-    );
+    hook_handlers.register_named(Arc::new(CompressionHandler {
+        runner,
+        contexts: contexts.clone(),
+        bus: bus.clone(),
+        summary_workflow_id: "llm_summary".to_string(),
+    }));
 
     // The main LLM node with a large named "chat" array over the limit.
     let gateway = Arc::new(LlmGateway::new());

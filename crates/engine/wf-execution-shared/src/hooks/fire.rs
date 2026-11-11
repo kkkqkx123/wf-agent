@@ -12,6 +12,7 @@
 use serde_json::Value;
 use tracing::warn;
 use wf_core::EventBus;
+use wf_types::message::Message;
 
 use crate::hooks::audit::{
     evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event,
@@ -37,8 +38,11 @@ pub struct HandlerResult {
 /// (payloads, per-handler results, duration) plus the aggregated outcome.
 ///
 /// The outcome is `Veto` when at least one notified handler vetoed (reasons
-/// joined in notification order); only gate points act on it, every other
-/// caller proceeds as with `Continue`.
+/// joined in notification order, and any replacement is dropped); otherwise
+/// `Replace` when a handler supplied one (first in notification order);
+/// otherwise `Continue`. Only gate points act on a veto and only the
+/// compression signal acts on a replacement; every other caller proceeds
+/// as with `Continue`.
 #[derive(Debug, Clone)]
 pub struct FireSummary {
     pub hook_type: String,
@@ -54,6 +58,11 @@ pub struct FireSummary {
     pub matched_hook_ids: Vec<String>,
     pub duration_ms: i64,
     pub outcome: HookOutcome,
+    /// Supplied compression replacement (first `Replace` in notification
+    /// order), honored only by the compression signal dispatch; `None`
+    /// unless a handler replaced. A veto anywhere clears this: denial wins
+    /// over supplied content.
+    pub replacement: Option<Vec<Message>>,
 }
 
 impl FireSummary {
@@ -62,7 +71,7 @@ impl FireSummary {
     pub fn vetoed_reason(&self) -> Option<&str> {
         match &self.outcome {
             HookOutcome::Veto { reason } => Some(reason.as_str()),
-            HookOutcome::Continue => None,
+            HookOutcome::Continue | HookOutcome::Replace { .. } => None,
         }
     }
 
@@ -74,7 +83,7 @@ impl FireSummary {
             .iter()
             .filter_map(|r| match &r.outcome {
                 HookOutcome::Veto { reason } => Some(reason.as_str()),
-                HookOutcome::Continue => None,
+                HookOutcome::Continue | HookOutcome::Replace { .. } => None,
             })
             .collect()
     }
@@ -109,10 +118,13 @@ impl FireSummary {
 ///    skips the handler, never the engine;
 /// 3. publish the `HOOK_TRIGGERED` audit event carrying the payloads and the
 ///    per-handler results. The aggregated outcome is `Veto` when at least
-///    one notified handler vetoed; only gate points act on it (`Continue`
-///    otherwise, including panicking, timed-out and unresolvable handlers:
-///    gates fail open on infrastructure gaps; a handler that wants to deny
-///    on its own slow path returns the `Veto` itself).
+///    one notified handler vetoed (any replacement is dropped with it);
+///    otherwise `Replace` when a handler supplied one; only gate points act
+///    on a veto and only the compression signal dispatch consumes a
+///    replacement (`Continue` otherwise, including panicking, timed-out and
+///    unresolvable handlers: gates fail open on infrastructure gaps; a
+///    handler that wants to deny on its own slow path returns the `Veto`
+///    itself).
 ///
 /// Ordering guarantee: every handler settles (panics, timeouts and
 /// cancellations are contained by the registry) before the audit event is
@@ -304,16 +316,42 @@ pub async fn fire(
         .iter()
         .filter_map(|r| match &r.outcome {
             HookOutcome::Veto { reason } => Some(reason.as_str()),
-            HookOutcome::Continue => None,
+            HookOutcome::Continue | HookOutcome::Replace { .. } => None,
         })
         .collect();
-    let outcome = if vetoes.is_empty() {
-        HookOutcome::Continue
-    } else {
-        HookOutcome::Veto {
-            reason: vetoes.join("; "),
+    // First replacement in notification order wins; any veto clears it:
+    // denial is the safer direction, so denied content never applies.
+    let replacement: Option<Vec<Message>> = handler_results.iter().find_map(|r| match &r.outcome {
+        HookOutcome::Replace { summaries } => Some(summaries.clone()),
+        HookOutcome::Continue | HookOutcome::Veto { .. } => None,
+    });
+    let (outcome, replacement) = if vetoes.is_empty() {
+        match replacement {
+            Some(summaries) => (
+                HookOutcome::Replace {
+                    summaries: summaries.clone(),
+                },
+                Some(summaries),
+            ),
+            None => (HookOutcome::Continue, None),
         }
+    } else {
+        (
+            HookOutcome::Veto {
+                reason: vetoes.join("; "),
+            },
+            None,
+        )
     };
+    // A replacement only takes effect at the compression signal; at every
+    // other point it is recorded and ignored, mirroring vetoes at non-gate
+    // points, so surface the likely misconfiguration loudly.
+    if replacement.is_some() && hook_type != crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE {
+        warn!(
+            hook_type,
+            "hook replace at a non-compression point: recorded and ignored"
+        );
+    }
 
     publish_hook_audit_event(
         event_bus,
@@ -332,6 +370,7 @@ pub async fn fire(
         matched_hook_ids: matched.iter().map(|h| h.id.clone()).collect(),
         duration_ms,
         outcome,
+        replacement,
     };
     // A veto only takes effect at gate points; at every other point it is
     // recorded and ignored, so surface the likely misconfiguration loudly.
@@ -972,5 +1011,117 @@ mod tests {
         };
         let summary = fire(&registry, &[passed, filtered], "TEST", &ctx(), None).await;
         assert_eq!(summary.matched_hook_ids, vec!["h-passed".to_string()]);
+    }
+
+    fn summary_text(message: &Message) -> &str {
+        match &message.content {
+            wf_types::message::MessageContentValue::Text(text) => text,
+            _ => panic!("test summaries are plain text"),
+        }
+    }
+
+    struct ReplaceHandler {
+        name: &'static str,
+        text: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl HookHandler for ReplaceHandler {
+        fn name(&self) -> &str {
+            self.name
+        }
+        async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+            HookOutcome::Replace {
+                summaries: vec![wf_llm::message_builder::user_text(self.text)],
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn replace_first_in_notification_order_wins() {
+        let registry = HookHandlerRegistry::new();
+        registry.register(
+            "TEST",
+            Arc::new(ReplaceHandler {
+                name: "low",
+                text: "low",
+            }),
+            1,
+        );
+        registry.register(
+            "TEST",
+            Arc::new(ReplaceHandler {
+                name: "high",
+                text: "high",
+            }),
+            10,
+        );
+
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
+        let replacement = summary.replacement.expect("replace must be captured");
+        assert_eq!(replacement.len(), 1);
+        assert_eq!(summary_text(&replacement[0]), "high");
+        assert!(matches!(summary.outcome, HookOutcome::Replace { .. }));
+    }
+
+    #[tokio::test]
+    async fn veto_clears_replacement() {
+        let registry = HookHandlerRegistry::new();
+        struct Deny;
+        #[async_trait::async_trait]
+        impl HookHandler for Deny {
+            fn name(&self) -> &str {
+                "deny"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Veto {
+                    reason: "denied".to_string(),
+                }
+            }
+        }
+        registry.register(
+            "TEST",
+            Arc::new(ReplaceHandler {
+                name: "repl",
+                text: "x",
+            }),
+            1,
+        );
+        registry.register("TEST", Arc::new(Deny), 2);
+
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
+        assert!(summary.outcome.is_veto());
+        assert!(summary.replacement.is_none());
+    }
+
+    #[tokio::test]
+    async fn named_takeover_skips_fire_but_resolves_by_name() {
+        let registry = HookHandlerRegistry::new();
+        let calls = Arc::new(AtomicU32::new(0));
+        assert!(registry.register_named(Arc::new(CounterHandler {
+            name: "takeover",
+            calls: calls.clone(),
+            outcome: HookOutcome::Continue,
+        })));
+        assert!(registry.contains("takeover"));
+        assert!(registry.for_type("TEST").is_empty());
+
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "named-only handlers are never auto-notified"
+        );
+        assert!(summary.handler_results.is_empty());
+
+        let resolved = registry.get("takeover").expect("takeover resolves by name");
+        let registered = crate::hooks::registry::RegisteredHandler {
+            name: resolved.name().to_string(),
+            priority: 0,
+            handler: resolved,
+            condition: None,
+        };
+        registry.notify(&ctx(), &registered).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

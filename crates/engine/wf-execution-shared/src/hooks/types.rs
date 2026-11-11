@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
+use wf_types::message::Message;
 use wf_types::Id;
 
 pub use wf_types::hook::{
@@ -56,18 +57,31 @@ pub struct HookDefinition {
 /// mechanisms. A handler may additionally return [`HookOutcome::Veto`] to
 /// deny the guarded step, but the veto only takes effect at gate points
 /// that opt into it (`BEFORE_EXECUTE` on the workflow node path,
-/// `BEFORE_TOOL_CALL` on the agent tool path); at every other point a veto
-/// is recorded in the audit event and otherwise treated as `Continue`.
+/// `BEFORE_TOOL_CALL` on the agent tool path, and the internal compression
+/// signal, where a veto cancels the compression before takeover); at every
+/// other point a veto is recorded in the audit event and otherwise treated
+/// as `Continue`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
     Continue,
     /// Deny the guarded step. `reason` is surfaced on the audit event and,
     /// at gate points, becomes the failure reason (node error / tool
-    /// rejection). Unresolvable handlers still resolve to `Continue`:
-    /// gates fail open on configuration gaps; a handler that wants to deny
-    /// on its own slow path returns a `Veto` itself.
+    /// rejection / cancelled compression). Unresolvable handlers still
+    /// resolve to `Continue`: gates fail open on configuration gaps; a
+    /// handler that wants to deny on its own slow path returns a `Veto`
+    /// itself.
     Veto {
         reason: String,
+    },
+    /// Supply the compression result directly, skipping the summary chain.
+    /// `summaries` is the full replacement batch the write-back applies
+    /// like a legacy single-summary completion (same version anchor, same
+    /// consumer). Only the compression signal honors it; at every other
+    /// point it is recorded on the audit event and otherwise ignored. A
+    /// veto from any handler wins over a replacement: denial is the safer
+    /// direction, so denied content never applies.
+    Replace {
+        summaries: Vec<Message>,
     },
 }
 
@@ -82,6 +96,7 @@ impl HookOutcome {
         match self {
             Self::Continue => "continue",
             Self::Veto { .. } => "vetoed",
+            Self::Replace { .. } => "replaced",
         }
     }
 }

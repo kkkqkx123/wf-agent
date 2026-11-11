@@ -102,6 +102,22 @@ impl HookHandlerRegistry {
         true
     }
 
+    /// Register `handler` by name only, without binding it to a hook type:
+    /// the fire pipeline never notifies it automatically. Emitters resolve
+    /// it through [`Self::get`] and notify it explicitly after their gate
+    /// check (the compression signal resolves its service takeover this way
+    /// so an observer veto cancels before any work spawns). Names share the
+    /// same global namespace: a duplicate name is ignored like in
+    /// [`Self::register`].
+    pub fn register_named(&self, handler: Arc<dyn HookHandler>) -> bool {
+        let name = handler.name().to_string();
+        if self.named.contains_key(&name) {
+            return false;
+        }
+        self.named.insert(name, handler);
+        true
+    }
+
     /// Remove the handler with `name` from the registry. Returns `false`
     /// when no such handler is registered.
     pub fn unregister(&self, name: &str) -> bool {

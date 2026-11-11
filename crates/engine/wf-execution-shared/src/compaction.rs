@@ -525,10 +525,11 @@ fn plan_max_items(limits: &CompactionLimits) -> usize {
         .max(1)
 }
 
-/// Consult the registered planning advice for a named strategy. Returns the
-/// validated plan when the advisor is present and its suggestion survives
-/// engine checks; returns `None` to fall back to the built-in planner for
-/// built-in strategies, missing advisors, failures and invalid output.
+/// Consult the registered planning advice for the effective strategy. A
+/// registered advisor enhances whatever strategy is active, including the
+/// built-in one; only a missing advisor, a failure or an invalid
+/// suggestion falls back to the built-in planner. Returns the validated
+/// plan when the suggestion survives engine checks, `None` otherwise.
 fn try_advisor_plan(
     state: &CompactionState,
     snapshot: &[Message],
@@ -537,13 +538,29 @@ fn try_advisor_plan(
     aggressive: bool,
 ) -> Option<CompactionPlan> {
     let strategy = compaction_strategy_name(limits);
-    if is_builtin_strategy(&strategy) {
-        return None;
-    }
     let Some(advisor) = get_compaction_advisor(&strategy) else {
         tracing::debug!(strategy = %strategy, "compaction advisor missing; falling back to built-in plan");
         return None;
     };
+    try_advisor_plan_with(
+        &strategy, &advisor, state, snapshot, hot_tokens, limits, aggressive,
+    )
+}
+
+/// Validate one advisor suggestion against the live block table and the
+/// snapshot bounds. Split from [`try_advisor_plan`] so the validation is
+/// testable without touching the process-wide advisor registry: unknown
+/// block ids, out-of-range indices and over-cap suggestions never reach
+/// execution, and an empty suggestion defers to the built-in planner.
+fn try_advisor_plan_with(
+    strategy: &str,
+    advisor: &std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>,
+    state: &CompactionState,
+    snapshot: &[Message],
+    hot_tokens: u64,
+    limits: &CompactionLimits,
+    aggressive: bool,
+) -> Option<CompactionPlan> {
     let thresholds = resolve_compaction_thresholds(state.window_tokens, limits);
     let target_freed = hot_tokens.saturating_sub(thresholds.h_target);
     let item_cap = plan_max_items(limits);
@@ -588,6 +605,15 @@ fn try_advisor_plan(
             return None;
         }
     };
+    // Explicit protocol negotiation: advisors that declare a version must
+    // speak the engine's; silence keeps older advisors working, mismatch
+    // rejects loudly instead of misreading new fields as old ones.
+    if let Some(version) = output.get("protocol_version").and_then(|v| v.as_u64()) {
+        if version != u64::from(ADVISOR_PROTOCOL_VERSION) {
+            tracing::warn!(strategy = %strategy, version, "compaction advisor protocol mismatch; falling back to built-in plan");
+            return None;
+        }
+    }
     let mut plan = CompactionPlan::empty();
     let known: std::collections::HashSet<&str> = state
         .blocks
@@ -741,8 +767,9 @@ impl CompactionPlan {
 /// summaries, then smallest compressed blocks for deactivation. `Raw`
 /// blocks are never deactivated. Aggressive mode (past the hard limit)
 /// ignores the minimum interval and deactivates small blocks too.
-/// Named strategies consult their registered planning advice first; any
-/// missing, failing or invalid advice falls back to the built-in planner.
+/// Registered planning advice is consulted first for every strategy (a
+/// `builtin` advisor enhances the built-in planner); any missing, failing
+/// or invalid advice falls back to the built-in planner.
 #[allow(clippy::too_many_arguments)]
 pub fn build_plan(
     state: &CompactionState,
@@ -1287,6 +1314,66 @@ mod tests {
         assert_eq!(state.blocks.len(), 1);
         assert_eq!(state.blocks[0].spans, vec![SeqRange { start: 6, end: 6 }]);
         assert_eq!(state.synced_through_seq, 6);
+    }
+
+    struct ScriptedAdvisor {
+        output: serde_json::Value,
+    }
+
+    impl wf_plugin_sdk::PluginCompactionAdvisor for ScriptedAdvisor {
+        fn advise(
+            &self,
+            _input: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Ok(self.output.clone())
+        }
+    }
+
+    #[test]
+    fn advisor_suggestion_applies_to_every_strategy_including_builtin() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({"items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}]}),
+            });
+        let plan = try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false,
+        )
+        .expect("valid suggestion applies to every strategy including builtin");
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(plan.items[0].block_id, "b0000");
+    }
+
+    #[test]
+    fn advisor_unknown_blocks_fall_back_to_builtin() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({"items": [{"block_id": "b9999", "start": 0, "end": 2}]}),
+            });
+        assert!(try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn advisor_protocol_mismatch_falls_back_to_builtin() {
+        let limits = limits();
+        let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
+        let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
+        let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
+            std::sync::Arc::new(ScriptedAdvisor {
+                output: serde_json::json!({"protocol_version": 999, "items": [{"block_id": "b0000", "start": 0, "end": 2}]}),
+            });
+        assert!(try_advisor_plan_with(
+            "builtin", &advisor, &state, &messages, 90_000, &limits, false
+        )
+        .is_none());
     }
 
     #[test]

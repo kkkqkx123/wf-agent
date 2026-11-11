@@ -65,6 +65,13 @@ pub enum PluginPermission {
     /// contribution: grouping, recommend, fusion, sorting). The engine
     /// validates every suggestion and falls back to the built-in path.
     Retrieval,
+    /// Shape context compression (`compaction-advisor` contribution:
+    /// which ranges to summarize and which blocks to drop). The engine
+    /// validates every suggestion and falls back to the built-in path.
+    /// Native-only like retrieval shaping; sandboxed backends expose no
+    /// compaction channel. Operators can refuse it through the permission
+    /// blocklist without touching other capabilities.
+    Compaction,
     /// Contribute text analysis and vector encodings (`text-analyzer` and
     /// `vector-encoding` contributions: tokenizers, sparse and
     /// multi-vector encoders). Pure computation only, no network access.

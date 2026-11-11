@@ -80,7 +80,7 @@ pub use compaction::{
 pub use context_store::{
     check_anchor, compression_event, compression_request, dispatch_compression_signal,
     dynamic_request_overhead, flight_expired, over_budget, report_no_taker, wait_for_version_shift,
-    WritebackOp,
+    CompressionSignalOutcome, WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use ingest_preprocess::{
@@ -106,6 +106,7 @@ pub use token_events::{
     compression_routed_plan, compression_run_id, compression_settle_timeout_ms,
     is_compression_routed_event, is_stream_abort, match_compression_failure, set_compression_run_id,
     set_compression_settle_timeout_ms, CompressionAttachment, CompressionFailureMatch,
+    COMPRESSION_SIGNAL_HOOK_TYPE, COMPRESSION_TAKEOVER_HANDLER_NAME,
     ContextCompressionCompleted,
     ContextCompressionCompletedMeta, ContextCompressionDiscardedMeta, ContextCompressionFailedMeta,
     ContextCompressionRequest, ContextCompressionRequestedMeta, ConversationWritebackCompletedMeta,
@@ -113,7 +114,8 @@ pub use token_events::{
     DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS, DEFAULT_COMPRESSION_TAIL_KEEP,
     DEFAULT_TOKEN_WARNING_THRESHOLD, KEY_ARRAY_VERSION, KEY_BLOCKS, KEY_BUDGET_UNKNOWN,
     KEY_COMPLETION_TOKENS, KEY_COMPRESSION_ATTEMPTS, KEY_COMPRESSION_DEPTH, KEY_COMPRESSION_ERROR,
-    KEY_COMPRESSION_ROUTED, KEY_COMPRESSION_RUN_ID, KEY_CURRENT_VERSION, KEY_DEGRADED,
+    KEY_COMPRESSION_ROUTED, KEY_COMPRESSION_RUN_ID, KEY_CURRENT_VERSION, KEY_CANCELLED,
+    KEY_DEGRADED,
     KEY_DEGRADED_DROPPED, KEY_DISCARD_REASON, KEY_FORCED, KEY_INJECTED_MESSAGE_COUNT, KEY_MESSAGES,
     KEY_MESSAGE_COUNT, KEY_MODEL, KEY_NO_TAKER, KEY_PLAN, KEY_PLAN_COUNT, KEY_PROFILE_ID,
     KEY_PROMPT_TOKENS, KEY_STILL_OVER_BUDGET, KEY_STREAM_ABORT_REASON, KEY_STREAM_ERROR,

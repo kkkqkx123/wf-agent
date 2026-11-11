@@ -68,6 +68,10 @@ pub const KEY_COMPRESSION_ATTEMPTS: &str = "attempts";
 /// Metadata key: true on a `CONTEXT_COMPRESSION_REQUESTED` event whose signal
 /// had no hook handler to take over (audit kept, flight never anchored).
 pub const KEY_NO_TAKER: &str = "no_taker";
+
+/// Audit marker on the REQUESTED copy when an observer veto cancelled the
+/// compression (distinct from `no_taker`: denial, not a missing service).
+pub const KEY_CANCELLED: &str = "cancelled";
 /// Metadata key: true on a `CONTEXT_COMPRESSION_REQUESTED` event published
 /// by the builtin compression adapter as the routed handoff (as opposed to
 /// the emitter's audit copy). Only the routed copy carries the message
@@ -177,6 +181,12 @@ pub fn compression_settle_timeout_ms() -> u64 {
 /// service) take over immediately; the `CONTEXT_COMPRESSION_REQUESTED` event
 /// remains the audit / persistence / user-rule channel.
 pub const COMPRESSION_SIGNAL_HOOK_TYPE: &str = wf_types::hook::CONTEXT_COMPRESSION_SIGNAL;
+
+/// Stable name of the builtin compression takeover: the service registers
+/// by name only (never auto-notified by the fire) and the signal dispatch
+/// resolves it after the gate check, so an observer veto cancels before any
+/// work spawns. Test doubles take over the same way under this name.
+pub const COMPRESSION_TAKEOVER_HANDLER_NAME: &str = "context_compression";
 
 fn metadata(pairs: Vec<(&str, serde_json::Value)>) -> wf_types::Metadata {
     pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()

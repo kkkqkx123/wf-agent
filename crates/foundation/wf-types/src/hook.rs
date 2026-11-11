@@ -182,12 +182,16 @@ pub fn hook_requires_handler(hook_type: &str) -> bool {
     )
 }
 
-/// Whether a veto at this hook point can block execution. Only the two
-/// wired gate points qualify (`BEFORE_EXECUTE` on the workflow node path,
-/// `BEFORE_TOOL_CALL` on the agent tool path); at every other point a veto
+/// Whether a veto at this hook point can block execution. The wired gate
+/// points qualify (`BEFORE_EXECUTE` on the workflow node path,
+/// `BEFORE_TOOL_CALL` on the agent tool path, and the internal
+/// `CONTEXT_COMPRESSION_REQUESTED` signal, where a veto cancels the
+/// compression before the service takes over); at every other point a veto
 /// is recorded on the audit event but the engine proceeds as `Continue`.
 pub fn is_gate_hook(hook_type: &str) -> bool {
-    matches!(hook_type, "BEFORE_EXECUTE" | "BEFORE_TOOL_CALL")
+    hook_type == "BEFORE_EXECUTE"
+        || hook_type == "BEFORE_TOOL_CALL"
+        || hook_type == CONTEXT_COMPRESSION_SIGNAL
 }
 
 /// Checkpoint timing requested by a hook-requested snapshot. Single source
@@ -222,8 +226,8 @@ pub fn hook_checkpoint_timing(hook_type: &str) -> crate::checkpoint::CheckpointT
 /// reserved-action match on the routed handoff copy) and for every `BEFORE_*` point
 /// (trigger actions always run asynchronously after the hook and cannot
 /// gate execution; the synchronous gate is a hook handler returning
-/// `HookOutcome::Veto` at `BEFORE_EXECUTE` / `BEFORE_TOOL_CALL`, see
-/// `wf-execution-shared::hooks`). Open for all other known points
+/// `HookOutcome::Veto` at `BEFORE_EXECUTE` / `BEFORE_TOOL_CALL` / the
+/// compression signal, see `wf-execution-shared::hooks`). Open for all other known points
 /// (typically the `AFTER_*` counterparts) and for forward-compatible
 /// unknown types (matched only when something fires them, which unknown
 /// types never do).
@@ -423,6 +427,15 @@ mod tests {
                 "{hook} must be usable with zero subscribers"
             );
         }
+    }
+
+    #[test]
+    fn gate_points_cover_tools_nodes_and_compression() {
+        assert!(is_gate_hook("BEFORE_EXECUTE"));
+        assert!(is_gate_hook("BEFORE_TOOL_CALL"));
+        assert!(is_gate_hook(CONTEXT_COMPRESSION_SIGNAL));
+        assert!(!is_gate_hook("AFTER_TOOL_CALL"));
+        assert!(!is_gate_hook("SOME_FUTURE_HOOK"));
     }
 
     #[test]

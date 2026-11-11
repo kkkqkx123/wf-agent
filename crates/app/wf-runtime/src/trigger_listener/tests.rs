@@ -103,6 +103,12 @@ fn workflow_options() -> WorkflowExecutionOptions {
 
 #[tokio::test]
 async fn agent_hook_trigger_runs_nested_agent_and_writes_back() {
+    // Tests run without a bootstrap, so install the built-in compaction
+    // limits first: over-budget paths fail loudly on a missing
+    // installation instead of silently falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use wf_agent::entity::AgentLoopEntity;
     use wf_types::trigger::{TriggerCondition, TriggerTemplate};
 
@@ -213,6 +219,12 @@ async fn agent_hook_trigger_runs_nested_agent_and_writes_back() {
 
 #[tokio::test]
 async fn nested_agent_uses_anchor_snapshot_and_publishes_conversation_writeback() {
+    // Tests run without a bootstrap, so install the built-in compaction
+    // limits first: over-budget paths fail loudly on a missing
+    // installation instead of silently falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use wf_agent::entity::AgentLoopEntity;
     use wf_types::trigger::{TriggerCondition, TriggerTemplate};
 
@@ -381,6 +393,12 @@ async fn nested_agent_uses_anchor_snapshot_and_publishes_conversation_writeback(
 
 #[tokio::test]
 async fn context_compression_chain_end_to_end() {
+    // Tests run without a bootstrap, so install the built-in compaction
+    // limits first: over-budget paths fail loudly on a missing
+    // installation instead of silently falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     // 1. Components: bus + predefined resources. Only the summary
     // workflow template is registered here: the compression chain is
     // served by the hook-handler fire (the preset trigger template
@@ -642,6 +660,12 @@ impl TriggerExecutionRecorder for TestRecorder {
 
 #[tokio::test]
 async fn trigger_execution_recorded_and_trigger_states_snapshotted() {
+    // Tests run without a bootstrap, so install the built-in compaction
+    // limits first: over-budget paths fail loudly on a missing
+    // installation instead of silently falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     // A direct agent-trigger run through the runner: the durable ledger
     // gets a record and the checkpoint trigger-state registry captures
     // the fired trigger.
@@ -818,6 +842,12 @@ impl TriggerExecutionRecorder for FailingRecorder {
 
 #[tokio::test]
 async fn failing_ledger_is_counted_and_never_stops_the_listener() {
+    // Tests run without a bootstrap, so install the built-in compaction
+    // limits first: over-budget paths fail loudly on a missing
+    // installation instead of silently falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     // Two firing events: the second write failure proves the dispatch
     // loop survived the first ledger error, and the shared counter on
     // the handle makes the broken fallback observable.
@@ -883,6 +913,12 @@ async fn failing_ledger_is_counted_and_never_stops_the_listener() {
 
 #[tokio::test]
 async fn shutdown_abandoned_trigger_is_recorded_in_ledger() {
+    // Tests run without a bootstrap, so install the built-in compaction
+    // limits first: over-budget paths fail loudly on a missing
+    // installation instead of silently falling back to defaults.
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     // A child run without a parent loop executes fire-and-forget and
     // hangs in its LLM call. Stopping the listener abandons the run, and
     // the abandonment must land in the ledger as outcome `abandoned`
@@ -1098,11 +1134,6 @@ async fn no_compression_event_when_named_array_within_limit() {
 #[tokio::test]
 async fn compression_fire_takes_over_immediately() {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use wf_execution_shared::hooks::fire;
-    use wf_execution_shared::token_events::{
-        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
-        KEY_TOKEN_LIMIT,
-    };
 
     let bus = Arc::new(EventBus::new(64));
     let registries = Arc::new(ResourceRegistries::new());
@@ -1138,41 +1169,39 @@ async fn compression_fire_takes_over_immediately() {
         },
     );
 
-    // A valid compression payload (message snapshot present).
+    // A valid compression request (message snapshot present).
     let messages: Vec<Message> = vec![text_message(MessageRole::User, "long message")];
-    let mut data = HashMap::new();
-    data.insert(KEY_TARGET_CONTEXT_ID.to_string(), Value::from("chat"));
-    data.insert(KEY_TOKENS_USED.to_string(), Value::from(900u64));
-    data.insert(KEY_TOKEN_LIMIT.to_string(), Value::from(1000u64));
-    data.insert(KEY_MESSAGE_COUNT.to_string(), Value::from(messages.len()));
-    data.insert(KEY_ARRAY_VERSION.to_string(), Value::from(1u64));
-    data.insert(
-        KEY_MESSAGES.to_string(),
-        serde_json::to_value(messages).unwrap(),
+    let request = wf_execution_shared::context_store::compression_request(
+        "chat",
+        900,
+        1000,
+        messages.len(),
+        1,
+        false,
+        &messages,
+        &[],
     );
-    let ctx = HookContext {
-        execution_id: Id::from("wf-run".to_string()),
-        hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
-        data,
-        cancellation: tokio_util::sync::CancellationToken::new(),
-        attachment: None,
-    };
 
-    // Fire returns as soon as the summary sub-workflow is spawned,
+    // Dispatch returns as soon as the summary sub-workflow is spawned,
     // never after it completes (the stub blocks 10s).
     let elapsed = std::time::Instant::now();
-    fire(
-        &hook_handler_registry,
-        &[],
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        &ctx,
-        Some(&bus),
+    let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
+        Some(hook_handler_registry.as_ref()),
+        Some(bus.as_ref()),
+        &Id::from("wf-run".to_string()),
+        None,
+        tokio_util::sync::CancellationToken::new(),
+        &request,
     )
     .await;
+    assert_eq!(
+        outcome,
+        wf_execution_shared::CompressionSignalOutcome::Taken
+    );
     let fire_ms = elapsed.elapsed().as_millis();
     assert!(
         fire_ms < 2000,
-        "fire must return at takeover, not after compression (took {fire_ms}ms)"
+        "dispatch must return at takeover, not after compression (took {fire_ms}ms)"
     );
     // The spawned summary task is observable as soon as the runtime
     // schedules it: fire did not await it (it is still blocked in
@@ -1266,19 +1295,77 @@ fn stub_compression_policy(
     }
 }
 
+/// Drive the compression signal the way production does: gate fire first,
+/// then the named takeover. Tests register the builtin service through
+/// `register_compression_handler` (name-only); the dispatch resolves it
+/// after the (veto-free here) gate and the takeover is asserted, so these
+/// pipeline tests keep exercising the real emission path.
 async fn fire_compression_signal(
     registry: &Arc<HookHandlerRegistry>,
     bus: &Arc<EventBus>,
     ctx: &HookContext,
 ) {
-    wf_execution_shared::hooks::fire(
-        registry,
-        &[],
-        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        ctx,
-        Some(bus),
+    use wf_execution_shared::token_events::{
+        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_PLAN, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
+        KEY_TOKEN_LIMIT,
+    };
+    // Foreign-emitter shape: the snapshot rides the JSON field when the
+    // attachment is absent, mirroring the service's own fallback order.
+    let messages: Vec<Message> = ctx
+        .attachment
+        .as_ref()
+        .map(|attachment| attachment.messages.as_ref().clone())
+        .or_else(|| {
+            ctx.data
+                .get(KEY_MESSAGES)
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+        })
+        .unwrap_or_default();
+    let plan: Vec<wf_execution_shared::CompactionPlanItem> = ctx
+        .attachment
+        .as_ref()
+        .map(|attachment| attachment.plan.as_ref().clone())
+        .or_else(|| {
+            ctx.data
+                .get(KEY_PLAN)
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+        })
+        .unwrap_or_default();
+    let get_u64 = |key: &str| ctx.data.get(key).and_then(|v| v.as_u64()).unwrap_or(0);
+    let target = ctx
+        .data
+        .get(KEY_TARGET_CONTEXT_ID)
+        .and_then(|v| v.as_str())
+        .unwrap_or("chat");
+    let loop_id = ctx
+        .data
+        .get("agent_loop_id")
+        .and_then(|v| v.as_str())
+        .map(|s| Id::from(s.to_string()));
+    let request = wf_execution_shared::context_store::compression_request(
+        target,
+        get_u64(KEY_TOKENS_USED),
+        get_u64(KEY_TOKEN_LIMIT),
+        messages.len(),
+        get_u64(KEY_ARRAY_VERSION),
+        false,
+        &messages,
+        &plan,
+    );
+    let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
+        Some(registry.as_ref()),
+        Some(bus.as_ref()),
+        &ctx.execution_id,
+        loop_id.as_ref(),
+        ctx.cancellation.clone(),
+        &request,
     )
     .await;
+    assert_eq!(
+        outcome,
+        wf_execution_shared::CompressionSignalOutcome::Taken,
+        "test signals carry no veto and a registered takeover"
+    );
 }
 
 /// Drain events until one of the given types arrives; a FAILED event

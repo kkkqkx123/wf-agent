@@ -152,18 +152,29 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         &request.messages,
         &stateless_plan,
     );
-    let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
+    let outcome = dispatch_compression_signal(ctx, &compression_request).await;
     let mut audit = wf_execution_shared::context_store::compression_event(
         &ctx.execution_id.to_string(),
         None,
         &compression_request,
     );
-    if !dispatched {
-        if let Some(meta) = audit.metadata.as_mut() {
-            meta.insert(
-                wf_execution_shared::KEY_NO_TAKER.to_string(),
-                Value::Bool(true),
-            );
+    match &outcome {
+        wf_execution_shared::CompressionSignalOutcome::Taken => {}
+        wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
+            if let Some(meta) = audit.metadata.as_mut() {
+                meta.insert(
+                    wf_execution_shared::KEY_CANCELLED.to_string(),
+                    Value::Bool(true),
+                );
+            }
+        }
+        wf_execution_shared::CompressionSignalOutcome::Untaken => {
+            if let Some(meta) = audit.metadata.as_mut() {
+                meta.insert(
+                    wf_execution_shared::KEY_NO_TAKER.to_string(),
+                    Value::Bool(true),
+                );
+            }
         }
     }
     bus.publish_logged(
@@ -174,30 +185,46 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         ),
     )
     .ok();
-    if !dispatched {
-        tracing::warn!(
-            execution_id = %ctx.execution_id,
-            node_id = %ctx.node_id,
-            target = %target,
-            "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-        );
+    match &outcome {
+        wf_execution_shared::CompressionSignalOutcome::Taken => {}
+        wf_execution_shared::CompressionSignalOutcome::Vetoed { reason } => {
+            tracing::warn!(
+                execution_id = %ctx.execution_id,
+                node_id = %ctx.node_id,
+                target = %target,
+                reason = %reason,
+                "forced compression signal vetoed; audit event kept with cancelled marker, flight not anchored"
+            );
+        }
+        wf_execution_shared::CompressionSignalOutcome::Untaken => {
+            tracing::warn!(
+                execution_id = %ctx.execution_id,
+                node_id = %ctx.node_id,
+                target = %target,
+                "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+            );
+        }
     }
     message_context::mark_compression_emitted(&ctx.variables, &target, array_version);
     if let Some(ref tracker) = ctx.token_tracker {
         let mut tracker = tracker.lock().await;
-        if dispatched {
-            tracker.reset_no_taker(&target);
-            tracker.begin_compression_flight(&target, array_version, true);
-        } else {
-            let streak = tracker.record_no_taker(&target);
-            if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
-                tracing::error!(
-                    execution_id = %ctx.execution_id,
-                    node_id = %ctx.node_id,
-                    target = %target,
-                    streak = streak,
-                    "forced compression signal repeatedly has no taker; compression service missing"
-                );
+        match &outcome {
+            wf_execution_shared::CompressionSignalOutcome::Taken => {
+                tracker.reset_no_taker(&target);
+                tracker.begin_compression_flight(&target, array_version, true);
+            }
+            wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {}
+            wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                let streak = tracker.record_no_taker(&target);
+                if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+                    tracing::error!(
+                        execution_id = %ctx.execution_id,
+                        node_id = %ctx.node_id,
+                        target = %target,
+                        streak = streak,
+                        "forced compression signal repeatedly has no taker; compression service missing"
+                    );
+                }
             }
         }
         super::token_budget::persist_tracker_state(ctx, &tracker);
@@ -205,15 +232,15 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
 }
 
 /// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal through the
-/// shared context store: registered receivers (the compression service)
-/// are notified synchronously so the summary sub-workflow takes over
-/// immediately. Workflow targets have no `agent_loop_id`: the write-back
-/// goes through the execution registry. Returns false when no registry can
-/// take over (audit event is kept, backpressure must not anchor).
+/// shared context store: observers fire first, then — unless vetoed — the
+/// named takeover runs (or a supplied replacement is published).
+/// Workflow targets have no `agent_loop_id`: the write-back goes through
+/// the execution registry. Callers anchor backpressure only on
+/// [`wf_execution_shared::CompressionSignalOutcome::Taken`].
 pub async fn dispatch_compression_signal(
     ctx: &NodeExecutionContext,
     request: &wf_execution_shared::ContextCompressionRequest<'_>,
-) -> bool {
+) -> wf_execution_shared::CompressionSignalOutcome {
     wf_execution_shared::context_store::dispatch_compression_signal(
         ctx.hook_handler_registry.as_deref(),
         ctx.event_bus.as_deref(),

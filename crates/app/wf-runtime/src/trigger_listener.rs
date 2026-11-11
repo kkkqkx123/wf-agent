@@ -12,10 +12,12 @@
 //!   message array it names (anchored on the emission version), write the
 //!   compressed array back through the [`ExecutionContextRegistry`] and
 //!   publish the completed event;
-//! - [`CompressionService`]: the engine's builtin hook adapter for the
-//!   `CONTEXT_COMPRESSION_REQUESTED` signal. Registered into the shared
-//!   [`HookHandlerRegistry`] at runtime assembly; the engine fires the signal
-//!   synchronously and the adapter registers the idempotency claim and hands
+//! - [`CompressionService`]: the engine's builtin takeover for the
+//!   `CONTEXT_COMPRESSION_REQUESTED` signal. Registered by name into the
+//!   shared [`HookHandlerRegistry`] at runtime assembly; the engine fires
+//!   the signal synchronously, honors observer vetoes (cancel) and
+//!   replacements (skip the chain), then resolves the adapter by name and
+//!   notifies it. The adapter registers the idempotency claim and hands
 //!   the request to the trigger-side compression pipeline, then returns. The
 //!   pipeline owns the whole execution (retry loop, degraded fallback,
 //!   write-back, terminal events, ledger audit); no execution policy lives

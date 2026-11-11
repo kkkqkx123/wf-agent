@@ -403,7 +403,7 @@ impl AgentLoopCoordinator {
                 let limits = self
                     .compaction_limits
                     .clone()
-                    .unwrap_or_else(|| wf_execution_shared::process_compaction_limits());
+                    .unwrap_or_else(wf_execution_shared::process_compaction_limits);
                 entity
                     .conversation()
                     .write()

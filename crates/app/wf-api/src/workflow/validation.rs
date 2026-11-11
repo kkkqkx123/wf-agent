@@ -198,10 +198,11 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
         .graphs()
         .list()
     {
-        if !workflow_graphs.contains_key(&id) {
-            if let Some(graph) = wf_workflow::registry::WorkflowRegistry::global().lookup_graph(&id)
+        if let std::collections::hash_map::Entry::Vacant(e) = workflow_graphs.entry(id) {
+            if let Some(graph) =
+                wf_workflow::registry::WorkflowRegistry::global().lookup_graph(e.key())
             {
-                workflow_graphs.insert(id, graph);
+                e.insert(graph);
             }
         }
     }

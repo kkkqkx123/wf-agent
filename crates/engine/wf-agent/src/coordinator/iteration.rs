@@ -372,7 +372,7 @@ impl AgentIterationCoordinator {
     pub(crate) fn effective_compaction_limits(&self) -> wf_types::config::limits::CompactionLimits {
         self.compaction_limits
             .clone()
-            .unwrap_or_else(|| wf_execution_shared::process_compaction_limits())
+            .unwrap_or_else(wf_execution_shared::process_compaction_limits)
     }
 
     /// Effective settle budget: explicit injection wins, otherwise the

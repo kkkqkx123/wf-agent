@@ -15,16 +15,20 @@
 //! against the builtin template (`registry.rs`) whose reserved action routes
 //! to `CompressionPipeline::run_routed`. User templates never participate.
 
+mod chain_run;
+mod claim_table;
+mod input_window;
 mod pipeline;
 mod policy;
 mod registry;
 mod service;
 mod signal;
+mod terminal_report;
 #[cfg(test)]
 mod tests;
 
+pub use claim_table::COMPRESSION_HANDLED_CAPACITY;
 pub(crate) use pipeline::CompressionPipeline;
-pub use pipeline::COMPRESSION_HANDLED_CAPACITY;
 pub use policy::CompressionPolicy;
 #[cfg(test)]
 pub(crate) use registry::builtin_compression_template;

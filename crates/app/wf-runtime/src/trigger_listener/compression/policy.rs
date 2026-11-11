@@ -2,8 +2,8 @@ use wf_types::workflow::CompressionFallbackMode;
 
 /// Write-back and run policy for the compression service.
 ///
-/// User trigger templates never participate: direct mode bypasses the
-/// listener, routed mode runs through the builtin template only. Timeout
+/// User trigger templates never participate: the adapter publishes the routed
+/// handoff and only the builtin template runs it. Timeout
 /// nesting: the emitter's settle budget (injected at bootstrap from
 /// `limits.compression.settle_timeout_ms`) must cover
 /// `(1 + max_retries) × run_timeout_ms + backoffs`.

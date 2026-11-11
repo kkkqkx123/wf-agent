@@ -8,7 +8,7 @@ use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
 
 use crate::trigger_listener::{
-    register_routed_compression_handler, start_trigger_listener_with_parts,
+    register_compression_handler, start_trigger_listener_with_parts,
     ExecutionContextRegistry, ListenerDeps, TriggerExecutionRecorder, TriggerLedger,
     WorkflowRunner,
 };
@@ -146,7 +146,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
                 .and_then(|c| c.compression_fallback)
         })
         .unwrap_or_default();
-    // Structural precheck at assembly: a summary chain without the
+    // Existence precheck at assembly: a summary chain without the
     // triggered-subworkflow config silently degrades the terminal-failure
     // policy to `fail`. Warn once here instead of failing every
     // compression at runtime.
@@ -226,7 +226,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
             policy: compression_policy.clone(),
         }),
     });
-    // The routed-mode builtin compression adapter shares the listener's
+    // The builtin compression adapter shares the listener's
     // shutdown token and sub-workflow runner: engine signals fire to it, it
     // publishes the snapshot-carrying handoff synchronously, and the
     // listener-side route pipeline runs the chain and stops it at runtime
@@ -235,18 +235,9 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     // builtin default when the section is absent). File folding runs inside
     // the chain template (context transform node), so no fold attachment is
     // wired here.
-    let _compression = register_routed_compression_handler(
+    let _compression = register_compression_handler(
         &hook_handler_registry,
-        crate::trigger_listener::CompressionHandlerDeps {
-            event_bus,
-            runner: subworkflow_runner,
-            contexts: execution_contexts.clone(),
-            summary_workflow_id,
-            repress_workflow_id,
-            shutdown: trigger_shutdown,
-            ledger: Some(ledger),
-            policy: compression_policy,
-        },
+        crate::trigger_listener::CompressionHandlerDeps { event_bus },
     );
     TriggerSubsystem {
         execution_contexts,

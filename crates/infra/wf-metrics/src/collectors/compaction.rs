@@ -62,24 +62,6 @@ impl CompactionMetricsCollector {
         self.inner
             .increment_counter_by(compaction_metrics::PLAN_CAPPED, 1.0, labels(&[]));
     }
-
-    /// Record one named-strategy workflow fallback to the built-in chain.
-    pub fn record_strategy_fallback(&self, reason: &str) {
-        self.inner.increment_counter_by(
-            compaction_metrics::STRATEGY_FALLBACKS,
-            1.0,
-            labels(&[("reason", reason)]),
-        );
-    }
-
-    /// Record one planning-advisor fallback to the built-in planner.
-    pub fn record_advisor_fallback(&self, reason: &str) {
-        self.inner.increment_counter_by(
-            compaction_metrics::ADVISOR_FALLBACKS,
-            1.0,
-            labels(&[("reason", reason)]),
-        );
-    }
 }
 
 #[cfg(test)]
@@ -101,8 +83,6 @@ mod tests {
         c.record_keep_facts_appended(3);
         c.record_keep_facts_appended(0);
         c.record_plan_capped();
-        c.record_strategy_fallback("missing_workflow");
-        c.record_advisor_fallback("missing_advisor");
         assert_eq!(
             counter_total(c.collector(), compaction_metrics::PLANS_EMITTED),
             2.0
@@ -117,14 +97,6 @@ mod tests {
         );
         assert_eq!(
             counter_total(c.collector(), compaction_metrics::PLAN_CAPPED),
-            1.0
-        );
-        assert_eq!(
-            counter_total(c.collector(), compaction_metrics::STRATEGY_FALLBACKS),
-            1.0
-        );
-        assert_eq!(
-            counter_total(c.collector(), compaction_metrics::ADVISOR_FALLBACKS),
             1.0
         );
         // Labels distinguish the emission modes.

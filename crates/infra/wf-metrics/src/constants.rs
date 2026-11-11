@@ -240,8 +240,6 @@ pub mod compaction_metrics {
     pub const HANDOFFS_ENTERED: &str = "compaction.handoffs.entered.count";
     pub const KEEP_FACTS_APPENDED: &str = "compaction.handoff.keep_facts.appended.count";
     pub const PLAN_CAPPED: &str = "compaction.plan.capped.count";
-    pub const STRATEGY_FALLBACKS: &str = "compaction.strategy.fallback.count";
-    pub const ADVISOR_FALLBACKS: &str = "compaction.advisor.fallback.count";
 }
 
 pub mod timeout_metrics {

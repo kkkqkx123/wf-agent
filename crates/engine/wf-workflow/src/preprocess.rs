@@ -282,10 +282,22 @@ fn duplicate_fork_path_warnings(graph: &WorkflowGraphStructure) -> Vec<String> {
     let mut warnings = Vec::new();
     for (path_id, nodes) in owners {
         if nodes.len() > 1 {
+            let mut embeds: Vec<String> = nodes
+                .iter()
+                .filter_map(|id| id.split_once(':').map(|(embed, _)| embed.to_string()))
+                .collect();
+            embeds.sort();
+            embeds.dedup();
+            let where_hint = if embeds.is_empty() {
+                "parent workflow".to_string()
+            } else {
+                format!("embed node(s) {}", embeds.join(", "))
+            };
             warnings.push(format!(
-                "Fork path_id '{}' is offered by multiple FORK nodes [{}]; fork resolution matches on the whole graph, so a JOIN may match across the embed boundary",
+                "Fork path_id '{}' is offered by multiple FORK nodes [{}] ({}); fork resolution matches on the whole graph, so a JOIN may match across the embed boundary",
                 path_id,
-                nodes.join(", ")
+                nodes.join(", "),
+                where_hint,
             ));
         }
     }

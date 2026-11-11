@@ -58,6 +58,7 @@ fn note_terminal_run(
 pub fn analyze(trace: &Trace) -> SectionReport {
     let mut report = SectionReport::named("compression");
     let mut requested: BTreeSet<String> = BTreeSet::new();
+    let mut cancelled: BTreeSet<String> = BTreeSet::new();
     let mut handoff: BTreeSet<String> = BTreeSet::new();
     let mut handoff_paths: BTreeMap<String, String> = BTreeMap::new();
     let mut terminal: BTreeMap<String, CompressionPhase> = BTreeMap::new();
@@ -83,6 +84,19 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                             &visit.path,
                             format!(
                                 "forced compression for '{}' at version {} has no known context budget",
+                                view.target_context_id, view.array_version,
+                            ),
+                            None,
+                            None,
+                        );
+                    }
+                    if view.cancelled {
+                        report.count("cancelled", 1);
+                        report.finding(
+                            FindingLevel::Info,
+                            &visit.path,
+                            format!(
+                                "compression signal for '{}' at version {} vetoed at the gate (cancelled before takeover; no terminal event expected)",
                                 view.target_context_id, view.array_version,
                             ),
                             None,
@@ -139,6 +153,9 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                         );
                     } else {
                         requested.insert(key.clone());
+                        if view.cancelled {
+                            cancelled.insert(key.clone());
+                        }
                     }
                     if terminal.contains_key(&key) {
                         report.count("request_after_terminal", 1);
@@ -425,7 +442,7 @@ pub fn analyze(trace: &Trace) -> SectionReport {
 
     let mut missing: Vec<String> = requested
         .iter()
-        .filter(|key| !terminal.contains_key(*key))
+        .filter(|key| !terminal.contains_key(*key) && !cancelled.contains(*key))
         .cloned()
         .collect();
     missing.sort();
@@ -517,6 +534,7 @@ mod tests {
             forced: false,
             budget_unknown: false,
             no_taker: false,
+            cancelled: false,
             degraded: false,
             degraded_dropped: 0,
             still_over_budget: false,
@@ -542,6 +560,7 @@ mod tests {
             forced: false,
             budget_unknown: false,
             no_taker: false,
+            cancelled: false,
             degraded: false,
             degraded_dropped: 0,
             still_over_budget: false,
@@ -666,6 +685,21 @@ mod tests {
         )]);
         let report = analyze(&trace);
         assert_eq!(report.counts.get("no_taker"), Some(&1));
+        assert_eq!(report.errors(), 0);
+    }
+
+    #[test]
+    fn vetoed_signal_has_no_terminal_expectation() {
+        let trace = trace_with(vec![step_with(
+            0,
+            vec![CompressionView {
+                cancelled: true,
+                ..requested("chat", 5)
+            }],
+        )]);
+        let report = analyze(&trace);
+        assert_eq!(report.counts.get("cancelled"), Some(&1));
+        assert_eq!(report.counts.get("missing_terminal"), None);
         assert_eq!(report.errors(), 0);
     }
 

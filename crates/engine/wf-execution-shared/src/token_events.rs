@@ -12,7 +12,7 @@ use wf_types::events::{BaseEvent, EventType};
 use wf_types::message::Message;
 
 /// Process-local compression payload carried on a hook context alongside
-/// the JSON audit fields. The synchronous (Direct) handler takes over from
+/// the JSON audit fields. The synchronous handler takes over from
 /// the attachment and skips the snapshot/plan JSON round-trip entirely;
 /// the routed handoff serializes from it once at publish time.
 #[derive(Debug, Clone)]
@@ -416,8 +416,7 @@ pub fn is_compression_routed_event(event: &BaseEvent) -> bool {
 
 /// Messages embedded on a routed compression event under [`KEY_MESSAGES`];
 /// absent or malformed snapshots degrade to an empty array (the caller
-/// skips snapshot-less handoffs, mirroring the empty-snapshot skip of the
-/// direct path).
+/// skips snapshot-less handoffs, mirroring the adapter's empty-snapshot skip).
 pub fn compression_routed_messages(event: &BaseEvent) -> Vec<Message> {
     event
         .metadata

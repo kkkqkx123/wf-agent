@@ -17,11 +17,10 @@
 //!   shared [`HookHandlerRegistry`] at runtime assembly; the engine fires
 //!   the signal synchronously, honors observer vetoes (cancel) and
 //!   replacements (skip the chain), then resolves the adapter by name and
-//!   notifies it. The adapter registers the idempotency claim and hands
-//!   the request to the trigger-side compression pipeline, then returns. The
-//!   pipeline owns the whole execution (retry loop, degraded fallback,
-//!   write-back, terminal events, ledger audit); no execution policy lives
-//!   in the hook adapter.
+//!   notifies it. The adapter publishes the snapshot-carrying routed handoff
+//!   for the listener route, then returns. The pipeline owns the whole
+//!   execution (retry loop, degraded fallback, write-back, terminal events,
+//!   ledger audit); no execution policy lives in the hook adapter.
 //! - write-back registry: wf-workflow's [`ExecutionContextRegistry`], into
 //!   which every started workflow execution registers its variable map
 //!   (register at start, unregister at end — see [`WorkflowRunner::run`]).
@@ -47,9 +46,7 @@ mod write_back;
 pub use agent_runner::AgentTriggerRunner;
 pub use context_runner::{ContextTriggerRunner, ContextTriggerRunnerConfig};
 pub use creation_runner::CreationRunner;
-pub use handler::{
-    register_compression_handler, register_routed_compression_handler, CompressionHandlerDeps,
-};
+pub use handler::{register_compression_handler, CompressionHandlerDeps};
 pub use ledger::TriggerLedger;
 pub use router::TriggerActionRouter;
 pub use scheduler::{
@@ -269,8 +266,8 @@ pub(crate) struct ListenerDeps {
     /// Arms the builtin compression route: the builtin template is chained
     /// into the listener registry and the action router serves the reserved
     /// compression action through a trigger-side pipeline sharing the
-    /// listener lifecycle. Absent keeps the listener compression-free (the
-    /// direct hook adapter still works on its own).
+    /// listener lifecycle. Absent keeps the listener compression-free
+    /// (published handoffs never run).
     pub(crate) compression_route: Option<CompressionRouteConfig>,
 }
 

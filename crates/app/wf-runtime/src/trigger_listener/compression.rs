@@ -2,23 +2,18 @@
 //!
 //! Two responsibilities share this module, split across two types on purpose:
 //! `CompressionService` is the thin hook adapter (parse the signal, skip
-//! empty snapshots, translate it into a trigger-side request and hand it
-//! over, then return); `CompressionPipeline` is the trigger-side runner
-//! owning the whole execution (retry loop, degraded fallback, write-back
-//! orchestration, terminal events, trigger-state and ledger audit). No
-//! execution policy lives in the hook adapter: the emitting execution blocks
-//! on its version anchor until the pipeline lands the compression, and a
-//! terminal failure either lands a visibly degraded window (the
-//! `partial_summary` policy declared by the summary workflow resource) or
-//! stops the emitter for external handling.
+//! empty snapshots, publish the snapshot-carrying routed handoff, then
+//! return); `CompressionPipeline` is the trigger-side runner owning the whole
+//! execution (retry loop, degraded fallback, write-back orchestration,
+//! terminal events, trigger-state and ledger audit). No execution policy lives
+//! in the hook adapter: the emitting execution blocks on its version anchor
+//! until the pipeline lands the compression, and a terminal failure either
+//! lands a visibly degraded window (the `partial_summary` policy declared by
+//! the summary workflow resource) or stops the emitter for external handling.
 //!
-//! Handoff has two construction-time modes (see `CompressionDispatch` in
-//! `service.rs`): direct spawn (tests and listener-less embedding) and the
-//! routed mode used in production, where the adapter publishes a
-//! snapshot-carrying routed copy of the signal and the listener matches it
+//! The adapter always publishes the routed copy and the listener matches it
 //! against the builtin template (`registry.rs`) whose reserved action routes
-//! to `CompressionPipeline::run_routed`. User templates never participate in
-//! either mode.
+//! to `CompressionPipeline::run_routed`. User templates never participate.
 
 mod pipeline;
 mod policy;

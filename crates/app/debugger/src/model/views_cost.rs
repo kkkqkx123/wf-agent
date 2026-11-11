@@ -25,15 +25,17 @@ pub struct BudgetView {
 /// The engine emits `requested` when a named message array exceeds its
 /// context budget (or the provider forces a safety-net request), the builtin
 /// adapter publishes `routed` when it hands the snapshot-carrying copy to the
-/// listener (direct-mode traces have no `routed` entry), then the compression
-/// service publishes exactly one terminal event for the same
-/// `(target_context_id, array_version)`: `completed` (summary or degraded
-/// partial window landed), `failed` (retries exhausted, emitter parks for
-/// external handling) or `discarded` (stale result dropped after the array
-/// moved past the anchor; normal concurrency, emitter continues). A
+/// listener, then the compression service publishes exactly one terminal event
+/// for the same `(target_context_id, array_version)`: `completed` (summary or
+/// degraded partial window landed), `failed` (retries exhausted, emitter parks
+/// for external handling) or `discarded` (stale result dropped after the array
+/// moved past the anchor; normal concurrency, emitter continues). A vetoed
+/// `requested` (`cancelled`) intentionally has no terminal event: the gate
+/// denied the compression before the takeover ran. A non-cancelled
 /// `requested` without a matching terminal event means the emitter blocked
 /// until its settle timeout; a `routed` without a terminal means the handoff
-/// never ran (listener down or claim lost to a duplicate).
+/// never ran (listener down or claim lost to a duplicate). Older traces
+/// predating the routed adapter carry no `routed` entry.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum CompressionPhase {
@@ -90,6 +92,12 @@ pub struct CompressionView {
     /// Requested phase only.
     #[serde(default)]
     pub no_taker: bool,
+    /// True when an observer vetoed the compression signal at the gate
+    /// (audit event kept with the cancelled marker, pending plan cleared,
+    /// backpressure never anchored). A cancelled request intentionally has
+    /// no terminal event. Requested phase only.
+    #[serde(default)]
+    pub cancelled: bool,
     /// True when the completion is the terminal-failure fallback (a locally
     /// trimmed window without an LLM summary, headed by a degraded notice).
     #[serde(default)]
@@ -146,6 +154,9 @@ impl CompressionView {
         }
         if self.no_taker {
             parts.push("no_taker".to_string());
+        }
+        if self.cancelled {
+            parts.push("cancelled".to_string());
         }
         if self.degraded {
             if self.degraded_dropped > 0 {

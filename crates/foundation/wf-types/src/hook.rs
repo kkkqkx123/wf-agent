@@ -38,8 +38,8 @@ pub const INTERNAL_SIGNAL_TYPES: &[&str] = &["CONTEXT_COMPRESSION_REQUESTED"];
 /// Hook type of the engine's internal context-compression signal: the engine
 /// dispatches it synchronously when a named message array exceeds its token
 /// limit (or a forced safety-net request fires) and the builtin compression
-/// service takes over immediately (direct spawn, or routed-handoff publish in
-/// production). The `CONTEXT_COMPRESSION_REQUESTED` event is the audit and
+/// service takes over immediately by publishing the routed handoff for the
+/// listener route. The `CONTEXT_COMPRESSION_REQUESTED` event is the audit and
 /// persistence copy; user trigger templates should not subscribe to it for
 /// functional work.
 pub const CONTEXT_COMPRESSION_SIGNAL: &str = "CONTEXT_COMPRESSION_REQUESTED";

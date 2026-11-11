@@ -79,7 +79,8 @@ pub use compaction::{
 };
 pub use context_store::{
     check_anchor, compression_event, compression_request, dispatch_compression_signal,
-    dynamic_request_overhead, flight_expired, over_budget, wait_for_version_shift, WritebackOp,
+    dynamic_request_overhead, flight_expired, over_budget, report_no_taker, wait_for_version_shift,
+    WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use ingest_preprocess::{
@@ -103,8 +104,9 @@ pub use token_events::{
     build_llm_stream_aborted_event, build_llm_stream_error_event, build_token_limit_exceeded_event,
     build_token_usage_warning_event, compression_request_hook_data, compression_routed_messages,
     compression_routed_plan, compression_run_id, compression_settle_timeout_ms,
-    is_compression_routed_event, is_stream_abort, set_compression_run_id,
-    set_compression_settle_timeout_ms, CompressionAttachment, ContextCompressionCompleted,
+    is_compression_routed_event, is_stream_abort, match_compression_failure, set_compression_run_id,
+    set_compression_settle_timeout_ms, CompressionAttachment, CompressionFailureMatch,
+    ContextCompressionCompleted,
     ContextCompressionCompletedMeta, ContextCompressionDiscardedMeta, ContextCompressionFailedMeta,
     ContextCompressionRequest, ContextCompressionRequestedMeta, ConversationWritebackCompletedMeta,
     TokenEventMetaError, TokenLimitExceededMeta, TokenUsageWarningMeta, COMPRESSION_SETTLE_POLL_MS,

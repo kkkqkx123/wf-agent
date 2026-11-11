@@ -983,6 +983,48 @@ impl TryFrom<&BaseEvent> for ContextCompressionFailedMeta {
     }
 }
 
+/// Shared match of a compression failure event against an emitting
+/// execution. Single writer for the agent and workflow settle paths so
+/// both sides agree on filtering and on the external-handling message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompressionFailureMatch {
+    pub target_context_id: String,
+    pub array_version: u64,
+    pub message: String,
+}
+
+/// Match a compression failure event against an emitting execution.
+/// Returns the target, anchor version and handling message when the event
+/// targets `execution_id` and, when given, `expected_version`.
+///
+/// The message wording is shared so agent pauses and workflow pauses
+/// describe the same failure category in the same terms.
+pub fn match_compression_failure(
+    event: &BaseEvent,
+    execution_id: &str,
+    expected_version: Option<u64>,
+) -> Option<CompressionFailureMatch> {
+    if event.r#type != EventType::ContextCompressionFailed {
+        return None;
+    }
+    if event.execution_id.as_deref() != Some(execution_id) {
+        return None;
+    }
+    let meta = ContextCompressionFailedMeta::try_from(event).ok()?;
+    if expected_version.is_some_and(|version| meta.array_version != version) {
+        return None;
+    }
+    let message = format!(
+        "context compression failed for '{}' at version {}: {}; the execution pauses for external handling",
+        meta.target_context_id, meta.array_version, meta.error
+    );
+    Some(CompressionFailureMatch {
+        target_context_id: meta.target_context_id,
+        array_version: meta.array_version,
+        message,
+    })
+}
+
 impl TryFrom<&BaseEvent> for ContextCompressionDiscardedMeta {
     type Error = TokenEventMetaError;
 

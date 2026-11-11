@@ -31,10 +31,13 @@ impl AgentIterationCoordinator {
         let execution_id = entity.id().to_string();
         if let Some(ref bus) = self.event_bus {
             for event in bus.recent_events() {
-                if let Some(message) = matching_compression_failure(&event, &execution_id, version)
-                {
+                if let Some(matched) = wf_execution_shared::match_compression_failure(
+                    &event,
+                    &execution_id,
+                    Some(version),
+                ) {
                     return Ok(self
-                        .compression_failure_park(entity, version, &message)
+                        .compression_failure_park(entity, version, &matched.message)
                         .await);
                 }
             }
@@ -59,7 +62,12 @@ impl AgentIterationCoordinator {
                 }
                 if let Some(ref bus) = self.event_bus {
                     bus.recent_events().iter().any(|event| {
-                        matching_compression_failure(event, &execution_id, version).is_some()
+                        wf_execution_shared::match_compression_failure(
+                            event,
+                            &execution_id,
+                            Some(version),
+                        )
+                        .is_some()
                     })
                 } else {
                     false
@@ -82,10 +90,13 @@ impl AgentIterationCoordinator {
         }
         if let Some(ref bus) = self.event_bus {
             for event in bus.recent_events() {
-                if let Some(message) = matching_compression_failure(&event, &execution_id, version)
-                {
+                if let Some(matched) = wf_execution_shared::match_compression_failure(
+                    &event,
+                    &execution_id,
+                    Some(version),
+                ) {
                     return Ok(self
-                        .compression_failure_park(entity, version, &message)
+                        .compression_failure_park(entity, version, &matched.message)
                         .await);
                 }
             }
@@ -219,20 +230,11 @@ impl AgentIterationCoordinator {
             session.begin_compression_flight(version, true);
         } else {
             let streak = session.record_compression_no_taker();
-            if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
-                tracing::error!(
-                    entity_id = %entity.id(),
-                    version = version,
-                    streak = streak,
-                    "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                );
-            } else {
-                tracing::warn!(
-                    entity_id = %entity.id(),
-                    version = version,
-                    "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                );
-            }
+            wf_execution_shared::report_no_taker(
+                wf_execution_shared::CONVERSATION_CONTEXT_ID,
+                version,
+                streak,
+            );
         }
     }
 
@@ -517,20 +519,11 @@ impl AgentIterationCoordinator {
         } else {
             session.clear_pending_compaction();
             let streak = session.record_compression_no_taker();
-            if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
-                tracing::error!(
-                    entity_id = %entity.id(),
-                    version = version,
-                    streak = streak,
-                    "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                );
-            } else {
-                tracing::warn!(
-                    entity_id = %entity.id(),
-                    version = version,
-                    "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                );
-            }
+            wf_execution_shared::report_no_taker(
+                wf_execution_shared::CONVERSATION_CONTEXT_ID,
+                version,
+                streak,
+            );
         }
         dispatched
     }
@@ -552,28 +545,4 @@ impl AgentIterationCoordinator {
             metrics.compaction().record_plan_capped();
         }
     }
-}
-
-/// Match a compression failure event against an agent emission.
-/// Returns the manual-handling message when the event targets the same
-/// execution and anchor version.
-fn matching_compression_failure(
-    event: &wf_types::events::BaseEvent,
-    execution_id: &str,
-    version: u64,
-) -> Option<String> {
-    if event.r#type != wf_types::events::EventType::ContextCompressionFailed {
-        return None;
-    }
-    if event.execution_id.as_deref() != Some(execution_id) {
-        return None;
-    }
-    let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(event).ok()?;
-    if meta.array_version != version {
-        return None;
-    }
-    Some(format!(
-        "context compression failed for '{}' at version {}: {}; the execution pauses for external handling",
-        meta.target_context_id, meta.array_version, meta.error
-    ))
 }

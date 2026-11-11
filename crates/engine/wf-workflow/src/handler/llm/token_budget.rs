@@ -204,24 +204,7 @@ pub async fn emit_token_usage_events(
             .ok();
             if !dispatched {
                 let streak = tracker.record_no_taker(&context_id);
-                if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
-                    tracing::error!(
-                        execution_id = %ctx.execution_id,
-                        node_id = %ctx.node_id,
-                        target = %context_id,
-                        version = version,
-                        streak = streak,
-                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                    );
-                } else {
-                    tracing::warn!(
-                        execution_id = %ctx.execution_id,
-                        node_id = %ctx.node_id,
-                        target = %context_id,
-                        version = version,
-                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                    );
-                }
+                wf_execution_shared::report_no_taker(&context_id, version, streak);
             } else {
                 tracker.reset_no_taker(&context_id);
             }
@@ -273,11 +256,13 @@ pub async fn await_compression_settle(
     let execution_id = ctx.execution_id.to_string();
     if let Some(ref bus) = ctx.event_bus {
         for event in bus.recent_events() {
-            if let Some(err) = matching_compression_failure(&event, &execution_id, None) {
+            if let Some(matched) =
+                wf_execution_shared::match_compression_failure(&event, &execution_id, None)
+            {
                 for (target, version) in &anchored {
-                    if err.0 == *target && err.1 == *version {
-                        pause_for_compression_failure(ctx, &err.2);
-                        return Err(compression_failure(ctx, err.2.clone()));
+                    if matched.target_context_id == *target && matched.array_version == *version {
+                        pause_for_compression_failure(ctx, &matched.message);
+                        return Err(compression_failure(ctx, matched.message.clone()));
                     }
                 }
             }
@@ -297,7 +282,12 @@ pub async fn await_compression_settle(
                         }
                         if let Some(ref bus) = ctx.event_bus {
                             bus.recent_events().iter().any(|event| {
-                                matches_target_failure(event, &execution_id, &target, version)
+                                wf_execution_shared::match_compression_failure(
+                                    event,
+                                    &execution_id,
+                                    Some(version),
+                                )
+                                .is_some_and(|matched| matched.target_context_id == target)
                             })
                         } else {
                             false
@@ -320,7 +310,12 @@ pub async fn await_compression_settle(
                     }
                     if let Some(ref bus) = ctx.event_bus {
                         bus.recent_events().iter().any(|event| {
-                            matches_target_failure(event, &execution_id, &target, version)
+                            wf_execution_shared::match_compression_failure(
+                                event,
+                                &execution_id,
+                                Some(version),
+                            )
+                            .is_some_and(|matched| matched.target_context_id == target)
                         })
                     } else {
                         false
@@ -343,11 +338,11 @@ pub async fn await_compression_settle(
         if let Some(ref bus) = ctx.event_bus {
             let mut failure: Option<String> = None;
             for event in bus.recent_events() {
-                if let Some((failed_target, failed_version, message)) =
-                    matching_compression_failure(&event, &execution_id, None)
+                if let Some(matched) =
+                    wf_execution_shared::match_compression_failure(&event, &execution_id, None)
                 {
-                    if failed_target == target && failed_version == version {
-                        failure = Some(message);
+                    if matched.target_context_id == target && matched.array_version == version {
+                        failure = Some(matched.message.clone());
                         break;
                     }
                 }
@@ -435,39 +430,7 @@ pub async fn check_still_over_budget_escalation(
     Ok(())
 }
 
-/// Match a compression failure event against an emitting execution.
-/// Returns the target array, anchor version and failure message.
-fn matches_target_failure(
-    event: &wf_types::events::BaseEvent,
-    execution_id: &str,
-    target: &str,
-    version: u64,
-) -> bool {
-    matching_compression_failure(event, execution_id, None).is_some_and(
-        |(failed_target, failed_version, _)| failed_target == target && failed_version == version,
-    )
-}
 
-/// Match a compression failure event against an emitting execution.
-/// Returns the target array, anchor version and failure message.
-fn matching_compression_failure(
-    event: &wf_types::events::BaseEvent,
-    execution_id: &str,
-    _agent_loop_id: Option<&str>,
-) -> Option<(String, u64, String)> {
-    if event.r#type != wf_types::events::EventType::ContextCompressionFailed {
-        return None;
-    }
-    if event.execution_id.as_deref() != Some(execution_id) {
-        return None;
-    }
-    let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(event).ok()?;
-    let message = format!(
-        "context compression failed for '{}' at version {}: {}; the execution pauses for external handling",
-        meta.target_context_id, meta.array_version, meta.error
-    );
-    Some((meta.target_context_id, meta.array_version, message))
-}
 
 /// Initialize the execution-scoped tracker limits from the node config
 /// (task budget) and the model window (context budget), then restore

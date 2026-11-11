@@ -151,6 +151,28 @@ pub fn flight_expired(started_at_ms: i64, now_ms: i64, timeout_ms: u64) -> bool 
     now_ms.saturating_sub(started_at_ms) as u64 > timeout_ms
 }
 
+/// Shared no-taker escalation log for compression signals without a
+/// service taker. Single writer so agent and workflow emitters escalate
+/// on the same streak with the same wording; the audit event is kept and
+/// backpressure stays unanchored on every path.
+pub fn report_no_taker(target: &str, version: u64, streak: u32) {
+    if streak >= crate::token_tracker::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+        tracing::error!(
+            target = %target,
+            version = version,
+            streak = streak,
+            "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+        );
+    } else {
+        tracing::warn!(
+            target = %target,
+            version = version,
+            streak = streak,
+            "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+        );
+    }
+}
+
 /// Blocking backpressure wait: poll `current_version` until it moves past
 /// `anchor` (the compression write-back landed) or `timeout_ms` elapses.
 /// Returns true when the version shifted, false on timeout. Callers race

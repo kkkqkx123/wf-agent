@@ -44,7 +44,9 @@ pub fn apply_variable_inputs(
         let default_value = entry.get("default_value");
 
         let (Some(source_path), Some(internal_name)) = (source_path, internal_name) else {
-            continue;
+            return Err(WorkflowError::VariableError(
+                "variable_inputs entry requires 'source_path' and 'internal_name'".to_string(),
+            ));
         };
 
         let placeholder = format!("${{{}}}", source_path);
@@ -84,7 +86,9 @@ pub fn apply_variable_outputs(
         let target_path = entry.get("target_path").and_then(|v| v.as_str());
 
         let (Some(internal_name), Some(target_path)) = (internal_name, target_path) else {
-            continue;
+            return Err(WorkflowError::VariableError(
+                "variable_outputs entry requires 'internal_name' and 'target_path'".to_string(),
+            ));
         };
 
         let Some(value) = child.get(internal_name).map(|v| v.clone()) else {
@@ -209,6 +213,30 @@ mod tests {
             ]
         });
         assert!(apply_variable_inputs(&config, &parent, &child).is_err());
+    }
+
+    #[test]
+    fn test_malformed_input_mapping_is_rejected() {
+        let parent = Arc::new(DashMap::new());
+        let child = Arc::new(DashMap::new());
+        let missing_internal = serde_json::json!({
+            "variable_inputs": [{"source_path": "a"}]
+        });
+        assert!(apply_variable_inputs(&missing_internal, &parent, &child).is_err());
+        let missing_source = serde_json::json!({
+            "variable_inputs": [{"internal_name": "b"}]
+        });
+        assert!(apply_variable_inputs(&missing_source, &parent, &child).is_err());
+    }
+
+    #[test]
+    fn test_malformed_output_mapping_is_rejected() {
+        let child = Arc::new(DashMap::new());
+        let parent = Arc::new(DashMap::new());
+        let missing_target = serde_json::json!({
+            "variable_outputs": [{"internal_name": "result"}]
+        });
+        assert!(apply_variable_outputs(&missing_target, &child, &parent).is_err());
     }
 
     #[test]

@@ -1,0 +1,74 @@
+{
+  "id": "e2e-variable",
+  "name": "e2e variable chain workflow",
+  "description": "Variable chain for node execution tier, no model calls",
+  "type": "STANDALONE",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "node_type": "START"
+    },
+    {
+      "id": "v-base",
+      "node_type": "VARIABLE",
+      "name": "v-base",
+      "config": {
+        "variable_name": "base",
+        "expression": "3 + 3"
+      }
+    },
+    {
+      "id": "v-doubled",
+      "node_type": "VARIABLE",
+      "name": "v-doubled",
+      "config": {
+        "variable_name": "doubled",
+        "expression": "${base} * 2"
+      }
+    },
+    {
+      "id": "say-done",
+      "node_type": "SCRIPT",
+      "name": "say-done",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "1 + 1"
+      }
+    },
+    {
+      "id": "end",
+      "node_type": "END"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source_node_id": "start",
+      "target_node_id": "v-base",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e2",
+      "source_node_id": "v-base",
+      "target_node_id": "v-doubled",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e3",
+      "source_node_id": "v-doubled",
+      "target_node_id": "say-done",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e4",
+      "source_node_id": "say-done",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    }
+  ],
+  "created_at": 0,
+  "updated_at": 0
+}

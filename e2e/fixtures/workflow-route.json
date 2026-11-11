@@ -1,0 +1,129 @@
+{
+  "id": "e2e-route",
+  "name": "e2e route workflow",
+  "description": "Route first-match and default fallback for node execution tier, no model calls",
+  "type": "STANDALONE",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "node_type": "START"
+    },
+    {
+      "id": "v-choice",
+      "node_type": "VARIABLE",
+      "name": "v-choice",
+      "config": {
+        "variable_name": "choice",
+        "expression": "a"
+      }
+    },
+    {
+      "id": "route",
+      "node_type": "ROUTE",
+      "name": "route",
+      "config": {
+        "conditions": [
+          {
+            "expression": "eq(choice, \"a\")",
+            "target_node_id": "branch-a"
+          },
+          {
+            "expression": "eq(choice, \"b\")",
+            "target_node_id": "branch-b"
+          }
+        ],
+        "default_target_node_id": "branch-default"
+      }
+    },
+    {
+      "id": "branch-a",
+      "node_type": "SCRIPT",
+      "name": "branch-a",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "1 + 1"
+      }
+    },
+    {
+      "id": "branch-b",
+      "node_type": "SCRIPT",
+      "name": "branch-b",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "2 + 2"
+      }
+    },
+    {
+      "id": "branch-default",
+      "node_type": "SCRIPT",
+      "name": "branch-default",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "3 + 3"
+      }
+    },
+    {
+      "id": "end",
+      "node_type": "END"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source_node_id": "start",
+      "target_node_id": "v-choice",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e2",
+      "source_node_id": "v-choice",
+      "target_node_id": "route",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e3",
+      "source_node_id": "route",
+      "target_node_id": "branch-a",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e4",
+      "source_node_id": "route",
+      "target_node_id": "branch-b",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e5",
+      "source_node_id": "route",
+      "target_node_id": "branch-default",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e6",
+      "source_node_id": "branch-a",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e7",
+      "source_node_id": "branch-b",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e8",
+      "source_node_id": "branch-default",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    }
+  ],
+  "created_at": 0,
+  "updated_at": 0
+}

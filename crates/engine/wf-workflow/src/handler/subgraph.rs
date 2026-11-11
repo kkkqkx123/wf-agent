@@ -156,7 +156,13 @@ pub(crate) async fn execute_subgraph(
             wf_types::execution::ExecutionType::Workflow,
             None,
         )
-        .map_err(|e| WorkflowError::SubgraphError(e.to_string()))?;
+        .map_err(|e| {
+            if e.is_hierarchy_depth_exceeded() {
+                WorkflowError::HierarchyLimitReached(e.to_string())
+            } else {
+                WorkflowError::SubgraphError(e.to_string())
+            }
+        })?;
 
     let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
         .with_hierarchy_manager(child_manager.clone());

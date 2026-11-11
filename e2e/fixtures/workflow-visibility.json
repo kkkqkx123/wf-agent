@@ -1,0 +1,93 @@
+{
+  "id": "e2e-visibility",
+  "name": "e2e visibility workflow",
+  "description": "Tool visibility and context transform chain for node execution tier, no model calls",
+  "type": "STANDALONE",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "node_type": "START"
+    },
+    {
+      "id": "v-raw",
+      "node_type": "VARIABLE",
+      "name": "v-raw",
+      "config": {
+        "variable_name": "raw",
+        "expression": "hello"
+      }
+    },
+    {
+      "id": "tv",
+      "node_type": "TOOL_VISIBILITY",
+      "name": "tv",
+      "config": {
+        "action": "block",
+        "tool_ids": ["shell"]
+      }
+    },
+    {
+      "id": "cp",
+      "node_type": "CONTEXT_PROCESSOR",
+      "name": "cp",
+      "config": {
+        "variable_operation": {
+          "operation": "transform",
+          "source_variable": "raw",
+          "target_variable": "shouted",
+          "transform": "uppercase"
+        }
+      }
+    },
+    {
+      "id": "say-done",
+      "node_type": "SCRIPT",
+      "name": "say-done",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "1 + 1"
+      }
+    },
+    {
+      "id": "end",
+      "node_type": "END"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source_node_id": "start",
+      "target_node_id": "v-raw",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e2",
+      "source_node_id": "v-raw",
+      "target_node_id": "tv",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e3",
+      "source_node_id": "tv",
+      "target_node_id": "cp",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e4",
+      "source_node_id": "cp",
+      "target_node_id": "say-done",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e5",
+      "source_node_id": "say-done",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    }
+  ],
+  "created_at": 0,
+  "updated_at": 0
+}

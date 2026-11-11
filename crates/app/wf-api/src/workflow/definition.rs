@@ -213,6 +213,7 @@ pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> cra
 /// Delete a workflow and cascade its dependent records.
 pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
     ctx.registries.remove_workflow_template(id);
+    wf_workflow::unregister_graph(id);
     ctx.clear_stale(id);
     let _ = ctx.storage.workflow_draft.delete(id).await;
 
@@ -427,7 +428,12 @@ pub fn upsert_workflow_registry(
     let template = library_entry(registries, workflow);
     registries
         .upsert_workflow_template(template)
-        .map_err(crate::ApiError::Conflict)
+        .map_err(crate::ApiError::Conflict)?;
+    wf_workflow::register_graph(
+        &workflow.id.to_string(),
+        super::workflow_execution::definition_to_graph(workflow),
+    );
+    Ok(())
 }
 
 /// Carry the metadata of the stored definition into a definition that is

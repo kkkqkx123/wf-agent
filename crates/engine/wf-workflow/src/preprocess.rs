@@ -47,10 +47,9 @@ impl PreprocessedGraph {
 /// (`graph_definition`), falling back to a registered graph referenced by
 /// `embed_id`.
 pub fn extract_embed_graph(node: &WorkflowNode) -> Option<WorkflowGraphStructure> {
-    let inline = node.inner.get("graph_definition")?;
-    if !inline.is_null() {
-        if let Ok(sub) = serde_json::from_value(inline.clone()) {
-            return Some(sub);
+    if let Some(inline) = node.inner.get("graph_definition") {
+        if !inline.is_null() {
+            return serde_json::from_value(inline.clone()).ok();
         }
     }
     let embed_id = node.inner.get("embed_id").and_then(|v| v.as_str())?;
@@ -129,6 +128,20 @@ fn preprocess_graph_inner(
     };
 
     let mut embeds = Vec::new();
+    if depth >= MAX_EMBED_DEPTH {
+        for node in &graph.nodes {
+            if node.node_type != "EMBED_GRAPH" {
+                continue;
+            }
+            validation_errors.push(ValidationError::new(
+                format!("nodes.{}", node.id),
+                format!(
+                    "EMBED_GRAPH node '{}' exceeds the maximum embed depth ({})",
+                    node.id, MAX_EMBED_DEPTH
+                ),
+            ));
+        }
+    }
     if depth < MAX_EMBED_DEPTH {
         for node in &graph.nodes {
             if node.node_type != "EMBED_GRAPH" {
@@ -168,6 +181,10 @@ fn preprocess_graph_inner(
         }
     }
 
+    for embed in &embeds {
+        collect_depth_errors(embed, &mut validation_errors);
+    }
+
     let flattened = flatten_graph(&graph);
     let analysis = analyze_graph(&flattened);
 
@@ -190,6 +207,22 @@ fn preprocess_graph_inner(
         warnings,
         analysis,
         embeds,
+    }
+}
+
+/// Collect depth-cap errors from nested embeds so an overflow at any depth
+/// blocks the outermost execution instead of surfacing only in the nested
+/// report while the top-level graph stays valid.
+fn collect_depth_errors(embed: &EmbedSubgraph, out: &mut Vec<ValidationError>) {
+    out.extend(
+        embed
+            .validation_errors
+            .iter()
+            .filter(|e| e.message.contains("maximum embed depth"))
+            .cloned(),
+    );
+    for nested in &embed.nested_embeds {
+        collect_depth_errors(nested, out);
     }
 }
 
@@ -927,6 +960,81 @@ mod tests {
                 .any(|w| w.contains("Non-loop cycle") && w.contains("a") && w.contains("b")),
             "expected a non-loop cycle warning, got: {:?}",
             pre.warnings
+        );
+    }
+
+    #[test]
+    fn invalid_inline_definition_is_not_masked_by_embed_id() {
+        let sub = graph(
+            vec![node("s2", "START"), node("e2", "END")],
+            vec![edge("s2", "e2")],
+            Some("s2"),
+            vec!["e2"],
+        );
+        crate::registry::register_graph("embed-mask-target", sub);
+        let bad_node = WorkflowNode {
+            id: "embed".to_string(),
+            name: Some("embed".to_string()),
+            node_type: "EMBED_GRAPH".to_string(),
+            inner: serde_json::json!({
+                "graph_definition": {"nodes": "not-a-graph"},
+                "embed_id": "embed-mask-target",
+            }),
+        };
+        assert!(
+            extract_embed_graph(&bad_node).is_none(),
+            "invalid inline must not fall back to embed_id"
+        );
+        let g = graph(
+            vec![node("start", "START"), bad_node, node("end", "END")],
+            vec![edge("start", "embed"), edge("embed", "end")],
+            Some("start"),
+            vec!["end"],
+        );
+        let pre = preprocess_graph(g);
+        assert!(
+            !pre.is_valid(),
+            "invalid inline must block execution"
+        );
+    }
+
+    #[test]
+    fn embed_depth_overflow_is_rejected() {
+        let mut sub = graph(
+            vec![node("s2", "START"), node("e2", "END")],
+            vec![edge("s2", "e2")],
+            Some("s2"),
+            vec!["e2"],
+        );
+        for _ in 0..(MAX_EMBED_DEPTH + 1) {
+            let inner = std::mem::replace(&mut sub, graph(vec![], vec![], None, vec![]));
+            sub = graph(
+                vec![
+                    node("sx", "START"),
+                    WorkflowNode {
+                        id: "embed".to_string(),
+                        name: None,
+                        node_type: "EMBED_GRAPH".to_string(),
+                        inner: serde_json::json!({ "graph_definition": inner }),
+                    },
+                    node("ex", "END"),
+                ],
+                vec![edge("sx", "embed"), edge("embed", "ex")],
+                Some("sx"),
+                vec!["ex"],
+            );
+        }
+        let pre = preprocess_graph(sub);
+        assert!(
+            !pre.is_valid(),
+            "depth overflow must block execution"
+        );
+        assert!(
+            pre.validation_errors
+                .iter()
+                .any(|e| e.message.contains("maximum embed depth")),
+            "overflow must be reported: {:?}",
+            pre.validation_errors
         );
     }
 

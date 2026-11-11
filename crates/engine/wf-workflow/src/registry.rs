@@ -155,10 +155,16 @@ impl WorkflowRegistry {
     }
 
     /// Register a graph so a trigger action can execute it as a sub-workflow.
+    /// Re-saving a workflow replaces the indexed graph so updates take
+    /// effect without a restart.
     pub fn register_graph(&self, workflow_id: &str, graph: WorkflowGraphStructure) {
-        let _ = self
-            .graphs
-            .register(workflow_id.to_string(), Arc::new(graph));
+        self.graphs
+            .register_or_replace(workflow_id.to_string(), Arc::new(graph));
+    }
+
+    /// Remove a graph from the index so deleted workflows no longer resolve.
+    pub fn unregister_graph(&self, workflow_id: &str) {
+        self.graphs.unregister(workflow_id);
     }
 
     /// Look up a previously registered graph by workflow id.
@@ -206,6 +212,11 @@ impl Default for WorkflowRegistry {
 /// (process-wide default).
 pub fn register_graph(workflow_id: &str, graph: WorkflowGraphStructure) {
     WorkflowRegistry::global().register_graph(workflow_id, graph);
+}
+
+/// Remove a graph from the process-wide index (process-wide default).
+pub fn unregister_graph(workflow_id: &str) {
+    WorkflowRegistry::global().unregister_graph(workflow_id);
 }
 
 /// Look up a previously registered graph by workflow id (process-wide default).
@@ -334,6 +345,17 @@ mod tests {
             branches: vec![],
         });
         assert!(registry.lookup_flow("flow-1").is_some());
+    }
+
+    #[test]
+    fn graph_registration_replaces_and_unregisters() {
+        let registry = WorkflowRegistry::new();
+        registry.register_graph("wf-replace", graph("start"));
+        registry.register_graph("wf-replace", graph("other"));
+        let current = registry.lookup_graph("wf-replace").expect("replaced graph");
+        assert!(current.nodes.iter().any(|n| n.id == "other"));
+        registry.unregister_graph("wf-replace");
+        assert!(registry.lookup_graph("wf-replace").is_none());
     }
 
     #[test]

@@ -165,6 +165,54 @@ probe_status_consistency() {
   echo "consistency probe: watch=$watch_status show=$show_status converged=$converged polls=$polls"
 }
 
+# Run one node-coverage workflow end to end: validate, create, trigger,
+# wait for terminal state and assert completion, then clean up the
+# definition. All five fixtures stay self-contained and model-free.
+run_node_workflow() {
+  local tag="$1" file="$2" wf="$3"
+  run_case "node-validate-$tag" workflow validate "$file" --format json
+  set +e
+  run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
+    "$ACTUAL_DIR/node-create-$tag.stdout.json" "$ACTUAL_DIR/node-create-$tag.stderr.txt" \
+    -- workflow create --file "$file" --format json
+  local create_code=$?
+  set -e
+  check "node-create-$tag" 0 "$create_code" "$ACTUAL_DIR/node-create-$tag.stdout.json"
+  if [ "$create_code" -ne 0 ]; then
+    return
+  fi
+  set +e
+  run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" \
+    "$ACTUAL_DIR/node-run-$tag.stdout.json" "$ACTUAL_DIR/node-run-$tag.stderr.txt" \
+    -- execution run --workflow "$wf" --input-file "$FIX_DIR/workflow-input.json" --background
+  local run_code=$?
+  set -e
+  check "node-run-$tag" 0 "$run_code" "$ACTUAL_DIR/node-run-$tag.stdout.json"
+  if [ "$run_code" -ne 0 ]; then
+    run_case "node-delete-$tag" workflow delete "$wf" --force
+    return
+  fi
+  local node_exec="$(execution_id_of "$ACTUAL_DIR/node-run-$tag.stdout.json")"
+  if [ -z "$node_exec" ] || [ "$node_exec" = "null" ]; then
+    echo "FAIL node-terminal-$tag (missing execution id)"
+    FAIL=$((FAIL+1))
+    run_case "node-delete-$tag" workflow delete "$wf" --force
+    return
+  fi
+  local terminal="$(wait_for_terminal "$node_exec" 30 || true)"
+  echo "node workflow $tag terminal status: $terminal"
+  if [ "$terminal" = "completed" ]; then
+    echo "PASS node-terminal-$tag"
+    PASS=$((PASS+1))
+  else
+    echo "FAIL node-terminal-$tag (status $terminal, want completed)"
+    FAIL=$((FAIL+1))
+  fi
+  run_case "node-show-$tag" execution show "$node_exec"
+  run_case "node-delete-$tag" workflow delete "$wf" --force
+  run_negative_case "node-show-after-delete-$tag" workflow show "$wf"
+}
+
 section "health and diagnostics tier"
 run_case smoke-health health
 run_case smoke-info workflow list
@@ -425,6 +473,12 @@ if [ "$SKIP_LOCAL_EXECUTION" -eq 0 ]; then
         run_negative_case execution-show-after-delete execution show "$EXEC_ID"
       fi
     fi
+    section "workflow node execution tier"
+    run_node_workflow variable "$FIX_DIR/workflow-variable.json" "e2e-variable"
+    run_node_workflow route "$FIX_DIR/workflow-route.json" "e2e-route"
+    run_node_workflow forkjoin "$FIX_DIR/workflow-forkjoin.json" "e2e-forkjoin"
+    run_node_workflow loop "$FIX_DIR/workflow-loop.json" "e2e-loop"
+    run_node_workflow visibility "$FIX_DIR/workflow-visibility.json" "e2e-visibility"
     run_case workflow-delete-script workflow delete "$SCRIPT_WF" --force
     run_negative_case workflow-show-script-after-delete workflow show "$SCRIPT_WF"
     run_case script-delete script delete "$SCRIPT_ID" --force

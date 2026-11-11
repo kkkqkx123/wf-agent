@@ -1,0 +1,81 @@
+{
+  "id": "e2e-loop",
+  "name": "e2e loop workflow",
+  "description": "Counting loop for node execution tier, no model calls",
+  "type": "STANDALONE",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "node_type": "START"
+    },
+    {
+      "id": "ls",
+      "node_type": "LOOP_START",
+      "name": "ls",
+      "config": {
+        "loop_id": "l1",
+        "max_iterations": 3
+      }
+    },
+    {
+      "id": "body",
+      "node_type": "SCRIPT",
+      "name": "body",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "1 + 1"
+      }
+    },
+    {
+      "id": "le",
+      "node_type": "LOOP_END",
+      "name": "le",
+      "config": {
+        "loop_id": "l1",
+        "loop_start_node_id": "ls"
+      }
+    },
+    {
+      "id": "end",
+      "node_type": "END"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source_node_id": "start",
+      "target_node_id": "ls",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e2",
+      "source_node_id": "ls",
+      "target_node_id": "body",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e3",
+      "source_node_id": "body",
+      "target_node_id": "le",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e4",
+      "source_node_id": "le",
+      "target_node_id": "ls",
+      "type": "CONDITIONAL",
+      "condition": "eq(nextIteration,true)"
+    },
+    {
+      "id": "e5",
+      "source_node_id": "le",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    }
+  ],
+  "created_at": 0,
+  "updated_at": 0
+}

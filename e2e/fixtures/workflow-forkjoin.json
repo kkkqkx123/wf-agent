@@ -1,0 +1,105 @@
+{
+  "id": "e2e-forkjoin",
+  "name": "e2e fork join workflow",
+  "description": "Fork join convergence for node execution tier, no model calls",
+  "type": "STANDALONE",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "start",
+      "node_type": "START"
+    },
+    {
+      "id": "fork",
+      "node_type": "FORK",
+      "name": "fork",
+      "config": {
+        "fork_paths": [
+          {
+            "path_id": "p1",
+            "child_node_id": "branch-a"
+          },
+          {
+            "path_id": "p2",
+            "child_node_id": "branch-b"
+          }
+        ]
+      }
+    },
+    {
+      "id": "branch-a",
+      "node_type": "SCRIPT",
+      "name": "branch-a",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "1 + 1"
+      }
+    },
+    {
+      "id": "branch-b",
+      "node_type": "SCRIPT",
+      "name": "branch-b",
+      "config": {
+        "script_name": "e2e-echo",
+        "risk": "none",
+        "executor": "javascript",
+        "inline": "2 + 2"
+      }
+    },
+    {
+      "id": "join",
+      "node_type": "JOIN",
+      "name": "join",
+      "config": {
+        "fork_path_ids": ["p1", "p2"],
+        "join_strategy": "wait_for_all"
+      }
+    },
+    {
+      "id": "end",
+      "node_type": "END"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source_node_id": "start",
+      "target_node_id": "fork",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e2",
+      "source_node_id": "fork",
+      "target_node_id": "branch-a",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e3",
+      "source_node_id": "fork",
+      "target_node_id": "branch-b",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e4",
+      "source_node_id": "branch-a",
+      "target_node_id": "join",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e5",
+      "source_node_id": "branch-b",
+      "target_node_id": "join",
+      "type": "DEFAULT"
+    },
+    {
+      "id": "e6",
+      "source_node_id": "join",
+      "target_node_id": "end",
+      "type": "DEFAULT"
+    }
+  ],
+  "created_at": 0,
+  "updated_at": 0
+}

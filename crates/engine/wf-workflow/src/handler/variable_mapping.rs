@@ -10,6 +10,10 @@ use crate::variable::VariableResolver;
 /// engine-owned internal keys. Child scopes start without the parent's
 /// control state (loop stacks, idempotency markers, result slots); message
 /// contexts travel through explicit message mappings instead of a stale copy.
+///
+/// Trigger sub-workflows use this full inheritance plus explicit mappings.
+/// SUBGRAPH nodes keep isolation and only use the explicit input and output
+/// mappings below.
 pub fn inherit_all_variables(
     parent: &Arc<DashMap<String, Value>>,
     target: &Arc<DashMap<String, Value>>,
@@ -24,7 +28,9 @@ pub fn inherit_all_variables(
 
 /// Apply `variable_inputs` mapping: resolve `source_path` from the parent
 /// variables and store it under `internal_name` in the child variables.
-/// Missing required inputs fail.
+/// Missing required inputs fail. A missing non-required input without a
+/// default is silently skipped by design to keep conditional outputs
+/// compatible; the skip is only visible through a debug log.
 pub fn apply_variable_inputs(
     config: &Value,
     parent: &Arc<DashMap<String, Value>>,
@@ -61,7 +67,18 @@ pub fn apply_variable_inputs(
                 )));
             }
             if let Some(default) = default_value {
+                tracing::debug!(
+                    source_path,
+                    internal_name,
+                    "variable input missing, falling back to default value"
+                );
                 child.insert(internal_name.to_string(), default.clone());
+            } else {
+                tracing::debug!(
+                    source_path,
+                    internal_name,
+                    "non-required variable input missing without default, skipping"
+                );
             }
         } else {
             child.insert(internal_name.to_string(), resolved);

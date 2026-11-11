@@ -190,6 +190,21 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
             workflow_graphs.insert(id, definition_to_graph(&template.definition));
         }
     }
+    // Ad-hoc executions register directly into the process-wide graph index
+    // without touching storage or the template registry; their graphs join
+    // the closure set so nested reference checks see the same universe that
+    // existence checks (which already union the global index) see.
+    for id in wf_workflow::registry::WorkflowRegistry::global()
+        .graphs()
+        .list()
+    {
+        if !workflow_graphs.contains_key(&id) {
+            if let Some(graph) = wf_workflow::registry::WorkflowRegistry::global().lookup_graph(&id)
+            {
+                workflow_graphs.insert(id, graph);
+            }
+        }
+    }
     val_ctx.workflow_graphs = workflow_graphs;
 
     for id in ctx.registries.trigger_templates.list() {

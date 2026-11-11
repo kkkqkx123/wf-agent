@@ -578,6 +578,7 @@ pub mod node_metadata {
     pub const ITERATION_COUNT: &str = "iteration_count";
     pub const MESSAGE_COUNT: &str = "message_count";
     pub const NODE_COUNT: &str = "node_count";
+    pub const CHILD_EXECUTION_ID: &str = "child_execution_id";
     pub const CHILD_ERROR_IGNORED: &str = "child_error_ignored";
     pub const CHILD_ERROR: &str = "child_error";
     pub const BRANCH_COUNT: &str = "branch_count";

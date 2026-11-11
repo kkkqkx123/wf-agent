@@ -43,17 +43,31 @@ impl PreprocessedGraph {
     }
 }
 
-/// Extract the inline graph definition of an EMBED_GRAPH node config
-/// (`graph_definition`), falling back to a registered graph referenced by
-/// `embed_id`.
-pub fn extract_embed_graph(node: &WorkflowNode) -> Option<WorkflowGraphStructure> {
+/// Resolve the embedded graph of an EMBED_GRAPH node config.
+///
+/// Inline `graph_definition` takes precedence and never falls back to
+/// `embed_id`: a present non-null inline that fails to parse is an error.
+/// Returns `Err` for an invalid inline definition, `Ok(Some)` for a resolved
+/// graph, and `Ok(None)` when neither inline nor a registered `embed_id`
+/// resolves.
+pub fn extract_embed_graph(node: &WorkflowNode) -> Result<Option<WorkflowGraphStructure>, String> {
     if let Some(inline) = node.inner.get("graph_definition") {
         if !inline.is_null() {
-            return serde_json::from_value(inline.clone()).ok();
+            return match serde_json::from_value(inline.clone()) {
+                Ok(graph) => Ok(Some(graph)),
+                Err(e) => Err(format!("invalid graph_definition: {e}")),
+            };
         }
     }
-    let embed_id = node.inner.get("embed_id").and_then(|v| v.as_str())?;
-    crate::registry::lookup_graph(embed_id)
+    let embed_id = node
+        .inner
+        .get("embed_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    match embed_id {
+        Some(id) => Ok(crate::registry::lookup_graph(id)),
+        None => Ok(None),
+    }
 }
 
 /// Enforce the EMBED_GRAPH constraints on an embedded workflow definition:
@@ -147,42 +161,56 @@ fn preprocess_graph_inner(
             if node.node_type != "EMBED_GRAPH" {
                 continue;
             }
-            if let Some(sub) = extract_embed_graph(node) {
-                validation_errors.extend(validate_embed_graph_constraints(
-                    &node.id,
-                    node.inner.get("graph_definition").unwrap_or(&Value::Null),
-                    &sub,
-                ));
-                let sub_pre = preprocess_graph_inner(sub, depth + 1, true);
-                embeds.push(EmbedSubgraph {
-                    embed_node_id: node.id.clone(),
-                    graph: sub_pre.graph,
-                    validation_errors: sub_pre.validation_errors,
-                    analysis: sub_pre.analysis,
-                    nested_embeds: sub_pre.embeds,
-                });
-            } else if node.inner.get("graph_definition").is_some() {
-                validation_errors.push(ValidationError::new(
-                    format!("nodes.{}", node.id),
-                    format!(
-                        "EMBED_GRAPH node '{}' has an invalid graph_definition",
-                        node.id
-                    ),
-                ));
-            } else {
-                validation_errors.push(ValidationError::new(
-                    format!("nodes.{}", node.id),
-                    format!(
-                        "EMBED_GRAPH node '{}' cannot be expanded: no graph_definition and no registered embed_id",
-                        node.id
-                    ),
-                ));
+            match extract_embed_graph(node) {
+                Ok(Some(sub)) => {
+                    if sub.nodes.is_empty() {
+                        validation_errors.push(ValidationError::new(
+                            format!("nodes.{}", node.id),
+                            format!(
+                                "EMBED_GRAPH node '{}' embeds an empty workflow; embedded workflows must contain at least one node",
+                                node.id
+                            ),
+                        ));
+                        continue;
+                    }
+                    validation_errors.extend(validate_embed_graph_constraints(
+                        &node.id,
+                        node.inner.get("graph_definition").unwrap_or(&Value::Null),
+                        &sub,
+                    ));
+                    let sub_pre = preprocess_graph_inner(sub, depth + 1, true);
+                    embeds.push(EmbedSubgraph {
+                        embed_node_id: node.id.clone(),
+                        graph: sub_pre.graph,
+                        validation_errors: sub_pre.validation_errors,
+                        analysis: sub_pre.analysis,
+                        nested_embeds: sub_pre.embeds,
+                    });
+                }
+                Err(detail) => {
+                    validation_errors.push(ValidationError::new(
+                        format!("nodes.{}", node.id),
+                        format!(
+                            "EMBED_GRAPH node '{}' has an invalid graph_definition: {}",
+                            node.id, detail
+                        ),
+                    ));
+                }
+                Ok(None) => {
+                    validation_errors.push(ValidationError::new(
+                        format!("nodes.{}", node.id),
+                        format!(
+                            "EMBED_GRAPH node '{}' cannot be expanded: no graph_definition and no registered embed_id",
+                            node.id
+                        ),
+                    ));
+                }
             }
         }
     }
 
     for embed in &embeds {
-        collect_depth_errors(embed, &mut validation_errors);
+        collect_embed_errors(embed, &mut validation_errors);
     }
 
     let flattened = flatten_graph(&graph);
@@ -200,6 +228,7 @@ fn preprocess_graph_inner(
             analysis.cycle_detection.cycle_nodes.join(", ")
         ));
     }
+    warnings.extend(duplicate_fork_path_warnings(&flattened));
 
     PreprocessedGraph {
         graph: flattened,
@@ -210,20 +239,57 @@ fn preprocess_graph_inner(
     }
 }
 
-/// Collect depth-cap errors from nested embeds so an overflow at any depth
-/// blocks the outermost execution instead of surfacing only in the nested
-/// report while the top-level graph stays valid.
-fn collect_depth_errors(embed: &EmbedSubgraph, out: &mut Vec<ValidationError>) {
-    out.extend(
-        embed
-            .validation_errors
-            .iter()
-            .filter(|e| e.message.contains("maximum embed depth"))
-            .cloned(),
-    );
-    for nested in &embed.nested_embeds {
-        collect_depth_errors(nested, out);
+/// Propagate nested embed diagnostics to the outermost report so any invalid
+/// embedded workflow blocks execution instead of surfacing only in the nested
+/// report while the top-level graph stays valid. Each direct child already
+/// carries its full transitive subtree diagnostics, so a single-level walk
+/// without separate recursion avoids duplicate reports. Fields are prefixed
+/// with the embed path to keep the failure location unambiguous.
+fn collect_embed_errors(embed: &EmbedSubgraph, out: &mut Vec<ValidationError>) {
+    for e in &embed.validation_errors {
+        out.push(ValidationError::new(
+            format!("nodes.{}.embed.{}", embed.embed_node_id, e.field),
+            e.message.clone(),
+        ));
     }
+}
+
+/// Warn when the same fork branch identifier is offered by more than one
+/// FORK node in the flattened execution graph. Branch identifiers are
+/// intentionally not namespaced, and fork resolution matches on the whole
+/// graph, so a parent workflow and an embedded workflow reusing the same
+/// `path_id` can misroute a JOIN. Reported as a warning, never a rejection.
+fn duplicate_fork_path_warnings(graph: &WorkflowGraphStructure) -> Vec<String> {
+    let mut owners: HashMap<String, Vec<String>> = HashMap::new();
+    for node in &graph.nodes {
+        if node.node_type != "FORK" {
+            continue;
+        }
+        let Some(paths) = node.inner.get("fork_paths").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for path in paths {
+            if let Some(id) = path.get("path_id").and_then(|v| v.as_str()) {
+                if !id.is_empty() {
+                    owners
+                        .entry(id.to_string())
+                        .or_default()
+                        .push(node.id.clone());
+                }
+            }
+        }
+    }
+    let mut warnings = Vec::new();
+    for (path_id, nodes) in owners {
+        if nodes.len() > 1 {
+            warnings.push(format!(
+                "Fork path_id '{}' is offered by multiple FORK nodes [{}]; fork resolution matches on the whole graph, so a JOIN may match across the embed boundary",
+                path_id,
+                nodes.join(", ")
+            ));
+        }
+    }
+    warnings
 }
 
 /// Remap internal node-id references and loop ids inside an embedded node's
@@ -333,7 +399,11 @@ struct EmbedExpansion {
 /// (carrying `original_node_id`/`embed_node_id` metadata); edges touching
 /// the EMBED_GRAPH node are rewired to the boundary nodes. The produced
 /// structure is the execution graph: EMBED_GRAPH nodes themselves never run.
-pub fn flatten_graph(graph: &WorkflowGraphStructure) -> WorkflowGraphStructure {
+///
+/// Private to force validation through `preprocess_graph`: unresolvable,
+/// invalid, or empty embeds are skipped here but reported as errors there,
+/// so a valid preprocessed graph never retains an EMBED_GRAPH node.
+fn flatten_graph(graph: &WorkflowGraphStructure) -> WorkflowGraphStructure {
     flatten_graph_inner(graph, 0)
 }
 
@@ -348,7 +418,7 @@ fn flatten_graph_inner(graph: &WorkflowGraphStructure, depth: usize) -> Workflow
         if node.node_type != "EMBED_GRAPH" {
             continue;
         }
-        let Some(sub) = extract_embed_graph(node) else {
+        let Ok(Some(sub)) = extract_embed_graph(node) else {
             continue;
         };
         if sub.nodes.is_empty() {
@@ -806,7 +876,10 @@ mod tests {
         );
 
         let pre = preprocess_graph(g);
-        assert!(pre.is_valid(), "parent graph itself is valid");
+        assert!(
+            !pre.is_valid(),
+            "invalid embedded workflow must block execution"
+        );
         assert_eq!(pre.embeds.len(), 1);
         assert!(
             pre.embeds[0]
@@ -815,6 +888,13 @@ mod tests {
                 .any(|e| e.message.contains("profile_id")),
             "embed validation errors must be collected: {:?}",
             pre.embeds[0].validation_errors
+        );
+        assert!(
+            pre.validation_errors
+                .iter()
+                .any(|e| e.message.contains("profile_id")),
+            "nested embed errors must propagate to the top report: {:?}",
+            pre.validation_errors
         );
     }
 
@@ -982,7 +1062,7 @@ mod tests {
             }),
         };
         assert!(
-            extract_embed_graph(&bad_node).is_none(),
+            extract_embed_graph(&bad_node).is_err(),
             "invalid inline must not fall back to embed_id"
         );
         let g = graph(
@@ -992,10 +1072,7 @@ mod tests {
             vec!["end"],
         );
         let pre = preprocess_graph(g);
-        assert!(
-            !pre.is_valid(),
-            "invalid inline must block execution"
-        );
+        assert!(!pre.is_valid(), "invalid inline must block execution");
     }
 
     #[test]
@@ -1025,15 +1102,36 @@ mod tests {
             );
         }
         let pre = preprocess_graph(sub);
-        assert!(
-            !pre.is_valid(),
-            "depth overflow must block execution"
-        );
+        assert!(!pre.is_valid(), "depth overflow must block execution");
         assert!(
             pre.validation_errors
                 .iter()
                 .any(|e| e.message.contains("maximum embed depth")),
             "overflow must be reported: {:?}",
+            pre.validation_errors
+        );
+    }
+
+    #[test]
+    fn empty_embed_is_rejected() {
+        let empty = graph(vec![], vec![], None, vec![]);
+        let g = graph(
+            vec![
+                node("start", "START"),
+                embed_node("embed", &empty),
+                node("end", "END"),
+            ],
+            vec![edge("start", "embed"), edge("embed", "end")],
+            Some("start"),
+            vec!["end"],
+        );
+        let pre = preprocess_graph(g);
+        assert!(!pre.is_valid(), "empty embed must block execution");
+        assert!(
+            pre.validation_errors
+                .iter()
+                .any(|e| e.message.contains("empty")),
+            "empty embed must be reported: {:?}",
             pre.validation_errors
         );
     }
@@ -1062,6 +1160,48 @@ mod tests {
         assert!(
             pre.warnings.is_empty(),
             "legal loop must not warn, got: {:?}",
+            pre.warnings
+        );
+    }
+
+    #[test]
+    fn duplicate_fork_path_ids_emit_warning_but_stay_valid() {
+        let fork = |id: &str| WorkflowNode {
+            id: id.to_string(),
+            name: Some(id.to_string()),
+            node_type: "FORK".to_string(),
+            inner: serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": "body"}]}),
+        };
+        let sub = graph(
+            vec![node("s2", "START"), fork("f2"), node("e2", "END")],
+            vec![edge("s2", "f2"), edge("f2", "e2")],
+            Some("s2"),
+            vec!["e2"],
+        );
+        let g = graph(
+            vec![
+                node("start", "START"),
+                fork("f1"),
+                embed_node("embed", &sub),
+                node("end", "END"),
+            ],
+            vec![
+                edge("start", "f1"),
+                edge("f1", "embed"),
+                edge("embed", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let pre = preprocess_graph(g);
+        assert!(
+            pre.is_valid(),
+            "path collision is a warning, not a rejection: {:?}",
+            pre.validation_errors
+        );
+        assert!(
+            pre.warnings.iter().any(|w| w.contains("p1")),
+            "expected a fork path collision warning, got: {:?}",
             pre.warnings
         );
     }

@@ -200,8 +200,17 @@ async fn run_triggered_subworkflow(
     run: TriggeredSubworkflowRun,
 ) -> WorkflowResult<Value> {
     let triggered_workflow_id = run.triggered_workflow_id;
+    // Trigger sub-workflows intentionally inherit the full parent variable
+    // snapshot plus explicit mappings, unlike SUBGRAPH nodes which stay
+    // isolated and only use explicit mappings.
     let variables = Arc::new(DashMap::new());
     variable_mapping::inherit_all_variables(&ctx.variables, &variables);
+    tracing::debug!(
+        triggered_workflow_id = %triggered_workflow_id,
+        inherited = variables.len(),
+        mapped = run.input_mapping.len(),
+        "triggered sub-workflow inherits parent variables plus explicit mappings"
+    );
     // The runtime-injected loop iteration cap is engine control state, so it
     // no longer rides the snapshot above: propagate it explicitly like the
     // other inherited budgets.
@@ -218,6 +227,10 @@ async fn run_triggered_subworkflow(
         variables.insert(key.clone(), value.clone());
     }
 
+    // Budget inheritance stays at wall-clock, node timeout, and checkpoint
+    // switch: step, pause, navigation, and loop caps reset to engine defaults
+    // because they scale with the child graph size, while the inherited
+    // wall-clock remains the ultimate bound on runaway children.
     let options = WorkflowExecutionOptions {
         file_scope: None,
         input: Some(Value::Object(
@@ -239,6 +252,13 @@ async fn run_triggered_subworkflow(
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     };
+    tracing::debug!(
+        triggered_workflow_id = %triggered_workflow_id,
+        max_execution_time = ?options.max_execution_time,
+        node_timeout = ?options.node_timeout,
+        enable_checkpoints = ?options.enable_checkpoints,
+        "triggered sub-workflow inherits wall-clock, node timeout, and checkpoint budgets"
+    );
 
     let execution_id = run.execution_id.clone();
     let sub_workflow_id = wf_common::generate_id();

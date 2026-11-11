@@ -624,22 +624,56 @@ fn validate_subgraph_recursion(
     visited: &mut HashSet<String>,
     report: &mut ReferenceClosureReport,
 ) {
+    if node.node_type == "EMBED_GRAPH" {
+        if let Some(inline) = node.inner.get("graph_definition") {
+            if !inline.is_null() {
+                // Inline definitions take precedence and never fall back to
+                // `embed_id`. An invalid inline is reported by preprocessing;
+                // closure only follows a parsable inline graph.
+                let Ok(inline_graph) =
+                    serde_json::from_value::<WorkflowGraphStructure>(inline.clone())
+                else {
+                    return;
+                };
+                if inline_graph.nodes.is_empty() {
+                    return;
+                }
+                if depth >= MAX_REFERENCE_DEPTH {
+                    report.errors.push(error(
+                        format!("nodes.{}.config.graph_definition", node.id),
+                        format!(
+                            "Node '{}' exceeds the maximum subgraph reference depth ({}) through its inline embed",
+                            node.id, MAX_REFERENCE_DEPTH
+                        ),
+                    ));
+                    return;
+                }
+                let nested =
+                    validate_reference_closure_inner(&inline_graph, ctx, depth + 1, visited);
+                for err in nested.errors {
+                    report.errors.push(error(
+                        format!("nodes.{}.embed.{}", node.id, err.field),
+                        err.message,
+                    ));
+                }
+                for warn in nested.warnings {
+                    report.warnings.push(error(
+                        format!("nodes.{}.embed.{}", node.id, warn.field),
+                        warn.message,
+                    ));
+                }
+                return;
+            }
+        }
+    }
     let target = if node.node_type == "SUBGRAPH" {
         subgraph_target_id(node)
     } else if node.node_type == "EMBED_GRAPH" {
-        let has_inline = node
-            .inner
-            .get("graph_definition")
-            .is_some_and(|v| !v.is_null());
-        if has_inline {
-            None
-        } else {
-            node.inner
-                .get("embed_id")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .map(String::from)
-        }
+        node.inner
+            .get("embed_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(String::from)
     } else {
         None
     };
@@ -1036,6 +1070,25 @@ mod tests {
         let graph = graph_with(vec![]);
         let report = validate_reference_closure(&graph, &ctx);
         assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn inline_embed_nested_reference_is_checked() {
+        let inline = graph_with(vec![node(
+            "sub",
+            "SUBGRAPH",
+            serde_json::json!({"subgraph_id": "ghost-wf"}),
+        )]);
+        let ctx = ReferenceContext::new();
+        let graph = graph_with(vec![node(
+            "embed",
+            "EMBED_GRAPH",
+            serde_json::json!({ "graph_definition": inline }),
+        )]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].message.contains("ghost-wf"));
+        assert!(report.errors[0].field.contains("embed"));
     }
 
     #[test]

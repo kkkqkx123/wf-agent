@@ -90,14 +90,24 @@ fn ignore_child_error(config: &Value) -> bool {
 
 /// A child failure resolved into a marked success under the ignore policy:
 /// no output, no variable write-back, but the parent can tell the child
-/// did not complete normally.
-fn ignored_child_result(node_count: u64, err: &WorkflowError) -> NodeExecutionResult {
+/// did not complete normally. The child execution identifier is kept so the
+/// parent record drills down to the child execution without renaming the
+/// observed namespace.
+fn ignored_child_result(
+    node_count: u64,
+    child_execution_id: &str,
+    err: &WorkflowError,
+) -> NodeExecutionResult {
     let mut ignored_metadata = HashMap::new();
     {
         use wf_execution_shared::context::node_metadata as keys;
         ignored_metadata.insert(
             keys::NODE_COUNT.to_string(),
             Value::Number(serde_json::Number::from(node_count)),
+        );
+        ignored_metadata.insert(
+            keys::CHILD_EXECUTION_ID.to_string(),
+            Value::String(child_execution_id.to_string()),
         );
         ignored_metadata.insert(keys::CHILD_ERROR_IGNORED.to_string(), Value::Bool(true));
         ignored_metadata.insert(
@@ -126,6 +136,10 @@ pub(crate) async fn execute_subgraph(
     let handlers = crate::handler::resolve_handler_registry(ctx)
         .map_err(|e| WorkflowError::SubgraphError(e.to_string()))?;
 
+    // Budget inheritance stays at wall-clock, node timeout, and checkpoint
+    // switch: step, pause, navigation, and loop caps reset to engine defaults
+    // because they scale with the child graph size, while the inherited
+    // wall-clock remains the ultimate bound on runaway children.
     let options = WorkflowExecutionOptions {
         file_scope: None,
         input: Some(ctx.input.clone()),
@@ -141,6 +155,13 @@ pub(crate) async fn execute_subgraph(
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     };
+    tracing::debug!(
+        node_id = %ctx.node_id,
+        max_execution_time = ?options.max_execution_time,
+        node_timeout = ?options.node_timeout,
+        enable_checkpoints = ?options.enable_checkpoints,
+        "subgraph inherits wall-clock, node timeout, and checkpoint budgets"
+    );
 
     // Subgraphs are independent workflow entities with their own
     // execution_id, and thus their own variable store. Derived through the
@@ -193,6 +214,7 @@ pub(crate) async fn execute_subgraph(
     } else {
         None
     };
+    let child_execution_id = execution_id.clone();
     let mut exec_ctx = ExecutorContext::new(
         execution_id,
         sub_workflow_id,
@@ -234,6 +256,7 @@ pub(crate) async fn execute_subgraph(
         EventType::SubgraphStarted,
         &ctx.execution_id,
         &ctx.node_id,
+        &child_execution_id,
         None,
     );
 
@@ -255,6 +278,7 @@ pub(crate) async fn execute_subgraph(
                         EventType::SubgraphCompleted,
                         &ctx.execution_id,
                         &ctx.node_id,
+                        &child_execution_id,
                         Some("ignored"),
                     );
                     if let Some(metrics) = &subgraph_metrics {
@@ -266,7 +290,7 @@ pub(crate) async fn execute_subgraph(
                             Some("subgraph_ignored"),
                         );
                     }
-                    return Ok(ignored_child_result(0, &err));
+                    return Ok(ignored_child_result(0, &child_execution_id, &err));
                 }
                 if let Some(metrics) = &subgraph_metrics {
                     metrics.record_execution_complete(
@@ -302,6 +326,7 @@ pub(crate) async fn execute_subgraph(
                 EventType::SubgraphCompleted,
                 &ctx.execution_id,
                 &ctx.node_id,
+                &child_execution_id,
                 None,
             );
             if let Some(metrics) = &subgraph_metrics {
@@ -322,6 +347,7 @@ pub(crate) async fn execute_subgraph(
                     EventType::SubgraphCompleted,
                     &ctx.execution_id,
                     &ctx.node_id,
+                    &child_execution_id,
                     Some("ignored"),
                 );
                 if let Some(metrics) = &subgraph_metrics {
@@ -335,6 +361,7 @@ pub(crate) async fn execute_subgraph(
                 }
                 return Ok(ignored_child_result(
                     coordinator.completed_nodes().len() as u64,
+                    &child_execution_id,
                     &err,
                 ));
             }
@@ -360,6 +387,10 @@ pub(crate) async fn execute_subgraph(
                 coordinator.completed_nodes().len() as u64,
             )),
         );
+        metadata.insert(
+            keys::CHILD_EXECUTION_ID.to_string(),
+            Value::String(child_execution_id),
+        );
     }
 
     Ok(NodeExecutionResult {
@@ -374,13 +405,20 @@ fn emit_subgraph_event(
     event_type: EventType,
     execution_id: &wf_types::Id,
     node_id: &str,
+    child_execution_id: &str,
     outcome: Option<&str>,
 ) {
     let Some(bus) = event_bus else {
         tracing::debug!(execution_id = %execution_id, node_id, ?event_type, "no event bus, skipping subgraph event");
         return;
     };
-    let mut metadata = HashMap::from([("node_id".to_string(), Value::String(node_id.to_string()))]);
+    let mut metadata = HashMap::from([
+        ("node_id".to_string(), Value::String(node_id.to_string())),
+        (
+            "child_execution_id".to_string(),
+            Value::String(child_execution_id.to_string()),
+        ),
+    ]);
     if let Some(outcome) = outcome {
         metadata.insert("outcome".to_string(), Value::String(outcome.to_string()));
     }

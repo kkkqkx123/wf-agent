@@ -1,4 +1,4 @@
-# 11-可见性与可用性变化
+# 可见性与可用性变化
 
 > 范围：`tool_exposure.rs`、`visibility.rs`、`tool_snapshot.rs`、`entity.rs`、`agent_request.rs`、`coordinator/lifecycle/entity.rs`、`handler/agent_loop*.rs`、`handler/tool_visibility.rs`、`agent_prompt.rs`、`general_history.rs`
 > 定位：执行实例持有的是可见性意图，完整工具定义永远以注册表为准；可用性变化走冻结快照加显式通告，不做静默改阵

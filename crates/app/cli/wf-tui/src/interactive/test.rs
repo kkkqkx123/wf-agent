@@ -1,4 +1,3 @@
-
 use super::*;
 use tui_core::panel_select::Motion;
 

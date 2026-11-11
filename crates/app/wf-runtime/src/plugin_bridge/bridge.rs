@@ -68,7 +68,9 @@ mod tests {
     use super::*;
     use wf_core::registry::Registry;
     use wf_plugin::ContributionBridge;
-    use wf_plugin::{ContributionRegistrar, PluginToolContext, PluginToolExecutor, PluginToolResult};
+    use wf_plugin::{
+        ContributionRegistrar, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    };
     use wf_types::tool::{Tool, ToolType};
 
     struct EchoExecutor;

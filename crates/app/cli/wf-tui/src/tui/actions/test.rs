@@ -1,4 +1,3 @@
-
 use super::conflict::{parse_rebase_selector, rebuild_conflict_content};
 use super::*;
 

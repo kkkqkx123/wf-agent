@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn parse(args: &[&str]) -> Result<Cli, clap::Error> {

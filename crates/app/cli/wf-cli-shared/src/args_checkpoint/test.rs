@@ -1,4 +1,3 @@
-
 use clap::Parser;
 
 use crate::args::{Cli, Command};

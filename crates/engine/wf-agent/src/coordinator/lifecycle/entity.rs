@@ -400,10 +400,15 @@ impl AgentLoopCoordinator {
             // window; a zero limit leaves compaction disabled and the
             // legacy single-summary path applies.
             if let Some(window) = profile.as_ref().and_then(|p| p.context_window_size) {
-                entity.conversation().write().await.set_compaction_window(
-                    u64::from(window),
-                    &wf_execution_shared::process_compaction_limits(),
-                );
+                let limits = self
+                    .compaction_limits
+                    .clone()
+                    .unwrap_or_else(|| wf_execution_shared::process_compaction_limits());
+                entity
+                    .conversation()
+                    .write()
+                    .await
+                    .set_compaction_window(u64::from(window), &limits);
             }
         }
 

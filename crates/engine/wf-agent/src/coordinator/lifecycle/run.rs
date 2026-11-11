@@ -61,12 +61,17 @@ impl AgentLoopCoordinator {
                     integration,
                 },
             );
+        let limits = self
+            .compaction_limits
+            .clone()
+            .unwrap_or_else(|| wf_execution_shared::process_compaction_limits());
         self.event_bus.as_ref().map(move |bus| {
             crate::conversation_compression::spawn_conversation_compression_consumer(
                 bus.clone(),
                 agent_loop_id,
                 conversation,
                 checkpoint,
+                limits,
             )
         })
     }
@@ -230,6 +235,12 @@ impl AgentLoopCoordinator {
         // signals, message-count backstop) share the run strategy.
         .with_checkpoint(self.checkpoint_integration_for_config(config))
         .with_message_interval(config.checkpoint_message_interval);
+        if let Some(limits) = self.compaction_limits.clone() {
+            coordinator = coordinator.with_compaction_limits(limits);
+        }
+        if let Some(timeout_ms) = self.settle_timeout_ms {
+            coordinator = coordinator.with_settle_timeout_ms(timeout_ms);
+        }
         // File-content observation: the agent actor partition receives
         // precise file-tool events and scoped shell diffs. Blocking,
         // streaming, retry and nested executions share this observer

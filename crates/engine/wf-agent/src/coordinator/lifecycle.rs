@@ -82,6 +82,12 @@ pub struct AgentLoopCoordinator {
     /// Hard cap on `max_iterations`; configs above it are rejected at
     /// execution time.
     max_iterations_cap: u32,
+    /// Explicit compaction tuning; `None` falls back to the process-wide
+    /// install.
+    compaction_limits: Option<wf_types::config::limits::CompactionLimits>,
+    /// Explicit settle budget for compression waits; `None` falls back to
+    /// the process-wide install.
+    settle_timeout_ms: Option<u64>,
 }
 
 impl AgentLoopCoordinator {
@@ -122,6 +128,8 @@ impl AgentLoopCoordinator {
             file_checkpoint_manager: None,
             default_max_iterations: crate::constants::DEFAULT_MAX_ITERATIONS,
             max_iterations_cap: crate::constants::AGENT_MAX_ITERATIONS_CAP,
+            compaction_limits: None,
+            settle_timeout_ms: None,
         }
     }
 
@@ -206,6 +214,22 @@ impl AgentLoopCoordinator {
     /// execution time.
     pub fn with_max_iterations_cap(mut self, cap: u32) -> Self {
         self.max_iterations_cap = cap;
+        self
+    }
+
+    /// Inject the resolved compaction tuning; explicit values win over the
+    /// process-wide install.
+    pub fn with_compaction_limits(
+        mut self,
+        limits: wf_types::config::limits::CompactionLimits,
+    ) -> Self {
+        self.compaction_limits = Some(limits);
+        self
+    }
+
+    /// Inject the settle budget for compression waits.
+    pub fn with_settle_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.settle_timeout_ms = Some(timeout_ms);
         self
     }
 

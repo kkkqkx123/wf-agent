@@ -243,7 +243,8 @@ impl AgentIterationCoordinator {
         ));
         {
             let mut session = entity.conversation().write().await;
-            let recent = wf_execution_shared::process_compaction_limits()
+            let recent = self
+                .effective_compaction_limits()
                 .recent_raw_turns
                 .unwrap_or(wf_execution_shared::RECENT_RAW_TURNS_DEFAULT)
                 .saturating_mul(2);

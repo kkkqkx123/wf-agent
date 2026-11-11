@@ -368,7 +368,22 @@ impl Runtime {
                     }
                 })
                 .with_hook_handler_registry(hook_handler_registry.clone())
-                .with_signal_bus(signal_bus.clone()),
+                .with_signal_bus(signal_bus.clone())
+                .with_compaction_limits(
+                    config
+                        .limits
+                        .compaction
+                        .clone()
+                        .unwrap_or_else(wf_execution_shared::compaction::builtin_compaction_limits),
+                )
+                .with_settle_timeout_ms(
+                    config
+                        .limits
+                        .compression
+                        .as_ref()
+                        .and_then(|c| c.settle_timeout_ms)
+                        .unwrap_or(wf_execution_shared::DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS),
+                ),
         );
         let mut workflow_callback =
             wf_workflow::execution_callback::WorkflowExecutionCallback::new(tool_registry.clone())

@@ -39,8 +39,7 @@ impl AgentIterationCoordinator {
                 }
             }
         }
-        let settle_timeout =
-            std::time::Duration::from_millis(wf_execution_shared::compression_settle_timeout_ms());
+        let settle_timeout = std::time::Duration::from_millis(self.effective_settle_timeout_ms());
         let poll_interval =
             std::time::Duration::from_millis(wf_execution_shared::COMPRESSION_SETTLE_POLL_MS);
         let abort = entity.get_abort_signal();
@@ -166,6 +165,13 @@ impl AgentIterationCoordinator {
             0
         };
         let messages = request.messages.clone();
+        let limits = self.effective_compaction_limits();
+        let forced_plan = wf_execution_shared::stateless_plan_for_estimate(
+            &messages,
+            tokens_used,
+            effective_limit,
+            &limits,
+        );
         let compression_request = wf_execution_shared::context_store::compression_request(
             wf_execution_shared::CONVERSATION_CONTEXT_ID,
             tokens_used,
@@ -174,7 +180,7 @@ impl AgentIterationCoordinator {
             version,
             true,
             &messages,
-            &[],
+            &forced_plan,
         );
         // Snapshot the pre-compression state before the safety-net summary
         // workflow runs; the compressed view is checkpointed on write-back.
@@ -327,9 +333,24 @@ impl AgentIterationCoordinator {
                 .await;
             return;
         }
-        let limits = wf_execution_shared::process_compaction_limits();
+        let limits = self.effective_compaction_limits();
         let mut conversation = entity.conversation().write().await;
         conversation.refresh_hot_estimate();
+        if conversation.compaction_mode() == wf_execution_shared::CompactionMode::Handoff {
+            let dynamic_probe = wf_execution_shared::context_store::dynamic_request_overhead(
+                prompt_est as u64,
+                conversation.estimated_view_tokens(),
+            );
+            let hot_probe = conversation.calibrated_estimate(
+                conversation
+                    .compaction_state()
+                    .hot_tokens
+                    .saturating_add(dynamic_probe),
+            );
+            if conversation.try_exit_handoff(hot_probe) {
+                return;
+            }
+        }
         let dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
             prompt_est as u64,
             conversation.estimated_view_tokens(),
@@ -360,7 +381,7 @@ impl AgentIterationCoordinator {
                 // An expired flight releases itself so a lost completion
                 // never blocks later compressions forever.
                 if let Some(flight) = conversation.compression_flight() {
-                    let settle_ms = wf_execution_shared::compression_settle_timeout_ms();
+                    let settle_ms = self.effective_settle_timeout_ms();
                     if wf_execution_shared::context_store::flight_expired(
                         flight.started_at_ms,
                         wf_common::now(),

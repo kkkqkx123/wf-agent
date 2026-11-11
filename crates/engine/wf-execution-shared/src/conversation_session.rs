@@ -508,6 +508,20 @@ impl ConversationSession {
         self.tracker.reset_preflight_warning();
     }
 
+    /// Exit handoff once the hot view cooled back to target: the archived
+    /// index stays for audit, but new appends resume normal compaction.
+    /// Returns whether the mode flipped.
+    pub fn try_exit_handoff(&mut self, hot_tokens: u64) -> bool {
+        if self.state.compaction.mode != CompactionMode::Handoff {
+            return false;
+        }
+        if hot_tokens <= self.state.compaction.thresholds.h_target {
+            self.state.compaction.mode = CompactionMode::Normal;
+            return true;
+        }
+        false
+    }
+
     /// Deactivate the oldest active block (handoff-mode hard-limit guard).
     /// Returns whether a block was deactivated.
     pub fn drop_oldest_active_block(&mut self, recent_messages: usize) -> bool {

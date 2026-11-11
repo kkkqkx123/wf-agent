@@ -1,9 +1,6 @@
 use wf_plugin::{ContributionManager, PluginError, PluginResult};
 
-pub(crate) fn sync_retrieval(
-    plugin_id: &str,
-    manager: &ContributionManager,
-) -> PluginResult<()> {
+pub(crate) fn sync_retrieval(plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
     for (name, owner) in manager.all_text_analyzers() {
         if owner != plugin_id {
             continue;

@@ -135,37 +135,13 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         );
         0
     };
-    // Same hard-limit guard as the budget path: a far over-budget forced
-    // snapshot splits into a one-shot stateless plan. With an unknown
-    // budget there is no line to compare against, so it stays single.
-    // Single-summary mode never upgrades.
-    let mut stateless_plan = Vec::new();
-    if effective_limit > 0 {
-        let limits = wf_execution_shared::compaction::process_compaction_limits();
-        let hard_line = (effective_limit as f64
-            * wf_execution_shared::compaction::stateless_plan_factor(&limits))
-            as u64;
-        if !wf_execution_shared::is_single_summary_strategy(
-            &wf_execution_shared::compaction_strategy_name(&limits),
-        ) && tokens_used > hard_line
-        {
-            let budget = wf_execution_shared::compaction::resolve_summary_call_budget(
-                effective_limit,
-                &limits,
-            );
-            let cap = limits
-                .plan_max_items
-                .unwrap_or(wf_execution_shared::compaction::PLAN_MAX_ITEMS_DEFAULT)
-                .max(1);
-            let costs: Vec<u64> = request
-                .messages
-                .iter()
-                .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
-                .collect();
-            stateless_plan =
-                wf_execution_shared::compaction::build_stateless_plan(&costs, budget, cap);
-        }
-    }
+    let limits = wf_execution_shared::compaction::process_compaction_limits();
+    let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
+        &request.messages,
+        tokens_used,
+        effective_limit,
+        &limits,
+    );
     let compression_request = wf_execution_shared::context_store::compression_request(
         &target,
         tokens_used,

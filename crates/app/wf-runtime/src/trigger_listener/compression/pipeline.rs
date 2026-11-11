@@ -158,6 +158,11 @@ pub(crate) struct CompressionPipeline {
     repress_workflow_id: Option<String>,
     policy: CompressionPolicy,
     handled: Arc<DashMap<String, CompressionAttempt>>,
+    /// Live agent sessions for direct write-back; `None` keeps the
+    /// event-transport path. Wired when the runtime owns the agent
+    /// registry, preparing the control/data split without changing the
+    /// event contract yet.
+    agent_sessions: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
 }
 
 impl CompressionPipeline {
@@ -179,6 +184,7 @@ impl CompressionPipeline {
             repress_workflow_id: None,
             policy: CompressionPolicy::default(),
             handled: Arc::new(DashMap::new()),
+            agent_sessions: None,
         }
     }
 
@@ -189,6 +195,14 @@ impl CompressionPipeline {
 
     pub(crate) fn with_policy(mut self, policy: CompressionPolicy) -> Self {
         self.policy = policy;
+        self
+    }
+
+    pub(crate) fn with_agent_sessions(
+        mut self,
+        sessions: Arc<wf_agent::registry::AgentLoopRegistry>,
+    ) -> Self {
+        self.agent_sessions = Some(sessions);
         self
     }
 
@@ -296,6 +310,12 @@ impl CompressionPipeline {
     /// the spawned run settles on any path, so a terminal state re-arms the
     /// same signal.
     pub(crate) fn spawn(&self, request: CompressionRequest) -> bool {
+        debug!(
+            "Compression spawn direct_write={} target={}:{}",
+            self.agent_sessions.is_some(),
+            request.target_context_id,
+            request.array_version
+        );
         let key = format!(
             "{}:{}:{}",
             request.execution_id, request.target_context_id, request.array_version

@@ -156,12 +156,8 @@ pub(crate) fn install_resources(
             );
         }
     }
-    let summary = wf_resource::resource_assembler::install_bundle(
-        registries,
-        tool_registry,
-        bundle,
-        true,
-    );
+    let summary =
+        wf_resource::resource_assembler::install_bundle(registries, tool_registry, bundle, true);
     for id in &summary.succeeded {
         tracing::debug!("  resource: {}", id);
     }

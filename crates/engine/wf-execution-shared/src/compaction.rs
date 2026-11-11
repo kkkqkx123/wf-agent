@@ -487,6 +487,36 @@ pub fn build_stateless_plan(
     items
 }
 
+/// Shared stateless planning for far over-budget snapshots without a block
+/// table: moderately over-budget arrays keep the single summary, far over
+/// budget ones split into call-budget chunks. Single-summary strategy never
+/// upgrades. Unknown budgets stay single-summary upstream.
+/// Empty return means the legacy single-summary mode.
+pub fn stateless_plan_for_estimate(
+    messages: &[Message],
+    estimated: u64,
+    context_limit: u64,
+    limits: &CompactionLimits,
+) -> Vec<CompactionPlanItem> {
+    if context_limit == 0 {
+        return Vec::new();
+    }
+    if is_single_summary_strategy(&compaction_strategy_name(limits)) {
+        return Vec::new();
+    }
+    let hard_line = (context_limit as f64 * stateless_plan_factor(limits)) as u64;
+    if estimated <= hard_line {
+        return Vec::new();
+    }
+    let budget = resolve_summary_call_budget(context_limit, limits);
+    let cap = plan_max_items(limits);
+    let costs: Vec<u64> = messages
+        .iter()
+        .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
+        .collect();
+    build_stateless_plan(&costs, budget, cap)
+}
+
 /// Maximum summary-chain calls in one compaction round.
 fn plan_max_items(limits: &CompactionLimits) -> usize {
     limits

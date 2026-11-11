@@ -35,6 +35,8 @@ pub struct AgentLoopExecutor {
     /// loops started here are delivered to their coordinators.
     signal_bus: Option<Arc<wf_core::internal_signal::InternalSignalBus>>,
     hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
+    compaction_limits: Option<wf_types::config::limits::CompactionLimits>,
+    settle_timeout_ms: Option<u64>,
 }
 
 impl AgentLoopExecutor {
@@ -52,6 +54,8 @@ impl AgentLoopExecutor {
             event_bus: None,
             signal_bus: None,
             hook_handler_registry: None,
+            compaction_limits: None,
+            settle_timeout_ms: None,
         }
     }
 
@@ -125,6 +129,22 @@ impl AgentLoopExecutor {
         self
     }
 
+    /// Inject the resolved compaction tuning; explicit values win over the
+    /// process-wide install.
+    pub fn with_compaction_limits(
+        mut self,
+        limits: wf_types::config::limits::CompactionLimits,
+    ) -> Self {
+        self.compaction_limits = Some(limits);
+        self
+    }
+
+    /// Inject the settle budget for compression waits.
+    pub fn with_settle_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.settle_timeout_ms = Some(timeout_ms);
+        self
+    }
+
     fn coordinator(&self, parent: Option<&ParentLink>) -> AgentLoopCoordinator {
         // The typed link is the sole parent channel: it carries the live
         // parent handle, whatever execution type owns it. A missing link
@@ -146,6 +166,12 @@ impl AgentLoopExecutor {
         }
         if let Some(registry) = &self.hook_handler_registry {
             coordinator = coordinator.with_hook_handler_registry(registry.clone());
+        }
+        if let Some(limits) = &self.compaction_limits {
+            coordinator = coordinator.with_compaction_limits(limits.clone());
+        }
+        if let Some(timeout_ms) = self.settle_timeout_ms {
+            coordinator = coordinator.with_settle_timeout_ms(timeout_ms);
         }
         coordinator
     }

@@ -109,6 +109,13 @@ pub struct AgentIterationCoordinator {
     /// Session message count at the last message-level checkpoint, so a
     /// batch of appends crossing several multiples fires exactly once.
     message_checkpoint_watermark: std::sync::Mutex<u64>,
+    /// Explicit compaction tuning; `None` falls back to the process-wide
+    /// install so existing tests keep passing while bootstrap injects
+    /// the resolved config.
+    compaction_limits: Option<wf_types::config::limits::CompactionLimits>,
+    /// Explicit settle budget for compression waits; `None` falls back
+    /// to the process-wide install.
+    settle_timeout_ms: Option<u64>,
 }
 
 impl AgentIterationCoordinator {
@@ -134,6 +141,8 @@ impl AgentIterationCoordinator {
             checkpoint: None,
             message_interval: None,
             message_checkpoint_watermark: std::sync::Mutex::new(0),
+            compaction_limits: None,
+            settle_timeout_ms: None,
         }
     }
 
@@ -339,6 +348,38 @@ impl AgentIterationCoordinator {
     pub fn with_message_interval(mut self, interval: Option<u32>) -> Self {
         self.message_interval = interval.filter(|n| *n > 0);
         self
+    }
+
+    /// Inject the resolved compaction tuning; explicit values win over the
+    /// process-wide install.
+    pub fn with_compaction_limits(
+        mut self,
+        limits: wf_types::config::limits::CompactionLimits,
+    ) -> Self {
+        self.compaction_limits = Some(limits);
+        self
+    }
+
+    /// Inject the settle budget for compression waits; explicit values win
+    /// over the process-wide install.
+    pub fn with_settle_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.settle_timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    /// Effective compaction tuning: explicit injection wins, otherwise the
+    /// process-wide install.
+    pub(crate) fn effective_compaction_limits(&self) -> wf_types::config::limits::CompactionLimits {
+        self.compaction_limits
+            .clone()
+            .unwrap_or_else(|| wf_execution_shared::process_compaction_limits())
+    }
+
+    /// Effective settle budget: explicit injection wins, otherwise the
+    /// process-wide install.
+    pub(crate) fn effective_settle_timeout_ms(&self) -> u64 {
+        self.settle_timeout_ms
+            .unwrap_or_else(wf_execution_shared::compression_settle_timeout_ms)
     }
 
     /// Inject the file-content observer (agent actor partition) into the
@@ -634,7 +675,7 @@ impl AgentIterationCoordinator {
                 tool_messages,
                 &mut session,
                 archive.as_ref(),
-                &wf_execution_shared::process_compaction_limits(),
+                &self.effective_compaction_limits(),
             )
         };
         for msg in &tool_messages {

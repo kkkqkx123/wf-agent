@@ -1,9 +1,6 @@
 use wf_plugin::{ContributionManager, PluginError, PluginResult};
 
-pub(crate) fn sync_advisors(
-    plugin_id: &str,
-    manager: &ContributionManager,
-) -> PluginResult<()> {
+pub(crate) fn sync_advisors(plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
     for (name, owner) in manager.all_compaction_advisors() {
         if owner != plugin_id {
             continue;

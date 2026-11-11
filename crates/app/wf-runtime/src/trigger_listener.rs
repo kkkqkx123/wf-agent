@@ -320,6 +320,9 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         if let Some(repress_workflow_id) = route.repress_workflow_id.clone() {
             pipeline = pipeline.with_repress_workflow_id(repress_workflow_id);
         }
+        if let Some(sessions) = agent_loop_registry.clone() {
+            pipeline = pipeline.with_agent_sessions(sessions);
+        }
         Arc::new(pipeline)
     });
     // Read-time chaining: the builtin template is visible exactly when the

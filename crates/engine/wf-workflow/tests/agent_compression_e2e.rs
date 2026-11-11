@@ -245,6 +245,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
         "agent-1".to_string(),
         conversation.clone(),
         None,
+        wf_execution_shared::compaction::builtin_compaction_limits(),
     );
 
     // The agent engine dispatches the compression signal through the hook
@@ -327,6 +328,7 @@ async fn agent_consumer_discards_stale_compression_result() {
         "agent-1".to_string(),
         conversation.clone(),
         None,
+        wf_execution_shared::compaction::builtin_compaction_limits(),
     );
     wait_for_listener(&bus, 1).await;
 

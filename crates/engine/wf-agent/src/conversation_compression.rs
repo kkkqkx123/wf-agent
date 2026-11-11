@@ -53,6 +53,7 @@ pub fn spawn_conversation_compression_consumer(
     agent_loop_id: String,
     conversation: Arc<RwLock<ConversationSession>>,
     checkpoint: Option<CompressionCheckpoint>,
+    limits: wf_types::config::limits::CompactionLimits,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut subscription = bus.subscribe();
@@ -73,7 +74,7 @@ pub fn spawn_conversation_compression_consumer(
                     let still_over = meta.still_over_budget;
                     let run_id = meta.run_id.clone();
                     let has_blocks = !meta.blocks.is_empty();
-                    if !apply_compression(&conversation, meta).await {
+                    if !apply_compression(&conversation, meta, &limits).await {
                         // Stale results still release the backpressure
                         // anchor so later iterations do not wait on a run
                         // whose output was discarded. The discard is published
@@ -219,6 +220,7 @@ pub fn spawn_conversation_compression_consumer(
 pub async fn apply_compression(
     conversation: &Arc<RwLock<ConversationSession>>,
     meta: ContextCompressionCompletedMeta,
+    limits: &wf_types::config::limits::CompactionLimits,
 ) -> bool {
     let mut session = conversation.write().await;
     if !check_anchor(session.conversation_version(), meta.array_version) {
@@ -233,8 +235,7 @@ pub async fn apply_compression(
     // blocks and cut the segmented view. Legacy completions keep the
     // single-summary path.
     if !meta.blocks.is_empty() {
-        let limits = wf_execution_shared::process_compaction_limits();
-        session.apply_compaction_result(meta.messages, &meta.blocks, &limits);
+        session.apply_compaction_result(meta.messages, &meta.blocks, limits);
     } else {
         session.compress_with_tail(meta.messages, meta.tail_keep);
     }
@@ -341,6 +342,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         // Wait for the consumer subscription to be live.
@@ -391,6 +393,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -430,6 +433,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -465,6 +469,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -514,6 +519,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -565,6 +571,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -622,6 +629,7 @@ mod tests {
             "loop-1".to_string(),
             conversation.clone(),
             None,
+            wf_execution_shared::compaction::builtin_compaction_limits(),
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {

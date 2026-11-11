@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn enabled_config() -> NotificationConfig {

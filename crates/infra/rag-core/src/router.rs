@@ -14,6 +14,7 @@ use crate::error::{RagError, Result};
 use crate::retriever::{
     concat_fusion, reciprocal_rank_fusion, weighted_fusion_with_weights, RetrievedChunk,
 };
+use wf_plugin_sdk::PluginRouteSelector;
 
 /// One retrieval scope: a collection plus a namespace inside it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +54,66 @@ pub struct RouterConfig {
     /// How per-scope hit lists are fused.
     #[serde(default)]
     pub fusion: FusionConfig,
+    /// Plugin route selector choosing scopes before keyword rules;
+    /// unset keeps rule resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_selector: Option<String>,
+}
+
+/// Resolves the targets for one question through the configured plugin
+/// route selector, falling back to keyword rules. Unknown selector names
+/// fail; failing or empty suggestions fall back to rule resolution.
+pub fn resolve_selected<'a>(config: &'a RouterConfig, query: &str) -> Result<Vec<&'a RouteTarget>> {
+    let Some(name) = config
+        .route_selector
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(resolve_targets(config, query));
+    };
+    let Some(selector) = crate::plugin::find_route_selector(name) else {
+        return Err(RagError::InvalidInput(format!(
+            "unknown route selector '{name}'"
+        )));
+    };
+    let candidates: Vec<String> = config
+        .targets
+        .iter()
+        .map(|target| target.name.clone())
+        .collect();
+    let input = serde_json::json!({
+        "protocol_version": crate::plugin::ROUTE_SELECTOR_PROTOCOL_VERSION,
+        "query": query,
+        "candidates": candidates,
+    });
+    let output = match selector.select(input) {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!(selector = %name, error = %error, "route selector failed; keeping keyword rules");
+            return Ok(resolve_targets(config, query));
+        }
+    };
+    let selected: Vec<String> = output
+        .get("targets")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let matched: Vec<&RouteTarget> = selected
+        .iter()
+        .filter_map(|name| config.targets.iter().find(|target| &target.name == name))
+        .collect();
+    if matched.is_empty() {
+        return Ok(resolve_targets(config, query));
+    }
+    Ok(matched)
 }
 
 /// Resolves the targets for one question: the first matching rule wins,
@@ -100,7 +161,7 @@ where
         return Err(RagError::InvalidInput("router has no targets".to_string()));
     }
     let mut weighted = Vec::new();
-    for target in resolve_targets(router, query_text) {
+    for target in resolve_selected(router, query_text)? {
         if target.collection.trim().is_empty() || target.namespace.trim().is_empty() {
             return Err(RagError::InvalidInput(format!(
                 "route target '{}' has an empty collection or namespace",
@@ -177,6 +238,7 @@ mod tests {
                 targets: vec!["code".to_string()],
             }],
             fusion: FusionConfig::default(),
+            route_selector: None,
         }
     }
 
@@ -200,6 +262,47 @@ mod tests {
         let mut config = router();
         config.rules[0].targets = vec!["missing".to_string()];
         assert_eq!(resolve_targets(&config, "struct Foo").len(), 2);
+    }
+
+    struct CodeSelector;
+
+    impl wf_plugin_sdk::PluginRouteSelector for CodeSelector {
+        fn select(
+            &self,
+            _input: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"targets": ["code", "missing"]}))
+        }
+    }
+
+    struct FailingSelector;
+
+    impl wf_plugin_sdk::PluginRouteSelector for FailingSelector {
+        fn select(
+            &self,
+            _input: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Err(wf_plugin_sdk::PluginError::Internal("boom".to_string()))
+        }
+    }
+
+    #[test]
+    fn selector_prefers_plugin_subset_and_validates_names() {
+        crate::plugin::clear_route_selectors();
+        crate::plugin::register_route_selector("code", std::sync::Arc::new(CodeSelector));
+        let mut config = router();
+        config.route_selector = Some("code".to_string());
+        let resolved = resolve_selected(&config, "ownership").expect("selector resolves");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].name, "code");
+        config.route_selector = Some("missing-selector".to_string());
+        assert!(resolve_selected(&config, "ownership").is_err());
+        crate::plugin::register_route_selector("fail", std::sync::Arc::new(FailingSelector));
+        config.route_selector = Some("fail".to_string());
+        let fallback = resolve_selected(&config, "struct Foo").expect("failure falls back");
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].name, "code");
+        crate::plugin::clear_route_selectors();
     }
 
     struct UnitEmbedder {
@@ -291,6 +394,7 @@ mod tests {
             targets: Vec::new(),
             rules: Vec::new(),
             fusion: FusionConfig::default(),
+            route_selector: None,
         };
         assert!(query_routed(
             &store,

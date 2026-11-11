@@ -106,6 +106,42 @@ pub trait ContributionRegistrar {
     /// Declare deferred snapshot expectations as JSON. Stage 6 reservation
     /// only; execution stays host-owned.
     fn register_snapshot_policy(&mut self, name: &str, policy: Value) -> PluginResult<()>;
+    /// Reserve deferred ingest metadata enrichment; `name` selects the
+    /// extractor. Advisory only; the host merges suggestions without
+    /// changing writes on failure.
+    fn register_metadata_extractor(
+        &mut self,
+        name: &str,
+        extractor: Arc<dyn PluginMetadataExtractor>,
+    ) -> PluginResult<()>;
+    /// Reserve deferred semantic chunk splitting; `name` selects the
+    /// splitter. Advisory only; failures fall back to the built-in splitter.
+    fn register_chunk_splitter(
+        &mut self,
+        name: &str,
+        splitter: Arc<dyn PluginChunkSplitter>,
+    ) -> PluginResult<()>;
+    /// Reserve deferred semantic route selection; `name` selects the
+    /// selector. Advisory only; failures fall back to keyword rules.
+    fn register_route_selector(
+        &mut self,
+        name: &str,
+        selector: Arc<dyn PluginRouteSelector>,
+    ) -> PluginResult<()>;
+    /// Reserve deferred diversity and filtering postprocessing; `name`
+    /// selects the postprocessor. Advisory only; failures keep built-in order.
+    fn register_postprocessor(
+        &mut self,
+        name: &str,
+        postprocessor: Arc<dyn PluginPostprocessor>,
+    ) -> PluginResult<()>;
+    /// Reserve a deferred answer scoring judge; `name` selects the judge.
+    /// Advisory only; out-of-range scores are rejected by the caller.
+    fn register_eval_judge(
+        &mut self,
+        name: &str,
+        judge: Arc<dyn PluginEvalJudge>,
+    ) -> PluginResult<()>;
     /// Register one user-facing command (slash, palette and help share the
     /// definition). `command.id` is the registry key; a second plugin
     /// claiming the id fails loudly instead of overriding it.

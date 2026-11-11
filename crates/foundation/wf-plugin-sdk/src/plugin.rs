@@ -163,6 +163,31 @@ impl NativeRegistrar {
         self.record("retrieval-advisor", name);
     }
 
+    /// Register ingest metadata enrichment; dispatched on `metadata-extractor`.
+    pub fn register_metadata_extractor(&self, name: &str) {
+        self.record("metadata-extractor", name);
+    }
+
+    /// Register semantic chunk splitting; dispatched on `chunk-splitter`.
+    pub fn register_chunk_splitter(&self, name: &str) {
+        self.record("chunk-splitter", name);
+    }
+
+    /// Register semantic route selection; dispatched on `route-selector`.
+    pub fn register_route_selector(&self, name: &str) {
+        self.record("route-selector", name);
+    }
+
+    /// Register diversity and filtering postprocessing; dispatched on `postprocessor`.
+    pub fn register_postprocessor(&self, name: &str) {
+        self.record("postprocessor", name);
+    }
+
+    /// Register answer scoring; dispatched on `eval-judge`.
+    pub fn register_eval_judge(&self, name: &str) {
+        self.record("eval-judge", name);
+    }
+
     /// Register a vector encoding; dispatched on `vector-encoding`.
     pub fn register_vector_encoding(&self, name: &str) {
         self.record("vector-encoding", name);
@@ -467,6 +492,11 @@ pub mod __private {
                 "compaction-advisor" => host.register_compaction_advisor.map(|f| f(ctx, first_ptr)),
                 "text-analyzer" => host.register_text_analyzer.map(|f| f(ctx, first_ptr)),
                 "retrieval-advisor" => host.register_retrieval_advisor.map(|f| f(ctx, first_ptr)),
+                "metadata-extractor" => host.register_metadata_extractor.map(|f| f(ctx, first_ptr)),
+                "chunk-splitter" => host.register_chunk_splitter.map(|f| f(ctx, first_ptr)),
+                "route-selector" => host.register_route_selector.map(|f| f(ctx, first_ptr)),
+                "postprocessor" => host.register_postprocessor.map(|f| f(ctx, first_ptr)),
+                "eval-judge" => host.register_eval_judge.map(|f| f(ctx, first_ptr)),
                 "vector-encoding" => host.register_vector_encoding.map(|f| f(ctx, first_ptr)),
                 "snapshot-policy" => host
                     .register_snapshot_policy
@@ -944,6 +974,11 @@ mod tests {
             "register_retrieval_advisor",
             "register_vector_encoding",
             "register_snapshot_policy",
+            "register_metadata_extractor",
+            "register_chunk_splitter",
+            "register_route_selector",
+            "register_postprocessor",
+            "register_eval_judge",
             "WfContributionRegistrar",
             "wf_plugin_dispatch_handler",
         ] {

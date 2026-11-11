@@ -78,6 +78,92 @@ mod tests {
             .expect("middleware registers");
     }
 
+    struct StubExtractor;
+
+    impl PluginMetadataExtractor for StubExtractor {
+        fn name(&self) -> String {
+            "stub-extractor".to_string()
+        }
+
+        fn extract(&self, _text: String, _options: Value) -> PluginResult<Value> {
+            Ok(Value::Null)
+        }
+    }
+
+    struct StubSplitter;
+
+    impl PluginChunkSplitter for StubSplitter {
+        fn name(&self) -> String {
+            "stub-splitter".to_string()
+        }
+
+        fn split(&self, _text: String, _options: Value) -> PluginResult<Value> {
+            Ok(Value::Null)
+        }
+    }
+
+    struct StubSelector;
+
+    impl PluginRouteSelector for StubSelector {
+        fn select(&self, input: Value) -> PluginResult<Value> {
+            Ok(input)
+        }
+    }
+
+    struct StubPostprocessor;
+
+    impl PluginPostprocessor for StubPostprocessor {
+        fn process(&self, input: Value) -> PluginResult<Value> {
+            Ok(input)
+        }
+    }
+
+    struct StubJudge;
+
+    impl PluginEvalJudge for StubJudge {
+        fn judge(&self, input: Value) -> PluginResult<Value> {
+            Ok(input)
+        }
+    }
+
+    #[test]
+    fn deferred_retrieval_registries_round_trip_and_unsync() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p-deferred");
+        let mut registrar = manager.as_registrar();
+        registrar
+            .register_metadata_extractor("stub-extractor", Arc::new(StubExtractor))
+            .unwrap();
+        registrar
+            .register_chunk_splitter("stub-splitter", Arc::new(StubSplitter))
+            .unwrap();
+        registrar
+            .register_route_selector("stub-selector", Arc::new(StubSelector))
+            .unwrap();
+        registrar
+            .register_postprocessor("stub-post", Arc::new(StubPostprocessor))
+            .unwrap();
+        registrar
+            .register_eval_judge("stub-judge", Arc::new(StubJudge))
+            .unwrap();
+        assert!(manager.get_metadata_extractor("stub-extractor").is_some());
+        assert!(manager.get_chunk_splitter("stub-splitter").is_some());
+        assert!(manager.get_route_selector("stub-selector").is_some());
+        assert!(manager.get_postprocessor("stub-post").is_some());
+        assert!(manager.get_eval_judge("stub-judge").is_some());
+        assert_eq!(manager.all_metadata_extractors().len(), 1);
+        assert_eq!(manager.all_chunk_splitters().len(), 1);
+        assert_eq!(manager.all_route_selectors().len(), 1);
+        assert_eq!(manager.all_postprocessors().len(), 1);
+        assert_eq!(manager.all_eval_judges().len(), 1);
+        manager.unregister_all("p-deferred");
+        assert!(manager.get_metadata_extractor("stub-extractor").is_none());
+        assert!(manager.get_chunk_splitter("stub-splitter").is_none());
+        assert!(manager.get_route_selector("stub-selector").is_none());
+        assert!(manager.get_postprocessor("stub-post").is_none());
+        assert!(manager.get_eval_judge("stub-judge").is_none());
+    }
+
     #[test]
     fn middleware_phase_round_trips_through_registry() {
         let manager = ContributionManager::new();

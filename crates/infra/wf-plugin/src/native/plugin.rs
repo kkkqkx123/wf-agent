@@ -123,6 +123,11 @@ impl Plugin for NativePlugin {
             register_retrieval_advisor: Some(ffi_register_retrieval_advisor),
             register_vector_encoding: Some(ffi_register_vector_encoding),
             register_snapshot_policy: Some(ffi_register_snapshot_policy),
+            register_metadata_extractor: Some(ffi_register_metadata_extractor),
+            register_chunk_splitter: Some(ffi_register_chunk_splitter),
+            register_route_selector: Some(ffi_register_route_selector),
+            register_postprocessor: Some(ffi_register_postprocessor),
+            register_eval_judge: Some(ffi_register_eval_judge),
         };
 
         let result =
@@ -907,6 +912,106 @@ extern "C" fn ffi_register_snapshot_policy(
     registrar_ctx.record(result)
 }
 
+extern "C" fn ffi_register_metadata_extractor(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_metadata_extractor(
+        &name_str.clone(),
+        Arc::new(NativeMetadataExtractor {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_chunk_splitter(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_chunk_splitter(
+        &name_str.clone(),
+        Arc::new(NativeChunkSplitter {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_route_selector(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_route_selector(
+        &name_str.clone(),
+        Arc::new(NativeRouteSelector {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_postprocessor(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_postprocessor(
+        &name_str.clone(),
+        Arc::new(NativePostprocessor {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_eval_judge(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_eval_judge(
+        &name_str.clone(),
+        Arc::new(NativeEvalJudge {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
 // ============================================================
 // Handler structs with dispatch
 // ============================================================
@@ -1205,5 +1310,94 @@ impl PluginVectorEncoding for NativeVectorEncoding {
         let output = dispatch_call(self.dispatch, "vector-encoding", &self.name, &input_json)?;
         serde_json::from_slice::<Value>(&output)
             .map_err(|e| PluginError::NativeError(format!("deserialize encoding output: {e}")))
+    }
+}
+
+pub struct NativeMetadataExtractor {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginMetadataExtractor for NativeMetadataExtractor {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn extract(&self, text: String, options: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&serde_json::json!({
+            "text": text,
+            "options": options,
+        }))
+        .map_err(|e| PluginError::NativeError(format!("serialize extractor input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "metadata-extractor", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize extractor output: {e}")))
+    }
+}
+
+pub struct NativeChunkSplitter {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginChunkSplitter for NativeChunkSplitter {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn split(&self, text: String, options: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&serde_json::json!({
+            "text": text,
+            "options": options,
+        }))
+        .map_err(|e| PluginError::NativeError(format!("serialize splitter input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "chunk-splitter", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize splitter output: {e}")))
+    }
+}
+
+pub struct NativeRouteSelector {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginRouteSelector for NativeRouteSelector {
+    fn select(&self, input: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize selector input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "route-selector", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize selector output: {e}")))
+    }
+}
+
+pub struct NativePostprocessor {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginPostprocessor for NativePostprocessor {
+    fn process(&self, input: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize postprocessor input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "postprocessor", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize postprocessor output: {e}")))
+    }
+}
+
+pub struct NativeEvalJudge {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl PluginEvalJudge for NativeEvalJudge {
+    fn judge(&self, input: Value) -> PluginResult<Value> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize judge input: {e}")))?;
+        let output = dispatch_call(self.dispatch, "eval-judge", &self.name, &input_json)?;
+        serde_json::from_slice::<Value>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize judge output: {e}")))
     }
 }

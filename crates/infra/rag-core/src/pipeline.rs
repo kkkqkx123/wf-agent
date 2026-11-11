@@ -15,8 +15,8 @@ use crate::chunker::RecursiveChunker;
 use crate::cleaner::clean_text;
 use crate::config::{DuplicatePolicy, RagIndexConfig, RagQueryConfig};
 use crate::document::{
-    RagChunk, RagDocument, CHUNK_ID_KEY, CONTENT_KEY, DOCUMENT_ID_KEY, IS_PARENT_KEY, NEXT_ID_KEY,
-    ORDINAL_KEY, PARENT_ID_KEY, PREV_ID_KEY,
+    chunk_id_for, RagChunk, RagDocument, CHUNK_ID_KEY, CONTENT_KEY, DOCUMENT_ID_KEY, IS_PARENT_KEY,
+    NEXT_ID_KEY, ORDINAL_KEY, PARENT_ID_KEY, PREV_ID_KEY,
 };
 use crate::error::{RagError, Result};
 use crate::keyword_index::KeywordIndex;
@@ -70,12 +70,13 @@ where
             "namespace must not be empty".to_string(),
         ));
     }
+    validate_plugin_chunking(config)?;
     let chunker = RecursiveChunker::new(config.chunker_config())?;
     let mut stats = IngestStats::default();
     let mut pending: Vec<RagChunk> = Vec::new();
     for document in documents {
         document.validate()?;
-        let effective = if config.cleaning.is_enabled() {
+        let mut effective = if config.cleaning.is_enabled() {
             let mut cleaned = document.clone();
             cleaned.content = clean_text(&document.content, &config.cleaning);
             cleaned.validate()?;
@@ -83,6 +84,7 @@ where
         } else {
             document.clone()
         };
+        apply_configured_extractor(&mut effective, config)?;
         if !matches!(config.duplicate_policy, DuplicatePolicy::Overwrite)
             && source_indexed(
                 store,
@@ -112,7 +114,16 @@ where
                     .await?;
             }
         }
-        let chunks = if config.hierarchical {
+        let chunks = if let Some(name) = config
+            .chunk_splitter
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
+            match split_with_plugin(&effective, name) {
+                Some(chunks) => chunks,
+                None => chunker.split_documents(std::slice::from_ref(&effective))?,
+            }
+        } else if config.hierarchical {
             chunker.split_hierarchical(std::slice::from_ref(&effective))?
         } else {
             chunker.split_documents(std::slice::from_ref(&effective))?
@@ -189,7 +200,7 @@ where
 {
     let owned = query_text.to_string();
     validate_vector_encoding(&owned, config)?;
-    validate_advisor_name(config)?;
+    validate_shaping_names(config)?;
     let searched = search_variants(
         store,
         embedder,
@@ -199,7 +210,7 @@ where
         config,
     )
     .await?;
-    let advised = apply_configured_advisor(searched.hits, query_text, config)?;
+    let advised = apply_configured_shaping(searched.hits, query_text, config)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -224,11 +235,11 @@ where
     for variant in query_texts {
         validate_vector_encoding(variant, config)?;
     }
-    validate_advisor_name(config)?;
+    validate_shaping_names(config)?;
     let searched =
         search_variants(store, embedder, collection, namespace, query_texts, config).await?;
     let representative = query_texts.first().map(String::as_str).unwrap_or("");
-    let advised = apply_configured_advisor(searched.hits, representative, config)?;
+    let advised = apply_configured_shaping(searched.hits, representative, config)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -258,7 +269,7 @@ where
     }
     let owned = query_text.to_string();
     validate_vector_encoding(&owned, config)?;
-    validate_advisor_name(config)?;
+    validate_shaping_names(config)?;
     let searched = search_variants(
         store,
         embedder,
@@ -289,7 +300,7 @@ where
     } else {
         searched.hits
     };
-    let advised = apply_configured_advisor(fused, query_text, config)?;
+    let advised = apply_configured_shaping(fused, query_text, config)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -305,6 +316,110 @@ fn fuse_hybrid(
         crate::config::FusionMode::Weighted => blend_keyword(dense, keyword, config.keyword_weight),
         _ => fuse_lists(vec![dense, keyword], &config.fusion),
     }
+}
+
+/// Validates the configured plugin chunking names before ingest.
+/// Unknown extractor and splitter names fail so configuration errors
+/// surface; splitter execution failures fall back to built-in chunking.
+/// A splitter replaces flat chunking and conflicts with `hierarchical`.
+fn validate_plugin_chunking(config: &RagIndexConfig) -> Result<()> {
+    if let Some(name) = config
+        .metadata_extractor
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    {
+        if crate::plugin::find_metadata_extractor(name).is_none() {
+            return Err(RagError::InvalidInput(format!(
+                "unknown metadata extractor '{name}'"
+            )));
+        }
+    }
+    if let Some(name) = config
+        .chunk_splitter
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    {
+        if config.hierarchical {
+            return Err(RagError::InvalidInput(
+                "chunk splitter conflicts with hierarchical chunking".to_string(),
+            ));
+        }
+        if crate::plugin::find_chunk_splitter(name).is_none() {
+            return Err(RagError::InvalidInput(format!(
+                "unknown chunk splitter '{name}'"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Merges suggestions from the configured plugin metadata extractor into
+/// the document. Suggested pairs only fill missing keys; execution
+/// failures keep the caller-provided metadata with a warning.
+fn apply_configured_extractor(document: &mut RagDocument, config: &RagIndexConfig) -> Result<()> {
+    let Some(name) = config
+        .metadata_extractor
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    match crate::plugin::extract_with_registered(name, &document.content, serde_json::json!({})) {
+        Ok(extra) => {
+            for (key, value) in extra {
+                document.metadata.entry(key).or_insert(value);
+            }
+            Ok(())
+        }
+        Err(error) => {
+            tracing::warn!(extractor = %name, error = %error, "metadata extractor failed; keeping caller metadata");
+            Ok(())
+        }
+    }
+}
+
+/// Splits one document through the named plugin splitter.
+/// Returns `None` when the suggestion fails so the caller keeps built-in
+/// chunking; unknown names never reach here (validated before ingest).
+fn split_with_plugin(document: &RagDocument, name: &str) -> Option<Vec<RagChunk>> {
+    let pieces = match crate::plugin::split_with_registered(
+        name,
+        &document.content,
+        serde_json::json!({}),
+    ) {
+        Ok(pieces) => pieces,
+        Err(error) => {
+            tracing::warn!(splitter = %name, error = %error, "chunk splitter failed; keeping built-in chunking");
+            return None;
+        }
+    };
+    let mut chunks = Vec::with_capacity(pieces.len());
+    for (ordinal, piece) in pieces.into_iter().enumerate() {
+        let mut metadata = document.metadata.clone();
+        for (key, value) in piece.metadata {
+            metadata.insert(key, value);
+        }
+        chunks.push(RagChunk {
+            id: chunk_id_for(&document.source, ordinal),
+            document_id: document.id.clone(),
+            ordinal,
+            content: piece.content,
+            metadata,
+            prev_id: None,
+            next_id: None,
+            parent_id: None,
+            is_parent: false,
+        });
+    }
+    for index in 1..chunks.len() {
+        let prev = chunks[index - 1].id.clone();
+        chunks[index].prev_id = Some(prev);
+    }
+    for index in 0..chunks.len().saturating_sub(1) {
+        let next = chunks[index + 1].id.clone();
+        chunks[index].next_id = Some(next);
+    }
+    Some(chunks)
 }
 
 /// Applies the configured plugin retrieval advisor after fusion.
@@ -325,12 +440,40 @@ fn validate_advisor_name(config: &RagQueryConfig) -> Result<()> {
     Ok(())
 }
 
-fn apply_configured_advisor(
+/// Validates the configured post-fusion shaping names.
+/// Unknown postprocessor names fail so configuration errors surface.
+fn validate_shaping_names(config: &RagQueryConfig) -> Result<()> {
+    validate_advisor_name(config)?;
+    let Some(name) = config
+        .postprocessor
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    if crate::plugin::find_postprocessor(name).is_none() {
+        return Err(RagError::InvalidInput(format!(
+            "unknown postprocessor '{name}'"
+        )));
+    }
+    Ok(())
+}
+
+fn apply_configured_shaping(
     hits: Vec<RetrievedChunk>,
     query_text: &str,
     config: &RagQueryConfig,
 ) -> Result<Vec<RetrievedChunk>> {
-    crate::plugin::apply_registered_advisor(query_text, hits, config.retrieval_advisor.as_deref())
+    let advised = crate::plugin::apply_registered_advisor(
+        query_text,
+        hits,
+        config.retrieval_advisor.as_deref(),
+    )?;
+    crate::plugin::apply_registered_postprocessor(
+        query_text,
+        advised,
+        config.postprocessor.as_deref(),
+    )
 }
 
 /// Validates the configured plugin vector encoding against the query text.
@@ -366,7 +509,7 @@ where
     let started = std::time::Instant::now();
     let owned = query_text.to_string();
     validate_vector_encoding(&owned, config)?;
-    validate_advisor_name(config)?;
+    validate_shaping_names(config)?;
     let searched = search_variants(
         store,
         embedder,
@@ -378,7 +521,7 @@ where
     .await?;
     let requested = candidate_limit(config);
     let returned = searched.fused_len;
-    let advised = apply_configured_advisor(searched.hits, query_text, config)?;
+    let advised = apply_configured_shaping(searched.hits, query_text, config)?;
     let hits = postprocess(store, collection, advised, config).await?;
     let metrics = RetrievalMetrics {
         latency_ms: started.elapsed().as_millis() as u64,
@@ -845,6 +988,83 @@ mod tests {
         RagDocument::new(id, content, source)
     }
 
+    struct MergingExtractor;
+
+    impl wf_plugin_sdk::PluginMetadataExtractor for MergingExtractor {
+        fn name(&self) -> String {
+            "test-pipe-extractor".to_string()
+        }
+
+        fn extract(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"topic": "rust", "page": "9"}))
+        }
+    }
+
+    struct TwoPieceSplitter;
+
+    impl wf_plugin_sdk::PluginChunkSplitter for TwoPieceSplitter {
+        fn name(&self) -> String {
+            "test-pipe-splitter".to_string()
+        }
+
+        fn split(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Ok(serde_json::json!([
+                {"content": "first piece", "metadata": {"part": "a"}},
+                {"content": "second piece"},
+            ]))
+        }
+    }
+
+    struct FailingSplitter;
+
+    impl wf_plugin_sdk::PluginChunkSplitter for FailingSplitter {
+        fn name(&self) -> String {
+            "test-failing-splitter".to_string()
+        }
+
+        fn split(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Err(wf_plugin_sdk::PluginError::Internal("boom".to_string()))
+        }
+    }
+
+    struct ReversePostprocessor;
+
+    impl wf_plugin_sdk::PluginPostprocessor for ReversePostprocessor {
+        fn process(
+            &self,
+            input: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            let ids: Vec<String> = input
+                .get("hits")
+                .and_then(|hits| hits.as_array())
+                .map(|hits| {
+                    hits.iter()
+                        .filter_map(|hit| {
+                            hit.get("chunk_id")
+                                .and_then(|id| id.as_str())
+                                .map(str::to_string)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(serde_json::json!({
+                "order": ids.into_iter().rev().collect::<Vec<_>>(),
+            }))
+        }
+    }
+
     #[tokio::test]
     async fn conditions_and_shaping_apply_on_read_path() {
         let store = InMemoryVectorStore::new();
@@ -1065,6 +1285,180 @@ mod tests {
             .expect_err("unknown advisor must fail");
         assert!(err.to_string().contains("missing-advisor"));
         crate::plugin::clear_retrieval_advisors();
+    }
+
+    #[tokio::test]
+    async fn plugin_chunking_names_are_validated() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_metadata_extractors();
+        crate::plugin::clear_chunk_splitters();
+        let mut config = RagIndexConfig::new("kb");
+        config.metadata_extractor = Some("missing-extractor".to_string());
+        assert!(ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[doc("d1", "a.md", "alpha beta gamma")],
+            &config
+        )
+        .await
+        .is_err());
+        let mut config = RagIndexConfig::new("kb");
+        config.chunk_splitter = Some("missing-splitter".to_string());
+        assert!(ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[doc("d1", "a.md", "alpha beta gamma")],
+            &config
+        )
+        .await
+        .is_err());
+        let mut config = RagIndexConfig::new("kb");
+        config.hierarchical = true;
+        crate::plugin::register_chunk_splitter("split", std::sync::Arc::new(TwoPieceSplitter));
+        config.chunk_splitter = Some("split".to_string());
+        assert!(ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[doc("d1", "a.md", "alpha beta gamma")],
+            &config
+        )
+        .await
+        .is_err());
+        crate::plugin::clear_metadata_extractors();
+        crate::plugin::clear_chunk_splitters();
+    }
+
+    #[tokio::test]
+    async fn extractor_merges_and_splitter_replaces() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_metadata_extractors();
+        crate::plugin::clear_chunk_splitters();
+        crate::plugin::register_metadata_extractor("ext", std::sync::Arc::new(MergingExtractor));
+        crate::plugin::register_chunk_splitter("split", std::sync::Arc::new(TwoPieceSplitter));
+        let mut config = RagIndexConfig::new("kb");
+        config.metadata_extractor = Some("ext".to_string());
+        config.chunk_splitter = Some("split".to_string());
+        let stats = ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[doc("d1", "a.md", "alpha beta gamma delta epsilon").with_metadata("page", "1")],
+            &config,
+        )
+        .await
+        .expect("ingest with plugins");
+        assert_eq!(stats.chunks, 2);
+        let page = store
+            .scroll("kb", &vector_contracts::ScrollQuery::new(10))
+            .await
+            .expect("scroll")
+            .points;
+        assert_eq!(page.len(), 2);
+        for point in &page {
+            assert_eq!(
+                point.payload.get("topic").and_then(|v| v.as_str()),
+                Some("rust")
+            );
+            assert_eq!(
+                point
+                    .payload
+                    .get("page")
+                    .and_then(vector_contracts::payload_text),
+                Some("1".to_string())
+            );
+        }
+        let hits = query(
+            &store,
+            &embedder,
+            "kb",
+            "kb",
+            "first",
+            &RagQueryConfig::default(),
+        )
+        .await
+        .expect("query");
+        assert_eq!(hits.len(), 2);
+        crate::plugin::clear_metadata_extractors();
+        crate::plugin::clear_chunk_splitters();
+    }
+
+    #[tokio::test]
+    async fn failing_splitter_falls_back_to_builtin() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_chunk_splitters();
+        crate::plugin::register_chunk_splitter("fail", std::sync::Arc::new(FailingSplitter));
+        let mut config = RagIndexConfig::new("kb");
+        config.chunk_splitter = Some("fail".to_string());
+        let stats = ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[doc("d1", "a.md", "alpha beta gamma delta")],
+            &config,
+        )
+        .await
+        .expect("fallback ingest");
+        assert_eq!(stats.documents, 1);
+        crate::plugin::clear_chunk_splitters();
+    }
+
+    #[tokio::test]
+    async fn postprocessor_shapes_hits_and_unknown_fails() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_postprocessors();
+        ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[
+                doc("d1", "rust.md", "rust rust rust ownership"),
+                doc("d2", "go.md", "go go go routines channels"),
+            ],
+            &RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        crate::plugin::register_postprocessor("rev", std::sync::Arc::new(ReversePostprocessor));
+        let config = RagQueryConfig {
+            postprocessor: Some("rev".to_string()),
+            ..RagQueryConfig::default()
+        };
+        let plain = query(
+            &store,
+            &embedder,
+            "kb",
+            "kb",
+            "routines",
+            &RagQueryConfig::default(),
+        )
+        .await
+        .expect("query");
+        let shaped = query(&store, &embedder, "kb", "kb", "routines", &config)
+            .await
+            .expect("shaped query");
+        assert_eq!(shaped.len(), plain.len());
+        assert_eq!(shaped[0].chunk_id, plain.last().expect("hit").chunk_id);
+        let bad = RagQueryConfig {
+            postprocessor: Some("missing-post".to_string()),
+            ..RagQueryConfig::default()
+        };
+        assert!(query(&store, &embedder, "kb", "kb", "routines", &bad)
+            .await
+            .is_err());
+        crate::plugin::clear_postprocessors();
     }
 
     #[tokio::test]

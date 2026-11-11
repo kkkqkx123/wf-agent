@@ -38,6 +38,14 @@ pub struct RagIndexConfig {
     /// Cleaning rules applied before chunking.
     #[serde(default)]
     pub cleaning: CleanerConfig,
+    /// Plugin metadata extractor enriching documents before chunking;
+    /// unset keeps caller-provided metadata unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_extractor: Option<String>,
+    /// Plugin chunk splitter replacing the built-in splitter;
+    /// unset keeps built-in chunking. Conflicts with `hierarchical`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_splitter: Option<String>,
 }
 
 /// Chunking parameters in serializable form.
@@ -74,6 +82,8 @@ impl RagIndexConfig {
             duplicate_policy: DuplicatePolicy::Skip,
             hierarchical: false,
             cleaning: CleanerConfig::default(),
+            metadata_extractor: None,
+            chunk_splitter: None,
         }
     }
 
@@ -134,6 +144,10 @@ pub struct RagQueryConfig {
     /// The storage contract stays dense-only: validation never changes writes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vector_encoding: Option<String>,
+    /// Plugin postprocessor shaping fused hits after the retrieval advisor;
+    /// unset keeps advisor order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub postprocessor: Option<String>,
 }
 
 /// Multi-list fusion strategy.
@@ -213,6 +227,7 @@ impl Default for RagQueryConfig {
             context_budget_chars: None,
             retrieval_advisor: None,
             vector_encoding: None,
+            postprocessor: None,
             conditions: Vec::new(),
         }
     }

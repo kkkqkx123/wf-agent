@@ -9,16 +9,31 @@
 //! reservation-only declarations; execution stays host-owned and no
 //! pipeline reads them. Vector and keyword backend selection, embedding,
 //! rerank, chunking, fusion and rewrite choices stay host-owned.
+//!
+//! Deferred capabilities carry advisory shapes only: metadata extractors
+//! suggest ingest metadata, chunk splitters suggest content pieces, route
+//! selectors choose retrieval scopes, postprocessors reshape fused hits and
+//! eval judges score answers. Pipelines never read these registries
+//! implicitly; hosts call the apply helpers explicitly.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use wf_plugin_sdk::{PluginRetrievalAdvisor, PluginTextAnalyzer, PluginVectorEncoding};
+use wf_plugin_sdk::{
+    PluginChunkSplitter, PluginEvalJudge, PluginMetadataExtractor, PluginPostprocessor,
+    PluginRetrievalAdvisor, PluginRouteSelector, PluginTextAnalyzer, PluginVectorEncoding,
+};
 
 use crate::retriever::RetrievedChunk;
 
 /// Protocol version sent with every retrieval advisor input.
 pub const RETRIEVAL_ADVISOR_PROTOCOL_VERSION: u32 = 1;
+/// Protocol version sent with every route selector input.
+pub const ROUTE_SELECTOR_PROTOCOL_VERSION: u32 = 1;
+/// Protocol version sent with every postprocessor input.
+pub const POSTPROCESSOR_PROTOCOL_VERSION: u32 = 1;
+/// Protocol version sent with every eval judge input.
+pub const EVAL_JUDGE_PROTOCOL_VERSION: u32 = 1;
 
 fn advisor_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginRetrievalAdvisor>>> {
     static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginRetrievalAdvisor>>>> =
@@ -312,6 +327,444 @@ fn apply_advisor_output(
     ordered
 }
 
+fn extractor_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginMetadataExtractor>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginMetadataExtractor>>>> =
+        OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn splitter_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginChunkSplitter>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginChunkSplitter>>>> =
+        OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn selector_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginRouteSelector>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginRouteSelector>>>> =
+        OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn postprocessor_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginPostprocessor>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginPostprocessor>>>> =
+        OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn eval_judge_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginEvalJudge>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginEvalJudge>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Registers a metadata extractor under `name`, replacing any prior entry.
+pub fn register_metadata_extractor(name: &str, extractor: Arc<dyn PluginMetadataExtractor>) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = extractor_registry().lock() {
+        guard.insert(trimmed.to_string(), extractor);
+    }
+}
+
+/// Removes a metadata extractor.
+pub fn unregister_metadata_extractor(name: &str) {
+    if let Ok(mut guard) = extractor_registry().lock() {
+        guard.remove(name.trim());
+    }
+}
+
+/// Finds a registered metadata extractor by name.
+pub fn find_metadata_extractor(name: &str) -> Option<Arc<dyn PluginMetadataExtractor>> {
+    extractor_registry()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(name.trim()).cloned())
+}
+
+/// Clears metadata extractors; tests use it to isolate cases.
+pub fn clear_metadata_extractors() {
+    if let Ok(mut guard) = extractor_registry().lock() {
+        guard.clear();
+    }
+}
+
+/// Registers a chunk splitter under `name`, replacing any prior entry.
+pub fn register_chunk_splitter(name: &str, splitter: Arc<dyn PluginChunkSplitter>) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = splitter_registry().lock() {
+        guard.insert(trimmed.to_string(), splitter);
+    }
+}
+
+/// Removes a chunk splitter.
+pub fn unregister_chunk_splitter(name: &str) {
+    if let Ok(mut guard) = splitter_registry().lock() {
+        guard.remove(name.trim());
+    }
+}
+
+/// Finds a registered chunk splitter by name.
+pub fn find_chunk_splitter(name: &str) -> Option<Arc<dyn PluginChunkSplitter>> {
+    splitter_registry()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(name.trim()).cloned())
+}
+
+/// Clears chunk splitters; tests use it to isolate cases.
+pub fn clear_chunk_splitters() {
+    if let Ok(mut guard) = splitter_registry().lock() {
+        guard.clear();
+    }
+}
+
+/// Registers a route selector under `name`, replacing any prior entry.
+pub fn register_route_selector(name: &str, selector: Arc<dyn PluginRouteSelector>) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = selector_registry().lock() {
+        guard.insert(trimmed.to_string(), selector);
+    }
+}
+
+/// Removes a route selector.
+pub fn unregister_route_selector(name: &str) {
+    if let Ok(mut guard) = selector_registry().lock() {
+        guard.remove(name.trim());
+    }
+}
+
+/// Finds a registered route selector by name.
+pub fn find_route_selector(name: &str) -> Option<Arc<dyn PluginRouteSelector>> {
+    selector_registry()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(name.trim()).cloned())
+}
+
+/// Clears route selectors; tests use it to isolate cases.
+pub fn clear_route_selectors() {
+    if let Ok(mut guard) = selector_registry().lock() {
+        guard.clear();
+    }
+}
+
+/// Registers a postprocessor under `name`, replacing any prior entry.
+pub fn register_postprocessor(name: &str, postprocessor: Arc<dyn PluginPostprocessor>) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = postprocessor_registry().lock() {
+        guard.insert(trimmed.to_string(), postprocessor);
+    }
+}
+
+/// Removes a postprocessor.
+pub fn unregister_postprocessor(name: &str) {
+    if let Ok(mut guard) = postprocessor_registry().lock() {
+        guard.remove(name.trim());
+    }
+}
+
+/// Finds a registered postprocessor by name.
+pub fn find_postprocessor(name: &str) -> Option<Arc<dyn PluginPostprocessor>> {
+    postprocessor_registry()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(name.trim()).cloned())
+}
+
+/// Clears postprocessors; tests use it to isolate cases.
+pub fn clear_postprocessors() {
+    if let Ok(mut guard) = postprocessor_registry().lock() {
+        guard.clear();
+    }
+}
+
+/// Registers an eval judge under `name`, replacing any prior entry.
+pub fn register_eval_judge(name: &str, judge: Arc<dyn PluginEvalJudge>) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = eval_judge_registry().lock() {
+        guard.insert(trimmed.to_string(), judge);
+    }
+}
+
+/// Removes an eval judge.
+pub fn unregister_eval_judge(name: &str) {
+    if let Ok(mut guard) = eval_judge_registry().lock() {
+        guard.remove(name.trim());
+    }
+}
+
+/// Finds a registered eval judge by name.
+pub fn find_eval_judge(name: &str) -> Option<Arc<dyn PluginEvalJudge>> {
+    eval_judge_registry()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(name.trim()).cloned())
+}
+
+/// Clears eval judges; tests use it to isolate cases.
+pub fn clear_eval_judges() {
+    if let Ok(mut guard) = eval_judge_registry().lock() {
+        guard.clear();
+    }
+}
+
+/// One suggested content piece from a chunk splitter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SplitPiece {
+    /// Piece text; always non-empty after validation.
+    pub content: String,
+    /// Piece metadata suggested alongside the text.
+    pub metadata: HashMap<String, String>,
+}
+
+/// One score from an eval judge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JudgeScore {
+    /// Zero-to-one score.
+    pub score: f64,
+    /// Optional reason supplied by the judge.
+    pub reason: String,
+}
+
+/// Extracts metadata through the named extractor and validates the shape.
+/// Output must be an object of scalar values; unknown names and
+/// non-object outputs fail so misconfiguration surfaces loudly.
+pub fn extract_with_registered(
+    name: &str,
+    text: &str,
+    options: serde_json::Value,
+) -> crate::error::Result<HashMap<String, String>> {
+    let Some(extractor) = find_metadata_extractor(name) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "unknown metadata extractor '{name}'"
+        )));
+    };
+    let output = extractor
+        .extract(text.to_string(), options)
+        .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
+    let Some(map) = output.as_object() else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "metadata extractor '{name}' must return a JSON object"
+        )));
+    };
+    let mut out = HashMap::with_capacity(map.len());
+    for (key, value) in map {
+        if key.trim().is_empty() {
+            continue;
+        }
+        let Some(text) = vector_contracts::payload_text(value) else {
+            continue;
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        out.insert(key.clone(), text);
+    }
+    Ok(out)
+}
+
+/// Splits text through the named splitter and validates the pieces.
+/// Unknown names fail; empty or failing suggestions let the caller keep
+/// the built-in splitter by handling the error as a fallback signal.
+pub fn split_with_registered(
+    name: &str,
+    text: &str,
+    options: serde_json::Value,
+) -> crate::error::Result<Vec<SplitPiece>> {
+    let Some(splitter) = find_chunk_splitter(name) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "unknown chunk splitter '{name}'"
+        )));
+    };
+    let output = splitter
+        .split(text.to_string(), options)
+        .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
+    let Some(items) = output.as_array() else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "chunk splitter '{name}' must return a JSON array"
+        )));
+    };
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let content = item
+            .get("content")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if content.is_empty() {
+            continue;
+        }
+        let mut metadata = HashMap::new();
+        if let Some(map) = item.get("metadata").and_then(|value| value.as_object()) {
+            for (key, value) in map {
+                if key.trim().is_empty() {
+                    continue;
+                }
+                if let Some(text) = vector_contracts::payload_text(value) {
+                    if !text.trim().is_empty() {
+                        metadata.insert(key.clone(), text);
+                    }
+                }
+            }
+        }
+        out.push(SplitPiece {
+            content: content.to_string(),
+            metadata,
+        });
+    }
+    if out.is_empty() {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "chunk splitter '{name}' returned no usable pieces"
+        )));
+    }
+    Ok(out)
+}
+
+/// Selects retrieval targets through the named selector.
+/// Unknown names fail; unknown targets are skipped and an empty
+/// suggestion defers to the full candidate list.
+pub fn apply_registered_selector(
+    query: &str,
+    candidates: &[String],
+    name: Option<&str>,
+) -> crate::error::Result<Vec<String>> {
+    let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
+        return Ok(candidates.to_vec());
+    };
+    let Some(selector) = find_route_selector(name) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "unknown route selector '{name}'"
+        )));
+    };
+    let input = serde_json::json!({
+        "protocol_version": ROUTE_SELECTOR_PROTOCOL_VERSION,
+        "query": query,
+        "candidates": candidates,
+    });
+    let output = match selector.select(input) {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!(error = %error, "route selector failed; keeping all targets");
+            return Ok(candidates.to_vec());
+        }
+    };
+    let selected: Vec<String> = output
+        .get("targets")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if selected.is_empty() {
+        return Ok(candidates.to_vec());
+    }
+    let kept: Vec<String> = selected
+        .into_iter()
+        .filter(|item| candidates.iter().any(|candidate| candidate == item))
+        .collect();
+    if kept.is_empty() {
+        return Ok(candidates.to_vec());
+    }
+    Ok(kept)
+}
+
+/// Applies the named postprocessor to fused hits.
+/// Unknown names fail; failing or empty suggestions keep the input order.
+pub fn apply_registered_postprocessor(
+    query: &str,
+    hits: Vec<RetrievedChunk>,
+    name: Option<&str>,
+) -> crate::error::Result<Vec<RetrievedChunk>> {
+    let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
+        return Ok(hits);
+    };
+    let Some(postprocessor) = find_postprocessor(name) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "unknown postprocessor '{name}'"
+        )));
+    };
+    if hits.is_empty() {
+        return Ok(hits);
+    }
+    let input = serde_json::json!({
+        "protocol_version": POSTPROCESSOR_PROTOCOL_VERSION,
+        "query": query,
+        "hits": hits.iter().map(|hit| serde_json::json!({
+            "chunk_id": hit.chunk_id,
+            "score": hit.score,
+            "source": hit.source,
+            "ordinal": hit.ordinal,
+        })).collect::<Vec<_>>(),
+    });
+    let output = match postprocessor.process(input) {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!(error = %error, "postprocessor failed; keeping built-in order");
+            return Ok(hits);
+        }
+    };
+    Ok(apply_advisor_output(hits, &output))
+}
+
+/// Scores one answer through the named eval judge.
+/// Unknown names and out-of-range scores fail so misconfiguration surfaces.
+pub fn judge_with_registered(
+    name: &str,
+    query: &str,
+    answer: &str,
+    contexts: &[String],
+) -> crate::error::Result<JudgeScore> {
+    let Some(judge) = find_eval_judge(name) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "unknown eval judge '{name}'"
+        )));
+    };
+    let input = serde_json::json!({
+        "protocol_version": EVAL_JUDGE_PROTOCOL_VERSION,
+        "query": query,
+        "answer": answer,
+        "contexts": contexts,
+    });
+    let output = judge
+        .judge(input)
+        .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
+    let Some(score) = output.get("score").and_then(|value| value.as_f64()) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "eval judge '{name}' must return a numeric score"
+        )));
+    };
+    if !(0.0..=1.0).contains(&score) || !score.is_finite() {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "eval judge '{name}' score must be within 0 and 1"
+        )));
+    }
+    let reason = output
+        .get("reason")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(JudgeScore { score, reason })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,5 +958,195 @@ mod tests {
         clear_retrieval_advisors();
         clear_vector_encodings();
         clear_snapshot_policies();
+    }
+
+    struct ObjectExtractor;
+
+    impl wf_plugin_sdk::PluginMetadataExtractor for ObjectExtractor {
+        fn name(&self) -> String {
+            "test-extractor".to_string()
+        }
+
+        fn extract(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"title": "hello", "empty": "  ", "n": 3}))
+        }
+    }
+
+    struct ArrayExtractor;
+
+    impl wf_plugin_sdk::PluginMetadataExtractor for ArrayExtractor {
+        fn name(&self) -> String {
+            "test-bad-extractor".to_string()
+        }
+
+        fn extract(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!([1]))
+        }
+    }
+
+    struct PieceSplitter;
+
+    impl wf_plugin_sdk::PluginChunkSplitter for PieceSplitter {
+        fn name(&self) -> String {
+            "test-splitter".to_string()
+        }
+
+        fn split(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!([
+                {"content": "first", "metadata": {"page": "1"}},
+                {"content": "  ", "metadata": {}},
+            ]))
+        }
+    }
+
+    struct EmptySplitter;
+
+    impl wf_plugin_sdk::PluginChunkSplitter for EmptySplitter {
+        fn name(&self) -> String {
+            "test-empty-splitter".to_string()
+        }
+
+        fn split(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!([{"content": "  "}]))
+        }
+    }
+
+    struct SubsetSelector;
+
+    impl wf_plugin_sdk::PluginRouteSelector for SubsetSelector {
+        fn select(&self, _input: serde_json::Value) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"targets": ["b", "missing"]}))
+        }
+    }
+
+    struct FailingSelector;
+
+    impl wf_plugin_sdk::PluginRouteSelector for FailingSelector {
+        fn select(&self, _input: serde_json::Value) -> PluginResult<serde_json::Value> {
+            Err(wf_plugin_sdk::PluginError::Internal("boom".to_string()))
+        }
+    }
+
+    struct ReversePostprocessor;
+
+    impl wf_plugin_sdk::PluginPostprocessor for ReversePostprocessor {
+        fn process(&self, input: serde_json::Value) -> PluginResult<serde_json::Value> {
+            let ids: Vec<String> = input
+                .get("hits")
+                .and_then(|hits| hits.as_array())
+                .map(|hits| {
+                    hits.iter()
+                        .filter_map(|hit| {
+                            hit.get("chunk_id")
+                                .and_then(|id| id.as_str())
+                                .map(str::to_string)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(serde_json::json!({
+                "order": ids.into_iter().rev().collect::<Vec<_>>(),
+            }))
+        }
+    }
+
+    struct ScoredJudge;
+
+    impl wf_plugin_sdk::PluginEvalJudge for ScoredJudge {
+        fn judge(&self, _input: serde_json::Value) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"score": 0.75, "reason": "cited"}))
+        }
+    }
+
+    struct OutOfRangeJudge;
+
+    impl wf_plugin_sdk::PluginEvalJudge for OutOfRangeJudge {
+        fn judge(&self, _input: serde_json::Value) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"score": 2.0}))
+        }
+    }
+
+    #[test]
+    fn deferred_extension_registries_roundtrip() {
+        clear_metadata_extractors();
+        clear_chunk_splitters();
+        clear_route_selectors();
+        clear_postprocessors();
+        clear_eval_judges();
+
+        register_metadata_extractor("ext", Arc::new(ObjectExtractor));
+        assert!(find_metadata_extractor("ext").is_some());
+        let meta = extract_with_registered("ext", "text", serde_json::json!({}))
+            .expect("extractor applies");
+        assert_eq!(meta.get("title").map(String::as_str), Some("hello"));
+        assert!(extract_with_registered("missing", "text", serde_json::json!({})).is_err());
+        register_metadata_extractor("bad", Arc::new(ArrayExtractor));
+        assert!(extract_with_registered("bad", "text", serde_json::json!({})).is_err());
+        unregister_metadata_extractor("ext");
+        unregister_metadata_extractor("bad");
+
+        register_chunk_splitter("split", Arc::new(PieceSplitter));
+        let pieces = split_with_registered("split", "text", serde_json::json!({}))
+            .expect("splitter applies");
+        assert_eq!(pieces.len(), 1);
+        assert_eq!(pieces[0].content, "first");
+        register_chunk_splitter("empty", Arc::new(EmptySplitter));
+        assert!(split_with_registered("empty", "text", serde_json::json!({})).is_err());
+        assert!(split_with_registered("missing", "t", serde_json::json!({})).is_err());
+        unregister_chunk_splitter("split");
+        unregister_chunk_splitter("empty");
+
+        register_route_selector("sub", Arc::new(SubsetSelector));
+        let picked =
+            apply_registered_selector("q", &["a".to_string(), "b".to_string()], Some("sub"))
+                .expect("selector applies");
+        assert_eq!(picked, vec!["b".to_string()]);
+        register_route_selector("fail", Arc::new(FailingSelector));
+        let kept =
+            apply_registered_selector("q", &["a".to_string()], Some("fail")).expect("fallback");
+        assert_eq!(kept, vec!["a".to_string()]);
+        assert!(apply_registered_selector("q", &["a".to_string()], Some("missing")).is_err());
+        unregister_route_selector("sub");
+        unregister_route_selector("fail");
+
+        register_postprocessor("rev", Arc::new(ReversePostprocessor));
+        let hits =
+            apply_registered_postprocessor("q", vec![hit("a", 0.9), hit("b", 0.8)], Some("rev"))
+                .expect("postprocessor applies");
+        assert_eq!(hits[0].chunk_id, "b");
+        assert!(apply_registered_postprocessor("q", vec![hit("a", 0.9)], Some("missing")).is_err());
+        unregister_postprocessor("rev");
+
+        register_eval_judge("judge", Arc::new(ScoredJudge));
+        let scored =
+            judge_with_registered("judge", "q", "a", &["c".to_string()]).expect("judge applies");
+        assert!((scored.score - 0.75).abs() < f64::EPSILON);
+        register_eval_judge("oob", Arc::new(OutOfRangeJudge));
+        assert!(judge_with_registered("oob", "q", "a", &[]).is_err());
+        assert!(judge_with_registered("missing", "q", "a", &[]).is_err());
+        unregister_eval_judge("judge");
+        unregister_eval_judge("oob");
+
+        clear_metadata_extractors();
+        clear_chunk_splitters();
+        clear_route_selectors();
+        clear_postprocessors();
+        clear_eval_judges();
     }
 }

@@ -106,6 +106,21 @@ pub struct ContributionRegistrarC {
             policy_json: *const c_char,
         ) -> i32,
     >,
+    /// Ingest metadata enrichment under `name`; dispatched on `metadata-extractor`.
+    pub register_metadata_extractor:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Semantic chunk splitting under `name`; dispatched on `chunk-splitter`.
+    pub register_chunk_splitter:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Semantic route selection under `name`; dispatched on `route-selector`.
+    pub register_route_selector:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Diversity postprocessing under `name`; dispatched on `postprocessor`.
+    pub register_postprocessor:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Answer scoring under `name`; dispatched on `eval-judge`.
+    pub register_eval_judge:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
 }
 
 /// Host dispatch function: calls a registered handler by type and name.

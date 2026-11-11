@@ -47,6 +47,11 @@ pub struct ContributionManager {
     pub(crate) retrieval_advisor_registry: Registry<String, Arc<dyn PluginRetrievalAdvisor>>,
     pub(crate) vector_encoding_registry: Registry<String, Arc<dyn PluginVectorEncoding>>,
     pub(crate) snapshot_policy_registry: Registry<String, Arc<Value>>,
+    pub(crate) metadata_extractor_registry: Registry<String, Arc<dyn PluginMetadataExtractor>>,
+    pub(crate) chunk_splitter_registry: Registry<String, Arc<dyn PluginChunkSplitter>>,
+    pub(crate) route_selector_registry: Registry<String, Arc<dyn PluginRouteSelector>>,
+    pub(crate) postprocessor_registry: Registry<String, Arc<dyn PluginPostprocessor>>,
+    pub(crate) eval_judge_registry: Registry<String, Arc<dyn PluginEvalJudge>>,
     /// User-facing commands contributed by plugins (slash, palette, help
     /// share one definition). The host renders; execution dispatch stays
     /// server-side through the command protocol.
@@ -93,6 +98,11 @@ impl ContributionManager {
             retrieval_advisor_registry: Registry::new(),
             vector_encoding_registry: Registry::new(),
             snapshot_policy_registry: Registry::new(),
+            metadata_extractor_registry: Registry::new(),
+            chunk_splitter_registry: Registry::new(),
+            route_selector_registry: Registry::new(),
+            postprocessor_registry: Registry::new(),
+            eval_judge_registry: Registry::new(),
             cli_command_registry: Registry::new(),
             completion_provider_registry: Registry::new(),
             setting_field_registry: Registry::new(),
@@ -141,6 +151,12 @@ impl ContributionManager {
             .unregister_by_plugin(plugin_id);
         self.snapshot_policy_registry
             .unregister_by_plugin(plugin_id);
+        self.metadata_extractor_registry
+            .unregister_by_plugin(plugin_id);
+        self.chunk_splitter_registry.unregister_by_plugin(plugin_id);
+        self.route_selector_registry.unregister_by_plugin(plugin_id);
+        self.postprocessor_registry.unregister_by_plugin(plugin_id);
+        self.eval_judge_registry.unregister_by_plugin(plugin_id);
         self.cli_command_registry.unregister_by_plugin(plugin_id);
         self.completion_provider_registry
             .unregister_by_plugin(plugin_id);
@@ -318,6 +334,31 @@ impl ContributionManager {
         for (key, owner) in self.all_snapshot_policies() {
             if owner == plugin_id {
                 records.push((ContributionType::SnapshotPolicy.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_metadata_extractors() {
+            if owner == plugin_id {
+                records.push((ContributionType::MetadataExtractor.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_chunk_splitters() {
+            if owner == plugin_id {
+                records.push((ContributionType::ChunkSplitter.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_route_selectors() {
+            if owner == plugin_id {
+                records.push((ContributionType::RouteSelector.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_postprocessors() {
+            if owner == plugin_id {
+                records.push((ContributionType::Postprocessor.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_eval_judges() {
+            if owner == plugin_id {
+                records.push((ContributionType::EvalJudge.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_cli_commands() {

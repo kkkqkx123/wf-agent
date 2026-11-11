@@ -53,6 +53,46 @@ impl ContributionManager {
         self.snapshot_policy_registry.get(name)
     }
 
+    pub fn get_metadata_extractor(&self, name: &str) -> Option<Arc<dyn PluginMetadataExtractor>> {
+        self.metadata_extractor_registry.get(name)
+    }
+
+    pub fn all_metadata_extractors(&self) -> Vec<(String, String)> {
+        self.metadata_extractor_registry.all()
+    }
+
+    pub fn get_chunk_splitter(&self, name: &str) -> Option<Arc<dyn PluginChunkSplitter>> {
+        self.chunk_splitter_registry.get(name)
+    }
+
+    pub fn all_chunk_splitters(&self) -> Vec<(String, String)> {
+        self.chunk_splitter_registry.all()
+    }
+
+    pub fn get_route_selector(&self, name: &str) -> Option<Arc<dyn PluginRouteSelector>> {
+        self.route_selector_registry.get(name)
+    }
+
+    pub fn all_route_selectors(&self) -> Vec<(String, String)> {
+        self.route_selector_registry.all()
+    }
+
+    pub fn get_postprocessor(&self, name: &str) -> Option<Arc<dyn PluginPostprocessor>> {
+        self.postprocessor_registry.get(name)
+    }
+
+    pub fn all_postprocessors(&self) -> Vec<(String, String)> {
+        self.postprocessor_registry.all()
+    }
+
+    pub fn get_eval_judge(&self, name: &str) -> Option<Arc<dyn PluginEvalJudge>> {
+        self.eval_judge_registry.get(name)
+    }
+
+    pub fn all_eval_judges(&self) -> Vec<(String, String)> {
+        self.eval_judge_registry.all()
+    }
+
     pub fn all_snapshot_policies(&self) -> Vec<(String, String)> {
         self.snapshot_policy_registry.all()
     }

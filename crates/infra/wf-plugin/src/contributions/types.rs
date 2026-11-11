@@ -6,12 +6,13 @@ pub use wf_plugin_sdk::contributions::{
     apply_cli_input_outcome, apply_markdown_rules, parse_cli_input_outcome,
     parse_middleware_outcome, render_tool_summary, AuthDescriptor, CliInputOutcome,
     CodecHttpRequest, MiddlewareOutcome, NextFn, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
-    PluginAuthPrompt, PluginCliCommand, PluginCliCondition, PluginCompactionAdvisor,
-    PluginCompletionItem, PluginCompletionSource, PluginEventData, PluginEventHandler,
-    PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
-    PluginLoginStep, PluginMarkdownRule, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginRetrievalAdvisor, PluginSettingField, PluginTextAnalyzer,
-    PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
+    PluginAuthPrompt, PluginChunkSplitter, PluginCliCommand, PluginCliCondition,
+    PluginCompactionAdvisor, PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
+    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
+    PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMarkdownRule,
+    PluginMetadataExtractor, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
+    PluginPostprocessor, PluginRetrievalAdvisor, PluginRouteSelector, PluginSettingField,
+    PluginTextAnalyzer, PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
     PluginVectorEncoding,
 };
 
@@ -57,6 +58,16 @@ pub enum ContributionType {
     VectorEncoding,
     /// Deferred snapshot expectations as declarative JSON (stage 6 reservation).
     SnapshotPolicy,
+    /// Deferred ingest metadata enrichment (advisory only).
+    MetadataExtractor,
+    /// Deferred semantic chunk splitting (advisory only).
+    ChunkSplitter,
+    /// Deferred semantic route selection (advisory only).
+    RouteSelector,
+    /// Deferred diversity and filtering postprocessing (advisory only).
+    Postprocessor,
+    /// Deferred answer scoring for evaluation (advisory only).
+    EvalJudge,
     /// One user-facing command: slash entry, palette row and help line
     /// share the definition (`cli-command`). Declarative; the host renders.
     CliCommand,
@@ -94,6 +105,11 @@ impl ContributionType {
             Self::RetrievalAdvisor => "retrieval-advisor",
             Self::VectorEncoding => "vector-encoding",
             Self::SnapshotPolicy => "snapshot-policy",
+            Self::MetadataExtractor => "metadata-extractor",
+            Self::ChunkSplitter => "chunk-splitter",
+            Self::RouteSelector => "route-selector",
+            Self::Postprocessor => "postprocessor",
+            Self::EvalJudge => "eval-judge",
             Self::CliCommand => "cli-command",
             Self::CompletionProvider => "completion-provider",
             Self::SettingField => "setting-field",
@@ -125,6 +141,11 @@ impl ContributionType {
             Self::RetrievalAdvisor,
             Self::VectorEncoding,
             Self::SnapshotPolicy,
+            Self::MetadataExtractor,
+            Self::ChunkSplitter,
+            Self::RouteSelector,
+            Self::Postprocessor,
+            Self::EvalJudge,
             Self::CliCommand,
             Self::CompletionProvider,
             Self::SettingField,

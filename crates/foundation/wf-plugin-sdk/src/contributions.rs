@@ -771,6 +771,67 @@ pub trait PluginVectorEncoding: Send + Sync {
     fn encode(&self, text: String, options: Value) -> PluginResult<Value>;
 }
 
+/// Plugin-contributed metadata extraction for deferred ingest enrichment.
+///
+/// Pure mapping hook: the host owns chunking and writes, the plugin only
+/// suggests string metadata merged onto the document. Output must be a JSON
+/// object with scalar values; absent extractors keep the input metadata
+/// unchanged. Implementations must stay synchronous and side-effect free.
+pub trait PluginMetadataExtractor: Send + Sync {
+    /// Extractor name referenced by an ingest policy.
+    fn name(&self) -> String;
+    /// Suggest metadata for `text` with `options` as a JSON object.
+    fn extract(&self, text: String, options: Value) -> PluginResult<Value>;
+}
+
+/// Plugin-contributed chunk splitting for deferred semantic strategies.
+///
+/// Pure splitting hook: the host owns embedding and writes, the plugin only
+/// suggests content pieces. Output must be a JSON array of objects carrying
+/// a non-empty `content` string; absent splitters keep the built-in splitter.
+/// Implementations must stay synchronous and side-effect free.
+pub trait PluginChunkSplitter: Send + Sync {
+    /// Splitter name referenced by an ingest policy.
+    fn name(&self) -> String;
+    /// Split `text` with `options` into a JSON array of content pieces.
+    fn split(&self, text: String, options: Value) -> PluginResult<Value>;
+}
+
+/// Plugin-contributed route selection for deferred semantic routing.
+///
+/// Pure selection hook following the retrieval advisor pattern: input carries
+/// a read-only snapshot of the query plus candidate target names, output
+/// carries the selected subset. Unknown names are skipped, an empty
+/// suggestion defers to the full candidate list. Implementations must stay
+/// synchronous and side-effect free.
+pub trait PluginRouteSelector: Send + Sync {
+    /// Suggest the target subset for one retrieval input.
+    fn select(&self, input: Value) -> PluginResult<Value>;
+}
+
+/// Plugin-contributed postprocessing for deferred diversity and filtering.
+///
+/// Pure shaping hook following the retrieval advisor pattern: input carries
+/// a read-only snapshot of the query plus ranked candidates, output carries
+/// the reordered or filtered suggestion. Every suggestion is validated so
+/// unknown ids never reach execution. Implementations must stay synchronous
+/// and side-effect free.
+pub trait PluginPostprocessor: Send + Sync {
+    /// Suggest postprocessed order for one retrieval input.
+    fn process(&self, input: Value) -> PluginResult<Value>;
+}
+
+/// Plugin-contributed evaluation judge for deferred answer scoring.
+///
+/// Pure scoring hook: input carries the query, the answer and the contexts,
+/// output carries a zero-to-one score plus an optional reason. Out-of-range
+/// scores are rejected and the caller keeps its heuristic score.
+/// Implementations must stay synchronous and side-effect free.
+pub trait PluginEvalJudge: Send + Sync {
+    /// Score one answer for an evaluation input.
+    fn judge(&self, input: Value) -> PluginResult<Value>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

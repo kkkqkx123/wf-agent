@@ -337,6 +337,86 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(name.into(), plugin_id, Arc::new(policy));
         Ok(())
     }
+    fn register_metadata_extractor(
+        &mut self,
+        name: &str,
+        extractor: Arc<dyn PluginMetadataExtractor>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::MetadataExtractor, name)?;
+        self.manager
+            .check_conflict(ContributionType::MetadataExtractor.as_str(), name, || {
+                self.manager.metadata_extractor_registry.get_owner(name)
+            })?;
+        self.manager
+            .metadata_extractor_registry
+            .register(name.into(), plugin_id, extractor);
+        Ok(())
+    }
+    fn register_chunk_splitter(
+        &mut self,
+        name: &str,
+        splitter: Arc<dyn PluginChunkSplitter>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::ChunkSplitter, name)?;
+        self.manager
+            .check_conflict(ContributionType::ChunkSplitter.as_str(), name, || {
+                self.manager.chunk_splitter_registry.get_owner(name)
+            })?;
+        self.manager
+            .chunk_splitter_registry
+            .register(name.into(), plugin_id, splitter);
+        Ok(())
+    }
+    fn register_route_selector(
+        &mut self,
+        name: &str,
+        selector: Arc<dyn PluginRouteSelector>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::RouteSelector, name)?;
+        self.manager
+            .check_conflict(ContributionType::RouteSelector.as_str(), name, || {
+                self.manager.route_selector_registry.get_owner(name)
+            })?;
+        self.manager
+            .route_selector_registry
+            .register(name.into(), plugin_id, selector);
+        Ok(())
+    }
+    fn register_postprocessor(
+        &mut self,
+        name: &str,
+        postprocessor: Arc<dyn PluginPostprocessor>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::Postprocessor, name)?;
+        self.manager
+            .check_conflict(ContributionType::Postprocessor.as_str(), name, || {
+                self.manager.postprocessor_registry.get_owner(name)
+            })?;
+        self.manager
+            .postprocessor_registry
+            .register(name.into(), plugin_id, postprocessor);
+        Ok(())
+    }
+    fn register_eval_judge(
+        &mut self,
+        name: &str,
+        judge: Arc<dyn PluginEvalJudge>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::EvalJudge, name)?;
+        self.manager
+            .check_conflict(ContributionType::EvalJudge.as_str(), name, || {
+                self.manager.eval_judge_registry.get_owner(name)
+            })?;
+        self.manager
+            .eval_judge_registry
+            .register(name.into(), plugin_id, judge);
+        Ok(())
+    }
     fn register_cli_command(&mut self, command: PluginCliCommand) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         if let Err(message) = command.validate() {

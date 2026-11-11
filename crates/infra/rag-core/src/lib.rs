@@ -12,8 +12,10 @@
 //! Plugin contributions stay advisory: text analyzers replace segmentation,
 //! retrieval advisors reorder fused hits, vector encodings validate without
 //! changing dense writes, snapshot policies declare without executing.
-//! Backend selection, embedding, rerank, chunking, fusion and rewrite
-//! choices stay host-owned.
+//! Deferred capabilities add metadata extractors, chunk splitters, route
+//! selectors, postprocessors and eval judges through the same advisory
+//! pattern. Backend selection, embedding, rerank, chunking, fusion and
+//! rewrite choices stay host-owned.
 
 pub mod chunker;
 pub mod citation;
@@ -70,12 +72,21 @@ pub use pipeline::{
     RerankInvocation,
 };
 pub use plugin::{
-    apply_registered_advisor, apply_retrieval_advisor, clear_retrieval_advisors,
-    clear_snapshot_policies, clear_vector_encodings, encode_with_registered,
-    find_retrieval_advisor, find_snapshot_policy, find_vector_encoding, is_valid_snapshot_policy,
-    register_plugin_analyzer, register_retrieval_advisor, register_snapshot_policy,
-    register_vector_encoding, unregister_plugin_analyzer, unregister_retrieval_advisor,
-    unregister_snapshot_policy, unregister_vector_encoding, RETRIEVAL_ADVISOR_PROTOCOL_VERSION,
+    apply_registered_advisor, apply_registered_postprocessor, apply_registered_selector,
+    apply_retrieval_advisor, clear_chunk_splitters, clear_eval_judges, clear_metadata_extractors,
+    clear_postprocessors, clear_retrieval_advisors, clear_route_selectors, clear_snapshot_policies,
+    clear_vector_encodings, encode_with_registered, extract_with_registered, find_chunk_splitter,
+    find_eval_judge, find_metadata_extractor, find_postprocessor, find_retrieval_advisor,
+    find_route_selector, find_snapshot_policy, find_vector_encoding, is_valid_snapshot_policy,
+    judge_with_registered, register_chunk_splitter, register_eval_judge,
+    register_metadata_extractor, register_plugin_analyzer, register_postprocessor,
+    register_retrieval_advisor, register_route_selector, register_snapshot_policy,
+    register_vector_encoding, split_with_registered, unregister_chunk_splitter,
+    unregister_eval_judge, unregister_metadata_extractor, unregister_plugin_analyzer,
+    unregister_postprocessor, unregister_retrieval_advisor, unregister_route_selector,
+    unregister_snapshot_policy, unregister_vector_encoding, JudgeScore, SplitPiece,
+    EVAL_JUDGE_PROTOCOL_VERSION, POSTPROCESSOR_PROTOCOL_VERSION,
+    RETRIEVAL_ADVISOR_PROTOCOL_VERSION, ROUTE_SELECTOR_PROTOCOL_VERSION,
 };
 pub use postprocess::{reorder_for_context, trim_to_budget, window_content};
 pub use rerank_adapter::{rerank_hits, RankedChunk};

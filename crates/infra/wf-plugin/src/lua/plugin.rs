@@ -299,6 +299,9 @@ impl Plugin for LuaPlugin {
                     }
                 };
 
+                // Retrieval extensions stay native-only: no analyzer, advisor,
+                // encoding, extractor, splitter, selector, postprocessor or
+                // judge tables are read here, matching the Wasm declaration.
                 extract("event_handlers", "handle", 4);
             }
 

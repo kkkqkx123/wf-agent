@@ -10,6 +10,7 @@
 | `design.md` | 设计思想与关键决策依据 |
 | `terraform-reference.md` | Terraform 设计思想与本项目落地对照 |
 | `custom-provider.md` | 自定义 LLM provider 集成（含订阅套餐登录）：决策表、两种注册形态、llm-auth 契约、测试清单 |
+| `rag-extensions.md` | RAG 九种检索扩展：原生限定、建议型语义、管线消费、版本策略与推迟项 |
 
 ## 开发阶段政策
 

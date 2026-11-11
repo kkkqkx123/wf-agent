@@ -14,7 +14,6 @@ use crate::error::{RagError, Result};
 use crate::retriever::{
     concat_fusion, reciprocal_rank_fusion, weighted_fusion_with_weights, RetrievedChunk,
 };
-use wf_plugin_sdk::PluginRouteSelector;
 
 /// One retrieval scope: a collection plus a namespace inside it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,31 +80,13 @@ pub fn resolve_selected<'a>(config: &'a RouterConfig, query: &str) -> Result<Vec
         .iter()
         .map(|target| target.name.clone())
         .collect();
-    let input = serde_json::json!({
-        "protocol_version": crate::plugin::ROUTE_SELECTOR_PROTOCOL_VERSION,
-        "query": query,
-        "candidates": candidates,
-    });
-    let output = match selector.select(input) {
-        Ok(output) => output,
+    let selected = match crate::plugin::poll_route_selector(selector.as_ref(), query, &candidates) {
+        Ok(selected) => selected,
         Err(error) => {
             tracing::warn!(selector = %name, error = %error, "route selector failed; keeping keyword rules");
             return Ok(resolve_targets(config, query));
         }
     };
-    let selected: Vec<String> = output
-        .get("targets")
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|value| value.as_str())
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
     let matched: Vec<&RouteTarget> = selected
         .iter()
         .filter_map(|name| config.targets.iter().find(|target| &target.name == name))

@@ -36,6 +36,7 @@ interface contributions {
     /// Contribution declaration, mirroring `wf_register` JSON today.
     /// `tools` / `tool-descriptions` carry `Tool` / `ToolDescriptionData`
     /// JSON documents; older guests omit them (default empty).
+    /// Retrieval extensions are native-only and intentionally absent here.
     record declaration {
         node-types: list<string>,
         tool-types: list<string>,

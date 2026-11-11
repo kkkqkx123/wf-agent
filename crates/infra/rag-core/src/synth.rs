@@ -15,6 +15,7 @@ use crate::citation::{
 use crate::config::RagQueryConfig;
 use crate::error::{RagError, Result};
 use crate::llm::{map_failure, CompletionLlm};
+use crate::plugin::JudgeScore;
 use crate::retriever::RetrievedChunk;
 
 /// Answer assembly strategy.
@@ -48,6 +49,9 @@ pub struct SynthesisConfig {
     /// Hint shown when retrieval returns nothing.
     #[serde(default = "default_no_hit_hint")]
     pub no_hit_hint: String,
+    /// Plugin eval judge scoring the answer after synthesis; unset skips scoring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eval_judge: Option<String>,
 }
 
 fn default_excerpt_chars() -> usize {
@@ -74,6 +78,7 @@ impl Default for SynthesisConfig {
             context_budget_chars: default_context_budget_chars(),
             max_passages: default_max_passages(),
             no_hit_hint: default_no_hit_hint(),
+            eval_judge: None,
         }
     }
 }
@@ -91,6 +96,9 @@ pub struct SynthesizedAnswer {
     pub model_calls: usize,
     /// Passages fed into the prompts.
     pub hits_used: usize,
+    /// Advisory score from the configured eval judge; `None` when unset or scoring failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eval: Option<JudgeScore>,
 }
 
 /// Assembles an answer from ranked hits with the configured strategy.
@@ -109,6 +117,7 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
             "query must not be empty".to_string(),
         ));
     }
+    validate_judge_name(config)?;
     let used: Vec<RetrievedChunk> = hits
         .iter()
         .take(config.max_passages.max(1))
@@ -125,6 +134,7 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
             completeness: CitationCompleteness::Incomplete,
             model_calls: 0,
             hits_used: 0,
+            eval: None,
         });
     }
     let completeness = check_completeness(&used);
@@ -146,13 +156,57 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
             "{answer}\n\nNote: some passages lack source labels; verify claims before citing."
         ),
     };
+    let eval = score_answer(query, &answer, &used, config);
     Ok(SynthesizedAnswer {
         answer,
         citations: build_citations(&used, config.excerpt_chars),
         completeness,
         model_calls,
         hits_used: used.len(),
+        eval,
     })
+}
+
+/// Validates the configured eval judge name before synthesis.
+/// Unknown names fail so misconfiguration surfaces; execution failures
+/// later only skip scoring with a warning and never fail synthesis.
+fn validate_judge_name(config: &SynthesisConfig) -> Result<()> {
+    let Some(name) = config
+        .eval_judge
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    if crate::plugin::find_eval_judge(name).is_none() {
+        return Err(RagError::InvalidInput(format!(
+            "unknown eval judge '{name}'"
+        )));
+    }
+    Ok(())
+}
+
+/// Scores one synthesized answer through the configured judge.
+/// Returns `None` when unset or when scoring fails; failures keep the
+/// answer unchanged so judging stays advisory.
+fn score_answer(
+    query: &str,
+    answer: &str,
+    used: &[RetrievedChunk],
+    config: &SynthesisConfig,
+) -> Option<JudgeScore> {
+    let name = config
+        .eval_judge
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())?;
+    let contexts: Vec<String> = used.iter().map(|hit| hit.content.clone()).collect();
+    match crate::plugin::judge_with_registered(name, query, answer, &contexts) {
+        Ok(scored) => Some(scored),
+        Err(error) => {
+            tracing::warn!(judge = %name, error = %error, "eval judge failed; keeping unscored answer");
+            None
+        }
+    }
 }
 
 /// Synthesis invocation bundling the model port and its shaping.
@@ -450,5 +504,107 @@ mod tests {
         .expect("synthesize");
         assert_eq!(answer.hits_used, 1);
         assert_eq!(answer.citations.len(), 1);
+    }
+
+    struct CitedJudge;
+
+    impl wf_plugin_sdk::PluginEvalJudge for CitedJudge {
+        fn judge(
+            &self,
+            input: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            let answer = input
+                .get("answer")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let score = if answer.contains('[') && answer.contains(']') {
+                1.0
+            } else {
+                0.5
+            };
+            Ok(serde_json::json!({"score": score, "reason": "demo"}))
+        }
+    }
+
+    struct OutOfRangeJudge;
+
+    impl wf_plugin_sdk::PluginEvalJudge for OutOfRangeJudge {
+        fn judge(
+            &self,
+            _input: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({"score": 2.0}))
+        }
+    }
+
+    #[tokio::test]
+    async fn configured_judge_scores_answer_without_changing_it() {
+        crate::plugin::clear_eval_judges();
+        crate::plugin::register_eval_judge("cited", std::sync::Arc::new(CitedJudge));
+        let config = SynthesisConfig {
+            eval_judge: Some("cited".to_string()),
+            ..SynthesisConfig::default()
+        };
+        let answer = synthesize(
+            &ScriptedLlm {
+                answers: vec!["final [1]".to_string()],
+            },
+            "query",
+            "kb",
+            &[hit("a", "doc.md")],
+            &config,
+        )
+        .await
+        .expect("synthesize");
+        assert_eq!(answer.answer, "final [1]");
+        let scored = answer.eval.expect("judge scores");
+        assert!((scored.score - 1.0).abs() < f64::EPSILON);
+        crate::plugin::clear_eval_judges();
+    }
+
+    #[tokio::test]
+    async fn unknown_judge_name_fails_synthesis() {
+        crate::plugin::clear_eval_judges();
+        let config = SynthesisConfig {
+            eval_judge: Some("missing-judge".to_string()),
+            ..SynthesisConfig::default()
+        };
+        let err = synthesize(
+            &ScriptedLlm {
+                answers: vec!["text".to_string()],
+            },
+            "query",
+            "kb",
+            &[hit("a", "doc.md")],
+            &config,
+        )
+        .await
+        .expect_err("unknown judge must fail");
+        assert!(err.to_string().contains("missing-judge"));
+        crate::plugin::clear_eval_judges();
+    }
+
+    #[tokio::test]
+    async fn judge_failure_keeps_unscored_answer() {
+        crate::plugin::clear_eval_judges();
+        crate::plugin::register_eval_judge("oob", std::sync::Arc::new(OutOfRangeJudge));
+        let config = SynthesisConfig {
+            eval_judge: Some("oob".to_string()),
+            ..SynthesisConfig::default()
+        };
+        let answer = synthesize(
+            &ScriptedLlm {
+                answers: vec!["text".to_string()],
+            },
+            "query",
+            "kb",
+            &[hit("a", "doc.md")],
+            &config,
+        )
+        .await
+        .expect("synthesis survives judge failure");
+        assert_eq!(answer.answer, "text");
+        assert!(answer.eval.is_none());
+        crate::plugin::clear_eval_judges();
     }
 }

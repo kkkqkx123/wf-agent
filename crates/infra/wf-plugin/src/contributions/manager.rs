@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn deferred_retrieval_registries_round_trip_and_unsync() {
+    fn retrieval_extension_registries_round_trip_and_unsync() {
         let manager = ContributionManager::new();
         manager.start_registration("p-deferred");
         let mut registrar = manager.as_registrar();

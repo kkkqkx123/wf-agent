@@ -10,11 +10,15 @@
 //! pipeline reads them. Vector and keyword backend selection, embedding,
 //! rerank, chunking, fusion and rewrite choices stay host-owned.
 //!
-//! Deferred capabilities carry advisory shapes only: metadata extractors
-//! suggest ingest metadata, chunk splitters suggest content pieces, route
-//! selectors choose retrieval scopes, postprocessors reshape fused hits and
-//! eval judges score answers. Pipelines never read these registries
-//! implicitly; hosts call the apply helpers explicitly.
+//! Retrieval extensions are advisory: metadata extractors suggest ingest
+//! metadata, chunk splitters suggest content pieces, route selectors choose
+//! retrieval scopes, postprocessors reshape fused hits and eval judges score
+//! answers. Pipelines consume them through explicit config names
+//! (`metadata_extractor`, `chunk_splitter`, `route_selector`,
+//! `postprocessor`); unset names keep built-in behavior. Eval judges stay
+//! host-called through the judge helper since retrieval has no answer text.
+//! Only the native backend dispatches retrieval extensions; Lua/Wasm hosts
+//! expose no retrieval channel.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -531,7 +535,7 @@ pub struct SplitPiece {
 }
 
 /// One score from an eval judge.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JudgeScore {
     /// Zero-to-one score.
     pub score: f64,
@@ -633,6 +637,36 @@ pub fn split_with_registered(
     Ok(out)
 }
 
+/// Runs one route selector and returns the trimmed non-empty target
+/// suggestions without validation or fallback. Execution failures surface
+/// as errors so each caller applies its own fallback (candidate list or
+/// keyword rules) from a single parsing path.
+pub(crate) fn poll_route_selector(
+    selector: &dyn PluginRouteSelector,
+    query: &str,
+    candidates: &[String],
+) -> wf_plugin_sdk::PluginResult<Vec<String>> {
+    let input = serde_json::json!({
+        "protocol_version": ROUTE_SELECTOR_PROTOCOL_VERSION,
+        "query": query,
+        "candidates": candidates,
+    });
+    let output = selector.select(input)?;
+    Ok(output
+        .get("targets")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// Selects retrieval targets through the named selector.
 /// Unknown names fail; unknown targets are skipped and an empty
 /// suggestion defers to the full candidate list.
@@ -649,31 +683,13 @@ pub fn apply_registered_selector(
             "unknown route selector '{name}'"
         )));
     };
-    let input = serde_json::json!({
-        "protocol_version": ROUTE_SELECTOR_PROTOCOL_VERSION,
-        "query": query,
-        "candidates": candidates,
-    });
-    let output = match selector.select(input) {
-        Ok(output) => output,
+    let selected = match poll_route_selector(selector.as_ref(), query, candidates) {
+        Ok(selected) => selected,
         Err(error) => {
             tracing::warn!(error = %error, "route selector failed; keeping all targets");
             return Ok(candidates.to_vec());
         }
     };
-    let selected: Vec<String> = output
-        .get("targets")
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|value| value.as_str())
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
     if selected.is_empty() {
         return Ok(candidates.to_vec());
     }
@@ -1083,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn deferred_extension_registries_roundtrip() {
+    fn retrieval_extension_registries_roundtrip() {
         clear_metadata_extractors();
         clear_chunk_splitters();
         clear_route_selectors();

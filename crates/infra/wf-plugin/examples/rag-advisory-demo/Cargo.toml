@@ -1,0 +1,15 @@
+[package]
+name = "rag-advisory-demo"
+version = "1.0.0"
+edition = "2021"
+
+# Detached from the parent workspace: this crate builds a native cdylib
+# against the C ABI and must never inherit workspace members.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wf-plugin-sdk = { path = "../../../../foundation/wf-plugin-sdk" }
+serde_json = "1"

@@ -83,7 +83,8 @@ pub mod host {
 ///
 /// The guest returns a JSON object of this shape as packed `(ptr, len)`
 /// pointing into its linear memory. Unknown fields are ignored so newer
-/// hosts stay compatible with older guests.
+/// hosts stay compatible with older guests. Retrieval extensions are
+/// native-only and intentionally absent here.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct WasmContributionDecl {
     #[serde(default)]

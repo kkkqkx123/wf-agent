@@ -50,23 +50,27 @@ pub enum ContributionType {
     /// hook; the engine validates every suggestion and falls back to the
     /// built-in planner on any failure.
     CompactionAdvisor,
-    /// Deferred full-text analyzer (stage 3 reservation, no execution yet).
+    /// Full-text analyzer (`text-analyzer`). Advisory only; native-dispatched.
     TextAnalyzer,
-    /// Deferred retrieval shaping advice (stage 4 reservation).
+    /// Retrieval shaping advice (`retrieval-advisor`). Advisory only; native-dispatched.
     RetrievalAdvisor,
-    /// Deferred sparse and multi-vector encoders (stage 5 reservation).
+    /// Sparse and multi-vector encoders (`vector-encoding`). Advisory only;
+    /// native-dispatched.
     VectorEncoding,
-    /// Deferred snapshot expectations as declarative JSON (stage 6 reservation).
+    /// Snapshot expectations as declarative JSON (`snapshot-policy`).
+    /// Reservation only; native-declared, no pipeline reads them.
     SnapshotPolicy,
-    /// Deferred ingest metadata enrichment (advisory only).
+    /// Ingest metadata enrichment (`metadata-extractor`). Advisory only;
+    /// native-dispatched.
     MetadataExtractor,
-    /// Deferred semantic chunk splitting (advisory only).
+    /// Semantic chunk splitting (`chunk-splitter`). Advisory only; native-dispatched.
     ChunkSplitter,
-    /// Deferred semantic route selection (advisory only).
+    /// Semantic route selection (`route-selector`). Advisory only; native-dispatched.
     RouteSelector,
-    /// Deferred diversity and filtering postprocessing (advisory only).
+    /// Diversity and filtering postprocessing (`postprocessor`). Advisory only;
+    /// native-dispatched.
     Postprocessor,
-    /// Deferred answer scoring for evaluation (advisory only).
+    /// Answer scoring for evaluation (`eval-judge`). Advisory only; native-dispatched.
     EvalJudge,
     /// One user-facing command: slash entry, palette row and help line
     /// share the definition (`cli-command`). Declarative; the host renders.

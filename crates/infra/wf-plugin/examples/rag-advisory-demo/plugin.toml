@@ -1,0 +1,6 @@
+# RAG advisory demo must declare the backend explicitly; rename the suffix
+# to dylib on macOS or dll on Windows and keep it aligned with the lib name.
+id = "rag-advisory-demo"
+version = "1.0.0"
+entry_point = "rag_advisory_demo.so"
+plugin_type = "native"

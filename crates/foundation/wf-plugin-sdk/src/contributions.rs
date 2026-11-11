@@ -726,12 +726,16 @@ pub trait PluginCompactionAdvisor: Send + Sync {
     fn advise(&self, input: Value) -> PluginResult<Value>;
 }
 
-// ── retrieval extension reservations (trigger-based, no execution yet) ──
-// These traits reserve the plugin shapes for the deferred vector batches:
-// stage 3 full-text, stage 4 retrieval shaping, stage 5 vector encodings.
+// ── retrieval extensions (advisory, native-dispatched) ──
+// Advisory plugin shapes for text analysis, retrieval shaping, vector
+// encodings and the ingest, routing, postprocess and judge hooks.
+// Snapshot-style inputs carry a `protocol_version` (currently one);
+// typed text-plus-options hooks evolve through `options` instead.
 // The host owns translation and validation; implementations stay
 // synchronous and side-effect free so the default chain never changes.
-/// Plugin-contributed text analyzer for deferred full-text filters.
+// Only the native backend dispatches these; Lua/Wasm hosts expose no
+// retrieval channel.
+/// Plugin-contributed text analyzer for full-text filters.
 ///
 /// Pure tokenize and normalize hook: the host applies one analyzer
 /// definition to memory scans, embedded scans and server text index configuration so
@@ -743,7 +747,7 @@ pub trait PluginTextAnalyzer: Send + Sync {
     fn analyze(&self, text: String) -> PluginResult<Vec<String>>;
 }
 
-/// Plugin-contributed retrieval shaping advice for deferred grouping,
+/// Plugin-contributed retrieval shaping advice for grouping,
 /// recommend, prefetch fusion and sorting inputs.
 ///
 /// Pure shaping hook following the compaction advisor pattern: input
@@ -757,7 +761,7 @@ pub trait PluginRetrievalAdvisor: Send + Sync {
     fn advise(&self, input: Value) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed vector encoding for deferred sparse and
+/// Plugin-contributed vector encoding for sparse and
 /// multi-vector shapes.
 ///
 /// Pure encoding hook: the host owns the storage contract and dimension
@@ -771,7 +775,7 @@ pub trait PluginVectorEncoding: Send + Sync {
     fn encode(&self, text: String, options: Value) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed metadata extraction for deferred ingest enrichment.
+/// Plugin-contributed metadata extraction for ingest enrichment.
 ///
 /// Pure mapping hook: the host owns chunking and writes, the plugin only
 /// suggests string metadata merged onto the document. Output must be a JSON
@@ -784,7 +788,7 @@ pub trait PluginMetadataExtractor: Send + Sync {
     fn extract(&self, text: String, options: Value) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed chunk splitting for deferred semantic strategies.
+/// Plugin-contributed chunk splitting for semantic strategies.
 ///
 /// Pure splitting hook: the host owns embedding and writes, the plugin only
 /// suggests content pieces. Output must be a JSON array of objects carrying
@@ -797,7 +801,7 @@ pub trait PluginChunkSplitter: Send + Sync {
     fn split(&self, text: String, options: Value) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed route selection for deferred semantic routing.
+/// Plugin-contributed route selection for semantic routing.
 ///
 /// Pure selection hook following the retrieval advisor pattern: input carries
 /// a read-only snapshot of the query plus candidate target names, output
@@ -809,7 +813,7 @@ pub trait PluginRouteSelector: Send + Sync {
     fn select(&self, input: Value) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed postprocessing for deferred diversity and filtering.
+/// Plugin-contributed postprocessing for diversity and filtering.
 ///
 /// Pure shaping hook following the retrieval advisor pattern: input carries
 /// a read-only snapshot of the query plus ranked candidates, output carries
@@ -821,7 +825,7 @@ pub trait PluginPostprocessor: Send + Sync {
     fn process(&self, input: Value) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed evaluation judge for deferred answer scoring.
+/// Plugin-contributed evaluation judge for answer scoring.
 ///
 /// Pure scoring hook: input carries the query, the answer and the contexts,
 /// output carries a zero-to-one score plus an optional reason. Out-of-range

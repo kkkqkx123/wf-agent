@@ -12,10 +12,12 @@
 //! Plugin contributions stay advisory: text analyzers replace segmentation,
 //! retrieval advisors reorder fused hits, vector encodings validate without
 //! changing dense writes, snapshot policies declare without executing.
-//! Deferred capabilities add metadata extractors, chunk splitters, route
-//! selectors, postprocessors and eval judges through the same advisory
-//! pattern. Backend selection, embedding, rerank, chunking, fusion and
-//! rewrite choices stay host-owned.
+//! Metadata extractors, chunk splitters, route selectors, postprocessors
+//! and eval judges follow the same advisory pattern; pipelines consume them
+//! through explicit config names while eval judges stay host-called.
+//! Backend selection, embedding, rerank, chunking, fusion and rewrite
+//! choices stay host-owned. Only the native backend dispatches retrieval
+//! extensions; Lua/Wasm hosts expose no retrieval channel.
 
 pub mod chunker;
 pub mod citation;

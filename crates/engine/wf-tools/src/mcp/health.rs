@@ -1,6 +1,6 @@
-//! Background health monitoring: the maintenance loop that health-checks
-//! keep-alive servers, disconnects idle servers and the monitor facade
-//! over those operations.
+//! Shared maintenance entry: one pass health-checks keep-alive servers
+//! and disconnects idle servers. Hosts drive it explicitly or through the
+//! spawned loop; no per-server background task exists.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,7 +8,6 @@ use std::time::Duration;
 use crate::error::ToolResult;
 
 use super::connection::McpConnectionManager;
-use super::registry::McpLifecycleMode;
 
 impl McpConnectionManager {
     /// One maintenance pass: health checks for keep-alive servers and idle
@@ -31,53 +30,6 @@ impl McpConnectionManager {
                 self.run_maintenance().await;
             }
         })
-    }
-
-    pub(super) fn spawn_health_check_loop(&self, server_name: String, interval: Duration) {
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
-            loop {
-                ticker.tick().await;
-                let entry = manager.registry.get(&server_name);
-                let keep_alive = entry
-                    .map(|e| e.lifecycle == McpLifecycleMode::KeepAlive)
-                    .unwrap_or(false);
-                if !keep_alive {
-                    break;
-                }
-                if manager.clients.contains_key(&server_name) {
-                    let healthy = manager.check_health(&server_name).await.unwrap_or(false);
-                    if !healthy {
-                        let _ = manager.reconnect(&server_name).await;
-                    }
-                }
-            }
-        });
-    }
-
-    pub(super) fn spawn_idle_watcher(&self, server_name: String, idle_timeout: Duration) {
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(idle_timeout);
-            loop {
-                ticker.tick().await;
-                let entry = manager.registry.get(&server_name);
-                let still_eager = entry
-                    .map(|e| e.lifecycle == McpLifecycleMode::Eager)
-                    .unwrap_or(false);
-                if !still_eager {
-                    break;
-                }
-                let idle_since = manager.last_activity.get(&server_name).map(|a| *a.value());
-                if let Some(since) = idle_since {
-                    if since.elapsed() >= idle_timeout {
-                        let _ = manager.disconnect(&server_name).await;
-                        break;
-                    }
-                }
-            }
-        });
     }
 }
 

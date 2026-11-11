@@ -95,6 +95,7 @@ fn build_mcp_request(
         .get("tool_name")
         .and_then(|v| v.as_str())
         .map(str::to_string)
+        .or_else(|| original_tool_name_from_config(mcp_tool))
         .unwrap_or_else(|| tool.tool_name.clone());
     let args = tool.parameters.get("arguments").cloned();
 
@@ -104,6 +105,16 @@ fn build_mcp_request(
         tool_name: Some(tool_name),
         uri: None,
         arguments: args,
+    })
+}
+
+fn original_tool_name_from_config(mcp_tool: Option<&Tool>) -> Option<String> {
+    mcp_tool.and_then(|t| {
+        t.config
+            .as_ref()
+            .and_then(|c| c.get("mcp_tool_name"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
     })
 }
 

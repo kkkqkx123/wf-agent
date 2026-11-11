@@ -47,15 +47,28 @@ pub async fn init_tool_registry_with_mcp(
     tool_registry.set_skill_loader(skill_loader);
     if let Some(manager) = mcp_manager {
         tool_registry.set_mcp_manager(manager.clone());
+        let registrar = Arc::new(wf_tools::mcp::registration::McpToolsRegistrar::new(
+            wf_tools::mcp::registration::McpToolRegistrationOptions {
+                max_tools: usize::MAX,
+                ..Default::default()
+            },
+        ));
         let registry = tool_registry.clone();
         let manager_clone = manager.clone();
-        manager.set_on_connected(Arc::new(move |_server| {
-            wf_tools::mcp::registration::register_connected_tools(&registry, &manager_clone);
+        let registrar_clone = registrar.clone();
+        manager.set_on_connected(Arc::new(move |server| {
+            registrar_clone.refresh_server_tools(&registry, &manager_clone, server, None);
+        }));
+        let registry = tool_registry.clone();
+        let manager_clone = manager.clone();
+        let registrar_clone = registrar.clone();
+        manager.set_on_capabilities_changed(Arc::new(move |server| {
+            registrar_clone.refresh_server_tools(&registry, &manager_clone, server, None);
         }));
         wf_tools::mcp::registration::register_use_mcp(&tool_registry).map_err(|e| {
             crate::error::RuntimeError::Config(format!("Failed to register use_mcp: {}", e))
         })?;
-        wf_tools::mcp::registration::register_connected_tools(&tool_registry, manager);
+        registrar.register_mcp_tools(&tool_registry, manager, None);
     }
     Ok(tool_registry)
 }

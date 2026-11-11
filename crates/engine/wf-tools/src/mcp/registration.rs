@@ -144,7 +144,11 @@ fn convert_json_property(json: &Value, _required: bool) -> ToolPropertySchema {
     }
 }
 
-/// Build the registry-facing tool for one discovered MCP tool.
+/// Build the registry-facing tool for one discovered MCP tool. The registry
+/// identity and the model-visible name share the sanitized global id so the
+/// declaration the model calls resolves back to the registry entry. The
+/// original server-side tool name is kept in the tool config for execution
+/// and approval lookups.
 pub fn mcp_tool_to_tool(server_name: &str, info: &McpToolInfo) -> Tool {
     let metadata = ToolMetadata {
         category: Some("integration".into()),
@@ -160,9 +164,10 @@ pub fn mcp_tool_to_tool(server_name: &str, info: &McpToolInfo) -> Tool {
         exposure: None,
     };
 
+    let tool_id = sanitized_mcp_tool_id(MCP_TOOL_ID_PREFIX, server_name, &info.name);
     Tool {
-        id: sanitized_mcp_tool_id(MCP_TOOL_ID_PREFIX, server_name, &info.name),
-        name: info.name.clone(),
+        id: tool_id.clone(),
+        name: tool_id,
         description: info
             .description
             .clone()
@@ -170,7 +175,7 @@ pub fn mcp_tool_to_tool(server_name: &str, info: &McpToolInfo) -> Tool {
         tool_type: ToolType::Mcp,
         parameters: info.input_schema.as_ref().map(convert_input_schema),
         metadata: Some(metadata),
-        config: Some(serde_json::json!({ "server_name": server_name })),
+        config: Some(serde_json::json!({ "server_name": server_name, "mcp_tool_name": info.name })),
         enabled: Some(true),
         strict: None,
         default_timeout_ms: None,
@@ -326,6 +331,7 @@ impl McpToolsRegistrar {
                 let tool = mcp_tool_to_tool(server, info);
                 let mut tool = tool;
                 tool.id = tool_id.clone();
+                tool.name = tool_id.clone();
                 registry.register_tool(tool);
 
                 if self.options.track_registrations {
@@ -368,6 +374,83 @@ impl McpToolsRegistrar {
             }
         }
         removed
+    }
+
+    /// Refresh one server: drop tracked ids whose tool vanished, then
+    /// register the current tool set. Shared by initial connect and
+    /// capability-changed callbacks so both paths converge.
+    pub fn refresh_server_tools(
+        &self,
+        registry: &ToolRegistry,
+        manager: &McpConnectionManager,
+        server_name: &str,
+        analytics: Option<&crate::mcp::analytics::McpUsageAnalytics>,
+    ) -> Vec<String> {
+        if self.options.only_hot_tools && analytics.is_none() {
+            return Vec::new();
+        }
+        let current: Vec<String> = manager
+            .registry()
+            .get(server_name)
+            .map(|e| e.tools.iter().map(|t| t.name.clone()).collect())
+            .unwrap_or_default();
+        let stale: Vec<String> = wf_common::lock::lock_ok(self.registration_map.lock())
+            .iter()
+            .filter(|(_, (server, tool))| *server == server_name && !current.contains(tool))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !stale.is_empty() {
+            self.unregister_mcp_tools(registry, Some(&stale));
+        }
+        let registered_count = wf_common::lock::lock_ok(self.registered_tool_ids.lock()).len();
+        let mut remaining = self.options.max_tools.saturating_sub(registered_count);
+        let hot_tools: Option<Vec<crate::mcp::analytics::ToolStats>> =
+            if self.options.only_hot_tools {
+                analytics.map(|a| a.get_hot_tools(remaining.max(1)))
+            } else {
+                None
+            };
+        let mut tools = manager
+            .registry()
+            .get(server_name)
+            .map(|e| e.tools.clone())
+            .unwrap_or_default();
+        tools.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut registered = Vec::new();
+        for info in &tools {
+            if self.options.only_hot_tools {
+                let Some(hot) = &hot_tools else { break };
+                if !hot
+                    .iter()
+                    .any(|t| t.server_name == server_name && t.tool_name == info.name)
+                {
+                    continue;
+                }
+            }
+            if remaining == 0 {
+                break;
+            }
+            let tool_id =
+                sanitized_mcp_tool_id(&self.options.tool_name_prefix, server_name, &info.name);
+            if wf_common::lock::lock_ok(self.registered_tool_ids.lock()).contains(&tool_id) {
+                continue;
+            }
+            let tool = mcp_tool_to_tool(server_name, info);
+            let mut tool = tool;
+            tool.id = tool_id.clone();
+            tool.name = tool_id.clone();
+            registry.register_tool(tool);
+            if self.options.track_registrations {
+                lock_ok(self.registered_tool_ids.lock()).insert(tool_id.clone());
+                lock_ok(self.registration_map.lock()).insert(
+                    tool_id.clone(),
+                    (server_name.to_string(), info.name.clone()),
+                );
+            }
+            registered.push(tool_id);
+            remaining -= 1;
+        }
+        registered
     }
 
     pub fn is_tool_registered(&self, tool_id: &str) -> bool {
@@ -496,11 +579,15 @@ mod tests {
         };
         let tool = mcp_tool_to_tool("db", &info);
         assert_eq!(tool.id, "mcp_db__query");
-        assert_eq!(tool.name, "query");
+        assert_eq!(tool.name, "mcp_db__query");
         assert_eq!(tool.tool_type, ToolType::Mcp);
         assert_eq!(
             tool.config.as_ref().and_then(|c| c.get("server_name")),
             Some(&Value::from("db"))
+        );
+        assert_eq!(
+            tool.config.as_ref().and_then(|c| c.get("mcp_tool_name")),
+            Some(&Value::from("query"))
         );
         assert!(tool.parameters.is_some());
     }
@@ -585,5 +672,65 @@ mod tests {
         let unregistered = registrar.unregister_mcp_tools(&registry, None);
         assert_eq!(unregistered.len(), 2);
         assert!(registry.get_tool("mcp_db__one").is_none());
+    }
+
+    #[test]
+    fn test_refresh_drops_stale_tools() {
+        use std::sync::Arc;
+        use wf_types::tool::mcp_connection::*;
+
+        let registry = ToolRegistry::new();
+        let server_registry = Arc::new(crate::mcp::connection::McpServerRegistry::new());
+        let config = McpServerConfig::Stdio(McpStdioConfig {
+            base: McpServerConfigBase {
+                disabled: None,
+                timeout: Some(5),
+                always_allow: None,
+                disabled_tools: None,
+                lifecycle: None,
+                idle_timeout: None,
+                health_check_interval: None,
+            },
+            command: "echo".into(),
+            args: None,
+            cwd: None,
+            env: None,
+        });
+        server_registry.register("db", config);
+        server_registry.update_status("db", McpServerStatus::Connected);
+        server_registry.update_tools(
+            "db",
+            vec![
+                McpToolInfo {
+                    name: "one".into(),
+                    description: None,
+                    input_schema: None,
+                },
+                McpToolInfo {
+                    name: "two".into(),
+                    description: None,
+                    input_schema: None,
+                },
+            ],
+        );
+        let manager = crate::mcp::connection::McpConnectionManager::new(server_registry.clone());
+        let registrar = McpToolsRegistrar::new(McpToolRegistrationOptions {
+            max_tools: usize::MAX,
+            ..Default::default()
+        });
+        registrar.register_mcp_tools(&registry, &manager, None);
+        assert!(registry.get_tool("mcp_db__two").is_some());
+
+        server_registry.update_tools(
+            "db",
+            vec![McpToolInfo {
+                name: "one".into(),
+                description: None,
+                input_schema: None,
+            }],
+        );
+        registrar.refresh_server_tools(&registry, &manager, "db", None);
+        assert!(registry.get_tool("mcp_db__one").is_some());
+        assert!(registry.get_tool("mcp_db__two").is_none());
     }
 }

@@ -76,13 +76,12 @@ impl McpConnectionManager {
     }
 
     /// Register a server and connect according to its lifecycle mode:
-    /// lazy = deferred, eager/keep-alive = connect now (keep-alive also
-    /// spawns the background health check loop).
+    /// lazy = deferred, eager/keep-alive = connect now. Health checks and
+    /// idle disconnects run through the shared maintenance entry so no
+    /// per-server background task is spawned here.
     pub async fn connect_server(&self, name: &str, config: McpServerConfig) -> ToolResult<()> {
         let entry = McpServerEntry::new(name.to_string(), config);
         let lifecycle = entry.lifecycle;
-        let idle_timeout = entry.idle_timeout;
-        let health_check_interval = entry.health_check_interval;
         self.registry.servers.insert(name.to_string(), entry);
 
         if lifecycle == McpLifecycleMode::Lazy {
@@ -90,21 +89,6 @@ impl McpConnectionManager {
         }
 
         self.connect(name).await?;
-
-        if lifecycle == McpLifecycleMode::KeepAlive {
-            if let Some(interval) = health_check_interval {
-                self.spawn_health_check_loop(name.to_string(), interval);
-            }
-        }
-
-        // Servers with an idle timeout are disconnected after inactivity.
-        // Keep-alive servers are health-checked instead of idle-disconnected.
-        if lifecycle != McpLifecycleMode::KeepAlive {
-            if let Some(idle) = idle_timeout {
-                self.spawn_idle_watcher(name.to_string(), idle);
-            }
-        }
-
         Ok(())
     }
 
@@ -180,6 +164,10 @@ impl McpConnectionManager {
             pump_client.run_notification_pump(on_changed).await;
         });
 
+        // Capability discovery is best effort: a connected server stays
+        // usable through the generic tool even when listing fails. Failures
+        // are reported inside discover_capabilities; the connected callback
+        // always fires so registration converges on whatever was discovered.
         self.discover_capabilities(server_name).await;
         let callback = wf_common::lock::read_ok(self.on_connected.read()).clone();
         callback(server_name);
@@ -275,9 +263,23 @@ impl McpConnectionManager {
     }
 
     pub async fn discover_capabilities(&self, server_name: &str) {
-        let _ = self.discover_tools(server_name).await;
-        let _ = self.discover_resources(server_name).await;
-        let _ = self.discover_resource_templates(server_name).await;
+        if let Err(e) = self.discover_tools(server_name).await {
+            tracing::warn!("MCP server '{}' tools discovery failed: {}", server_name, e);
+        }
+        if let Err(e) = self.discover_resources(server_name).await {
+            tracing::warn!(
+                "MCP server '{}' resources discovery failed: {}",
+                server_name,
+                e
+            );
+        }
+        if let Err(e) = self.discover_resource_templates(server_name).await {
+            tracing::warn!(
+                "MCP server '{}' resource templates discovery failed: {}",
+                server_name,
+                e
+            );
+        }
     }
 
     pub async fn discover_resources(
@@ -397,11 +399,17 @@ impl McpConnectionManager {
         disconnected
     }
 
-    /// Health check one server by listing tools.
+    /// Health check one server by listing tools. A closed transport reports
+    /// unhealthy without a round trip.
     pub async fn check_health(&self, server_name: &str) -> ToolResult<bool> {
         let client = self.clients.get(server_name).ok_or_else(|| {
             crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
         })?;
+        if !client.is_connected() {
+            self.registry
+                .update_status(server_name, McpServerStatus::Disconnected);
+            return Ok(false);
+        }
 
         let timeout_ms = self.server_timeout_ms(server_name);
         match tokio::time::timeout(

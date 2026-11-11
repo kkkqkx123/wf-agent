@@ -9,6 +9,11 @@ use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use crate::mcp::analytics::McpUsageAnalytics;
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
+use wf_types::tool::DEFAULT_TOOL_TIMEOUT_MS;
+
+pub const USE_MCP_TOOL_ID: &str = "use_mcp";
+
+pub const MAX_MCP_OUTPUT_CHARS: usize = 32_000;
 
 pub struct McpExecutor {
     server_name: String,
@@ -110,6 +115,28 @@ fn ensure_mcp_uri_in_scope(
     }
 }
 
+fn truncate_mcp_output(text: String) -> String {
+    if text.chars().count() <= MAX_MCP_OUTPUT_CHARS {
+        return text;
+    }
+    let truncated: String = text.chars().take(MAX_MCP_OUTPUT_CHARS).collect();
+    format!("{truncated}\n\n[Truncated: output exceeded {MAX_MCP_OUTPUT_CHARS} characters]")
+}
+
+fn direct_mcp_tool_name(tool: &wf_types::tool::Tool) -> ToolResult<String> {
+    tool.config
+        .as_ref()
+        .and_then(|config| config.get("mcp_tool_name"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            ToolError::McpError(format!(
+                "MCP tool '{}' is missing its server-side tool name",
+                tool.id
+            ))
+        })
+}
+
 fn process_tool_result(result: &Value) -> String {
     let Some(content) = result.get("content").and_then(|v| v.as_array()) else {
         return "(No output)".into();
@@ -143,7 +170,7 @@ fn process_tool_result(result: &Value) -> String {
     if parts.is_empty() {
         "(No output)".into()
     } else {
-        parts.join("\n\n")
+        truncate_mcp_output(parts.join("\n\n"))
     }
 }
 
@@ -175,7 +202,7 @@ fn process_resource_result(result: &wf_types::tool::McpResourceReadResult) -> St
     if parts.is_empty() {
         "(Empty response)".into()
     } else {
-        parts.join("\n\n")
+        truncate_mcp_output(parts.join("\n\n"))
     }
 }
 
@@ -195,36 +222,54 @@ impl ToolExecutor for McpExecutor {
             ensure_mcp_uri_in_scope(&tool.name, uri, context)?;
         }
 
-        let timeout_ms = options.timeout.unwrap_or(30000);
+        let timeout_ms = options
+            .timeout
+            .or(tool.default_timeout_ms)
+            .unwrap_or(DEFAULT_TOOL_TIMEOUT_MS);
 
-        let server_name = parameters
-            .get("server_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&self.server_name);
+        let is_generic = tool.id == USE_MCP_TOOL_ID;
+        let uri = parameters.get("uri").and_then(|v| v.as_str());
 
-        let tool_name = parameters
-            .get("tool_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&tool.name);
+        let server_name: String = if is_generic {
+            parameters
+                .get("server_name")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    ToolError::ValidationFailed("Missing required parameter: server_name".into())
+                })?
+        } else {
+            self.server_name.clone()
+        };
+
+        let resolved_tool_name: String = if uri.is_none() {
+            if is_generic {
+                parameters
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        ToolError::ValidationFailed("Missing required parameter: tool_name".into())
+                    })?
+            } else {
+                direct_mcp_tool_name(tool)?
+            }
+        } else {
+            String::new()
+        };
 
         let result = if let Some(manager) = &self.connection_manager {
-            if let Some(uri) = parameters.get("uri").and_then(|v| v.as_str()) {
-                // Resource access: read the resource identified by the URI
-                match manager.read_resource(server_name, uri, timeout_ms).await {
+            if let Some(uri) = uri {
+                match manager.read_resource(&server_name, uri, timeout_ms).await {
                     Ok(resource_result) => {
                         Ok(Value::String(process_resource_result(&resource_result)))
                     }
                     Err(e) => Err(e),
                 }
-            } else if parameters
-                .get("tool_name")
-                .and_then(|v| v.as_str())
-                .is_some()
-            {
-                // Explicit tool call on a named server (use_mcp style)
+            } else if is_generic {
                 let args = parameters.get("arguments").cloned().unwrap_or(Value::Null);
                 manager
-                    .call_tool_on_server(server_name, tool_name, &args, timeout_ms)
+                    .call_tool_on_server(&server_name, &resolved_tool_name, &args, timeout_ms)
                     .await
                     .map(|value| {
                         let is_error = value
@@ -239,16 +284,14 @@ impl ToolExecutor for McpExecutor {
                         })
                     })
             } else {
-                // Single-server MCP tool: tool.name is the MCP tool name
                 manager
-                    .call_tool_on_server(server_name, &tool.name, parameters, timeout_ms)
+                    .call_tool_on_server(&server_name, &resolved_tool_name, parameters, timeout_ms)
                     .await
                     .map(process_result_value)
             }
         } else {
             Err(ToolError::McpError(format!(
-                "No connection manager for MCP server '{}'",
-                server_name
+                "No connection manager for MCP server '{server_name}'"
             )))
         };
 
@@ -261,8 +304,8 @@ impl ToolExecutor for McpExecutor {
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
                     analytics.record_execution(
-                        server_name,
-                        tool_name,
+                        &server_name,
+                        &resolved_tool_name,
                         execution_time.max(0) as u64,
                         !is_error,
                         None,
@@ -270,8 +313,8 @@ impl ToolExecutor for McpExecutor {
                     );
                 }
                 Err(e) => analytics.record_execution(
-                    server_name,
-                    tool_name,
+                    &server_name,
+                    &resolved_tool_name,
                     execution_time.max(0) as u64,
                     false,
                     Some(e.to_string()),
@@ -335,6 +378,36 @@ mod tests {
     fn test_process_tool_result_empty() {
         let result = serde_json::json!({"content": []});
         assert_eq!(process_tool_result(&result), "(No output)");
+    }
+
+    #[test]
+    fn test_process_tool_result_truncates_long_output() {
+        let long = "x".repeat(MAX_MCP_OUTPUT_CHARS + 10);
+        let result = serde_json::json!({
+            "content": [
+                {"type": "text", "text": long},
+            ]
+        });
+        let text = process_tool_result(&result);
+        assert!(text.contains("[Truncated: output exceeded"));
+        assert!(text.chars().count() < long.chars().count() + 100);
+    }
+
+    #[test]
+    fn test_direct_tool_name_requires_config() {
+        let tool = wf_types::tool::Tool {
+            id: "mcp_db__query".into(),
+            name: "mcp_db__query".into(),
+            description: "direct".into(),
+            tool_type: wf_types::tool::ToolType::Mcp,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: None,
+        };
+        assert!(direct_mcp_tool_name(&tool).is_err());
     }
 
     #[test]

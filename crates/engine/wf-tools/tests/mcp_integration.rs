@@ -142,7 +142,7 @@ async fn test_registration_registers_use_mcp_and_discovered_tools() {
     assert!(tool_registry.get_tool("use_mcp").is_some());
     // Per-server tool registered with config.
     let ping = tool_registry.get_tool("mcp_e2e2__ping").unwrap();
-    assert_eq!(ping.name, "ping");
+    assert_eq!(ping.name, "mcp_e2e2__ping");
     assert_eq!(
         ping.config
             .as_ref()

@@ -125,41 +125,10 @@ impl RmcpClient {
 
     /// Build the transport, perform the handshake and store the running
     /// service. Returns an error if already connected or the handshake fails.
+    /// Route-only proxies use this path; authenticated proxies go through
+    /// `connect_with_proxy_credential` with an explicitly resolved credential.
     pub async fn connect(&self, config: &McpServerConfig) -> ToolResult<()> {
-        let (notify_tx, notify_rx) = mpsc::channel(64);
-        let handler = WfClientHandler::new(notify_tx);
-
-        let lifecycle = ClientLifecycleMode::Auto {
-            preferred_versions: vec![ProtocolVersion::LATEST],
-            legacy_version: Some(ProtocolVersion::V_2024_11_05),
-        };
-
-        let service = match config {
-            McpServerConfig::Stdio(c) => {
-                let command = build_stdio_command(c)?;
-                let child = TokioChildProcess::new(command).map_err(|e| {
-                    ToolError::TransportError(format!("failed to spawn MCP server process: {e}"))
-                })?;
-                serve_client_with_lifecycle(handler, child, lifecycle)
-                    .await
-                    .map_err(|e| map_init_error(&self.server_name, e))?
-            }
-            McpServerConfig::StreamableHttp(c) => {
-                let client = build_http_client(c, None)?;
-                let transport_config = StreamableHttpClientTransportConfig::with_uri(c.url.clone());
-                let transport =
-                    StreamableHttpClientTransport::with_client(client, transport_config);
-                serve_client_with_lifecycle(handler, transport, lifecycle)
-                    .await
-                    .map_err(|e| map_init_error(&self.server_name, e))?
-            }
-        };
-
-        self.service
-            .set(Arc::new(service))
-            .map_err(|_| ToolError::Internal("MCP client already connected".into()))?;
-        *self.notify_rx.lock().unwrap() = Some(notify_rx);
-        Ok(())
+        self.connect_with_proxy_credential(config, None).await
     }
 
     /// Trigger shutdown via the cancellation token. The background task is

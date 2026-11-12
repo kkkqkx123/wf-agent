@@ -83,6 +83,7 @@ pub use context_store::{
     CompressionSignalOutcome, WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
+pub use conversation_session::compression::HandoffLifecycle;
 pub use ingest_preprocess::{
     blake3_hex, classify_tool, distill_tool_output, file_pointer_text, ToolOutputKind,
     ARCHIVE_REF_KEY, ARCHIVE_REF_PREFIX,

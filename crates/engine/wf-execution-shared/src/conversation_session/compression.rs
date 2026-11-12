@@ -7,7 +7,51 @@ use wf_types::message::{
 use super::history::projected_view_estimate;
 use super::ConversationSession;
 
+/// Explicit handoff lifecycle of one conversation: normal budgeting,
+/// a pending request to enter handoff at the next settlement, or an
+/// active handoff window. Derived from the stored mode plus the request
+/// flag so checkpoints keep their shape while decision points name the
+/// state they act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandoffLifecycle {
+    Normal,
+    Requested,
+    InHandoff,
+}
+
 impl ConversationSession {
+    /// Explicit handoff lifecycle derived from the stored mode plus the
+    /// pending request flag. The stored form stays a mode plus a boolean
+    /// so persisted snapshots keep their shape; this view makes the three
+    /// states nameable at decision points.
+    pub fn handoff_lifecycle(&self) -> HandoffLifecycle {
+        match (
+            self.state.compaction.mode,
+            self.state.compaction.handoff_requested,
+        ) {
+            (CompactionMode::Handoff, _) => HandoffLifecycle::InHandoff,
+            (CompactionMode::Normal, true) => HandoffLifecycle::Requested,
+            (CompactionMode::Normal, false) => HandoffLifecycle::Normal,
+        }
+    }
+
+    /// Note one still-over-budget completion in `Normal` mode: request
+    /// handoff directly, otherwise count toward the parking streak. Returns
+    /// the lifecycle after the note plus the streak escalation flag so
+    /// callers never branch on the mode and the streak themselves.
+    /// Plan-mode completions carry block outcomes; legacy and forced
+    /// completions count toward the streak.
+    pub fn note_still_over_budget(&mut self, has_blocks: bool) -> (HandoffLifecycle, (u32, bool)) {
+        if has_blocks && self.state.compaction.mode == CompactionMode::Normal {
+            self.state.compaction.handoff_requested = true;
+            let streak = self.still_over_budget_streak();
+            (HandoffLifecycle::Requested, (streak, false))
+        } else {
+            let noted = self.record_still_over_budget_should_escalate();
+            (self.handoff_lifecycle(), noted)
+        }
+    }
+
     /// Switch the read projection to a compressed view over the current
     /// history: the summary batch is appended to the append-only history
     /// and the view shows the summary plus a configurable tail. The

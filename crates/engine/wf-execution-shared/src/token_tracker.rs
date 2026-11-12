@@ -539,6 +539,68 @@ impl TokenUsageTracker {
             .unwrap_or(0)
     }
 
+    /// Whether the still-over-budget streak for `target` reached the
+    /// escalation threshold. Single predicate for every emitter so the
+    /// agent consumer and the workflow waiter escalate on the same count.
+    pub fn should_escalate_still_over_budget(&self, target: &str) -> bool {
+        self.still_over_budget_count(target) >= Self::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+    }
+
+    /// Record a still-over-budget completion and report whether the streak
+    /// reached the escalation threshold. Centralizes the threshold so
+    /// callers never compare the streak themselves.
+    pub fn record_still_over_budget_should_escalate(&mut self, target: &str) -> (u32, bool) {
+        let streak = self.record_still_over_budget(target);
+        let escalate = streak >= Self::STILL_OVER_BUDGET_ESCALATION_THRESHOLD;
+        (streak, escalate)
+    }
+
+    /// Whether the in-flight record for `target` expired at `now_ms`.
+    /// Missing flights never count as expired so a lost completion without
+    /// a failure event is observed as an anchor release, not as expiry.
+    pub fn flight_expired_for(&self, target: &str, now_ms: i64, timeout_ms: u64) -> bool {
+        self.compression_flight(target).is_some_and(|flight| {
+            crate::context_store::flight_expired(flight.started_at_ms, now_ms, timeout_ms)
+        })
+    }
+
+    /// Take an expired in-flight record for `target`: remove it and return
+    /// its anchor version when it expired, otherwise leave it in place.
+    /// Unifies the agent and workflow expiry paths on one predicate.
+    pub fn take_expired_flight(
+        &mut self,
+        target: &str,
+        now_ms: i64,
+        timeout_ms: u64,
+    ) -> Option<u64> {
+        if !self.flight_expired_for(target, now_ms, timeout_ms) {
+            return None;
+        }
+        let version = self.compression_flights.get(target).map(|flight| flight.version);
+        if version.is_some() {
+            self.compression_flights.remove(target);
+        }
+        version
+    }
+
+    /// Expired-flight probe over a serialized tracker state (workflow
+    /// variable map). Mirrors `take_expired_flight` without mutating the
+    /// live tracker; the caller releases through the persisted copy.
+    pub fn expired_flight_version(
+        state: &TokenTrackerState,
+        target: &str,
+        now_ms: i64,
+        timeout_ms: u64,
+    ) -> Option<u64> {
+        state.compression_flights.get(target).and_then(|flight| {
+            if crate::context_store::flight_expired(flight.started_at_ms, now_ms, timeout_ms) {
+                Some(flight.version)
+            } else {
+                None
+            }
+        })
+    }
+
     /// Decision track: tier-based limit exceeded guard. Tiers are 50%
     /// bands starting at 100% (100% -> 2, 150% -> 3, 200% -> 4, ...).
     /// Returns the newly crossed tier exactly once per band, so

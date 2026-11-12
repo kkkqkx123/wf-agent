@@ -6,11 +6,8 @@ use wf_types::message::Message;
 use wf_workflow::trigger::SubworkflowRunner;
 
 use super::input_window::PlannedSlice;
+use super::policy::retry_backoff_ms;
 use super::terminal_report::ChainStatus;
-
-/// Base delay for the exponential backoff between chain retry attempts
-/// (1s, 2s, 4s, ...).
-const COMPRESSION_RETRY_BASE_DELAY_MS: u64 = 1_000;
 
 /// Owned inputs for one chain run over the planned slices. The retry budget
 /// is shared across the batch so the timeout nesting contract keeps holding
@@ -175,7 +172,7 @@ pub(super) async fn run_items(params: ChainRunParams) -> ChainRunOutput {
                                 );
                     tokio::select! {
                         _ = tokio::time::sleep(std::time::Duration::from_millis(
-                            COMPRESSION_RETRY_BASE_DELAY_MS << (attempts - 1).min(6),
+                            retry_backoff_ms(attempts),
                         )) => {}
                         _ = shutdown.cancelled() => {
                             status = Some(ChainStatus::Aborted);

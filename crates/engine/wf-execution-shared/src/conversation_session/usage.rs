@@ -138,6 +138,33 @@ impl ConversationSession {
             .record_still_over_budget(CONVERSATION_CONTEXT_ID)
     }
 
+    /// Record a still-over-budget completion and report whether the streak
+    /// reached the escalation threshold. Callers use the flag instead of
+    /// comparing the streak themselves.
+    pub fn record_still_over_budget_should_escalate(&mut self) -> (u32, bool) {
+        self.tracker
+            .record_still_over_budget_should_escalate(CONVERSATION_CONTEXT_ID)
+    }
+
+    /// Whether the still-over-budget streak reached the escalation threshold.
+    pub fn should_escalate_still_over_budget(&self) -> bool {
+        self.tracker
+            .should_escalate_still_over_budget(CONVERSATION_CONTEXT_ID)
+    }
+
+    /// Whether the in-flight conversation compression expired at `now_ms`.
+    pub fn compression_flight_expired(&self, now_ms: i64, timeout_ms: u64) -> bool {
+        self.tracker
+            .flight_expired_for(CONVERSATION_CONTEXT_ID, now_ms, timeout_ms)
+    }
+
+    /// Take an expired in-flight conversation compression: release the
+    /// anchor and return its version when expired, otherwise keep it.
+    pub fn take_expired_compression_flight(&mut self, now_ms: i64, timeout_ms: u64) -> Option<u64> {
+        self.tracker
+            .take_expired_flight(CONVERSATION_CONTEXT_ID, now_ms, timeout_ms)
+    }
+
     /// Reset the still-over-budget streak after a fitting result.
     pub fn reset_still_over_budget(&mut self) {
         self.tracker

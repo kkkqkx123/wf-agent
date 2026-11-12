@@ -106,22 +106,14 @@ pub fn spawn_conversation_compression_consumer(
                         let mut session = conversation.write().await;
                         let new_version = session.conversation_version();
                         session.mark_compression_emitted(new_version);
-                        // A still-high plan-mode result in `Normal` mode
-                        // enters handoff directly instead of counting toward
-                        // the parking streak (the streak stays the guard for
-                        // forced and handoff-mode results).
-                        if has_blocks
-                            && session.compaction_mode()
-                                == wf_execution_shared::CompactionMode::Normal
-                        {
-                            session.mark_handoff_requested();
-                        } else {
-                            let _ = session.record_still_over_budget();
-                        }
+                        // Still-high results either request handoff directly
+                        // (plan-mode in `Normal` mode) or count toward the
+                        // parking streak (forced and handoff-mode results).
+                        // The streak threshold lives in the tracker so the
+                        // emitter and the waiter escalate on the same count.
+                        session.note_still_over_budget(has_blocks);
                         let streak = session.still_over_budget_streak();
-                        if streak
-                            >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
-                        {
+                        if session.should_escalate_still_over_budget() {
                             tracing::error!(
                                 agent_loop_id = %agent_loop_id,
                                 version = new_version,

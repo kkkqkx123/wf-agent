@@ -20,9 +20,9 @@ impl AgentIterationCoordinator {
         let (version, in_flight) = {
             let conversation = entity.conversation().read().await;
             let version = conversation.conversation_version();
-            let in_flight = conversation
-                .compression_flight()
-                .is_some_and(|flight| flight.version == version);
+            let in_flight = conversation.compression_flight().is_some_and(|flight| {
+                wf_execution_shared::check_anchor(flight.version, version)
+            });
             (version, in_flight)
         };
         if !in_flight {
@@ -46,35 +46,76 @@ impl AgentIterationCoordinator {
         let poll_interval =
             std::time::Duration::from_millis(wf_execution_shared::COMPRESSION_SETTLE_POLL_MS);
         let abort = entity.get_abort_signal();
-        let settled = tokio::select! {
-            settled = wf_common::poll_until(poll_interval, settle_timeout, || async {
-                {
-                    let conversation = entity.conversation().read().await;
-                    if conversation.conversation_version() != version {
-                        return true;
+        // Event-driven settle with a poll fallback: the version advance
+        // and the flight release are shared-memory signals, so they never
+        // depend on the bounded event history. The subscription wakes the
+        // waiter on terminal failure without waiting for the next poll
+        // tick; the poll tick covers lagged subscriptions and transports
+        // without a bus.
+        let mut subscription = self.event_bus.as_ref().map(|bus| bus.subscribe());
+        let deadline = tokio::time::Instant::now() + settle_timeout;
+        let settled = loop {
+            {
+                let conversation = entity.conversation().read().await;
+                if conversation.conversation_version() != version {
+                    break true;
+                }
+                if !conversation.compression_flight().is_some_and(|flight| {
+                    wf_execution_shared::check_anchor(flight.version, version)
+                }) {
+                    break true;
+                }
+            }
+            if let Some(ref bus) = self.event_bus {
+                if bus.recent_events().iter().any(|event| {
+                    wf_execution_shared::match_compression_failure(
+                        event,
+                        &execution_id,
+                        Some(version),
+                    )
+                    .is_some()
+                }) {
+                    break true;
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break false;
+            }
+            let wait = tokio::time::sleep(poll_interval);
+            if let Some(ref mut sub) = subscription {
+                tokio::select! {
+                    result = sub.recv() => {
+                        match result {
+                            Ok(event) => {
+                                if wf_execution_shared::match_compression_failure(
+                                    &event,
+                                    &execution_id,
+                                    Some(version),
+                                )
+                                .is_some()
+                                {
+                                    break true;
+                                }
+                            }
+                            Err(_) => {
+                                // Lagged or closed subscription: fall through
+                                // to the shared-memory checks above on the
+                                // next iteration instead of stalling here.
+                            }
+                        }
                     }
-                    if !conversation
-                        .compression_flight()
-                        .is_some_and(|flight| flight.version == version)
-                    {
-                        return true;
+                    _ = wait => {}
+                    _ = abort.cancelled() => {
+                        return Err(AgentError::LlmError(wf_llm::LlmError::Cancelled));
                     }
                 }
-                if let Some(ref bus) = self.event_bus {
-                    bus.recent_events().iter().any(|event| {
-                        wf_execution_shared::match_compression_failure(
-                            event,
-                            &execution_id,
-                            Some(version),
-                        )
-                        .is_some()
-                    })
-                } else {
-                    false
+            } else {
+                tokio::select! {
+                    _ = wait => {}
+                    _ = abort.cancelled() => {
+                        return Err(AgentError::LlmError(wf_llm::LlmError::Cancelled));
+                    }
                 }
-            }) => settled,
-            _ = abort.cancelled() => {
-                return Err(AgentError::LlmError(wf_llm::LlmError::Cancelled));
             }
         };
         if !settled {
@@ -183,9 +224,15 @@ impl AgentIterationCoordinator {
             effective_limit,
             &limits,
         );
-        // Known boundary: the forced safety-net path runs the stateless plan,
-        // which never consults planning advice, so no request-level directive
-        // can reach it.
+        // Forced path carries the same pending contract as the regular
+        // path: plan-mode forced results match against this pending copy.
+        // The stateless plan never consults planning advice, so no
+        // request-level directive can reach it (known boundary).
+        entity
+            .conversation()
+            .write()
+            .await
+            .set_pending_compaction(forced_plan.clone(), Vec::new());
         let compression_request = wf_execution_shared::context_store::compression_request(
             wf_execution_shared::CONVERSATION_CONTEXT_ID,
             tokens_used,
@@ -250,8 +297,10 @@ impl AgentIterationCoordinator {
             }
             wf_execution_shared::CompressionSignalOutcome::Vetoed { reason } => {
                 tracing::warn!("forced compression vetoed at version {version}: {reason}");
+                session.clear_pending_compaction();
             }
             wf_execution_shared::CompressionSignalOutcome::Untaken => {
+                session.clear_pending_compaction();
                 let streak = session.record_compression_no_taker();
                 wf_execution_shared::report_no_taker(
                     wf_execution_shared::CONVERSATION_CONTEXT_ID,
@@ -404,16 +453,14 @@ impl AgentIterationCoordinator {
                 // Backpressure coalescing: one in-flight plan settles
                 // first. The newer version re-decides on the next
                 // settlement instead of stacking a second plan signal.
-                // An expired flight releases itself so a lost completion
-                // never blocks later compressions forever.
-                if let Some(flight) = conversation.compression_flight() {
+                // Expiry uses the shared flight predicate so agent and
+                // workflow emitters release lost completions identically.
+                if conversation.compression_flight().is_some() {
                     let settle_ms = self.effective_settle_timeout_ms();
-                    if wf_execution_shared::context_store::flight_expired(
-                        flight.started_at_ms,
-                        wf_common::now(),
-                        settle_ms,
-                    ) {
-                        conversation.end_compression_flight(flight.version);
+                    if conversation
+                        .take_expired_compression_flight(wf_common::now(), settle_ms)
+                        .is_some()
+                    {
                         conversation.clear_pending_compaction();
                     } else {
                         return;

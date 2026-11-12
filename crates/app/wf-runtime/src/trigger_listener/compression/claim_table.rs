@@ -2,19 +2,23 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-/// Upper bound for the dedup table; overflow evicts the oldest claims by
-/// registration time while never evicting the just-claimed key (a late
-/// duplicate at worst re-runs one summary whose write-back the version
-/// anchor then discards).
+/// Upper bound for the fast-discard table; overflow evicts the oldest
+/// claims by registration time while never evicting the just-claimed key.
+/// Correctness never depends on this table: a duplicate that slips through
+/// after eviction re-runs one summary whose write-back the version anchor
+/// then discards. The table only saves summary-chain work for repeated
+/// routed handoffs of the same `(execution, target, version)`.
 pub const COMPRESSION_HANDLED_CAPACITY: usize = 1024;
 
-/// Dedup key for one claimed compression signal.
+/// Fast-discard key for one claimed compression signal. Session-side
+/// emission guards and flight anchors own idempotency; this key only
+/// coalesces duplicate routed handoffs inside the pipeline.
 pub(super) fn claim_key(execution_id: &str, target_context_id: &str, array_version: u64) -> String {
     format!("{execution_id}:{target_context_id}:{array_version}")
 }
 
-/// Register the idempotency claim. Returns false when the same version was
-/// already claimed (the caller skips without work). The claim releases
+/// Register the fast-discard claim. Returns false when the same version
+/// was already claimed (the caller skips without work). The claim releases
 /// version-checked when the spawned run settles on any path.
 pub(super) fn try_claim(
     handled: &DashMap<String, CompressionAttempt>,
@@ -35,7 +39,7 @@ pub(super) fn try_claim(
     true
 }
 
-/// Bound the dedup table (never evicts the just-claimed key). Victims are
+/// Bound the fast-discard table (never evicts the just-claimed key). Victims are
 /// the oldest claims by registration time so an in-flight version keeps
 /// its dedup protection while idle leftovers are reclaimed first.
 pub(super) fn evict_overflow(handled: &DashMap<String, CompressionAttempt>, keep: &str) {
@@ -53,14 +57,14 @@ pub(super) fn evict_overflow(handled: &DashMap<String, CompressionAttempt>, keep
     }
 }
 
-/// Dedup record for one claimed compression signal.
+/// Dedup record for one claimed compression signal (fast discard only).
 #[derive(Debug, Clone)]
 pub(super) struct CompressionAttempt {
     pub(super) array_version: u64,
     pub(super) claimed_at: i64,
 }
 
-/// RAII release of one dedup-table claim when the compression callback
+/// RAII release of one fast-discard claim when the compression callback
 /// leaves scope on any exit path (success, terminal failure, panic or task
 /// abort). A leaked entry would permanently swallow re-emissions of the
 /// same `(execution, target, version)` until capacity eviction happens to
@@ -74,10 +78,9 @@ pub(super) struct HandledGuard {
 
 impl Drop for HandledGuard {
     fn drop(&mut self) {
-        let should_remove = self
-            .handled
-            .get(&self.key)
-            .is_some_and(|entry| entry.array_version == self.expected_version);
+        let should_remove = self.handled.get(&self.key).is_some_and(|entry| {
+            wf_execution_shared::check_anchor(entry.array_version, self.expected_version)
+        });
         if should_remove {
             self.handled.remove(&self.key);
         }

@@ -180,6 +180,31 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
             .unwrap_or(240_000),
         fallback: compression_fallback,
     };
+    // Timeout nesting is validated here, not just documented: the emitter
+    // settle budget must cover the worst-case claim cost. A violation is
+    // corrected explicitly to the required minimum with an error log so a
+    // misconfiguration surfaces at startup instead of parking at runtime.
+    {
+        let effective_settle = limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.settle_timeout_ms)
+            .unwrap_or(wf_execution_shared::DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS);
+        if let Err(reason) = crate::trigger_listener::validate_compression_nesting(
+            effective_settle,
+            compression_policy.run_timeout_ms,
+            compression_policy.max_retries,
+        ) {
+            let required = crate::trigger_listener::worst_case_budget_ms(
+                compression_policy.run_timeout_ms,
+                compression_policy.max_retries,
+            );
+            tracing::error!(
+                "{reason}; correcting settle budget to worst-case {required} ms"
+            );
+            wf_execution_shared::set_compression_settle_timeout_ms(required);
+        }
+    }
     // One ledger shared by the listener runners and the compression
     // handler, so ledger write failures are counted once per process.
     let ledger = Arc::new(TriggerLedger::new(

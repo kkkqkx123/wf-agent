@@ -72,13 +72,43 @@ pub fn clear_tracker_flight(
     let anchored = state
         .compression_flights
         .get(&normalize_id(context_id))
-        .is_some_and(|flight| flight.version == expected_version);
+        .is_some_and(|flight| wf_execution_shared::check_anchor(flight.version, expected_version));
     if anchored {
         state.compression_flights.remove(&normalize_id(context_id));
         if let Ok(value) = serde_json::to_value(&state) {
             variables.insert(key.to_string(), value);
         }
     }
+}
+
+/// Release an expired in-flight compression record persisted in the
+/// execution tracker state. Returns the anchor version when a record
+/// expired at `now_ms`, otherwise leaves the map untouched. Uses the same
+/// expiry predicate as the live tracker so workflow and agent emitters
+/// release lost completions identically.
+pub fn take_expired_tracker_flight(
+    variables: &DashMap<String, Value>,
+    context_id: &str,
+    now_ms: i64,
+    timeout_ms: u64,
+) -> Option<u64> {
+    let key = super::handler::llm::token_budget::TRACKER_STATE_KEY;
+    let state_value = variables.get(key).map(|entry| entry.clone())?;
+    let mut state: wf_execution_shared::TokenTrackerState =
+        serde_json::from_value(state_value).ok()?;
+    let expired = wf_execution_shared::TokenUsageTracker::expired_flight_version(
+        &state,
+        &normalize_id(context_id),
+        now_ms,
+        timeout_ms,
+    )?;
+    state
+        .compression_flights
+        .remove(&normalize_id(context_id));
+    serde_json::to_value(&state)
+        .ok()
+        .map(|value| variables.insert(key.to_string(), value))?;
+    Some(expired)
 }
 
 fn normalize_id(context_id: &str) -> String {

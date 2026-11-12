@@ -87,18 +87,16 @@ pub fn spawn_conversation_compression_consumer(
                         let reason = format!(
                             "array version mismatch (expected {anchor}, current {current})"
                         );
-                        let mut discarded =
-                            wf_execution_shared::build_context_compression_discarded_event(
+                        let discarded =
+                            wf_execution_shared::context_store::build_stale_discarded_event(
                                 &agent_loop_id,
-                                Some(&agent_loop_id),
+                                Some(agent_loop_id.as_str()),
                                 CONVERSATION_CONTEXT_ID,
                                 anchor,
                                 current,
                                 &reason,
+                                run_id.as_deref(),
                             );
-                        if let Some(run_id) = run_id.as_deref() {
-                            wf_execution_shared::set_compression_run_id(&mut discarded, run_id);
-                        }
                         let _ = bus.publish(discarded);
                         continue;
                     }

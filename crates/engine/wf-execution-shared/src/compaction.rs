@@ -24,13 +24,15 @@ pub use decision::{
 };
 pub use plan::{
     build_plan, build_stateless_plan, outcomes_match_plan, plan_covers_snapshot,
-    stateless_plan_for_estimate, CompactionPlan, DIRECTIVE_MAX_CHARS, DIRECTIVE_MAX_EST_TOKENS,
+    stateless_plan_for_estimate, stateless_plan_for_workflow, CompactionPlan,
+    DIRECTIVE_MAX_CHARS, DIRECTIVE_MAX_EST_TOKENS,
 };
 pub use strategy::{
     compaction_strategy_name, get_compaction_advisor, is_builtin_strategy,
     is_single_summary_strategy, process_compaction_limits, register_compaction_advisor,
-    set_process_compaction_limits, strategy_workflow_ids, unregister_compaction_advisor,
-    ADVISOR_PROTOCOL_VERSION, BUILTIN_COMPRESSION_STRATEGY_NAME, SINGLE_SUMMARY_STRATEGY_NAME,
+    resolve_effective_compaction_limits, set_process_compaction_limits, strategy_workflow_ids,
+    unregister_compaction_advisor, ADVISOR_PROTOCOL_VERSION,
+    BUILTIN_COMPRESSION_STRATEGY_NAME, SINGLE_SUMMARY_STRATEGY_NAME,
 };
 pub use wf_types::message::{
     BlockOutcome, CompactionMode, CompactionPlanItem, CompactionThresholds, FileReadEntry,

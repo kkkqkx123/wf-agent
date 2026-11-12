@@ -370,9 +370,7 @@ impl AgentIterationCoordinator {
     /// Effective compaction tuning: explicit injection wins, otherwise the
     /// process-wide install.
     pub(crate) fn effective_compaction_limits(&self) -> wf_types::config::limits::CompactionLimits {
-        self.compaction_limits
-            .clone()
-            .unwrap_or_else(wf_execution_shared::process_compaction_limits)
+        wf_execution_shared::resolve_effective_compaction_limits(self.compaction_limits.clone())
     }
 
     /// Effective settle budget: the larger of the explicit injection and
@@ -380,10 +378,7 @@ impl AgentIterationCoordinator {
     /// only bumps the global still lifts coordinators holding a stale
     /// explicit value up to the worst-case claim cost.
     pub(crate) fn effective_settle_timeout_ms(&self) -> u64 {
-        let global = wf_execution_shared::compression_settle_timeout_ms();
-        self.settle_timeout_ms
-            .map(|explicit| explicit.max(global))
-            .unwrap_or(global)
+        wf_execution_shared::effective_settle_timeout_ms(self.settle_timeout_ms)
     }
 
     /// Inject the file-content observer (agent actor partition) into the
@@ -493,8 +488,11 @@ impl AgentIterationCoordinator {
                 .read()
                 .await
                 .still_over_budget_streak();
-            if still_over
-                >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+            if entity
+                .conversation()
+                .read()
+                .await
+                .should_escalate_still_over_budget()
             {
                 let version = entity.conversation().read().await.conversation_version();
                 entity
@@ -556,14 +554,14 @@ impl AgentIterationCoordinator {
                     if estimated > context_limit {
                         let mut conversation = entity.conversation().write().await;
                         if conversation.consume_preflight_warning() {
-                            let _ =
-                                bus.publish(wf_execution_shared::build_token_usage_warning_event(
+                            let _ = bus.publish(
+                                wf_execution_shared::context_store::build_preflight_warning_event(
                                     &execution_id,
                                     Some(entity.id()),
                                     estimated,
                                     context_limit,
-                                    estimated as f64 / context_limit as f64 * 100.0,
-                                ));
+                                ),
+                            );
                         }
                     }
                 }

@@ -69,3 +69,13 @@ pub fn set_compression_settle_timeout_ms(timeout_ms: u64) -> bool {
 pub fn compression_settle_timeout_ms() -> u64 {
     COMPRESSION_SETTLE_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed)
 }
+
+/// Resolve the effective settle budget: an explicit injection wins, but an
+/// assembly-time correction that only bumps the global still lifts holders
+/// of a stale explicit value up to the worst-case claim cost. None reads
+/// the process-wide install directly so global fallback stays explicit at
+/// the call site.
+pub fn effective_settle_timeout_ms(explicit: Option<u64>) -> u64 {
+    let global = compression_settle_timeout_ms();
+    explicit.map(|value| value.max(global)).unwrap_or(global)
+}

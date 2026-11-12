@@ -62,14 +62,12 @@ impl AgentIterationCoordinator {
                     let execution_id = execution_id.clone();
                     async move {
                         bus.as_ref().and_then(|bus| {
-                            bus.recent_events().iter().find_map(|event| {
-                                wf_execution_shared::match_compression_failure(
-                                    event,
-                                    &execution_id,
-                                    Some(version),
-                                )
-                                .map(|matched| matched.message.clone())
-                            })
+                            wf_execution_shared::context_store::find_compression_failure(
+                                &bus.recent_events(),
+                                &execution_id,
+                                version,
+                                None,
+                            )
                         })
                     }
                 }
@@ -220,25 +218,7 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             &compression_request,
         );
-        match &outcome {
-            wf_execution_shared::CompressionSignalOutcome::Taken => {}
-            wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
-                if let Some(meta) = audit.metadata.as_mut() {
-                    meta.insert(
-                        wf_execution_shared::KEY_CANCELLED.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
-            }
-            wf_execution_shared::CompressionSignalOutcome::Untaken => {
-                if let Some(meta) = audit.metadata.as_mut() {
-                    meta.insert(
-                        wf_execution_shared::KEY_NO_TAKER.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
-            }
-        }
+        wf_execution_shared::context_store::annotate_compression_audit(&mut audit, &outcome);
         let _ = bus.publish(audit);
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
@@ -517,25 +497,7 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             &compression_request,
         );
-        match &outcome {
-            wf_execution_shared::CompressionSignalOutcome::Taken => {}
-            wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
-                if let Some(meta) = audit.metadata.as_mut() {
-                    meta.insert(
-                        wf_execution_shared::KEY_CANCELLED.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
-            }
-            wf_execution_shared::CompressionSignalOutcome::Untaken => {
-                if let Some(meta) = audit.metadata.as_mut() {
-                    meta.insert(
-                        wf_execution_shared::KEY_NO_TAKER.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
-            }
-        }
+        wf_execution_shared::context_store::annotate_compression_audit(&mut audit, &outcome);
         if let Some(ref bus) = self.event_bus {
             let _ = bus.publish(audit);
         }

@@ -76,6 +76,102 @@ pub fn compression_event(
     crate::build_context_compression_requested_event(execution_id, agent_loop_id, request)
 }
 
+/// Stamp the taker outcome onto the audit copy of a compression request.
+/// Taken leaves the audit unchanged; vetoed marks it cancelled and untaken
+/// marks it with the no-taker flag. Pure annotation shared by every
+/// emitter so the audit vocabulary never drifts between the agent and
+/// workflow paths.
+pub fn annotate_compression_audit(
+    event: &mut BaseEvent,
+    outcome: &CompressionSignalOutcome,
+) {
+    match outcome {
+        CompressionSignalOutcome::Taken => {}
+        CompressionSignalOutcome::Vetoed { .. } => {
+            if let Some(meta) = event.metadata.as_mut() {
+                meta.insert(
+                    crate::token_events::KEY_CANCELLED.to_string(),
+                    Value::Bool(true),
+                );
+            }
+        }
+        CompressionSignalOutcome::Untaken => {
+            if let Some(meta) = event.metadata.as_mut() {
+                meta.insert(
+                    crate::token_events::KEY_NO_TAKER.to_string(),
+                    Value::Bool(true),
+                );
+            }
+        }
+    }
+}
+
+/// Build the pre-request budget warning event with one percentage
+/// definition shared by every emitter. Warning only, never blocks the
+/// request; the single-shot guard and any array details stay with the
+/// caller.
+pub fn build_preflight_warning_event(
+    execution_id: &str,
+    emitter_id: Option<&str>,
+    estimated: u64,
+    context_limit: u64,
+) -> BaseEvent {
+    crate::build_token_usage_warning_event(
+        execution_id,
+        emitter_id,
+        estimated,
+        context_limit,
+        estimated as f64 / context_limit as f64 * 100.0,
+    )
+}
+
+/// Build the version-mismatch discarded event shared by both write-back
+/// paths. The run identity travels along when present so redundant runs
+/// stay linkable to their claim.
+#[allow(clippy::too_many_arguments)]
+pub fn build_stale_discarded_event(
+    execution_id: &str,
+    agent_loop_id: Option<&str>,
+    target_context_id: &str,
+    anchor_version: u64,
+    current_version: u64,
+    reason: &str,
+    run_id: Option<&str>,
+) -> BaseEvent {
+    let mut discarded = crate::build_context_compression_discarded_event(
+        execution_id,
+        agent_loop_id,
+        target_context_id,
+        anchor_version,
+        current_version,
+        reason,
+    );
+    if let Some(run_id) = run_id {
+        crate::set_compression_run_id(&mut discarded, run_id);
+    }
+    discarded
+}
+
+/// Find the handling message of a terminal compression failure for one
+/// anchor version. An optional target restricts the match to a single
+/// named array; without it the first failure for the execution wins.
+/// Single home so agent and workflow settle closures share the wording
+/// and the target filtering.
+pub fn find_compression_failure(
+    events: &[BaseEvent],
+    execution_id: &str,
+    version: u64,
+    target: Option<&str>,
+) -> Option<String> {
+    events.iter().find_map(|event| {
+        crate::match_compression_failure(event, execution_id, Some(version))
+            .filter(|matched| {
+                target.is_none_or(|want| matched.target_context_id == want)
+            })
+            .map(|matched| matched.message.clone())
+    })
+}
+
 /// Outcome of one compression signal dispatch: the emitter anchors
 /// backpressure only on [`CompressionSignalOutcome::Taken`]. A vetoed
 /// signal still counts as emitted (the same version must not re-fire every
@@ -384,16 +480,12 @@ pub fn apply_calibration_bias(stable_estimate: u64, bias: i64) -> u64 {
 
 /// Canonical hot estimate from one stable projection and one assembled
 /// request estimate. The dynamic overhead never accumulates into the ledger.
+/// Multi-target emitters that share one dynamic overhead add the stable and
+/// shared parts first and then apply the calibration bias directly, so this
+/// stays the only request-shaped hot helper next to the bias primitive.
 pub fn request_hot_estimate(stable_projection: u64, request_estimate: u64, bias: i64) -> u64 {
     let dynamic = dynamic_request_overhead(request_estimate, stable_projection);
     apply_calibration_bias(stable_projection.saturating_add(dynamic), bias)
-}
-
-/// Canonical hot estimate from a precomputed stable plus dynamic pair.
-/// Keeps multi-target emitters that share one dynamic overhead on the same
-/// calibration path without changing their sharing semantics.
-pub fn hot_from_parts(stable_plus_dynamic: u64, bias: i64) -> u64 {
-    apply_calibration_bias(stable_plus_dynamic, bias)
 }
 
 /// Refined whole-request estimate for preflight warnings. Uses the local
@@ -767,7 +859,7 @@ mod tests {
     fn hot_estimate_combines_overhead_and_bias() {
         assert_eq!(super::request_hot_estimate(1000, 1200, 0), 1200);
         assert_eq!(super::request_hot_estimate(1000, 800, 0), 1000);
-        assert_eq!(super::hot_from_parts(1200, 50), 1250);
+        assert_eq!(super::apply_calibration_bias(1200, 50), 1250);
     }
 
     #[tokio::test]

@@ -114,3 +114,12 @@ pub fn process_compaction_limits() -> CompactionLimits {
         .clone()
         .expect("compaction limits not installed")
 }
+
+/// Resolve the effective compaction tuning: an explicit injection wins,
+/// otherwise the process-wide install. None keeps the global fallback
+/// explicit at the call site so later explicit plumbing can tighten here.
+pub fn resolve_effective_compaction_limits(
+    explicit: Option<CompactionLimits>,
+) -> CompactionLimits {
+    explicit.unwrap_or_else(process_compaction_limits)
+}

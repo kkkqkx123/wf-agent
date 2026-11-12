@@ -67,8 +67,9 @@ pub use compaction::{
     context_budget_from_window_with_percent, context_budget_percent_from_metadata,
     decide_compaction, get_compaction_advisor, is_builtin_strategy, is_single_summary_strategy,
     outcomes_match_plan, plan_covers_snapshot, process_compaction_limits, rebuild_after_truncate,
-    register_compaction_advisor, resolve_compaction_thresholds, set_process_compaction_limits,
-    stateless_plan_for_estimate, strategy_workflow_ids, sync_blocks, unregister_compaction_advisor,
+    register_compaction_advisor, resolve_compaction_thresholds,
+    resolve_effective_compaction_limits, set_process_compaction_limits, stateless_plan_for_estimate,
+    stateless_plan_for_workflow, strategy_workflow_ids, sync_blocks, unregister_compaction_advisor,
     BlockOutcome, CompactionDecision, CompactionMode, CompactionPlan, CompactionPlanItem,
     CompactionThresholds, ADVISOR_PROTOCOL_VERSION, BUILTIN_COMPRESSION_STRATEGY_NAME,
     CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT, H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT,
@@ -78,9 +79,10 @@ pub use compaction::{
     T_HANDOFF_RATIO_DEFAULT, T_HARD_RATIO_DEFAULT,
 };
 pub use context_store::{
-    apply_calibration_bias, check_anchor, compression_event, compression_request,
-    dispatch_compression_signal, dynamic_request_overhead, flight_expired, hot_from_parts,
-    over_budget, refine_request_estimate, report_no_taker, request_hot_estimate,
+    annotate_compression_audit, apply_calibration_bias, build_preflight_warning_event,
+    build_stale_discarded_event, check_anchor, compression_event, compression_request,
+    dispatch_compression_signal, dynamic_request_overhead, find_compression_failure,
+    flight_expired, over_budget, refine_request_estimate, report_no_taker, request_hot_estimate,
     settle_compression_anchor, CompressionSettleOutcome, CompressionSignalOutcome, WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
@@ -106,8 +108,8 @@ pub use token_events::{
     build_llm_stream_aborted_event, build_llm_stream_error_event, build_token_limit_exceeded_event,
     build_token_usage_warning_event, compression_request_hook_data, compression_routed_messages,
     compression_routed_plan, compression_run_id, compression_settle_timeout_ms,
-    is_compression_routed_event, is_stream_abort, match_compression_failure, set_compression_run_id,
-    set_compression_settle_timeout_ms, CompressionAttachment, CompressionFailureMatch,
+    effective_settle_timeout_ms, is_compression_routed_event, is_stream_abort,
+    match_compression_failure, set_compression_run_id, set_compression_settle_timeout_ms, CompressionAttachment, CompressionFailureMatch,
     COMPRESSION_SIGNAL_HOOK_TYPE, COMPRESSION_TAKEOVER_HANDLER_NAME,
     ContextCompressionCompleted,
     ContextCompressionCompletedMeta, ContextCompressionDiscardedMeta, ContextCompressionFailedMeta,
@@ -124,4 +126,7 @@ pub use token_events::{
     KEY_TAIL_KEEP, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_AFTER, KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
     KEY_TOOL_COUNT, KEY_USAGE_PERCENTAGE, KEY_WRITEBACK_OPERATION, WRITEBACK_OPERATION_APPEND,
 };
-pub use token_tracker::{CompressionFlight, RequestUsage, TokenTrackerState, TokenUsageTracker};
+pub use token_tracker::{
+    CompressionFlight, RequestUsage, TokenTrackerState, TokenUsageTracker,
+    still_over_budget_escalated,
+};

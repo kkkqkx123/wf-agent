@@ -144,7 +144,7 @@ pub async fn emit_token_usage_events(
         }
         let ledger_stable =
             message_context::ledger_estimated_tokens(&ctx.variables, &context_id);
-        let estimated = wf_execution_shared::context_store::hot_from_parts(
+        let estimated = wf_execution_shared::context_store::apply_calibration_bias(
             ledger_stable.saturating_add(shared_dynamic),
             bias,
         );
@@ -152,8 +152,9 @@ pub async fn emit_token_usage_events(
         if wf_execution_shared::context_store::over_budget(estimated, context_limit)
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
-            let limits = wf_execution_shared::compaction::process_compaction_limits();
-            let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
+            let limits =
+                wf_execution_shared::resolve_effective_compaction_limits(None);
+            let stateless_plan = wf_execution_shared::stateless_plan_for_workflow(
                 &context_messages,
                 estimated,
                 context_limit,
@@ -190,25 +191,7 @@ pub async fn emit_token_usage_events(
                     );
                 }
             }
-            match &outcome {
-                wf_execution_shared::CompressionSignalOutcome::Taken => {}
-                wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
-                    if let Some(meta) = event.metadata.as_mut() {
-                        meta.insert(
-                            wf_execution_shared::KEY_CANCELLED.to_string(),
-                            Value::Bool(true),
-                        );
-                    }
-                }
-                wf_execution_shared::CompressionSignalOutcome::Untaken => {
-                    if let Some(meta) = event.metadata.as_mut() {
-                        meta.insert(
-                            wf_execution_shared::KEY_NO_TAKER.to_string(),
-                            Value::Bool(true),
-                        );
-                    }
-                }
-            }
+            wf_execution_shared::context_store::annotate_compression_audit(&mut event, &outcome);
             bus.publish_logged(
                 event,
                 &format!(
@@ -284,7 +267,7 @@ pub async fn await_compression_settle(
         return Ok(());
     }
     let execution_id = ctx.execution_id.to_string();
-    let timeout_ms = wf_execution_shared::compression_settle_timeout_ms();
+    let timeout_ms = wf_execution_shared::effective_settle_timeout_ms(None);
     for (target, version) in anchored {
         let outcome = wf_execution_shared::context_store::settle_compression_anchor(
             version,
@@ -322,15 +305,12 @@ pub async fn await_compression_settle(
                     let target = target.clone();
                     async move {
                         bus.as_ref().and_then(|bus| {
-                            bus.recent_events().iter().find_map(|event| {
-                                wf_execution_shared::match_compression_failure(
-                                    event,
-                                    &execution_id,
-                                    Some(version),
-                                )
-                                .filter(|matched| matched.target_context_id == target)
-                                .map(|matched| matched.message.clone())
-                            })
+                            wf_execution_shared::context_store::find_compression_failure(
+                                &bus.recent_events(),
+                                &execution_id,
+                                version,
+                                Some(target.as_str()),
+                            )
                         })
                     }
                 }
@@ -409,10 +389,8 @@ pub async fn check_still_over_budget_escalation(
     {
         let mut tracker = tracker.lock().await;
         for context_id in declared_contexts(config) {
-            let streak = tracker.still_over_budget_count(&context_id);
-            if streak
-                >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
-            {
+            if tracker.should_escalate_still_over_budget(&context_id) {
+                let streak = tracker.still_over_budget_count(&context_id);
                 tracker.reset_still_over_budget(&context_id);
                 escalated = Some((context_id, streak));
                 break;
@@ -499,13 +477,13 @@ pub async fn check_preflight_budget(
     let mut tracker = tracker.lock().await;
     if estimated > context_limit && tracker.consume_preflight_warning() {
         if let Some(ref bus) = ctx.event_bus {
-            let mut event = wf_execution_shared::build_token_usage_warning_event(
-                &ctx.execution_id,
-                Some(&ctx.node_id),
-                estimated,
-                context_limit,
-                estimated as f64 / context_limit as f64 * 100.0,
-            );
+            let mut event =
+                wf_execution_shared::context_store::build_preflight_warning_event(
+                    &ctx.execution_id,
+                    Some(&ctx.node_id),
+                    estimated,
+                    context_limit,
+                );
             let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
             let array_details: Vec<Value> = declared_contexts(config)
                 .iter()

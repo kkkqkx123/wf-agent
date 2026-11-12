@@ -203,6 +203,13 @@ impl Default for TokenUsageTracker {
     }
 }
 
+/// Whether a still-over-budget streak reached the escalation threshold.
+/// Count-based home shared by live trackers and serialized snapshot paths
+/// so every holder escalates on the same value.
+pub fn still_over_budget_escalated(streak: u32) -> bool {
+    streak >= TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+}
+
 impl TokenUsageTracker {
     pub fn new(token_limit: u64) -> Self {
         Self {
@@ -483,6 +490,13 @@ impl TokenUsageTracker {
     /// to external handling instead of compressing forever.
     pub const STILL_OVER_BUDGET_ESCALATION_THRESHOLD: u32 = 3;
 
+    /// Whether a still-over-budget streak reached the escalation threshold.
+    /// Delegates to the count-based home so live and snapshot paths share
+    /// one comparison.
+    pub fn still_over_budget_escalated(streak: u32) -> bool {
+        super::token_tracker::still_over_budget_escalated(streak)
+    }
+
     /// Record a signal without a taker for `target`; returns the consecutive
     /// count. A successful dispatch resets it via [`Self::reset_no_taker`].
     pub fn record_no_taker(&mut self, target: &str) -> u32 {
@@ -533,7 +547,7 @@ impl TokenUsageTracker {
     /// escalation threshold. Single predicate for every emitter so the
     /// agent consumer and the workflow waiter escalate on the same count.
     pub fn should_escalate_still_over_budget(&self, target: &str) -> bool {
-        self.still_over_budget_count(target) >= Self::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+        Self::still_over_budget_escalated(self.still_over_budget_count(target))
     }
 
     /// Record a still-over-budget completion and report whether the streak
@@ -541,7 +555,7 @@ impl TokenUsageTracker {
     /// callers never compare the streak themselves.
     pub fn record_still_over_budget_should_escalate(&mut self, target: &str) -> (u32, bool) {
         let streak = self.record_still_over_budget(target);
-        let escalate = streak >= Self::STILL_OVER_BUDGET_ESCALATION_THRESHOLD;
+        let escalate = Self::still_over_budget_escalated(streak);
         (streak, escalate)
     }
 

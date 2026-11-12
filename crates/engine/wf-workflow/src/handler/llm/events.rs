@@ -135,8 +135,8 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         );
         0
     };
-    let limits = wf_execution_shared::compaction::process_compaction_limits();
-    let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
+    let limits = wf_execution_shared::resolve_effective_compaction_limits(None);
+    let stateless_plan = wf_execution_shared::stateless_plan_for_workflow(
         &request.messages,
         tokens_used,
         effective_limit,
@@ -162,25 +162,7 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         None,
         &compression_request,
     );
-    match &outcome {
-        wf_execution_shared::CompressionSignalOutcome::Taken => {}
-        wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {
-            if let Some(meta) = audit.metadata.as_mut() {
-                meta.insert(
-                    wf_execution_shared::KEY_CANCELLED.to_string(),
-                    Value::Bool(true),
-                );
-            }
-        }
-        wf_execution_shared::CompressionSignalOutcome::Untaken => {
-            if let Some(meta) = audit.metadata.as_mut() {
-                meta.insert(
-                    wf_execution_shared::KEY_NO_TAKER.to_string(),
-                    Value::Bool(true),
-                );
-            }
-        }
-    }
+    wf_execution_shared::context_store::annotate_compression_audit(&mut audit, &outcome);
     bus.publish_logged(
         audit,
         &format!(

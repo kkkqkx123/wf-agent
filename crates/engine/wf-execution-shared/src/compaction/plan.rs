@@ -157,6 +157,19 @@ pub fn stateless_plan_for_estimate(
     build_stateless_plan(&costs, budget, cap)
 }
 
+/// Workflow plan boundary: workflow targets keep no block table, so the
+/// workflow path always uses the stateless plan. The wrapper forwards to
+/// the shared estimator so a future layered workflow only replaces this
+/// boundary. Request-level directives never apply here.
+pub fn stateless_plan_for_workflow(
+    messages: &[Message],
+    estimated: u64,
+    context_limit: u64,
+    limits: &CompactionLimits,
+) -> Vec<CompactionPlanItem> {
+    stateless_plan_for_estimate(messages, estimated, context_limit, limits)
+}
+
 /// Maximum summary-chain calls in one compaction round.
 fn plan_max_items(limits: &CompactionLimits) -> usize {
     limits

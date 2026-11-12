@@ -55,7 +55,7 @@ pub(crate) fn record_still_over_budget_streak(
     state
         .still_over_budget_counts
         .insert(target.to_string(), count);
-    if count >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD {
+    if wf_execution_shared::still_over_budget_escalated(count) {
         tracing::error!(
             target = %target,
             streak = count,

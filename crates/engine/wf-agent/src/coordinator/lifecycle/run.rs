@@ -61,10 +61,9 @@ impl AgentLoopCoordinator {
                     integration,
                 },
             );
-        let limits = self
-            .compaction_limits
-            .clone()
-            .unwrap_or_else(wf_execution_shared::process_compaction_limits);
+        let limits = wf_execution_shared::resolve_effective_compaction_limits(
+            self.compaction_limits.clone(),
+        );
         self.event_bus.as_ref().map(move |bus| {
             crate::conversation_compression::spawn_conversation_compression_consumer(
                 bus.clone(),

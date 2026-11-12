@@ -102,16 +102,6 @@ fn undo_compression_restores_full_visibility_at_zero_cost() {
 }
 
 #[test]
-fn view_estimate_shrinks_after_compression() {
-    let mut session = ConversationSession::new();
-    session.add_message(user("a fairly long first message for tokens"));
-    session.add_message(user("a fairly long second message for tokens"));
-    let before = session.estimated_view_tokens();
-    session.compress(vec![user("short")]);
-    assert!(session.estimated_view_tokens() < before);
-}
-
-#[test]
 fn compression_emission_guard_is_single_shot_per_version() {
     let mut session = ConversationSession::new();
     session.add_message(user("hello"));
@@ -289,7 +279,9 @@ fn single_summary_strategy_skips_block_sync() {
     }
     assert!(session.compaction_blocks().is_empty());
     // Threshold gating still works: the hot estimate is maintained.
-    assert!(session.estimated_view_tokens() > 0);
+    session.refresh_hot_estimate();
+    assert!(session.compaction_state().hot_tokens > 0);
+    assert_eq!(session.view_messages().len(), 4);
 
     let mut layered = ConversationSession::new();
     layered.set_compaction_window(100_000, &crate::compaction::builtin_compaction_limits());
@@ -361,27 +353,6 @@ fn handoff_clears_inactive_blocks_but_keeps_index() {
     assert_eq!(
         session.state.compaction.blocks[0].spans,
         vec![SeqRange { start: 5, end: 5 }]
-    );
-}
-
-#[test]
-fn incremental_view_estimate_matches_full_projection() {
-    let mut session = ConversationSession::new();
-    session.add_message(user("hello world, this is a test"));
-    session.add_message(user("second message with more content here"));
-    assert_eq!(
-        session.estimated_view_tokens(),
-        wf_llm::count::estimate_messages(&session.view_messages()) as u64
-    );
-    session.compress_with_tail(vec![user("summary of both")], 1);
-    assert_eq!(
-        session.estimated_view_tokens(),
-        wf_llm::count::estimate_messages(&session.view_messages()) as u64
-    );
-    session.add_message(user("a follow-up after compression"));
-    assert_eq!(
-        session.estimated_view_tokens(),
-        wf_llm::count::estimate_messages(&session.view_messages()) as u64
     );
 }
 

@@ -78,9 +78,10 @@ pub use compaction::{
     T_HANDOFF_RATIO_DEFAULT, T_HARD_RATIO_DEFAULT,
 };
 pub use context_store::{
-    check_anchor, compression_event, compression_request, dispatch_compression_signal,
-    dynamic_request_overhead, flight_expired, over_budget, report_no_taker, wait_for_version_shift,
-    CompressionSignalOutcome, WritebackOp,
+    apply_calibration_bias, check_anchor, compression_event, compression_request,
+    dispatch_compression_signal, dynamic_request_overhead, flight_expired, hot_from_parts,
+    over_budget, refine_request_estimate, report_no_taker, request_hot_estimate,
+    settle_compression_anchor, CompressionSettleOutcome, CompressionSignalOutcome, WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use conversation_session::compression::HandoffLifecycle;

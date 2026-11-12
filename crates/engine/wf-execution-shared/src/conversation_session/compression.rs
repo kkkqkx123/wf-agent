@@ -92,12 +92,6 @@ impl ConversationSession {
             }
         }
         let view = MessageView::Compacted { segments };
-        // Recompute from the retained tail plus the summary batch, mirroring
-        // the projection (the summary resolves by id so it is never double
-        // counted). Bounded by the tail plus the batch, never by the full
-        // history.
-        self.state.view_stable_estimate =
-            projected_view_estimate(&self.state.messages, &self.state.seqs, &view);
         self.state.active_view = view;
         self.tracker.reset_preflight_warning();
     }

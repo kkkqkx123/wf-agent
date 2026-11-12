@@ -97,7 +97,10 @@ fn test_calibration_bias_tracks_actual_minus_estimated() {
     tracker.finalize_current_request();
     // Sample is 120 - 100 = 20; EWMA quarter step moves bias to 5.
     assert_eq!(tracker.calibration_bias(), 5);
-    assert_eq!(tracker.calibrated(1000), 1005);
+    assert_eq!(
+        crate::context_store::apply_calibration_bias(1000, tracker.calibration_bias()),
+        1005
+    );
     // No estimate queued: the bias is left untouched.
     tracker.update_api_usage(&usage(50, 10));
     tracker.finalize_current_request();

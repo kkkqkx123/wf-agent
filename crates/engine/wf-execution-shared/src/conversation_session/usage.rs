@@ -92,11 +92,6 @@ impl ConversationSession {
         self.tracker.calibration_bias()
     }
 
-    /// Apply the calibration bias to a stable array estimate.
-    pub fn calibrated_estimate(&self, stable_estimate: u64) -> u64 {
-        self.tracker.calibrated(stable_estimate)
-    }
-
     /// Task-budget track: percentage of the limit consumed (None when the
     /// limit is disabled).
     pub fn usage_percentage(&self) -> Option<f64> {

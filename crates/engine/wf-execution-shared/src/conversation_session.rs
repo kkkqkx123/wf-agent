@@ -36,10 +36,6 @@ pub struct ConversationState {
     pub active_view: MessageView,
     /// Budget-driven compaction bookkeeping.
     pub compaction: CompactionState,
-    /// Incremental estimate of the active view (stable array content only;
-    /// per-request dynamic overhead is added fresh at each decision point).
-    /// Maintained on every append and compression so view reads stay O(1).
-    pub view_stable_estimate: u64,
 }
 
 pub struct ConversationSession {
@@ -75,7 +71,6 @@ impl ConversationSession {
                 tracker: None,
                 ledger: TokenLedger::default(),
                 active_view: MessageView::Full,
-                view_stable_estimate: 0,
                 compaction: CompactionState::default(),
             },
             tracker: TokenUsageTracker::new(token_limit),
@@ -91,7 +86,6 @@ impl ConversationSession {
         self.state.seqs.clear();
         self.state.next_seq = 0;
         self.state.active_view = MessageView::Full;
-        self.state.view_stable_estimate = 0;
         self.state.ledger = TokenLedger::default();
         self.state.compaction = CompactionState::default();
         self.block_tracking_enabled = true;
@@ -112,8 +106,8 @@ impl ConversationSession {
     }
 
     /// Restore the full session state (messages + seqs + view + tracker +
-    /// ledger) from a snapshot. Snapshots must carry matching sequences,
-    /// a stored view estimate and tracker state.
+    /// ledger) from a snapshot. Snapshots must carry matching sequences
+    /// and tracker state.
     pub fn restore_state(&mut self, state: ConversationState) {
         assert_eq!(
             state.seqs.len(),
@@ -124,7 +118,6 @@ impl ConversationSession {
         self.state.seqs = state.seqs;
         self.state.next_seq = state.next_seq;
         self.state.active_view = state.active_view;
-        self.state.view_stable_estimate = state.view_stable_estimate;
         self.state.ledger = state.ledger;
         self.state.compaction = state.compaction;
         if !self.state.compaction.is_empty() {

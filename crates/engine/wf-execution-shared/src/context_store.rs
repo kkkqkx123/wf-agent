@@ -310,36 +310,6 @@ pub fn report_no_taker(target: &str, version: u64, streak: u32) {
     }
 }
 
-/// Blocking backpressure wait: poll `current_version` until it moves past
-/// `anchor` (the compression write-back landed) or `timeout_ms` elapses.
-/// Returns true when the version shifted, false on timeout. Callers race
-/// this against their cancellation signal and against the compression
-/// failure event; timeout and failure stop the emitting execution for manual
-/// handling.
-pub async fn wait_for_version_shift<F, Fut>(
-    mut current_version: F,
-    anchor: u64,
-    timeout_ms: u64,
-) -> bool
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = u64>,
-{
-    let start = std::time::Instant::now();
-    loop {
-        if current_version().await != anchor {
-            return true;
-        }
-        if start.elapsed().as_millis() as u64 >= timeout_ms {
-            return false;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(
-            crate::token_events::COMPRESSION_SETTLE_POLL_MS,
-        ))
-        .await;
-    }
-}
-
 /// Terminal state of one compression settle wait. Version advance means the
 /// write-back landed, flight release without advance means the anchor went
 /// away on its own, failure carries the terminal message.
@@ -498,50 +468,6 @@ mod tests {
     fn dynamic_overhead_never_goes_negative() {
         assert_eq!(dynamic_request_overhead(1200, 1000), 200);
         assert_eq!(dynamic_request_overhead(800, 1000), 0);
-    }
-
-    #[tokio::test]
-    async fn version_shift_wait_settles() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        use std::sync::Arc;
-        let version = Arc::new(AtomicU64::new(7));
-        let probe = version.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            probe.store(8, Ordering::SeqCst);
-        });
-        let moved = version.clone();
-        assert!(
-            wait_for_version_shift(
-                move || {
-                    let moved = moved.clone();
-                    async move { moved.load(Ordering::SeqCst) }
-                },
-                7,
-                1000,
-            )
-            .await
-        );
-        assert_eq!(version.load(Ordering::SeqCst), 8);
-    }
-
-    #[tokio::test]
-    async fn version_shift_wait_times_out() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        use std::sync::Arc;
-        let version = Arc::new(AtomicU64::new(7));
-        let moved = version.clone();
-        assert!(
-            !wait_for_version_shift(
-                move || {
-                    let moved = moved.clone();
-                    async move { moved.load(Ordering::SeqCst) }
-                },
-                7,
-                30,
-            )
-            .await
-        );
     }
 
     #[test]

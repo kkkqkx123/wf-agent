@@ -34,15 +34,12 @@ pub(super) fn projected_view_estimate(
 
 impl ConversationSession {
     pub fn add_message(&mut self, message: Message) {
-        // Decision track: incrementally estimate the new message only.
-        // Every append is visible in every view (full history, or summary
-        // plus the tail that always includes later appends), so the stable
-        // view estimate grows by the same increment.
+        // Decision track: incrementally estimate the new message only for
+        // the ledger; the hot estimate is refreshed from the projection.
         let estimated = estimate_message_tokens(&message) as u64;
         self.state
             .ledger
             .append(CONVERSATION_CONTEXT_ID, estimated, 1);
-        self.state.view_stable_estimate = self.state.view_stable_estimate.saturating_add(estimated);
         self.state.seqs.push(self.state.next_seq);
         self.state.next_seq = self.state.next_seq.saturating_add(1);
         self.state.messages.push(message);
@@ -75,8 +72,6 @@ impl ConversationSession {
     /// History was never deleted, so undoing compression costs nothing.
     pub fn restore_full_view(&mut self) {
         self.state.active_view = MessageView::Full;
-        self.state.view_stable_estimate =
-            wf_llm::count::estimate_messages(&self.state.messages) as u64;
     }
 
     /// Restore an authoritative history with its view (checkpoint resume
@@ -92,11 +87,6 @@ impl ConversationSession {
         // next read recomputes lazily (dirty flag), and the version bump
         // invalidates stale emission guards.
         self.state.ledger.replace(CONVERSATION_CONTEXT_ID);
-        self.state.view_stable_estimate = projected_view_estimate(
-            &self.state.messages,
-            &self.state.seqs,
-            &self.state.active_view,
-        );
     }
 
     /// Stable sequence range covered by the current history.
@@ -182,18 +172,6 @@ impl ConversationSession {
                 .recompute(CONVERSATION_CONTEXT_ID, estimated, count);
         }
         self.state.ledger.estimated_tokens(CONVERSATION_CONTEXT_ID)
-    }
-
-    /// Stable content of the projected view: the incremental estimate of
-    /// what the next LLM request carries before per-request dynamic
-    /// overhead (tool declarations, injected blocks) is added fresh at each
-    /// decision point. Compression decisions read this: after compression
-    /// the view shrinks even though the history keeps growing, so a
-    /// history-based estimate would re-trigger compression immediately.
-    /// Maintained incrementally on every append and compression (O(1)
-    /// reads); dynamic overhead never accumulates here.
-    pub fn estimated_view_tokens(&self) -> u64 {
-        self.state.view_stable_estimate
     }
 
     /// Current version of the conversation array (ledger).

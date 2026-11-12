@@ -12,6 +12,11 @@ export function extractMarkdownText(value: unknown): string | null {
 	return value;
 }
 
+/** Workspace markdown files by extension, case-insensitive. */
+export function isMarkdownPath(path: string): boolean {
+	return /\.(md|markdown)$/i.test(path);
+}
+
 const MARKDOWN_MARKERS: RegExp[] = [
 	/^#{1,6}\s/m,
 	/\*\*.+\*\*/,

@@ -110,7 +110,7 @@ const INITIAL_FILES: Record<string, string> = {
 	'docs/plan/user-git/05-progress.md':
 		'# User git progress (preview, untracked)\n\nThis file is untracked on purpose so the tree shows an untracked badge.\n\n- [ ] verify empty directory UX in `scratch/empty`\n- [ ] TODO: confirm binary view for `assets/logo.png`\n- [ ] TODO: confirm truncated banner for `src/big.ts`\n',
 	'docs/plan/ide/preview-checklist.md':
-		'# IDE preview checklist\n\nWalk the UI/UX without a backend:\n\n1. Tree: expand `apps`, `crates`, `scratch`; check badges and hover actions.\n2. Quick-open: search `restore`, `ide`, `page`.\n3. Content search: search `preview`, `TODO`, `workspace`; try scope `crates` and include `*.rs`.\n4. Editor: open `src/big.ts` (truncated), `assets/logo.png` (binary), `src/conflicted.ts` (conflict).\n5. History: changes + commits + diff dialog.\n6. Terminal: `ls`, `ls scratch`, `cat README.md`.\n',
+		'# IDE preview checklist\n\nWalk the UI/UX without a backend:\n\n1. Tree: expand `apps`, `crates`, `scratch`; check badges and hover actions.\n2. Quick-open: search `restore`, `ide`, `page`.\n3. Content search: search `preview`, `TODO`, `workspace`; try scope `crates` and include `*.rs`.\n4. Editor: open `src/big.ts` (truncated), `assets/logo.png` (binary), `src/conflicted.ts` (conflict).\n5. History: changes + commits + diff dialog.\n6. Terminal: `ls`, `ls scratch`, `cat README.md`.\n7. Markdown: open `scratch/README.md`, switch source / preview / split and drag the splitter; the file icon resolves from the workspace.\n',
 	'src/conflict-demo.ts':
 		'// Save this file to trigger the conflict flow, then use Overwrite.\nexport const demo = true;\n',
 	'src/conflicted.ts':
@@ -139,7 +139,7 @@ const INITIAL_FILES: Record<string, string> = {
 	'queries/report.sql':
 		'-- preview sql — SQL language demo\n-- Search "workspace" to group this with the yaml/json configs.\nSELECT path, COUNT(*) AS preview_hits FROM workspace_files GROUP BY path;\n',
 	'scratch/README.md':
-		'# scratch (preview)\n\nPlayground for create / rename / upload flows. `scratch/empty` is\nintentionally empty to demo the empty tree state and file drop targets.\n',
+		'# scratch (preview)\n\nPlayground for create / rename / upload flows. `scratch/empty` is\nintentionally empty to demo the empty tree state and file drop targets.\n\n![file icon](../assets/icons/file.svg)\n',
 };
 
 // Large file: exercises the truncated banner, read-only Monaco state and

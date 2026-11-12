@@ -135,6 +135,7 @@
 	"page.ide.imageLoadFailed": "Image preview failed to load",
 	"page.ide.sourceView": "Source",
 	"page.ide.previewView": "Preview",
+	"page.ide.splitView": "Split",
 	"page.ide.actualSize": "Actual size",
 	"page.ide.badgeAdded": "Added",
 	"page.ide.badgeModified": "Modified",

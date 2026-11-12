@@ -49,6 +49,69 @@ export function fileNameOf(path: string): string {
 	return path.split('/').pop() ?? path;
 }
 
+/** Directory of a workspace path; root files resolve to empty. */
+export function dirnameOfWorkspacePath(path: string): string {
+	const slash = path.lastIndexOf('/');
+	if (slash < 0) return '';
+	return path.slice(0, slash);
+}
+
+/** True when the source could name a workspace file needing blob resolution.
+ * Absolute, data and pure fragment or query sources stay on the raw path. */
+export function isWorkspaceRelativeImageSrc(value: unknown): boolean {
+	if (!isSafeMarkdownImageSrc(value)) return false;
+	const trimmed = String(value).trim();
+	const lower = trimmed.toLowerCase();
+	if (lower.startsWith('data:')) return false;
+	if (lower.startsWith('#') || lower.startsWith('?')) return false;
+	return /^[a-z][a-z0-9+.-]*:/i.test(trimmed) === false;
+}
+
+function stripImageSuffix(src: string): string {
+	const hash = src.indexOf('#');
+	const query = src.indexOf('?');
+	let end = src.length;
+	if (hash >= 0) end = Math.min(end, hash);
+	if (query >= 0) end = Math.min(end, query);
+	return src.slice(0, end);
+}
+
+/** Resolve a markdown image source against its document path.
+ * Leading slashes anchor at the workspace root, anything else resolves
+ * against the document directory. Returns null for escaping or external
+ * sources so the caller falls back to the raw source. */
+export function resolveWorkspaceImagePath(src: string, docPath: string): string | null {
+	const clean = stripImageSuffix(src.trim());
+	if (!clean) return null;
+	if (/^[a-z][a-z0-9+.-]*:/i.test(clean)) return null;
+	const parts: string[] = [];
+	if (clean.startsWith('/')) {
+		for (const part of clean.split('/')) {
+			if (!part || part === '.') continue;
+			if (part === '..') {
+				if (parts.length === 0) return null;
+				parts.pop();
+				continue;
+			}
+			parts.push(part);
+		}
+	} else {
+		const base = dirnameOfWorkspacePath(docPath);
+		if (base) parts.push(...base.split('/').filter(Boolean));
+		for (const part of clean.split('/')) {
+			if (!part || part === '.') continue;
+			if (part === '..') {
+				if (parts.length === 0) return null;
+				parts.pop();
+				continue;
+			}
+			parts.push(part);
+		}
+	}
+	if (parts.length === 0) return null;
+	return parts.join('/');
+}
+
 function base64ToBytes(contentBase64: string): Uint8Array {
 	const binary = atob(contentBase64);
 	const bytes = new Uint8Array(binary.length);

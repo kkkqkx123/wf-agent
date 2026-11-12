@@ -5,11 +5,14 @@
 	import MonacoEditor from './MonacoEditor.svelte';
 	import FileDiffTab from './FileDiffTab.svelte';
 	import IdeImagePreview from './IdeImagePreview.svelte';
+	import IdeMarkdownPreview from './IdeMarkdownPreview.svelte';
+	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import type { GutterMark } from '#lib/ide/git-diff-lines';
 	import { fileNameOf } from '#lib/ide/diff-tabs';
 	import { isPreviewableImagePath, isSvgPath } from '#lib/utils/image-preview';
+	import { isMarkdownPath } from '#lib/utils/markdown';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -39,12 +42,23 @@
 	let cursor = $state<{ line: number; col: number } | null>(null);
 	let dragPath = $state<string | null>(null);
 	let svgMode = $state<'preview' | 'source'>('preview');
+	let markdownMode = $state<'source' | 'preview' | 'split'>('preview');
+	let splitPct = $state(50);
+	let splitContainer: HTMLElement | null = $state(null);
 
 	$effect(() => {
 		void ide.activePath;
 		cursor = null;
 		svgMode = 'preview';
+		markdownMode = 'preview';
+		splitPct = 50;
 	});
+
+	function onSplitResize(delta: number): void {
+		const width = splitContainer?.clientWidth ?? 0;
+		if (width <= 0) return;
+		splitPct = Math.min(80, Math.max(20, splitPct + (delta / width) * 100));
+	}
 
 	function fileName(path: string): string {
 		return path.split('/').pop() ?? path;
@@ -279,34 +293,85 @@
 									{active.path}
 								</span>
 							</div>
-						{/if}
-						<div class="min-h-0 flex-1">
-							{#if isSvgPath(active.path) && svgMode === 'preview'}
-								<IdeImagePreview path={active.path} svgText={active.content} />
-							{:else}
-								<MonacoEditor
-									filePath={active.path}
-									value={active.content}
-									language={active.language}
-									readOnly={active.truncated}
-									contentReady={!active.loading}
-									{gutterMarks}
-									revealLine={ide.pendingReveal?.path === active.path
-										? (ide.pendingReveal.line ?? null)
-										: null}
-									revealCol={ide.pendingReveal?.path === active.path
-										? (ide.pendingReveal.col ?? null)
-										: null}
-									onChange={(next) => ide.updateContent(active.path, next)}
-									onSave={() => {
-										if (!active.isBinary && !active.saving) void ide.saveFile(active.path);
-									}}
-									onCursor={(line, col) => {
-										if (ide.activePath === active.path) cursor = { line, col };
-									}}
+						{:else if isMarkdownPath(active.path)}
+							<div class="flex items-center gap-2 border-b border-border px-2 py-1">
+								<Segmented
+									items={[
+										{ id: 'source', label: () => t('page.ide.sourceView') },
+										{ id: 'preview', label: () => t('page.ide.previewView') },
+										{ id: 'split', label: () => t('page.ide.splitView') },
+									]}
+									bind:value={markdownMode}
+									size="sm"
 								/>
+								<span class="min-w-0 flex-1 truncate text-micro text-muted-foreground">
+									{active.path}
+								</span>
+							</div>
+						{/if}
+						{#snippet editorPane()}
+							<MonacoEditor
+								filePath={active.path}
+								value={active.content}
+								language={active.language}
+								readOnly={active.truncated}
+								contentReady={!active.loading}
+								{gutterMarks}
+								revealLine={ide.pendingReveal?.path === active.path
+									? (ide.pendingReveal.line ?? null)
+									: null}
+								revealCol={ide.pendingReveal?.path === active.path
+									? (ide.pendingReveal.col ?? null)
+									: null}
+								onChange={(next) => ide.updateContent(active.path, next)}
+								onSave={() => {
+									if (!active.isBinary && !active.saving) void ide.saveFile(active.path);
+								}}
+								onCursor={(line, col) => {
+									if (ide.activePath === active.path) cursor = { line, col };
+								}}
+							/>
+						{/snippet}
+						{#if isMarkdownPath(active.path)}
+							{#if markdownMode === 'preview'}
+								<div class="flex min-h-0 flex-1 flex-col">
+									{#key active.path}
+										<IdeMarkdownPreview content={active.content} docPath={active.path} />
+									{/key}
+								</div>
+							{:else if markdownMode === 'split'}
+								<div class="flex min-h-0 flex-1" bind:this={splitContainer}>
+									<div class="flex min-h-0 min-w-0 flex-col" style="width: {splitPct}%">
+										{@render editorPane()}
+									</div>
+									<ResizeHandle
+										label={t('page.ide.splitView')}
+										axis="x"
+										class="w-2 shrink-0 text-muted-foreground hover:text-foreground"
+										pillClass="h-16 w-1 bg-border"
+										onResize={onSplitResize}
+										onReset={() => (splitPct = 50)}
+									/>
+									<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+										{#key active.path}
+											<IdeMarkdownPreview content={active.content} docPath={active.path} />
+										{/key}
+									</div>
+								</div>
+							{:else}
+								<div class="min-h-0 flex-1">
+									{@render editorPane()}
+								</div>
 							{/if}
-						</div>
+						{:else}
+							<div class="min-h-0 flex-1">
+								{#if isSvgPath(active.path) && svgMode === 'preview'}
+									<IdeImagePreview path={active.path} svgText={active.content} />
+								{:else}
+									{@render editorPane()}
+								{/if}
+							</div>
+						{/if}
 						<div
 							class="flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-micro text-muted-foreground"
 						>

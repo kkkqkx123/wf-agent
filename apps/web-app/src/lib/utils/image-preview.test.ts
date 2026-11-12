@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+	dirnameOfWorkspacePath,
 	fileNameOf,
 	isBitmapImagePath,
 	isPreviewableImagePath,
 	isSafeMarkdownImageSrc,
 	isSvgPath,
+	isWorkspaceRelativeImageSrc,
 	mimeForPreviewableImage,
+	resolveWorkspaceImagePath,
 } from './image-preview';
 
 describe('image preview paths', () => {
@@ -33,6 +36,44 @@ describe('image preview paths', () => {
 
 	it('derives file names', () => {
 		expect(fileNameOf('a/b/c.png')).toBe('c.png');
+	});
+});
+
+describe('workspace-relative image resolution', () => {
+	it('resolves relative sources against the document directory', () => {
+		expect(resolveWorkspaceImagePath('./a.png', 'docs/notes.md')).toBe('docs/a.png');
+		expect(resolveWorkspaceImagePath('../assets/i.svg', 'docs/notes.md')).toBe('assets/i.svg');
+		expect(resolveWorkspaceImagePath('a/b.png', 'notes.md')).toBe('a/b.png');
+	});
+
+	it('anchors leading slashes at the workspace root', () => {
+		expect(resolveWorkspaceImagePath('/assets/i.png', 'docs/deep/notes.md')).toBe('assets/i.png');
+	});
+
+	it('strips query and fragment suffixes before resolving', () => {
+		expect(resolveWorkspaceImagePath('a.png?raw=true#frag', 'docs/notes.md')).toBe('docs/a.png');
+	});
+
+	it('rejects escaping and external sources', () => {
+		expect(resolveWorkspaceImagePath('../../etc/passwd', 'docs/notes.md')).toBeNull();
+		expect(resolveWorkspaceImagePath('../a.png', 'notes.md')).toBeNull();
+		expect(resolveWorkspaceImagePath('https://example.com/a.png', 'docs/notes.md')).toBeNull();
+		expect(resolveWorkspaceImagePath('', 'docs/notes.md')).toBeNull();
+	});
+
+	it('classifies which sources need workspace resolution', () => {
+		expect(isWorkspaceRelativeImageSrc('./a.png')).toBe(true);
+		expect(isWorkspaceRelativeImageSrc('/a.png')).toBe(true);
+		expect(isWorkspaceRelativeImageSrc('a/b.png')).toBe(true);
+		expect(isWorkspaceRelativeImageSrc('https://example.com/a.png')).toBe(false);
+		expect(isWorkspaceRelativeImageSrc('data:image/png;base64,AAA')).toBe(false);
+		expect(isWorkspaceRelativeImageSrc('#frag')).toBe(false);
+		expect(isWorkspaceRelativeImageSrc('javascript:alert(1)')).toBe(false);
+	});
+
+	it('derives document directories', () => {
+		expect(dirnameOfWorkspacePath('docs/notes.md')).toBe('docs');
+		expect(dirnameOfWorkspacePath('notes.md')).toBe('');
 	});
 });
 

@@ -12,6 +12,7 @@
 	import type { FileChange } from '#lib/types/models';
 	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
 	import { formatBytes, formatRelativeTime } from '#lib/utils/format';
+	import { isMarkdownPath } from '#lib/utils/markdown';
 	import { t } from '#lib/i18n';
 
 	let {
@@ -48,10 +49,6 @@
 
 	const timelineEntries = $derived(previewTimeline?.entries ?? []);
 	const timelineVisible = $derived(timelineEntries.slice(0, timelineShown));
-
-	function isMarkdownPath(path: string): boolean {
-		return /\.(md|markdown)$/i.test(path);
-	}
 
 	function isJsonText(text: string): boolean {
 		const trimmed = text.trim();

@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { extractMarkdownText } from './markdown';
+import { extractMarkdownText, isMarkdownPath } from './markdown';
+
+describe('isMarkdownPath', () => {
+	it('matches markdown extensions case-insensitively', () => {
+		expect(isMarkdownPath('notes.md')).toBe(true);
+		expect(isMarkdownPath('docs/plan/IDE.MD')).toBe(true);
+		expect(isMarkdownPath('guide.markdown')).toBe(true);
+		expect(isMarkdownPath('GUIDE.MARKDOWN')).toBe(true);
+	});
+
+	it('rejects other extensions and bare names', () => {
+		expect(isMarkdownPath('notes.txt')).toBe(false);
+		expect(isMarkdownPath('md')).toBe(false);
+		expect(isMarkdownPath('notes.md.bak')).toBe(false);
+		expect(isMarkdownPath('')).toBe(false);
+	});
+});
 
 describe('extractMarkdownText', () => {
 	it('returns null for non-string payloads', () => {

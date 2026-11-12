@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import MonacoEditor from './MonacoEditor.svelte';
@@ -10,6 +11,9 @@
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import type { GutterMark } from '#lib/ide/git-diff-lines';
+	import type { GitBadgeLevel } from '#lib/utils/git-badges';
+	import type { FileDecoration } from '#lib/ide/file-decorations';
+	import { iconForFile } from '#lib/ide/file-icons';
 	import { fileNameOf } from '#lib/ide/diff-tabs';
 	import { isPreviewableImagePath, isSvgPath } from '#lib/utils/image-preview';
 	import { isMarkdownPath } from '#lib/utils/markdown';
@@ -62,6 +66,35 @@
 
 	function fileName(path: string): string {
 		return path.split('/').pop() ?? path;
+	}
+
+	function gitLabel(level: GitBadgeLevel): string {
+		switch (level) {
+			case 'added':
+				return t('page.ide.badgeAdded');
+			case 'modified':
+				return t('page.ide.badgeModified');
+			case 'deleted':
+				return t('page.ide.badgeDeleted');
+			case 'renamed':
+				return t('page.ide.badgeRenamed');
+			case 'conflicted':
+				return t('page.ide.badgeConflicted');
+			case 'untracked':
+				return t('page.ide.badgeUntracked');
+		}
+	}
+
+	function tabTooltip(path: string, decoration: FileDecoration | null, dirty: boolean): string {
+		if (!decoration) return dirty ? `${path} \u00B7 ${t('page.ide.unsaved')}` : path;
+		const parts: string[] = [];
+		if (decoration.git) parts.push(gitLabel(decoration.git));
+		if (decoration.errors > 0)
+			parts.push(t('page.ide.problemErrors', { count: decoration.errors }));
+		else if (decoration.warnings > 0)
+			parts.push(t('page.ide.problemWarnings', { count: decoration.warnings }));
+		if (dirty) parts.push(t('page.ide.unsaved'));
+		return parts.length > 0 ? `${path} \u00B7 ${parts.join(' \u00B7 ')}` : path;
 	}
 
 	function isConflictError(message: string | null): boolean {
@@ -119,6 +152,10 @@
 		>
 			{#each ide.tabs as tab (tab.path)}
 				{@const dirty = tab.content !== tab.original}
+				{@const decoration = ide.fileDecoration(tab.path)}
+				{@const tooltip = tab.preview
+					? `${tab.path} (${t('page.ide.previewHint')})`
+					: tabTooltip(tab.path, decoration, dirty)}
 				<div
 					role="tab"
 					tabindex={0}
@@ -132,12 +169,14 @@
 						? 'border-primary bg-primary/10'
 						: 'border-border bg-muted/40'}"
 				>
+					<Icon name={iconForFile(tab.path)} size={14} class="shrink-0 text-muted-foreground" />
 					<button
 						type="button"
 						class="max-w-44 cursor-pointer truncate hover:text-foreground {tab.preview
 							? 'italic opacity-70'
-							: ''}"
-						title={tab.preview ? `${tab.path} (${t('page.ide.previewHint')})` : tab.path}
+							: ''} {decoration?.textClass ?? ''}"
+						title={tooltip}
+						aria-label={tooltip}
 						onclick={() => {
 							ide.activePath = tab.path;
 							ide.activeDiffKey = null;
@@ -147,7 +186,12 @@
 							tab.preview = false;
 						}}
 					>
-						{fileName(tab.path)}{dirty ? ' •' : ''}
+						{fileName(tab.path)}{dirty ? ' •' : ''}{#if decoration?.letter}<span
+								class="ml-1 font-mono font-semibold {decoration.letterClass}"
+								>{decoration.letter}</span
+							>{:else if decoration?.hasErrors || decoration?.hasWarnings}<span
+								class="ml-1 font-mono font-semibold {decoration.letterClass}">●</span
+							>{/if}
 					</button>
 					<IconButton
 						icon="x"
@@ -160,6 +204,7 @@
 			{/each}
 			{#each ide.diffs as diff (diff.key)}
 				{@const dirty = diff.base.kind === 'unstaged' && ide.isDirty(diff.path)}
+				{@const diffDecoration = ide.fileDecoration(diff.path)}
 				<div
 					role="tab"
 					tabindex={0}
@@ -169,10 +214,12 @@
 						? 'border-primary bg-primary/10'
 						: 'border-dashed border-border bg-muted/40'}"
 				>
+					<Icon name={iconForFile(diff.path)} size={14} class="shrink-0 text-muted-foreground" />
 					<button
 						type="button"
-						class="max-w-44 cursor-pointer truncate hover:text-foreground"
-						title={`${diff.path} · ${diff.base.kind === 'commit' ? diff.base.commit : diff.base.kind}`}
+						class="max-w-44 cursor-pointer truncate hover:text-foreground {diffDecoration?.textClass ??
+							''}"
+						title={tabTooltip(diff.path, diffDecoration, dirty)}
 						onclick={() => {
 							ide.activeDiffKey = diff.key;
 							cursor = null;
@@ -182,7 +229,10 @@
 							diff.path,
 							diff.base.kind,
 							diff.base.kind === 'commit' ? diff.base.commit : undefined,
-						)}{dirty ? ' •' : ''}
+						)}{dirty ? ' •' : ''}{#if diffDecoration?.letter}<span
+								class="ml-1 font-mono font-semibold {diffDecoration.letterClass}"
+								>{diffDecoration.letter}</span
+							>{/if}
 					</button>
 					<IconButton
 						icon="x"

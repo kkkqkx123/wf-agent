@@ -5,6 +5,12 @@ import { diffKeyFor, type DiffBase, type DiffTarget } from '#lib/ide/diff-tabs';
 import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
 import { listFiles } from '#lib/services/git';
 import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
+import {
+	resolveDirDecoration,
+	resolveFileDecoration,
+	type FileDecoration,
+	type ProblemSummary,
+} from '#lib/ide/file-decorations';
 import { toasts } from '#lib/stores/toast.svelte';
 import { t } from '#lib/i18n';
 import { directoryNamespace, onDirectoryChange, resolveDirectory } from '#lib/api/workspace';
@@ -158,6 +164,7 @@ export class IdeStore {
 	pendingReveal = $state<IdeReveal | null>(null);
 	gitBadges = $state<SvelteMap<string, GitBadgeLevel>>(new SvelteMap());
 	gitBadgesAvailable = $state(true);
+	problems = $state<SvelteMap<string, ProblemSummary>>(new SvelteMap());
 	revealRequest = $state<string | null>(null);
 	commandQueue = $state<IdeCommand[]>([]);
 	rootCreateRequest = $state<{ isDir: boolean; nonce: number } | null>(null);
@@ -240,6 +247,7 @@ export class IdeStore {
 		this.activeDiffKey = null;
 		this.pendingReveal = null;
 		this.gitBadges = new SvelteMap();
+		this.problems = new SvelteMap();
 		this.revealRequest = null;
 		this.commandQueue = [];
 		this.clipboard = null;
@@ -549,6 +557,7 @@ export class IdeStore {
 			if (!victim) return;
 			this.tabs = this.tabs.filter((t) => t !== victim);
 			releaseFileModel(victim.path);
+			this.problems.delete(victim.path);
 			evicted += 1;
 		}
 		if (evicted > 0) {
@@ -723,6 +732,7 @@ export class IdeStore {
 		if (tab.content !== tab.original) return false;
 		this.tabs = this.tabs.filter((t) => t.path !== path);
 		releaseFileModel(path);
+		this.problems.delete(path);
 		if (this.activePath === path) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
@@ -734,6 +744,7 @@ export class IdeStore {
 		this.tabs = this.tabs.filter((t) => t.path !== path);
 		this.dropDiffsForPath(path);
 		releaseFileModel(path);
+		this.problems.delete(path);
 		if (this.activePath === path) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
@@ -869,6 +880,7 @@ export class IdeStore {
 			}
 		}
 		for (const pair of moved) retargetFileModel(pair.from, pair.to);
+		this.retargetProblems(from, to);
 		const liveDiff = this.activeDiff();
 		for (const tab of this.diffs) {
 			if (tab.path === from) tab.path = to;
@@ -897,7 +909,10 @@ export class IdeStore {
 			seenPaths.add(tab.path);
 			return true;
 		});
-		for (const path of dropped) releaseFileModel(path);
+		for (const path of dropped) {
+			releaseFileModel(path);
+			this.problems.delete(path);
+		}
 		if (previousActive === from) this.activePath = to;
 		else if (previousActive?.startsWith(prefix)) {
 			this.activePath = `${to}${previousActive.slice(from.length)}`;
@@ -925,7 +940,11 @@ export class IdeStore {
 			}
 			return true;
 		});
-		for (const path of removed) releaseFileModel(path);
+		for (const path of removed) {
+			releaseFileModel(path);
+			this.problems.delete(path);
+		}
+		for (const path of paths) this.dropProblemsForPath(path);
 		if (this.activePath && !this.tabs.some((t) => t.path === this.activePath)) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
@@ -991,15 +1010,75 @@ export class IdeStore {
 		}
 	}
 
-	/** Aggregate badge for a directory from its changed descendants. */
-	dirBadge(dirPath: string): GitBadgeLevel | null {
+	/** Record Monaco marker counts for one file. Zero counts clear the entry. */
+	setProblems(path: string, errors: number, warnings: number): void {
+		const cleanErrors = Number.isFinite(errors) ? Math.max(0, Math.floor(errors)) : 0;
+		const cleanWarnings = Number.isFinite(warnings) ? Math.max(0, Math.floor(warnings)) : 0;
+		if (cleanErrors === 0 && cleanWarnings === 0) {
+			this.problems.delete(path);
+			return;
+		}
+		this.problems.set(path, { errors: cleanErrors, warnings: cleanWarnings });
+	}
+
+	/** Drop cached diagnostics for one file. */
+	clearProblems(path: string): void {
+		this.problems.delete(path);
+	}
+
+	/** Cached diagnostic counts for one file, if any. */
+	problemSummary(path: string): ProblemSummary | null {
+		return this.problems.get(path) ?? null;
+	}
+
+	private problemCountsFor(path: string): ProblemSummary {
+		return this.problems.get(path) ?? { errors: 0, warnings: 0 };
+	}
+
+	/** Merged git plus diagnostics decoration for one file. */
+	fileDecoration(path: string): FileDecoration | null {
+		const git = this.gitBadgesAvailable ? (this.gitBadges.get(path) ?? null) : null;
+		const counts = this.problemCountsFor(path);
+		return resolveFileDecoration({ git, errors: counts.errors, warnings: counts.warnings });
+	}
+
+	/** Merged decoration for a directory from changed descendants. */
+	dirDecoration(dirPath: string): FileDecoration | null {
 		const prefix = dirPath ? `${dirPath}/` : '';
 		const levels: GitBadgeLevel[] = [];
+		let errors = 0;
+		let warnings = 0;
 		for (const [path, level] of this.gitBadges) {
 			if (prefix && !path.startsWith(prefix)) continue;
 			levels.push(level);
 		}
-		return aggregateBadges(levels);
+		for (const [path, summary] of this.problems) {
+			if (prefix && !path.startsWith(prefix)) continue;
+			errors += summary.errors;
+			warnings += summary.warnings;
+		}
+		return resolveDirDecoration({ git: aggregateBadges(levels), errors, warnings });
+	}
+
+	private retargetProblems(from: string, to: string): void {
+		const prefix = `${from}/`;
+		const moved: Array<{ from: string; to: string; summary: ProblemSummary }> = [];
+		for (const [path, summary] of this.problems) {
+			if (path === from) moved.push({ from: path, to, summary });
+			else if (path.startsWith(prefix))
+				moved.push({ from: path, to: `${to}${path.slice(from.length)}`, summary });
+		}
+		for (const entry of moved) this.problems.delete(entry.from);
+		for (const entry of moved) this.problems.set(entry.to, entry.summary);
+	}
+
+	private dropProblemsForPath(path: string): void {
+		const prefix = `${path}/`;
+		const doomed: string[] = [];
+		for (const key of this.problems.keys()) {
+			if (key === path || key.startsWith(prefix)) doomed.push(key);
+		}
+		for (const key of doomed) this.problems.delete(key);
 	}
 }
 

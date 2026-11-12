@@ -143,6 +143,8 @@
 	"page.ide.badgeRenamed": "已重命名",
 	"page.ide.badgeConflicted": "冲突",
 	"page.ide.badgeUntracked": "未跟踪",
+	"page.ide.problemErrors": "{count} 个错误",
+	"page.ide.problemWarnings": "{count} 个警告",
 	"page.ide.dirOverflow": "还有 {count} 项 — 请细化筛选以缩小范围。",
 	"page.ide.copyPath": "复制路径",
 	"page.ide.locateInTree": "在文件树中定位",

@@ -143,6 +143,8 @@
 	"page.ide.badgeRenamed": "Renamed",
 	"page.ide.badgeConflicted": "Conflicted",
 	"page.ide.badgeUntracked": "Untracked",
+	"page.ide.problemErrors": "{count} errors",
+	"page.ide.problemWarnings": "{count} warnings",
 	"page.ide.dirOverflow": "+{count} more — refine the filter to narrow down.",
 	"page.ide.copyPath": "Copy path",
 	"page.ide.locateInTree": "Reveal in file tree",

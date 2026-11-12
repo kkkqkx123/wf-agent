@@ -16,6 +16,8 @@
 	import { invalidateFsTreeIndex } from '#lib/utils/fs-tree-index';
 	import { IDE_TREE_ROW_HEIGHT_PX } from '#lib/utils/file-tree-window';
 	import type { GitBadgeLevel } from '#lib/utils/git-badges';
+	import type { FileDecoration } from '#lib/ide/file-decorations';
+	import { iconForEntry, iconForFile } from '#lib/ide/file-icons';
 
 	interface Props {
 		onViewDiff?: (path: string) => void;
@@ -69,16 +71,7 @@
 	const MAX_DIR_ENTRIES = 200;
 	const treeRowHeightStyle = `--ide-tree-row-height: ${IDE_TREE_ROW_HEIGHT_PX}px`;
 
-	const BADGE_DOT: Record<GitBadgeLevel, string> = {
-		added: 'bg-success',
-		modified: 'bg-warning',
-		deleted: 'bg-destructive',
-		renamed: 'bg-info',
-		conflicted: 'bg-destructive ring-2 ring-destructive/40',
-		untracked: 'bg-muted-foreground',
-	};
-
-	function badgeLabel(level: GitBadgeLevel): string {
+	function gitLabel(level: GitBadgeLevel): string {
 		switch (level) {
 			case 'added':
 				return t('page.ide.badgeAdded');
@@ -93,6 +86,17 @@
 			case 'untracked':
 				return t('page.ide.badgeUntracked');
 		}
+	}
+
+	function decorationTooltip(decoration: FileDecoration, dirty: boolean): string {
+		const parts: string[] = [];
+		if (decoration.git) parts.push(gitLabel(decoration.git));
+		if (decoration.errors > 0)
+			parts.push(t('page.ide.problemErrors', { count: decoration.errors }));
+		else if (decoration.warnings > 0)
+			parts.push(t('page.ide.problemWarnings', { count: decoration.warnings }));
+		if (dirty) parts.push(t('page.ide.unsaved'));
+		return parts.join(' \u00B7 ');
 	}
 
 	onMount(() => {
@@ -175,10 +179,8 @@
 		return out;
 	}
 
-	function rowBadge(path: string, isDir: boolean): GitBadgeLevel | null {
-		if (!ide.gitBadgesAvailable) return null;
-		if (!isDir) return ide.gitBadges.get(path) ?? null;
-		return ide.dirBadge(path);
+	function rowDecoration(path: string, isDir: boolean): FileDecoration | null {
+		return isDir ? ide.dirDecoration(path) : ide.fileDecoration(path);
 	}
 
 	function isCut(path: string): boolean {
@@ -339,10 +341,6 @@
 		} else {
 			actionError = null;
 		}
-	}
-
-	function entryIcon(isDir: boolean): 'folder' | 'file' {
-		return isDir ? 'folder' : 'file';
 	}
 
 	function openMenu(event: MouseEvent, target: string, isDir: boolean): void {
@@ -642,7 +640,11 @@
 {#snippet node(dirPath: string, level: number)}
 	{#if creating && creating.parent === dirPath}
 		<div class="flex items-center gap-1 px-1 py-0.5" data-inline-edit>
-			<Icon name={creating.isDir ? 'folder' : 'file'} size={14} class="text-muted-foreground" />
+			<Icon
+				name={creating.isDir ? 'folder' : iconForFile(newName)}
+				size={14}
+				class="text-muted-foreground"
+			/>
 			<input
 				class="h-7 min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-body"
 				bind:this={createInput}
@@ -662,7 +664,12 @@
 	{#each listed.shown as entry (entry.path)}
 		{@const isOpen = expanded.has(entry.path)}
 		{@const dirty = entry.is_dir ? false : ide.isDirty(entry.path)}
-		{@const badge = rowBadge(entry.path, entry.is_dir)}
+		{@const decoration = rowDecoration(entry.path, entry.is_dir)}
+		{@const tooltip = decoration
+			? decorationTooltip(decoration, dirty)
+			: dirty
+				? t('page.ide.unsaved')
+				: ''}
 		{@const selected = ide.isSelected(entry.path)}
 		{@const cut = isCut(entry.path)}
 		{@const isDrop = dropTarget === entry.path}
@@ -717,13 +724,26 @@
 							size={13}
 							class="shrink-0 text-muted-foreground"
 						/>
-						<Icon name="folder" size={14} class="shrink-0 text-muted-foreground" />
-						<span class="min-w-0 flex-1 truncate">{entry.name || '/'}</span>
-						{#if badge}
+						<Icon
+							name={iconForEntry(entry.path, true)}
+							size={14}
+							class="shrink-0 text-muted-foreground"
+						/>
+						<span class="min-w-0 flex-1 truncate {decoration?.textClass ?? ''}"
+							>{entry.name || '/'}</span
+						>
+						{#if decoration?.letter}
 							<span
-								class="h-1.5 w-1.5 shrink-0 rounded-full {BADGE_DOT[badge]}"
-								title={badgeLabel(badge)}
-							></span>
+								class="w-4 shrink-0 text-center font-mono text-micro font-semibold {decoration.letterClass}"
+								title={tooltip}
+								aria-label={tooltip}>{decoration.letter}</span
+							>
+						{:else if decoration?.hasErrors || decoration?.hasWarnings}
+							<span
+								class="w-4 shrink-0 text-center font-mono text-micro font-semibold {decoration.letterClass}"
+								title={tooltip}
+								aria-label={tooltip}>●</span
+							>
 						{/if}
 					</button>
 				{:else}
@@ -734,19 +754,30 @@
 						ondblclick={() => void openEntry(entry.path, false, false)}
 					>
 						<span class="w-4 shrink-0"></span>
-						<Icon name={entryIcon(false)} size={14} class="shrink-0 text-muted-foreground" />
-						<span class="min-w-0 flex-1 truncate">{entry.name}</span>
+						<Icon
+							name={iconForEntry(entry.path, false)}
+							size={14}
+							class="shrink-0 text-muted-foreground"
+						/>
+						<span class="min-w-0 flex-1 truncate {decoration?.textClass ?? ''}">{entry.name}</span>
 						{#if dirty}
 							<span
 								class="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
 								title={t('page.ide.unsaved')}
 							></span>
 						{/if}
-						{#if badge}
+						{#if decoration?.letter}
 							<span
-								class="h-1.5 w-1.5 shrink-0 rounded-full {BADGE_DOT[badge]}"
-								title={badgeLabel(badge)}
-							></span>
+								class="w-4 shrink-0 text-center font-mono text-micro font-semibold {decoration.letterClass}"
+								title={tooltip || undefined}
+								aria-label={tooltip || undefined}>{decoration.letter}</span
+							>
+						{:else if decoration?.hasErrors || decoration?.hasWarnings}
+							<span
+								class="w-4 shrink-0 text-center font-mono text-micro font-semibold {decoration.letterClass}"
+								title={tooltip || undefined}
+								aria-label={tooltip || undefined}>●</span
+							>
 						{/if}
 					</button>
 				{/if}

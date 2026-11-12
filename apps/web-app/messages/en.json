@@ -1524,6 +1524,8 @@
 	"page.ide.preview": "preview",
 	"page.ide.previewHint": "Preview — double-click the tab to pin it",
 	"page.ide.previewView": "Preview",
+	"page.ide.problemErrors": "{count} errors",
+	"page.ide.problemWarnings": "{count} warnings",
 	"page.ide.quickOpen": "Quick open file",
 	"page.ide.quickOpenDesc": "Fuzzy file names. Append :line:col to jump directly.",
 	"page.ide.quickOpenEmpty": "No matching files",

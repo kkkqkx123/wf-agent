@@ -1524,6 +1524,8 @@
 	"page.ide.preview": "预览",
 	"page.ide.previewHint": "预览态——双击标签页固定",
 	"page.ide.previewView": "预览",
+	"page.ide.problemErrors": "{count} 个错误",
+	"page.ide.problemWarnings": "{count} 个警告",
 	"page.ide.quickOpen": "快速打开文件",
 	"page.ide.quickOpenDesc": "模糊匹配文件名，可追加 :行号:列号直达。",
 	"page.ide.quickOpenEmpty": "没有匹配的文件",

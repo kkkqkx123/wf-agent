@@ -17,6 +17,7 @@
 		recallViewState,
 		stashViewState,
 	} from '#lib/ide/editor-models';
+	import { ide } from '#lib/stores/ide.svelte';
 	import type { GutterMark } from '#lib/ide/git-diff-lines';
 	import { t } from '#lib/i18n';
 
@@ -58,6 +59,7 @@
 	let editor: MonacoEditorInstance | null = null;
 	let changeDisposable: { dispose(): void } | null = null;
 	let cursorDisposable: { dispose(): void } | null = null;
+	let markersDisposable: { dispose(): void } | null = null;
 	let decorationIds: string[] = [];
 	let lastEmitted = $state('');
 	let disposed = false;
@@ -112,6 +114,13 @@
 		} catch {
 			// Save shortcut inside the editor is best-effort.
 		}
+		try {
+			markersDisposable = monacoNs.editor.onDidChangeMarkers((resources) => {
+				for (const resource of resources) publishMarkersFor(resource);
+			});
+		} catch {
+			markersDisposable = null;
+		}
 		editorReady = true;
 	}
 
@@ -146,6 +155,7 @@
 			}
 			decorationIds = [];
 			attachedPath = targetPath;
+			publishMarkersFor(model.uri);
 			lastEmitted = model.getValue();
 			mountError = null;
 			const marks = untrack(() => gutterMarks);
@@ -271,6 +281,45 @@
 		}
 	}
 
+	function pathFromFileUri(resource: { scheme: string; path: string }): string | null {
+		if (resource.scheme !== 'file') return null;
+		const parts = resource.path
+			.split('/')
+			.filter(Boolean)
+			.map((segment) => {
+				try {
+					return decodeURIComponent(segment);
+				} catch {
+					return segment;
+				}
+			});
+		if (parts.length === 0) return null;
+		return parts.join('/');
+	}
+
+	function publishMarkersFor(resource: { scheme: string; path: string }): void {
+		if (!monacoNs) return;
+		const path = pathFromFileUri(resource);
+		if (!path) return;
+		let errors = 0;
+		let warnings = 0;
+		try {
+			const markers = monacoNs.editor.getModelMarkers({
+				resource: resource as unknown as Parameters<
+					typeof monacoNs.editor.getModelMarkers
+				>[0]['resource'],
+			});
+			const severity = monacoNs.MarkerSeverity;
+			for (const marker of markers) {
+				if (marker.severity === severity.Error) errors += 1;
+				else if (marker.severity === severity.Warning) warnings += 1;
+			}
+		} catch {
+			return;
+		}
+		ide.setProblems(path, errors, warnings);
+	}
+
 	function revealAt(line: number, col?: number | null): void {
 		try {
 			if (!editor) return;
@@ -314,6 +363,8 @@
 		}
 		changeDisposable?.dispose();
 		cursorDisposable?.dispose();
+		markersDisposable?.dispose();
+		markersDisposable = null;
 		editor?.dispose();
 		editor = null;
 	});

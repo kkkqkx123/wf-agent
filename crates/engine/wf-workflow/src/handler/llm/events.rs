@@ -136,7 +136,9 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         0
     };
     let limits = wf_execution_shared::resolve_effective_compaction_limits(None);
-    let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
+    // Shared forced-plan helper: stateless only, never consults planning
+    // advice, so no request-level directive can reach it.
+    let stateless_plan = wf_execution_shared::forced_stateless_plan(
         &request.messages,
         tokens_used,
         effective_limit,
@@ -197,24 +199,16 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     message_context::mark_compression_emitted(&ctx.variables, &target, array_version);
     if let Some(ref tracker) = ctx.token_tracker {
         let mut tracker = tracker.lock().await;
-        match &outcome {
-            wf_execution_shared::CompressionSignalOutcome::Taken => {
-                tracker.reset_no_taker(&target);
-                tracker.begin_compression_flight(&target, array_version, true);
-            }
-            wf_execution_shared::CompressionSignalOutcome::Vetoed { .. } => {}
-            wf_execution_shared::CompressionSignalOutcome::Untaken => {
-                let streak = tracker.record_no_taker(&target);
-                if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
-                    tracing::error!(
-                        execution_id = %ctx.execution_id,
-                        node_id = %ctx.node_id,
-                        target = %target,
-                        streak = streak,
-                        "forced compression signal repeatedly has no taker; compression service missing"
-                    );
-                }
-            }
+        // Shared anchor predicate: only `Taken` anchors a flight.
+        if wf_execution_shared::emission_should_anchor(&outcome) {
+            tracker.reset_no_taker(&target);
+            tracker.begin_compression_flight(&target, array_version, true);
+        } else if matches!(
+            outcome,
+            wf_execution_shared::CompressionSignalOutcome::Untaken
+        ) {
+            let streak = tracker.record_no_taker(&target);
+            wf_execution_shared::report_forced_no_taker(&target, streak);
         }
         super::token_budget::persist_tracker_state(ctx, &tracker);
     }

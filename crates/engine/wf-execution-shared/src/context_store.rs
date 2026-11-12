@@ -623,6 +623,76 @@ pub async fn dispatch_unified_emission(
     (outcome, audit)
 }
 
+/// Whether a dispatch outcome anchors backpressure. Single predicate so
+/// agent and workflow emitters agree: only `Taken` anchors a flight.
+/// Vetoed clears the pending plan without a no-taker streak; untaken keeps
+/// the audit with the no-taker marker without anchoring.
+pub fn emission_should_anchor(outcome: &CompressionSignalOutcome) -> bool {
+    matches!(outcome, CompressionSignalOutcome::Taken)
+}
+
+/// Stateless forced-safety-net plan shared by every forced emitter. The
+/// stateless plan never consults planning advice, so no request-level
+/// directive can reach the forced path. Single home so agent and workflow
+/// forced paths agree on the hard-line rule and the empty-plan fallback.
+pub fn forced_stateless_plan(
+    messages: &[Message],
+    estimated: u64,
+    context_limit: u64,
+    limits: &wf_types::config::limits::CompactionLimits,
+) -> Vec<crate::CompactionPlanItem> {
+    crate::compaction::stateless_plan_for_estimate(messages, estimated, context_limit, limits)
+}
+
+/// Workflow compression is single-summary by construction: workflow targets
+/// keep no block table and never run the layered planner. Single home so
+/// the workflow emitter cannot drift into layered planning later; agent
+/// targets keep the layered path via `build_plan`.
+pub fn workflow_compression_is_single_summary() -> bool {
+    true
+}
+
+/// Shared still-over-budget escalation message so agent pauses and workflow
+/// pauses describe the same streak in the same terms.
+pub fn still_over_budget_park_message(target: &str, streak: u32) -> String {
+    format!(
+        "compressed results for '{target}' still exceed the context budget {streak} times consecutively; bump the budget or trim the content before resuming"
+    )
+}
+
+/// Shared no-taker escalation log for forced safety-net signals without a
+/// service taker. Single writer so agent and workflow forced paths escalate
+/// on the same streak with the same wording.
+pub fn report_forced_no_taker(target: &str, streak: u32) {
+    if streak >= crate::token_tracker::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+        tracing::error!(
+            target = %target,
+            streak = streak,
+            "forced compression signal repeatedly has no taker; compression service missing"
+        );
+    } else {
+        tracing::warn!(
+            target = %target,
+            streak = streak,
+            "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+        );
+    }
+}
+
+/// Single bootstrap install point for compression budgets. Sets the
+/// process-wide settle budget (when `Some`) and the process-wide
+/// compaction tuning together, so bootstrap configures globals once
+/// before any execution can emit instead of in scattered call sites.
+pub fn install_compression_budgets(
+    settle_timeout_ms: Option<u64>,
+    compaction: wf_types::config::limits::CompactionLimits,
+) {
+    if let Some(timeout_ms) = settle_timeout_ms {
+        crate::set_compression_settle_timeout_ms(timeout_ms);
+    }
+    crate::compaction::set_process_compaction_limits(compaction);
+}
+
 /// Refined whole-request estimate for preflight warnings. Uses the local
 /// estimate below the precision threshold and the provider count when near
 /// or over budget. Warning only, never blocks the request.

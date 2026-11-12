@@ -500,14 +500,13 @@ impl AgentIterationCoordinator {
                     .write()
                     .await
                     .reset_still_over_budget();
+                // Shared escalation wording with the workflow waiter.
+                let message = wf_execution_shared::still_over_budget_park_message(
+                    wf_execution_shared::CONVERSATION_CONTEXT_ID,
+                    still_over,
+                );
                 return Ok(self
-                    .compression_failure_park(
-                        entity,
-                        version,
-                        &format!(
-                            "compressed results still exceed the context budget {still_over} times consecutively; bump the budget or trim the content before resuming"
-                        ),
-                    )
+                    .compression_failure_park(entity, version, &message)
                     .await
                     .unwrap_or(IterationResult {
                         should_continue: false,

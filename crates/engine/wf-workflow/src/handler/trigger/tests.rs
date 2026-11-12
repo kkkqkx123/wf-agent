@@ -526,8 +526,8 @@ async fn test_set_message_context_writes_context_and_ledger() {
     assert_eq!(stored.len(), 2);
     assert_eq!(stored[0].role, wf_types::message::MessageRole::User);
 
-    // Ledger consistency: replacement marks the entry dirty; the read
-    // above recomputed it, so count and estimate now match the array.
+    // Ledger consistency: the replacement bumps the version and refreshes
+    // the cached count/estimate at write time, so reads stay pure.
     assert_eq!(
         crate::message_context::ledger_message_count(&ctx.variables, "chat"),
         2

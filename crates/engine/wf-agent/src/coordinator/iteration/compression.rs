@@ -163,7 +163,9 @@ impl AgentIterationCoordinator {
         };
         let messages = request.messages.clone();
         let limits = self.effective_compaction_limits();
-        let forced_plan = wf_execution_shared::stateless_plan_for_estimate(
+        // Shared forced-plan helper: stateless only, never consults
+        // planning advice, so no directive can reach the forced path.
+        let forced_plan = wf_execution_shared::forced_stateless_plan(
             &messages,
             tokens_used,
             effective_limit,
@@ -484,10 +486,9 @@ impl AgentIterationCoordinator {
         }
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
-        // Backpressure only anchors when the takeover ran; a vetoed signal
-        // clears the pending plan without a no-taker streak, and without a
-        // taker nothing settles the flight. A pending plan dies with the
-        // undelivered signal so a late completion can never apply it.
+        // Backpressure anchors only on `Taken` (shared predicate); a vetoed
+        // signal clears the pending plan without a no-taker streak, and
+        // without a taker nothing settles the flight.
         match &outcome {
             wf_execution_shared::CompressionSignalOutcome::Taken => {
                 session.reset_compression_no_taker();
@@ -510,10 +511,7 @@ impl AgentIterationCoordinator {
                 );
             }
         }
-        matches!(
-            outcome,
-            wf_execution_shared::CompressionSignalOutcome::Taken
-        )
+        wf_execution_shared::emission_should_anchor(&outcome)
     }
 
     /// Count one emitted compaction signal on the shared metrics registry

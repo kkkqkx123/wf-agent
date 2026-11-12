@@ -9,6 +9,10 @@ use super::input_window::PlannedSlice;
 use super::policy::retry_backoff_ms;
 use super::terminal_report::ChainStatus;
 
+/// Shared single-input execution with timeout, retry and shutdown.
+/// Single home for the attempt loop used by the builtin plan batch and by
+/// user-template single-summary runs, so timeout wording, empty-output
+/// handling and backoff stay identical on both paths.
 /// Owned inputs for one chain run over the planned slices. The retry budget
 /// is shared across the batch so the timeout nesting contract keeps holding
 /// for plan mode: the whole batch costs at most what one legacy run costs.
@@ -188,5 +192,75 @@ pub(super) async fn run_items(params: ChainRunParams) -> ChainRunOutput {
         aggregated,
         outcomes,
         status,
+    }
+}
+
+/// Narrow terminal for one shared single-input run. The batch runner keeps
+/// its own `ChainStatus` (including expiry); single-summary callers only
+/// observe abort vs failure.
+#[derive(Debug)]
+pub(crate) enum SingleRunError {
+    Aborted,
+    Failed(String),
+}
+
+/// Run one summary input with timeout, retry and shutdown handling.
+/// Returns the parsed messages on success with the attempts spent, or the
+/// terminal status (aborted/failed) when the budget is exhausted.
+/// User-template single-summary runs share this path with `max_retries = 0`
+/// so both executors agree on timeout wording and empty-output handling.
+pub(crate) async fn run_single_with_retry(
+    runner: &Arc<dyn SubworkflowRunner>,
+    workflow_id: &str,
+    input: serde_json::Value,
+    run_timeout_ms: u64,
+    max_retries: u32,
+    shutdown: &CancellationToken,
+) -> (u32, Result<Vec<Message>, SingleRunError>) {
+    let max_attempts = max_retries.saturating_add(1);
+    let mut attempts = 0u32;
+    loop {
+        attempts = attempts.saturating_add(1);
+        let outcome = tokio::select! {
+            _ = shutdown.cancelled() => None,
+            output = tokio::time::timeout(
+                std::time::Duration::from_millis(run_timeout_ms),
+                runner.run(workflow_id, input.clone()),
+            ) => Some(output),
+        };
+        let failed: Option<String> = match outcome {
+            None => return (attempts, Err(SingleRunError::Aborted)),
+            Some(Err(_)) => Some(format!(
+                "compression summary run timed out after {run_timeout_ms} ms"
+            )),
+            Some(Ok(Err(e))) => {
+                warn!("Compression sub-workflow '{workflow_id}' failed: {e}");
+                Some(e.to_string())
+            }
+            Some(Ok(Ok(output))) => {
+                match serde_json::from_value::<Vec<Message>>(output) {
+                    Ok(messages) if !messages.is_empty() => {
+                        return (attempts, Ok(messages))
+                    }
+                    _ => Some(
+                        "compression sub-workflow returned no messages".to_string(),
+                    ),
+                }
+            }
+        };
+        if let Some(error) = failed {
+            if attempts >= max_attempts {
+                return (attempts, Err(SingleRunError::Failed(error)));
+            }
+            debug!("Compression attempt {attempts}/{max_attempts} failed: {error}; retrying");
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(
+                    retry_backoff_ms(attempts),
+                )) => {}
+                _ = shutdown.cancelled() => {
+                    return (attempts, Err(SingleRunError::Aborted));
+                }
+            }
+        }
     }
 }

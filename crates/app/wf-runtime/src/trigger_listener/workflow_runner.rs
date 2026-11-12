@@ -548,71 +548,74 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             let action_type = "execute_triggered_subworkflow";
 
             let callback = async move {
-                let run = tokio::time::timeout(
-                    std::time::Duration::from_millis(timeout_ms),
-                    runner.run(&workflow_id, input),
-                );
-                let (outcome, error) = tokio::select! {
-                    output = run => {
-                        match output {
-                            Ok(Ok(output)) => {
-                                match handle_subworkflow_output(
-                                    &contexts,
-                                    &bus,
-                                    &super::write_back::CompressionWriteBack {
-                                        execution_id: event.execution_id.as_deref().unwrap_or_default(),
-                                        agent_loop_id: event.agent_loop_id.as_deref(),
-                                        target_context_id: &target_context_id,
-                                        expected_version,
-                                        tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
-                                        token_limit,
-                                        degraded: false,
-                                        degraded_dropped: 0,
-                                        run_id: None,
-                                        block_outcomes: &[],
-                                    },
-                                    &output,
-                                )
-                                .await
-                                {
-                                    Ok(()) => (TriggerExecutionOutcome::Completed, None),
-                                    Err(CompressionWriteBackError::Expired(detail)) => {
-                                        warn!(
-                                            "Triggered subworkflow '{}' write-back expired (stale version): {}",
-                                            workflow_id, detail
-                                        );
-                                        (TriggerExecutionOutcome::Abandoned, Some(detail))
-                                    }
-                                    Err(CompressionWriteBackError::Failed(error)) => {
-                                        let detail = error.to_string();
-                                        warn!(
-                                            "Triggered subworkflow '{}' completed but write-back failed: {}",
-                                            workflow_id, detail
-                                        );
-                                        (TriggerExecutionOutcome::Failed, Some(detail))
-                                    }
+                // Shared single-attempt path with the builtin plan batch:
+                // timeout wording, empty-output handling and shutdown
+                // semantics come from one helper (`max_retries = 0` keeps
+                // the user-template single-summary shape).
+                let (_attempts, single) = super::compression::run_single_with_retry(
+                    &runner,
+                    &workflow_id,
+                    input,
+                    timeout_ms,
+                    0,
+                    &shutdown,
+                )
+                .await;
+                let (outcome, error) = match single {
+                    Ok(messages) => {
+                        match serde_json::to_value(&messages) {
+                            Ok(output) => match handle_subworkflow_output(
+                                &contexts,
+                                &bus,
+                                &super::write_back::CompressionWriteBack {
+                                    execution_id: event.execution_id.as_deref().unwrap_or_default(),
+                                    agent_loop_id: event.agent_loop_id.as_deref(),
+                                    target_context_id: &target_context_id,
+                                    expected_version,
+                                    tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
+                                    token_limit,
+                                    degraded: false,
+                                    degraded_dropped: 0,
+                                    run_id: None,
+                                    block_outcomes: &[],
+                                },
+                                &output,
+                            )
+                            .await
+                            {
+                                Ok(()) => (TriggerExecutionOutcome::Completed, None),
+                                Err(CompressionWriteBackError::Expired(detail)) => {
+                                    warn!(
+                                        "Triggered subworkflow '{}' write-back expired (stale version): {}",
+                                        workflow_id, detail
+                                    );
+                                    (TriggerExecutionOutcome::Abandoned, Some(detail))
                                 }
-                            }
-                            Ok(Err(e)) => {
-                                warn!("Triggered subworkflow '{}' failed: {}", workflow_id, e);
+                                Err(CompressionWriteBackError::Failed(error)) => {
+                                    let detail = error.to_string();
+                                    warn!(
+                                        "Triggered subworkflow '{}' completed but write-back failed: {}",
+                                        workflow_id, detail
+                                    );
+                                    (TriggerExecutionOutcome::Failed, Some(detail))
+                                }
+                            },
+                            Err(e) => {
+                                warn!("Triggered subworkflow '{workflow_id}' output not serializable: {e}");
                                 (TriggerExecutionOutcome::Failed, Some(e.to_string()))
-                            }
-                            Err(_) => {
-                                let timed_out = WorkflowError::ExecutionTimeout(format!(
-                                    "Triggered subworkflow '{}' timed out after {}ms",
-                                    workflow_id, timeout_ms
-                                ));
-                                warn!("{}", timed_out);
-                                (TriggerExecutionOutcome::Failed, Some(timed_out.to_string()))
                             }
                         }
                     }
-                    _ = shutdown.cancelled() => {
+                    Err(super::compression::SingleRunError::Aborted) => {
                         debug!("Triggered subworkflow '{}' aborted at shutdown", workflow_id);
                         (
                             TriggerExecutionOutcome::Abandoned,
                             Some("aborted at listener shutdown".to_string()),
                         )
+                    }
+                    Err(super::compression::SingleRunError::Failed(error)) => {
+                        warn!("Triggered subworkflow '{}' failed: {}", workflow_id, error);
+                        (TriggerExecutionOutcome::Failed, Some(error))
                     }
                 };
                 if let Some(registry) = ledger

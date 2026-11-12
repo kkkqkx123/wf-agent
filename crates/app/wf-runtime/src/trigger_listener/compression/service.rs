@@ -15,9 +15,11 @@ pub const COMPRESSION_SERVICE_HANDLER_NAME: &str =
 
 /// Thin hook adapter for the `CONTEXT_COMPRESSION_REQUESTED` signal.
 ///
-/// Synchronous duties only: parse the signal, skip snapshots that carry
-/// nothing to compress, spawn the pipeline directly when it is held, then
-/// publish the snapshot-carrying routed copy for audit. No execution policy
+/// Single-delivery rule: the adapter spawns the held pipeline directly
+/// and publishes an audit-only copy. The snapshot-carrying routed handoff
+/// is published only when no pipeline handled the signal (fallback for
+/// external handoffs served by the listener route). The pipeline claim is
+/// the sole correctness barrier, so the normal path never executes twice.
 /// lives here: retry budget, degraded fallback, write-back orchestration
 /// and audit all belong to `CompressionPipeline`. The direct spawn is the
 /// execution path; the routed copy is audit only and no longer drives
@@ -68,6 +70,34 @@ impl CompressionService {
             signal.directive.clone(),
             signal.agent_loop_id.clone(),
         ))
+    }
+
+    /// Publish the audit-only copy for a parsed signal: same audit
+    /// fields as the emitter's copy, without the message snapshot and
+    /// without the routed marker, so the listener route never matches it.
+    fn publish_audit(&self, execution_id: &str, signal: &CompressionSignal) {
+        let request = wf_execution_shared::ContextCompressionRequest {
+            target_context_id: &signal.target_context_id,
+            tokens_used: signal.tokens_used,
+            token_limit: signal.token_limit,
+            message_count: signal.message_count,
+            array_version: signal.array_version,
+            forced: signal.forced,
+            messages: &[],
+            plan: &[],
+            directive: &signal.directive,
+        };
+        let event = wf_execution_shared::build_context_compression_requested_event(
+            execution_id,
+            signal.agent_loop_id.as_deref(),
+            &request,
+        );
+        if let Err(e) = self.bus.publish(event) {
+            warn!(
+                "Compression audit copy for {execution_id}:{}:{} dropped on publish: {e}",
+                signal.target_context_id, signal.array_version,
+            );
+        }
     }
 
     /// Publish the routed handoff copy for a parsed signal: same audit
@@ -129,11 +159,15 @@ impl HookHandler for CompressionService {
             );
             return HookOutcome::Continue;
         }
-        // Direct execution path first; the routed copy below stays as the
-        // audit trail. When no pipeline is attached the routed copy is the
-        // legacy fallback and the router claims it instead.
-        self.direct_spawn(&ctx.execution_id.to_string(), &signal);
-        self.publish_routed(&ctx.execution_id.to_string(), &signal);
+        // Single delivery: direct spawn is the execution path. The routed
+        // copy below is only the fallback when no pipeline handled the
+        // signal; otherwise an audit-only copy is published so the normal
+        // path never executes twice via the claim race.
+        if self.direct_spawn(&ctx.execution_id.to_string(), &signal) {
+            self.publish_audit(&ctx.execution_id.to_string(), &signal);
+        } else {
+            self.publish_routed(&ctx.execution_id.to_string(), &signal);
+        }
         HookOutcome::Continue
     }
 }

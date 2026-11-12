@@ -13,7 +13,7 @@ use crate::trigger_listener::write_back::{
 };
 
 /// Terminal status of one compression chain (all attempts spent).
-pub(super) enum ChainStatus {
+pub(crate) enum ChainStatus {
     /// A summary (or the degraded fallback) write-back landed.
     Completed,
     /// The target array moved past the emission version while the summary

@@ -89,6 +89,11 @@ impl From<CompressionWriteBackError> for WorkflowError {
 /// the CONTEXT_COMPRESSION_COMPLETED event. A version mismatch publishes a
 /// discarded event and returns [`CompressionWriteBackError::Expired`] (not
 /// retryable); the emitter continues on the newer version.
+///
+/// Flight ownership: workflow targets release their persisted anchor here;
+/// agent targets never touch the flight here — the agent engine consumer
+/// (`conversation_compression.rs`) owns the release on completed/failed/
+/// discarded, so one path clears each anchor.
 pub(crate) async fn handle_subworkflow_output(
     contexts: &Arc<ExecutionContextRegistry>,
     bus: &Arc<EventBus>,

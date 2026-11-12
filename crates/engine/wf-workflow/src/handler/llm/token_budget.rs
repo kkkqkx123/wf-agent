@@ -155,14 +155,16 @@ pub async fn emit_token_usage_events(
         {
             let limits =
                 wf_execution_shared::resolve_effective_compaction_limits(None);
-            let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
+            // Workflow compression is single-summary by construction (no
+            // block table, never the layered planner); the stateless plan
+            // never consults planning advice, so no directive applies.
+            debug_assert!(wf_execution_shared::workflow_compression_is_single_summary());
+            let stateless_plan = wf_execution_shared::forced_stateless_plan(
                 &context_messages,
                 estimated,
                 context_limit,
                 &limits,
             );
-            // The workflow budget path runs the stateless plan, which never
-            // consults planning advice, so no request-level directive applies.
             // Single shared emission entry: request build, sync dispatch and
             // audit annotation live in the shared layer.
             let emission = wf_execution_shared::UnifiedEmission {
@@ -223,11 +225,8 @@ pub async fn emit_token_usage_events(
             message_context::mark_compression_emitted(&ctx.variables, &context_id, version);
             // Backpressure anchor: the next node waits for this version to
             // settle before re-sending the over-budget array. Anchored only
-            // when the takeover ran.
-            if matches!(
-                outcome,
-                wf_execution_shared::CompressionSignalOutcome::Taken
-            ) {
+            // on `Taken` (shared predicate).
+            if wf_execution_shared::emission_should_anchor(&outcome) {
                 tracker.begin_compression_flight(&context_id, version, false);
             }
             persist_tracker_state(ctx, &tracker);
@@ -400,9 +399,9 @@ pub async fn check_still_over_budget_escalation(
         }
     }
     if let Some((target, streak)) = escalated {
-        let message = format!(
-            "compressed results for '{target}' still exceed the context budget {streak} times consecutively; bump the budget or trim the content before resuming"
-        );
+        // Shared escalation wording with the agent waiter.
+        let message =
+            wf_execution_shared::still_over_budget_park_message(&target, streak);
         pause_for_compression_failure(ctx, &message);
         return Err(compression_failure(ctx, message));
     }

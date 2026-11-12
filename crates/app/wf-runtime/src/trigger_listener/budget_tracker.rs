@@ -33,6 +33,9 @@ pub(crate) fn reset_persisted_preflight_warning(
 
 /// Record a still-over-budget completion in the persisted tracker streak so
 /// consecutive loops escalate to an error instead of compressing forever.
+/// Single streak home: the count and escalation predicate live on
+/// `TokenTrackerState`, shared with the live tracker; this is only the
+/// persisted-map adapter for write-back paths without a live tracker lock.
 /// Best-effort: missing state is left untouched.
 pub(crate) fn record_still_over_budget_streak(
     variables: &Arc<dashmap::DashMap<String, serde_json::Value>>,
@@ -48,10 +51,10 @@ pub(crate) fn record_still_over_budget_streak(
     };
     let count = state.record_still_over_budget(target);
     if wf_execution_shared::still_over_budget_escalated(count) {
+        // Shared escalation wording with the agent/workflow waiters.
         tracing::error!(
-            target = %target,
-            streak = count,
-            "compressed result still exceeds budget repeatedly; check budget or content compressibility"
+            "{}",
+            wf_execution_shared::still_over_budget_park_message(target, count)
         );
     }
     if let Ok(value) = serde_json::to_value(state) {

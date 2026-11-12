@@ -161,17 +161,12 @@ impl ConversationSession {
         &self.state.active_view
     }
 
-    /// Decision track: estimated token total of the conversation array,
-    /// recomputed exactly once after a replacement (dirty ledger).
-    pub fn estimated_conversation_tokens(&mut self) -> u64 {
-        if self.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID) {
-            let estimated = wf_llm::count::estimate_messages(&self.state.messages) as u64;
-            let count = self.state.messages.len();
-            self.state
-                .ledger
-                .recompute(CONVERSATION_CONTEXT_ID, estimated, count);
-        }
-        self.state.ledger.estimated_tokens(CONVERSATION_CONTEXT_ID)
+    /// Projection estimate of the conversation array. Computed on demand
+    /// via `stable_projection`; the ledger keeps only the version and the
+    /// emission guard. Budget decisions rescan the projection at the call
+    /// site and never read a cached estimate.
+    pub fn estimated_conversation_tokens(&self) -> u64 {
+        crate::context_store::stable_projection(&self.state.messages)
     }
 
     /// Current version of the conversation array (ledger).

@@ -4,10 +4,9 @@
 //! (`__msg_ctx__`) so they are part of the execution state (checkpoints and
 //! variable snapshots) and readable from any node in the workflow.
 //!
-//! A per-array estimation ledger (`__msg_ledger__`, decision track) lives
-//! next to each context: appends estimate only the new messages (O(new)),
-//! replacements mark the entry dirty so the next read recomputes exactly
-//! once. Budget checks read the ledger instead of rescanning the array.
+//! A per-array ledger (`__msg_ledger__`) tracks versions and the emission
+//! guard only. Budget decisions never read a cached estimate; they rescan
+//! the projection via `stable_projection` at the call site.
 
 use dashmap::DashMap;
 use serde_json::Value;
@@ -159,9 +158,10 @@ fn store_ledger(variables: &DashMap<String, Value>, ledger: &TokenLedger) {
     }
 }
 
-/// Read the message list of a named context (empty when absent). When the
-/// ledger entry is dirty (array was replaced/restored), the estimate is
-/// recomputed once and written back.
+/// Read the message list of a named context (empty when absent). Pure read:
+/// no ledger side effect. Budget decisions never read the ledger estimate;
+/// they rescan the projection via `stable_projection`. The ledger keeps
+/// only the version and the emission guard.
 pub fn get_context(variables: &DashMap<String, Value>, context_id: &str) -> Vec<Message> {
     let messages: Vec<Message> = match variables.get(&context_key(context_id)) {
         Some(entry) => match serde_json::from_value(entry.clone()) {
@@ -177,12 +177,6 @@ pub fn get_context(variables: &DashMap<String, Value>, context_id: &str) -> Vec<
         },
         None => Vec::new(),
     };
-    let mut ledger = ledger(variables);
-    if ledger.is_dirty(&normalize_id(context_id)) {
-        let estimated = wf_llm::estimate_messages(&messages) as u64;
-        ledger.recompute(&normalize_id(context_id), estimated, messages.len());
-        store_ledger(variables, &ledger);
-    }
     messages
 }
 
@@ -239,6 +233,11 @@ pub fn register_context(
     }
     let mut ledger = ledger(variables);
     ledger.replace(&normalize_id(context_id));
+    ledger.recompute(
+        &normalize_id(context_id),
+        wf_llm::estimate_messages(&messages) as u64,
+        messages.len(),
+    );
     store_ledger(variables, &ledger);
 }
 
@@ -280,6 +279,11 @@ pub fn restore_full_history(variables: &DashMap<String, Value>, context_id: &str
     variables.remove(&history_key(context_id));
     let mut ledger = ledger(variables);
     ledger.replace(&normalize_id(context_id));
+    ledger.recompute(
+        &normalize_id(context_id),
+        wf_llm::estimate_messages(&full) as u64,
+        full.len(),
+    );
     store_ledger(variables, &ledger);
 }
 
@@ -413,11 +417,12 @@ pub fn has_context(variables: &DashMap<String, Value>, context_id: &str) -> bool
     variables.contains_key(&context_key(context_id))
 }
 
-/// Decision track: current ledger estimate of a named array (0 when the
-/// array is not tracked; the caller must have read the array via
-/// [`get_context`] first so a dirty entry was recomputed).
+/// Observability helper: current projection estimate of a named array.
+/// Computed on demand via `stable_projection`; never read for a budget
+/// decision (decisions rescan the projection at the call site). The ledger
+/// estimate is retained only as a cached observability field.
 pub fn ledger_estimated_tokens(variables: &DashMap<String, Value>, context_id: &str) -> u64 {
-    ledger(variables).estimated_tokens(&normalize_id(context_id))
+    wf_execution_shared::stable_projection(&get_context(variables, context_id))
 }
 
 /// Decision track: current version of a named array (0 when not tracked).
@@ -575,17 +580,17 @@ mod tests {
     }
 
     #[test]
-    fn ledger_replacement_marks_dirty_and_recomputes() {
+    fn ledger_replacement_refreshes_cache_at_write_time() {
         let vars = Arc::new(DashMap::new());
         append_context(&vars, "chat", vec![msg(MessageRole::User, "hello world")]);
         let version_before = array_version(&vars, "chat");
 
-        // Replace with a single short message: dirty + version bump.
+        // Replace with a single short message: version bump invalidates
+        // stale guards; the projection estimate is computed on demand.
         register_context(&vars, "chat", vec![msg(MessageRole::Assistant, "ok")]);
         assert!(array_version(&vars, "chat") > version_before);
-        // The dirty entry is recomputed on the next read.
-        let _ = get_context(&vars, "chat");
-        assert_eq!(ledger_message_count(&vars, "chat"), 1);
+        assert_eq!(get_context(&vars, "chat").len(), 1);
+        assert!(ledger_estimated_tokens(&vars, "chat") > 0);
     }
 
     #[test]

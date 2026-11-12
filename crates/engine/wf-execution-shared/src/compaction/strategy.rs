@@ -96,8 +96,9 @@ pub fn get_compaction_advisor(
 static PROCESS_LIMITS: RwLock<Option<CompactionLimits>> = RwLock::new(None);
 
 /// Inject the process-wide compaction parameters at bootstrap, mirroring
-/// the compression settle-budget injection. Later installs overwrite
-/// earlier ones so tests and re-bootstrap observe the newest config.
+/// the compression settle-budget injection. Bootstrap-only in production:
+/// later installs overwrite earlier ones so tests and re-bootstrap observe
+/// the newest config. Prefer explicit injection on production paths.
 pub fn set_process_compaction_limits(limits: CompactionLimits) {
     *PROCESS_LIMITS
         .write()
@@ -118,8 +119,26 @@ pub fn process_compaction_limits() -> CompactionLimits {
 /// Resolve the effective compaction tuning: an explicit injection wins,
 /// otherwise the process-wide install. None keeps the global fallback
 /// explicit at the call site so later explicit plumbing can tighten here.
+/// Prefer passing `Some(..)` on production paths.
 pub fn resolve_effective_compaction_limits(
     explicit: Option<CompactionLimits>,
 ) -> CompactionLimits {
-    explicit.unwrap_or_else(process_compaction_limits)
+    match explicit {
+        Some(limits) => limits,
+        None => {
+            tracing::debug!(
+                "compaction limits fall back to the process-wide install; prefer explicit injection"
+            );
+            process_compaction_limits()
+        }
+    }
+}
+
+/// Clear the process-wide compaction install. Tests only: production code
+/// installs once at bootstrap and never clears.
+#[cfg(any(test, feature = "test-util"))]
+pub fn reset_process_compaction_limits_for_tests() {
+    *PROCESS_LIMITS
+        .write()
+        .expect("compaction limits lock poisoned") = None;
 }

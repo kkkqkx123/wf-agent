@@ -1,16 +1,12 @@
-//! Per-array token estimation ledger (decision track).
+//! Per-array token estimation ledger (version and guard track).
 //!
-//! The ledger keeps per-named-array incremental estimates so budget checks
-//! (preflight, warnings, limit exceeded, compression requests) never rescan
-//! the full message history: `append` estimates only the new messages and
-//! bumps the version, while an array *replacement* (compression write-back,
-//! checkpoint restore) marks the entry dirty so the next read lazily
-//! recomputes exactly once.
-//!
-//! The ledger serves the decision track only. Cost-track data (real provider
-//! usage, history, costs) lives in `TokenUsageTracker` and never touches the
-//! ledger. It is pure serde data: estimation itself happens at the call sites
-//! in the token-counting crate.
+//! The ledger tracks per-named-array versions and the single-shot emission
+//! guard only. Budget decisions never read a cached estimate; they rescan
+//! the projection via `stable_projection` at the call site. The estimate
+//! fields stay as cached observability data: `append` maintains them
+//! incrementally, replacements clear them, and `recompute` refreshes them
+//! for diagnostics. It is pure serde data: estimation itself happens at
+//! the call sites in the token-counting crate.
 
 use std::collections::HashMap;
 

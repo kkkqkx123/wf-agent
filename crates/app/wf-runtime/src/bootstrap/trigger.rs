@@ -69,28 +69,22 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     let execution_contexts = Arc::new(ExecutionContextRegistry::new());
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
-    // The settle budget is a process-wide compression policy: inject the
-    // configured value once here (before any execution can emit) so the
-    // workflow and agent waits read the same number.
-    if let Some(settle_timeout_ms) = limits
-        .compression
-        .as_ref()
-        .and_then(|c| c.settle_timeout_ms)
+    // Compression budgets are process-wide and installed once here (before
+    // any execution can emit) so workflow and agent waits read the same
+    // number. Single install point keeps the two globals together.
     {
-        if !wf_execution_shared::set_compression_settle_timeout_ms(settle_timeout_ms) {
+        let settle = limits.compression.as_ref().and_then(|c| c.settle_timeout_ms);
+        if matches!(settle, Some(0)) {
             tracing::warn!("compression settle timeout ignored: non-positive value");
         }
-    }
-    // Compaction tuning parameters are process-wide like the settle
-    // budget; thresholds resolve from them at decision time. Absent
-    // config installs the built-in defaults explicitly. Later installs
-    // overwrite earlier ones so re-bootstrap observes the newest config.
-    {
         let compaction = limits
             .compaction
             .clone()
             .unwrap_or_else(wf_execution_shared::compaction::builtin_compaction_limits);
-        wf_execution_shared::set_process_compaction_limits(compaction);
+        wf_execution_shared::install_compression_budgets(
+            settle.filter(|v| *v > 0),
+            compaction,
+        );
     }
     // The terminal-failure handling strategy is declared by the summary
     // workflow resource itself (`compression_fallback` on its

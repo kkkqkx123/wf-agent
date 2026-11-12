@@ -48,9 +48,12 @@ pub use usage::{
 };
 
 /// Process-wide settle budget, seeded from the runtime execution config.
-/// Written exactly once during bootstrap (before any execution can run) and
-/// read-only afterwards, so the workflow and agent settle waits stay
-/// identical by construction.
+/// Bootstrap-only: written once during bootstrap (before any execution can
+/// run) and read-only afterwards, so the workflow and agent settle waits
+/// stay identical by construction. Prefer explicit injection
+/// (`effective_settle_timeout_ms(Some(..))`, coordinator `with_*` methods)
+/// on every production path; the global is only the fallback for contexts
+/// without explicit plumbing (workflow nodes) and for tests.
 static COMPRESSION_SETTLE_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS);
 
@@ -74,8 +77,27 @@ pub fn compression_settle_timeout_ms() -> u64 {
 /// assembly-time correction that only bumps the global still lifts holders
 /// of a stale explicit value up to the worst-case claim cost. None reads
 /// the process-wide install directly so global fallback stays explicit at
-/// the call site.
+/// the call site. Prefer passing `Some(..)` on production paths.
+#[allow(clippy::missing_const_for_fn)]
 pub fn effective_settle_timeout_ms(explicit: Option<u64>) -> u64 {
     let global = compression_settle_timeout_ms();
-    explicit.map(|value| value.max(global)).unwrap_or(global)
+    match explicit {
+        Some(value) => value.max(global),
+        None => {
+            tracing::debug!(
+                "compression settle budget falls back to the process-wide install ({global}); prefer explicit injection"
+            );
+            global
+        }
+    }
+}
+
+/// Reset the process-wide settle budget to the built-in default. Tests only:
+/// production code installs once at bootstrap and never resets.
+#[cfg(any(test, feature = "test-util"))]
+pub fn reset_compression_settle_timeout_for_tests() {
+    COMPRESSION_SETTLE_TIMEOUT_MS.store(
+        DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS,
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }

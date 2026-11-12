@@ -82,10 +82,10 @@ pub use context_store::{
     annotate_compression_audit, apply_calibration_bias, array_mark_emitted, array_should_emit,
     array_version_of, build_preflight_warning_event, build_stale_discarded_event, check_anchor,
     compression_event, compression_request, dispatch_compression_signal, dispatch_unified_emission,
-    dynamic_request_overhead, find_compression_failure, flight_expired,
-    hot_estimate_with_shared_dynamic, over_budget, refine_request_estimate, report_no_taker,
+    dynamic_request_overhead, emission_should_anchor, find_compression_failure, flight_expired,
+    forced_stateless_plan, hot_estimate_with_shared_dynamic, install_compression_budgets, over_budget, refine_request_estimate, report_forced_no_taker, report_no_taker,
     request_hot_estimate, settle_compression_anchor, settle_parking_message, should_emit_hot,
-    stable_projection, CompressionSettleOutcome, CompressionSignalOutcome, UnifiedEmission,
+    stable_projection, still_over_budget_park_message, workflow_compression_is_single_summary, CompressionSettleOutcome, CompressionSignalOutcome, UnifiedEmission,
     WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};

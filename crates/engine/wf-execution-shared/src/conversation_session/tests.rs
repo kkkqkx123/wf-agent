@@ -34,34 +34,21 @@ fn add_message_tracks_ledger_incrementally() {
 }
 
 #[test]
-fn restore_history_marks_dirty_and_recomputes_lazily() {
+fn restore_history_replaces_projection_without_cached_estimate() {
     let mut session = ConversationSession::new();
     session.add_message(user("alpha"));
     session.add_message(user("beta"));
-    let stale = session.estimated_conversation_tokens();
+    let version_before = session.conversation_version();
 
     let fresh = vec![user(
         "a much longer replacement message that costs more tokens",
     )];
     session.restore_history(fresh, MessageView::Full);
-    assert!(session.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID));
-    assert_eq!(
-        session
-            .state
-            .ledger
-            .estimated_tokens(CONVERSATION_CONTEXT_ID),
-        0
-    );
-
-    let recomputed = session.estimated_conversation_tokens();
-    assert!(!session.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID));
-    assert_ne!(recomputed, stale);
-    assert_eq!(
-        session.state.ledger.message_count(CONVERSATION_CONTEXT_ID),
-        1
-    );
-    // A second read must not recompute again (estimate is stable).
-    assert_eq!(session.estimated_conversation_tokens(), recomputed);
+    // Version bumped so stale guards invalidate; the estimate is computed
+    // on demand from the projection, never from a cached ledger value.
+    assert!(session.conversation_version() > version_before);
+    assert_eq!(session.history().len(), 1);
+    assert!(session.estimated_conversation_tokens() > 0);
 }
 
 #[test]

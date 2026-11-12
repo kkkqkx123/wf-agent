@@ -4,9 +4,12 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import MonacoEditor from './MonacoEditor.svelte';
 	import FileDiffTab from './FileDiffTab.svelte';
+	import IdeImagePreview from './IdeImagePreview.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import type { GutterMark } from '#lib/ide/git-diff-lines';
 	import { fileNameOf } from '#lib/ide/diff-tabs';
+	import { isPreviewableImagePath, isSvgPath } from '#lib/utils/image-preview';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -35,10 +38,12 @@
 
 	let cursor = $state<{ line: number; col: number } | null>(null);
 	let dragPath = $state<string | null>(null);
+	let svgMode = $state<'preview' | 'source'>('preview');
 
 	$effect(() => {
 		void ide.activePath;
 		cursor = null;
+		svgMode = 'preview';
 	});
 
 	function fileName(path: string): string {
@@ -207,10 +212,16 @@
 							</div>
 						</div>
 					{:else if active.isBinary}
-						<div class="space-y-2 p-4">
-							<p class="text-body font-medium">{t('page.ide.binaryTitle')}</p>
-							<p class="text-caption text-muted-foreground">{t('page.ide.binaryDesc')}</p>
-						</div>
+						{#if isPreviewableImagePath(active.path)}
+							<div class="min-h-0 flex-1">
+								<IdeImagePreview path={active.path} />
+							</div>
+						{:else}
+							<div class="space-y-2 p-4">
+								<p class="text-body font-medium">{t('page.ide.binaryTitle')}</p>
+								<p class="text-caption text-muted-foreground">{t('page.ide.binaryDesc')}</p>
+							</div>
+						{/if}
 					{:else}
 						{#if active.error}
 							<div
@@ -254,28 +265,47 @@
 								</button>
 							</div>
 						{/if}
+						{#if isSvgPath(active.path)}
+							<div class="flex items-center gap-2 border-b border-border px-2 py-1">
+								<Segmented
+									items={[
+										{ id: 'preview', label: () => t('page.ide.previewView') },
+										{ id: 'source', label: () => t('page.ide.sourceView') },
+									]}
+									bind:value={svgMode}
+									size="sm"
+								/>
+								<span class="min-w-0 flex-1 truncate text-micro text-muted-foreground">
+									{active.path}
+								</span>
+							</div>
+						{/if}
 						<div class="min-h-0 flex-1">
-							<MonacoEditor
-								filePath={active.path}
-								value={active.content}
-								language={active.language}
-								readOnly={active.truncated}
-								contentReady={!active.loading}
-								{gutterMarks}
-								revealLine={ide.pendingReveal?.path === active.path
-									? (ide.pendingReveal.line ?? null)
-									: null}
-								revealCol={ide.pendingReveal?.path === active.path
-									? (ide.pendingReveal.col ?? null)
-									: null}
-								onChange={(next) => ide.updateContent(active.path, next)}
-								onSave={() => {
-									if (!active.isBinary && !active.saving) void ide.saveFile(active.path);
-								}}
-								onCursor={(line, col) => {
-									if (ide.activePath === active.path) cursor = { line, col };
-								}}
-							/>
+							{#if isSvgPath(active.path) && svgMode === 'preview'}
+								<IdeImagePreview path={active.path} svgText={active.content} />
+							{:else}
+								<MonacoEditor
+									filePath={active.path}
+									value={active.content}
+									language={active.language}
+									readOnly={active.truncated}
+									contentReady={!active.loading}
+									{gutterMarks}
+									revealLine={ide.pendingReveal?.path === active.path
+										? (ide.pendingReveal.line ?? null)
+										: null}
+									revealCol={ide.pendingReveal?.path === active.path
+										? (ide.pendingReveal.col ?? null)
+										: null}
+									onChange={(next) => ide.updateContent(active.path, next)}
+									onSave={() => {
+										if (!active.isBinary && !active.saving) void ide.saveFile(active.path);
+									}}
+									onCursor={(line, col) => {
+										if (ide.activePath === active.path) cursor = { line, col };
+									}}
+								/>
+							{/if}
 						</div>
 						<div
 							class="flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-micro text-muted-foreground"

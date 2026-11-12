@@ -5,6 +5,7 @@
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import type { IconName } from '#lib/ui/icons/paths';
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
+	import ImageLightbox from '#lib/components/chat/ImageLightbox.svelte';
 	import MentionBadge from '#lib/components/chat/MentionBadge.svelte';
 	import { splitAttachments } from '#lib/utils/attachments';
 	import { resolveMentionFileTarget, textRuns } from '#lib/utils/mentions';
@@ -39,11 +40,7 @@
 	};
 
 	let expandedIndex = $state<number | null>(null);
-	let enlargedImage = $state<string | null>(null);
-
-	function toggleEnlarged(image: string): void {
-		enlargedImage = enlargedImage === image ? null : image;
-	}
+	let lightboxSrc = $state<string | null>(null);
 
 	const isUser = $derived(message.role === 'user');
 	/** The small label every inline reference in a bubble shares. */
@@ -253,21 +250,9 @@
 				{#each message.images ?? [] as image, index (`image-${index}`)}
 					<button
 						type="button"
-						onclick={() => toggleEnlarged(image)}
-						onkeydown={(event) => {
-							if (event.key === 'Escape' && enlargedImage !== null) {
-								event.stopPropagation();
-								enlargedImage = null;
-								(event.currentTarget as HTMLElement | null)?.focus();
-							}
-						}}
-						class={cn(
-							'overflow-hidden rounded-md border border-border',
-							enlargedImage === image && 'border-info/60',
-						)}
+						onclick={() => (lightboxSrc = image)}
+						class="overflow-hidden rounded-md border border-border transition-colors hover:border-info/60"
 						title={t('domain.messageBubble.enlargeImage')}
-						aria-pressed={enlargedImage === image}
-						aria-expanded={enlargedImage === image}
 						aria-label={t('domain.messageBubble.attachedImage')}
 					>
 						<img
@@ -275,7 +260,7 @@
 							alt={t('domain.messageBubble.attachedImage')}
 							loading="lazy"
 							decoding="async"
-							class={cn('object-cover', enlargedImage === image ? 'max-h-96' : 'h-16 w-16')}
+							class="h-16 w-16 object-cover"
 						/>
 					</button>
 				{/each}
@@ -299,6 +284,7 @@
 					data-scrollable="true"
 					class="mt-1 max-h-56 overflow-auto rounded-md border border-border bg-muted px-2 py-1.5 text-left font-mono text-micro text-foreground">{expanded.content}</pre>
 			{/if}
+			<ImageLightbox src={lightboxSrc} alt={t('domain.messageBubble.attachedImage')} onclose={() => (lightboxSrc = null)} />
 		{/if}
 
 		{#if showActions}

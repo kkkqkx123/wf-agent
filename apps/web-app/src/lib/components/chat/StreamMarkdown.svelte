@@ -4,6 +4,7 @@
 	import { resolvedTheme } from '#lib/stores/theme.svelte';
 	import { cn } from '#lib/ui/cn';
 	import CodeBlock from './CodeBlock.svelte';
+	import MarkdownImage from './MarkdownImage.svelte';
 	import MentionText from './MentionText.svelte';
 
 	interface Props {
@@ -21,6 +22,7 @@
 	const components = {
 		code_block: CodeBlock,
 		text: MentionText,
+		image: MarkdownImage,
 	} as CustomComponentMap;
 </script>
 

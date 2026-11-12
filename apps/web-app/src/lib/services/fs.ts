@@ -274,6 +274,7 @@ export function languageForPath(path: string): string {
 		case 'sql':
 			return 'sql';
 		case 'xml':
+		case 'svg':
 			return 'xml';
 		default:
 			return 'plaintext';

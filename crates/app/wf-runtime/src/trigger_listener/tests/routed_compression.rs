@@ -28,6 +28,7 @@ async fn compression_fire_takes_over_immediately() {
         &hook_handler_registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(
@@ -185,6 +186,7 @@ async fn routed_compression_end_to_end_via_listener() {
         &hook_handler_registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     wait_for_listener(&bus, 1).await;
@@ -229,6 +231,7 @@ async fn compression_retry_recovers_before_terminal_failure() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(
@@ -265,6 +268,7 @@ async fn compression_attempt_timeout_is_bounded_and_retried() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(
@@ -303,6 +307,7 @@ async fn compression_duplicate_signal_same_version_runs_once() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(
@@ -345,6 +350,7 @@ async fn compression_terminal_failure_publishes_failed_and_releases_claim() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(
@@ -395,6 +401,7 @@ async fn compression_terminal_failure_partial_summary_lands_visible_window() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(

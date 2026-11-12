@@ -20,6 +20,7 @@ async fn compression_plan_runs_per_item_and_writes_back_once() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(
@@ -109,6 +110,7 @@ async fn recompression_items_run_the_repress_chain() {
         &registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_routed_compression_listener(

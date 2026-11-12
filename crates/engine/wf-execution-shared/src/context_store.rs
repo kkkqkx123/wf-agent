@@ -478,14 +478,149 @@ pub fn apply_calibration_bias(stable_estimate: u64, bias: i64) -> u64 {
     }
 }
 
+/// Stable projection from a read projection: the single source for every
+/// budget decision. Callers pass the projected messages (the view the LLM
+/// request is assembled from); the ledger estimate is never read for a
+/// decision and serves only as a versioned guard alongside the count.
+pub fn stable_projection(messages: &[Message]) -> u64 {
+    wf_llm::count::estimate_messages(messages) as u64
+}
+
+/// Hot estimate from a stable projection plus an already-shared dynamic
+/// overhead. Single home for the bias synthesis so single-target and
+/// multi-target emitters agree on the suffix of the formula.
+pub fn hot_estimate_with_shared_dynamic(stable: u64, shared_dynamic: u64, bias: i64) -> u64 {
+    apply_calibration_bias(stable.saturating_add(shared_dynamic), bias)
+}
+
 /// Canonical hot estimate from one stable projection and one assembled
 /// request estimate. The dynamic overhead never accumulates into the ledger.
-/// Multi-target emitters that share one dynamic overhead add the stable and
-/// shared parts first and then apply the calibration bias directly, so this
-/// stays the only request-shaped hot helper next to the bias primitive.
+/// Delegates to the shared-dynamic form so there is exactly one bias
+/// composition in the codebase.
 pub fn request_hot_estimate(stable_projection: u64, request_estimate: u64, bias: i64) -> u64 {
     let dynamic = dynamic_request_overhead(request_estimate, stable_projection);
-    apply_calibration_bias(stable_projection.saturating_add(dynamic), bias)
+    hot_estimate_with_shared_dynamic(stable_projection, dynamic, bias)
+}
+
+/// Array-dimension emission guard over a versioned ledger. Single home so
+/// the session single-array adapter and the variable-map multi-array adapter
+/// share the threshold-free guard logic; threshold comparison stays with the
+/// hot helpers above.
+pub fn array_should_emit(
+    ledger: &wf_types::llm::TokenLedger,
+    target: &str,
+    version: u64,
+) -> bool {
+    ledger.should_emit(target, version)
+}
+
+/// Record an emission for one array version. Single home next to the guard.
+pub fn array_mark_emitted(
+    ledger: &mut wf_types::llm::TokenLedger,
+    target: &str,
+    version: u64,
+) {
+    ledger.mark_emitted(target, version);
+}
+
+/// Version of one named array. Single home so callers never reach into the
+/// ledger map directly.
+pub fn array_version_of(ledger: &wf_types::llm::TokenLedger, target: &str) -> u64 {
+    ledger.version(target)
+}
+
+/// Final gate for one hot sample: a forced safety-net emission always
+/// passes, otherwise the hot value must exceed the context budget.
+/// Preflight refinement never changes this branch; it only sharpens the
+/// warning text.
+pub fn should_emit_hot(hot: u64, context_limit: u64, forced: bool) -> bool {
+    forced || over_budget(hot, context_limit)
+}
+
+/// Shared parking rule from a settle terminal to the externally perceivable
+/// message. `None` means continue (`VersionAdvanced`) or propagate
+/// cancellation (`Cancelled`); every other terminal maps to external
+/// handling so agent pause and workflow classified-failure share one rule.
+pub fn settle_parking_message(
+    target: &str,
+    version: u64,
+    outcome: &CompressionSettleOutcome,
+) -> Option<String> {
+    match outcome {
+        CompressionSettleOutcome::VersionAdvanced => None,
+        CompressionSettleOutcome::Cancelled => None,
+        CompressionSettleOutcome::Failed { message } => Some(format!(
+            "context compression for '{target}' at version {version} failed: {message}; pausing for external handling"
+        )),
+        CompressionSettleOutcome::FlightReleased => Some(format!(
+            "context compression for '{target}' at version {version} released without version advance; pausing for external handling"
+        )),
+        CompressionSettleOutcome::Timeout => Some(format!(
+            "context compression for '{target}' at version {version} timed out; pausing for external handling"
+        )),
+    }
+}
+
+/// One assembled emission: the shared entry every regular and forced path
+/// funnels through. The caller supplies the already-chosen hot value, the
+/// snapshot and the plan; this entry builds the request, delivers the
+/// signal synchronously, stamps the audit copy and returns both so the
+/// caller only stores its own pending state and anchors its own flight.
+#[allow(clippy::too_many_arguments)]
+pub struct UnifiedEmission<'a> {
+    pub target: &'a str,
+    pub tokens_used: u64,
+    pub token_limit: u64,
+    pub array_version: u64,
+    pub forced: bool,
+    pub messages: &'a [Message],
+    pub plan: &'a [crate::CompactionPlanItem],
+    pub directive: &'a str,
+    pub execution_id: &'a Id,
+    pub agent_loop_id: Option<&'a Id>,
+    pub static_defs: &'a [crate::hooks::HookDefinition],
+}
+
+/// Deliver one assembled emission and return the outcome plus the annotated
+/// audit event. Backpressure anchors only on `Taken`; vetoed clears the
+/// pending plan without a no-taker streak and untaken keeps the audit with
+/// the no-taker marker without anchoring. Forced and regular paths share
+/// this wording and the same safety-net note.
+#[allow(clippy::too_many_arguments)]
+pub async fn dispatch_unified_emission(
+    registry: Option<&HookHandlerRegistry>,
+    bus: Option<&EventBus>,
+    emission: &UnifiedEmission<'_>,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> (CompressionSignalOutcome, BaseEvent) {
+    let request = compression_request(
+        emission.target,
+        emission.tokens_used,
+        emission.token_limit,
+        emission.messages.len(),
+        emission.array_version,
+        emission.forced,
+        emission.messages,
+        emission.plan,
+        emission.directive,
+    );
+    let outcome = dispatch_compression_signal(
+        registry,
+        bus,
+        emission.execution_id,
+        emission.agent_loop_id,
+        cancellation,
+        &request,
+        emission.static_defs,
+    )
+    .await;
+    let mut audit = compression_event(
+        &emission.execution_id.to_string(),
+        emission.agent_loop_id.map(|id| id.to_string()).as_deref(),
+        &request,
+    );
+    annotate_compression_audit(&mut audit, &outcome);
+    (outcome, audit)
 }
 
 /// Refined whole-request estimate for preflight warnings. Uses the local
@@ -860,6 +995,70 @@ mod tests {
         assert_eq!(super::request_hot_estimate(1000, 1200, 0), 1200);
         assert_eq!(super::request_hot_estimate(1000, 800, 0), 1000);
         assert_eq!(super::apply_calibration_bias(1200, 50), 1250);
+    }
+
+    #[test]
+    fn same_snapshot_same_hot_across_emitters() {
+        let messages = vec![msg(MessageRole::User, "hello world")];
+        let stable = super::stable_projection(&messages);
+        let request_estimate = stable.saturating_add(200);
+        let via_request = super::request_hot_estimate(stable, request_estimate, 50);
+        let shared = super::dynamic_request_overhead(request_estimate, stable);
+        let via_shared = super::hot_estimate_with_shared_dynamic(stable, shared, 50);
+        assert_eq!(via_request, via_shared);
+        let ledger_like = stable;
+        let via_ledger_shape =
+            super::hot_estimate_with_shared_dynamic(ledger_like, shared, 50);
+        assert_eq!(via_request, via_ledger_shape);
+    }
+
+    #[test]
+    fn dual_backend_guard_agrees_on_same_sequence() {
+        use wf_types::llm::TokenLedger;
+        let mut session_ledger = TokenLedger::default();
+        let mut map_ledger = TokenLedger::default();
+        for version in [1u64, 2, 3] {
+            assert_eq!(
+                super::array_should_emit(&session_ledger, "chat", version),
+                super::array_should_emit(&map_ledger, "chat", version)
+            );
+            super::array_mark_emitted(&mut session_ledger, "chat", version);
+            super::array_mark_emitted(&mut map_ledger, "chat", version);
+            assert!(!super::array_should_emit(&session_ledger, "chat", version));
+            assert!(!super::array_should_emit(&map_ledger, "chat", version));
+            assert_eq!(
+                super::array_version_of(&session_ledger, "chat"),
+                super::array_version_of(&map_ledger, "chat")
+            );
+        }
+    }
+
+    #[test]
+    fn five_settle_terminals_map_once() {
+        use super::CompressionSettleOutcome;
+        assert!(super::settle_parking_message("chat", 7, &CompressionSettleOutcome::VersionAdvanced).is_none());
+        assert!(super::settle_parking_message("chat", 7, &CompressionSettleOutcome::Cancelled).is_none());
+        for outcome in [
+            CompressionSettleOutcome::Failed { message: "boom".to_string() },
+            CompressionSettleOutcome::FlightReleased,
+            CompressionSettleOutcome::Timeout,
+        ] {
+            let text = super::settle_parking_message("chat", 7, &outcome).expect("parks");
+            assert!(text.contains("chat") && text.contains('7'));
+        }
+    }
+
+    #[test]
+    fn untaken_and_veto_audit_markers_differ() {
+        let messages = vec![msg(MessageRole::User, "hi")];
+        let request = super::compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
+        let mut vetoed = super::compression_event("exec-1", None, &request);
+        super::annotate_compression_audit(&mut vetoed, &super::CompressionSignalOutcome::Vetoed { reason: "no".to_string() });
+        let mut untaken = super::compression_event("exec-1", None, &request);
+        super::annotate_compression_audit(&mut untaken, &super::CompressionSignalOutcome::Untaken);
+        let veto_cancelled = vetoed.metadata.as_ref().and_then(|m| m.get(crate::token_events::KEY_CANCELLED)).is_some();
+        let untaken_flag = untaken.metadata.as_ref().and_then(|m| m.get(crate::token_events::KEY_NO_TAKER)).is_some();
+        assert!(veto_cancelled && untaken_flag);
     }
 
     #[tokio::test]

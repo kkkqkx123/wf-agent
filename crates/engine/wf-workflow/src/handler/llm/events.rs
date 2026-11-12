@@ -136,7 +136,7 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         0
     };
     let limits = wf_execution_shared::resolve_effective_compaction_limits(None);
-    let stateless_plan = wf_execution_shared::stateless_plan_for_workflow(
+    let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
         &request.messages,
         tokens_used,
         effective_limit,
@@ -144,25 +144,28 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     );
     // Known boundary: the forced safety-net path runs the stateless plan,
     // which never consults planning advice, so no request-level directive
-    // can reach it.
-    let compression_request = wf_execution_shared::context_store::compression_request(
-        &target,
+    // can reach it. Single shared emission entry with the regular path.
+    let _ = message_count;
+    let emission = wf_execution_shared::UnifiedEmission {
+        target: &target,
         tokens_used,
-        effective_limit,
-        message_count,
+        token_limit: effective_limit,
         array_version,
-        true,
-        &request.messages,
-        &stateless_plan,
-        "",
-    );
-    let outcome = dispatch_compression_signal(ctx, &compression_request).await;
-    let mut audit = wf_execution_shared::context_store::compression_event(
-        &ctx.execution_id.to_string(),
-        None,
-        &compression_request,
-    );
-    wf_execution_shared::context_store::annotate_compression_audit(&mut audit, &outcome);
+        forced: true,
+        messages: &request.messages,
+        plan: &stateless_plan,
+        directive: "",
+        execution_id: &ctx.execution_id,
+        agent_loop_id: None,
+        static_defs: &ctx.hook_definitions,
+    };
+    let (outcome, audit) = wf_execution_shared::dispatch_unified_emission(
+        ctx.hook_handler_registry.as_deref(),
+        ctx.event_bus.as_deref(),
+        &emission,
+        ctx.cancellation.clone().unwrap_or_default(),
+    )
+    .await;
     bus.publish_logged(
         audit,
         &format!(

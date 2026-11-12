@@ -83,8 +83,11 @@ impl TriggerActionRunner for TriggerActionRouter {
             Some(TriggerAction::ExecuteTriggeredSubworkflow { .. }) => {
                 self.compression.run(template, event).await
             }
-            // Builtin compression handoffs run through the trigger-side
-            // pipeline (claim, retry, write-back, terminal events).
+            // Builtin compression handoffs from external events run through the
+            // trigger-side pipeline (claim, retry, write-back, terminal
+            // events). In-process signals spawn the same pipeline directly
+            // in the hook adapter; a duplicate routed copy arriving here
+            // loses the claim race and is skipped.
             Some(TriggerAction::ExecuteContextCompression {}) => match &self.routed_compression {
                 Some(pipeline) => pipeline.run_routed(template, event).await,
                 None => Err(wf_workflow::error::WorkflowError::TriggerError(format!(

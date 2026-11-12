@@ -2,7 +2,6 @@ use serde_json::Value;
 use wf_execution_shared::context::NodeExecutionContext;
 use wf_llm::LlmGateway;
 
-use super::events::dispatch_compression_signal;
 use super::messages::{declared_contexts, injected_messages, read_context_id};
 use crate::message_context;
 
@@ -123,14 +122,16 @@ pub async fn emit_token_usage_events(
 
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let injected_count = injected_messages(config).len();
-    // Shared dynamic overhead beyond the read array, applied to every
-    // declared target. Calibration composition stays on the shared helper
-    // so agent and workflow emitters agree on the bias path.
+    // Stable projection is the read projection estimate; the ledger keeps
+    // only the version and the guard, never a second estimate. The shared
+    // dynamic overhead beyond the read array applies to every declared
+    // target, and the bias synthesis stays on the shared helper so agent
+    // and workflow emitters agree on the full hot formula.
     let request_estimate = u64::from(wf_llm::estimate_request_tokens(request));
-    let read_stable = u64::from(wf_llm::estimate_messages(&message_context::get_context(
+    let read_stable = wf_execution_shared::stable_projection(&message_context::get_context(
         &ctx.variables,
         read_context_id(config),
-    )));
+    ));
     let shared_dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
         request_estimate,
         read_stable,
@@ -142,19 +143,19 @@ pub async fn emit_token_usage_events(
             // No named array to compress: nothing to write back to.
             continue;
         }
-        let ledger_stable =
-            message_context::ledger_estimated_tokens(&ctx.variables, &context_id);
-        let estimated = wf_execution_shared::context_store::apply_calibration_bias(
-            ledger_stable.saturating_add(shared_dynamic),
+        let stable = wf_execution_shared::stable_projection(&context_messages);
+        let estimated = wf_execution_shared::hot_estimate_with_shared_dynamic(
+            stable,
+            shared_dynamic,
             bias,
         );
         let version = message_context::array_version(&ctx.variables, &context_id);
-        if wf_execution_shared::context_store::over_budget(estimated, context_limit)
+        if wf_execution_shared::should_emit_hot(estimated, context_limit, false)
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
             let limits =
                 wf_execution_shared::resolve_effective_compaction_limits(None);
-            let stateless_plan = wf_execution_shared::stateless_plan_for_workflow(
+            let stateless_plan = wf_execution_shared::stateless_plan_for_estimate(
                 &context_messages,
                 estimated,
                 context_limit,
@@ -162,27 +163,29 @@ pub async fn emit_token_usage_events(
             );
             // The workflow budget path runs the stateless plan, which never
             // consults planning advice, so no request-level directive applies.
-            let compression_request = wf_execution_shared::context_store::compression_request(
-                &context_id,
-                estimated,
-                context_limit,
-                context_messages.len(),
-                version,
-                false,
-                &context_messages,
-                &stateless_plan,
-                "",
-            );
-            // Synchronous signal delivery first so the audit copy can persist
-            // the taker outcome. A missing registry is already warned inside
-            // the dispatch; the audit event is kept but backpressure must not
-            // anchor without a taker.
-            let outcome = dispatch_compression_signal(ctx, &compression_request).await;
-            let mut event = wf_execution_shared::context_store::compression_event(
-                &ctx.execution_id.to_string(),
-                None,
-                &compression_request,
-            );
+            // Single shared emission entry: request build, sync dispatch and
+            // audit annotation live in the shared layer.
+            let emission = wf_execution_shared::UnifiedEmission {
+                target: &context_id,
+                tokens_used: estimated,
+                token_limit: context_limit,
+                array_version: version,
+                forced: false,
+                messages: &context_messages,
+                plan: &stateless_plan,
+                directive: "",
+                execution_id: &ctx.execution_id,
+                agent_loop_id: None,
+                static_defs: &ctx.hook_definitions,
+            };
+            let (outcome, mut event) =
+                wf_execution_shared::dispatch_unified_emission(
+                    ctx.hook_handler_registry.as_deref(),
+                    ctx.event_bus.as_deref(),
+                    &emission,
+                    ctx.cancellation.clone().unwrap_or_default(),
+                )
+                .await;
             if injected_count > 0 {
                 if let Some(meta) = event.metadata.as_mut() {
                     meta.insert(
@@ -191,7 +194,6 @@ pub async fn emit_token_usage_events(
                     );
                 }
             }
-            wf_execution_shared::context_store::annotate_compression_audit(&mut event, &outcome);
             bus.publish_logged(
                 event,
                 &format!(
@@ -317,20 +319,16 @@ pub async fn await_compression_settle(
             },
         )
         .await;
+        // Single parking rule shared with the agent waiter: version advance
+        // continues, cancellation aborts, every other terminal parks with
+        // the same message shape (workflow keeps its classified-failure
+        // product form, the agent keeps its pause form).
+        if let Some(message) = wf_execution_shared::settle_parking_message(&target, version, &outcome) {
+            pause_for_compression_failure(ctx, &message);
+            return Err(compression_failure(ctx, message));
+        }
         match outcome {
             wf_execution_shared::context_store::CompressionSettleOutcome::VersionAdvanced => {}
-            wf_execution_shared::context_store::CompressionSettleOutcome::Failed { message } => {
-                pause_for_compression_failure(ctx, &message);
-                return Err(compression_failure(ctx, message));
-            }
-            wf_execution_shared::context_store::CompressionSettleOutcome::FlightReleased
-            | wf_execution_shared::context_store::CompressionSettleOutcome::Timeout => {
-                let message = format!(
-                    "context compression timed out for '{target}' at version {version}; the execution pauses for external handling"
-                );
-                pause_for_compression_failure(ctx, &message);
-                return Err(compression_failure(ctx, message));
-            }
             wf_execution_shared::context_store::CompressionSettleOutcome::Cancelled => {
                 return Err(crate::error::WorkflowError::NodeFailure {
                     node_id: ctx.node_id.clone(),
@@ -339,6 +337,7 @@ pub async fn await_compression_settle(
                     failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 });
             }
+            _ => {}
         }
     }
     Ok(())
@@ -491,7 +490,7 @@ pub async fn check_preflight_budget(
                     let msgs = message_context::get_context(&ctx.variables, id);
                     serde_json::json!({
                         "context_id": id,
-                        "tokens": message_context::ledger_estimated_tokens(&ctx.variables, id),
+                        "tokens": wf_execution_shared::stable_projection(&msgs),
                         "message_count": msgs.len(),
                     })
                 })

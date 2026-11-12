@@ -126,6 +126,7 @@ async fn context_compression_chain_end_to_end() {
         &hook_handler_registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
     let listener = start_trigger_listener_with_parts(ListenerDeps {
@@ -376,6 +377,7 @@ async fn no_compression_event_when_named_array_within_limit() {
         &hook_handler_registry,
         CompressionHandlerDeps {
             event_bus: bus.clone(),
+            pipeline: None,
         },
     );
 

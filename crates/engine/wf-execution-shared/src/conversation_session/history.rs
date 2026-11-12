@@ -176,21 +176,23 @@ impl ConversationSession {
 
     /// Current version of the conversation array (ledger).
     pub fn conversation_version(&self) -> u64 {
-        self.state.ledger.version(CONVERSATION_CONTEXT_ID)
+        crate::context_store::array_version_of(&self.state.ledger, CONVERSATION_CONTEXT_ID)
     }
 
     /// Whether a compression request may be emitted for the current
     /// conversation version (single-shot guard, checkpointed with the ledger).
+    /// Delegates to the shared array guard so the session and the variable
+    /// map share one predicate.
     pub fn should_emit_compression(&self, version: u64) -> bool {
-        self.state
-            .ledger
-            .should_emit(CONVERSATION_CONTEXT_ID, version)
+        crate::context_store::array_should_emit(&self.state.ledger, CONVERSATION_CONTEXT_ID, version)
     }
 
     /// Record that a compression request was emitted for this version.
     pub fn mark_compression_emitted(&mut self, version: u64) {
-        self.state
-            .ledger
-            .mark_emitted(CONVERSATION_CONTEXT_ID, version);
+        crate::context_store::array_mark_emitted(
+            &mut self.state.ledger,
+            CONVERSATION_CONTEXT_ID,
+            version,
+        );
     }
 }

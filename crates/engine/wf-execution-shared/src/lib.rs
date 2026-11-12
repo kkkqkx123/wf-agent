@@ -69,7 +69,7 @@ pub use compaction::{
     outcomes_match_plan, plan_covers_snapshot, process_compaction_limits, rebuild_after_truncate,
     register_compaction_advisor, resolve_compaction_thresholds,
     resolve_effective_compaction_limits, set_process_compaction_limits, stateless_plan_for_estimate,
-    stateless_plan_for_workflow, strategy_workflow_ids, sync_blocks, unregister_compaction_advisor,
+    strategy_workflow_ids, sync_blocks, unregister_compaction_advisor,
     BlockOutcome, CompactionDecision, CompactionMode, CompactionPlan, CompactionPlanItem,
     CompactionThresholds, ADVISOR_PROTOCOL_VERSION, BUILTIN_COMPRESSION_STRATEGY_NAME,
     CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT, H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT,
@@ -79,11 +79,14 @@ pub use compaction::{
     T_HANDOFF_RATIO_DEFAULT, T_HARD_RATIO_DEFAULT,
 };
 pub use context_store::{
-    annotate_compression_audit, apply_calibration_bias, build_preflight_warning_event,
-    build_stale_discarded_event, check_anchor, compression_event, compression_request,
-    dispatch_compression_signal, dynamic_request_overhead, find_compression_failure,
-    flight_expired, over_budget, refine_request_estimate, report_no_taker, request_hot_estimate,
-    settle_compression_anchor, CompressionSettleOutcome, CompressionSignalOutcome, WritebackOp,
+    annotate_compression_audit, apply_calibration_bias, array_mark_emitted, array_should_emit,
+    array_version_of, build_preflight_warning_event, build_stale_discarded_event, check_anchor,
+    compression_event, compression_request, dispatch_compression_signal, dispatch_unified_emission,
+    dynamic_request_overhead, find_compression_failure, flight_expired,
+    hot_estimate_with_shared_dynamic, over_budget, refine_request_estimate, report_no_taker,
+    request_hot_estimate, settle_compression_anchor, settle_parking_message, should_emit_hot,
+    stable_projection, CompressionSettleOutcome, CompressionSignalOutcome, UnifiedEmission,
+    WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use conversation_session::compression::HandoffLifecycle;

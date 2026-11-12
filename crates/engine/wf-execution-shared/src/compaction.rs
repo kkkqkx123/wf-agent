@@ -23,9 +23,8 @@ pub use decision::{
     REASON_NO_COMPRESSIBLE_TARGET, REASON_POST_COMPACT_STILL_HIGH,
 };
 pub use plan::{
-    build_plan, build_stateless_plan, outcomes_match_plan, plan_covers_snapshot,
-    stateless_plan_for_estimate, stateless_plan_for_workflow, CompactionPlan,
-    DIRECTIVE_MAX_CHARS, DIRECTIVE_MAX_EST_TOKENS,
+    build_plan, build_stateless_plan, outcomes_match_plan, plan_covers_snapshot, stateless_plan_for_estimate,
+    CompactionPlan, DIRECTIVE_MAX_CHARS, DIRECTIVE_MAX_EST_TOKENS,
 };
 pub use strategy::{
     compaction_strategy_name, get_compaction_advisor, is_builtin_strategy,

@@ -431,13 +431,18 @@ pub fn ledger_message_count(variables: &DashMap<String, Value>, context_id: &str
 }
 
 /// Single-shot compression guard: may a request be emitted for the array at
-/// `version`? False when the same version was already announced.
+/// `version`? False when the same version was already announced. Delegates to
+/// the shared array guard so the variable map and the session agree.
 pub fn should_emit_compression(
     variables: &DashMap<String, Value>,
     context_id: &str,
     version: u64,
 ) -> bool {
-    ledger(variables).should_emit(&normalize_id(context_id), version)
+    wf_execution_shared::context_store::array_should_emit(
+        &ledger(variables),
+        &normalize_id(context_id),
+        version,
+    )
 }
 
 /// Record that a compression request was emitted for the array at `version`.
@@ -446,9 +451,13 @@ pub fn mark_compression_emitted(
     context_id: &str,
     version: u64,
 ) {
-    let mut ledger = ledger(variables);
-    ledger.mark_emitted(&normalize_id(context_id), version);
-    store_ledger(variables, &ledger);
+    let mut stored = ledger(variables);
+    wf_execution_shared::context_store::array_mark_emitted(
+        &mut stored,
+        &normalize_id(context_id),
+        version,
+    );
+    store_ledger(variables, &stored);
 }
 
 #[cfg(test)]

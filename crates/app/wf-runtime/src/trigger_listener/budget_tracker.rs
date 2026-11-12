@@ -25,7 +25,7 @@ pub(crate) fn reset_persisted_preflight_warning(
     if !state.preflight_warning_emitted {
         return;
     }
-    state.preflight_warning_emitted = false;
+    state.reset_preflight_warning();
     if let Ok(value) = serde_json::to_value(state) {
         variables.insert(TRACKER_STATE_KEY.to_string(), value);
     }
@@ -46,15 +46,7 @@ pub(crate) fn record_still_over_budget_streak(
         Ok(state) => state,
         Err(_) => return,
     };
-    let count = state
-        .still_over_budget_counts
-        .get(target)
-        .copied()
-        .unwrap_or(0)
-        + 1;
-    state
-        .still_over_budget_counts
-        .insert(target.to_string(), count);
+    let count = state.record_still_over_budget(target);
     if wf_execution_shared::still_over_budget_escalated(count) {
         tracing::error!(
             target = %target,
@@ -83,7 +75,7 @@ pub(crate) fn reset_still_over_budget_streak(
     if !state.still_over_budget_counts.contains_key(target) {
         return;
     }
-    state.still_over_budget_counts.remove(target);
+    state.reset_still_over_budget(target);
     if let Ok(value) = serde_json::to_value(state) {
         variables.insert(TRACKER_STATE_KEY.to_string(), value);
     }

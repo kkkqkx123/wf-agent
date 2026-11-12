@@ -17,23 +17,53 @@ use crate::trigger_listener::{ExecutionContextRegistry, TriggerLedger};
 /// Trigger-side compression request: the owned translation of one hook
 /// signal. The pipeline runs exclusively off this value and never observes
 /// hook payloads; the message snapshot travels with the request because the
-/// audit event carries identity and accounting only.
+/// audit event carries identity and accounting only. The claim table on this
+/// pipeline is the sole correctness barrier: duplicate deliveries of the same
+/// `(execution, target, version)` collapse on the claim, so the emission
+/// guard and any distribution key are throttling and observability only.
 #[derive(Debug, Clone)]
 pub(crate) struct CompressionRequest {
-    pub(super) execution_id: String,
-    pub(super) target_context_id: String,
-    pub(super) token_limit: u64,
-    pub(super) array_version: u64,
-    pub(super) depth: u64,
-    pub(super) messages: Vec<Message>,
+    pub(crate) execution_id: String,
+    pub(crate) target_context_id: String,
+    pub(crate) token_limit: u64,
+    pub(crate) array_version: u64,
+    pub(crate) depth: u64,
+    pub(crate) messages: Vec<Message>,
     /// Compaction work plan over `messages`. Empty means the legacy
     /// single-summary mode; non-empty runs the summary chain once per item
     /// and writes back one aggregated result.
-    pub(super) plan: Vec<wf_execution_shared::CompactionPlanItem>,
+    pub(crate) plan: Vec<wf_execution_shared::CompactionPlanItem>,
     /// Request-level instruction, prepended as a system message to every
     /// slice after extraction. Empty when the suggestion carried none.
-    pub(super) directive: String,
-    pub(super) agent_loop_id: Option<String>,
+    pub(crate) directive: String,
+    pub(crate) agent_loop_id: Option<String>,
+}
+
+impl CompressionRequest {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        execution_id: String,
+        target_context_id: String,
+        token_limit: u64,
+        array_version: u64,
+        depth: u64,
+        messages: Vec<Message>,
+        plan: Vec<wf_execution_shared::CompactionPlanItem>,
+        directive: String,
+        agent_loop_id: Option<String>,
+    ) -> Self {
+        Self {
+            execution_id,
+            target_context_id,
+            token_limit,
+            array_version,
+            depth,
+            messages,
+            plan,
+            directive,
+            agent_loop_id,
+        }
+    }
 }
 
 /// Trigger-side runner of the builtin compression chain.
@@ -56,11 +86,6 @@ pub(crate) struct CompressionPipeline {
     repress_workflow_id: Option<String>,
     policy: CompressionPolicy,
     handled: Arc<DashMap<String, claim_table::CompressionAttempt>>,
-    /// Live agent sessions for direct write-back; `None` keeps the
-    /// event-transport path. Wired when the runtime owns the agent
-    /// registry, preparing the control/data split without changing the
-    /// event contract yet.
-    agent_sessions: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
 }
 
 impl CompressionPipeline {
@@ -82,7 +107,6 @@ impl CompressionPipeline {
             repress_workflow_id: None,
             policy: CompressionPolicy::default(),
             handled: Arc::new(DashMap::new()),
-            agent_sessions: None,
         }
     }
 
@@ -96,14 +120,6 @@ impl CompressionPipeline {
         self
     }
 
-    pub(crate) fn with_agent_sessions(
-        mut self,
-        sessions: Arc<wf_agent::registry::AgentLoopRegistry>,
-    ) -> Self {
-        self.agent_sessions = Some(sessions);
-        self
-    }
-
     /// The checkpoint trigger-state registry, when the ledger carries one.
     fn trigger_states(&self) -> Option<Arc<wf_workflow::TriggerStateRegistry>> {
         self.ledger
@@ -111,13 +127,14 @@ impl CompressionPipeline {
             .and_then(|ledger| ledger.trigger_state_registry.clone())
     }
 
-    /// Run one listener-routed handoff: the action router calls this for the
-    /// builtin template only. Parses the routed event back into a pipeline
-    /// request and claims through [`Self::spawn`] (duplicate handoffs lose
-    /// the claim race and return cleanly). Snapshot-less copies (notably the
-    /// emitter's audit copy, which never matches the builtin condition but
-    /// may arrive here when validation was bypassed) are skipped like the
-    /// adapter skips empty snapshots.
+    /// Run one listener-routed handoff: the action router calls this for
+    /// external handoffs only. The in-process fast path (service holding this
+    /// pipeline) spawns directly without a bus round-trip; this route stays
+    /// for external events and as a deduped fallback (duplicate handoffs
+    /// lose the claim race and return cleanly). Snapshot-less copies
+    /// (notably the emitter's audit copy, which never matches the builtin
+    /// condition but may arrive here when validation was bypassed) are
+    /// skipped like the adapter skips empty snapshots.
     pub(crate) async fn run_routed(
         &self,
         template: &TriggerTemplate,
@@ -169,17 +186,17 @@ impl CompressionPipeline {
             .and_then(|meta_map| meta_map.get(wf_execution_shared::KEY_COMPRESSION_DEPTH))
             .and_then(|value| value.as_u64())
             .unwrap_or(0);
-        self.spawn(CompressionRequest {
-            execution_id: execution_id.to_string(),
-            target_context_id: meta.target_context_id,
-            token_limit: meta.token_limit,
-            array_version: meta.array_version,
+        self.spawn(CompressionRequest::new(
+            execution_id.to_string(),
+            meta.target_context_id,
+            meta.token_limit,
+            meta.array_version,
             depth,
             messages,
             plan,
             directive,
-            agent_loop_id: event.agent_loop_id.as_ref().map(|id| id.to_string()),
-        });
+            event.agent_loop_id.as_ref().map(|id| id.to_string()),
+        ));
         Ok(())
     }
 }
@@ -192,8 +209,7 @@ impl CompressionPipeline {
     /// same signal.
     pub(crate) fn spawn(&self, request: CompressionRequest) -> bool {
         debug!(
-            "Compression spawn direct_write={} target={}:{}",
-            self.agent_sessions.is_some(),
+            "Compression spawn target={}:{}",
             request.target_context_id,
             request.array_version
         );

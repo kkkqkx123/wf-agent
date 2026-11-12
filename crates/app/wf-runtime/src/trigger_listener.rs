@@ -105,6 +105,24 @@ pub struct TriggerListenerHandle {
     /// Durable ledger shared with every action runner (`None` when the
     /// wiring does not persist trigger runs).
     pub ledger: Option<Arc<TriggerLedger>>,
+    /// Trigger-side compression pipeline for the direct execution path.
+    /// `None` when the listener was built without the compression route.
+    /// Private: attached to the hook adapter via
+    /// [`TriggerListenerHandle::attach_compression_direct`]; the claim on
+    /// this pipeline is the sole correctness barrier.
+    compression_pipeline: Option<Arc<compression::CompressionPipeline>>,
+}
+
+impl TriggerListenerHandle {
+    /// Attach the route pipeline to a compression service for the direct
+    /// execution path. No-op when the listener has no compression route.
+    /// The routed audit copy is still published but no longer drives
+    /// execution; duplicate deliveries collapse on the pipeline claim.
+    pub(crate) fn attach_compression_direct(&self, service: &compression::CompressionService) {
+        if let Some(pipeline) = self.compression_pipeline.clone() {
+            service.set_pipeline(pipeline);
+        }
+    }
 }
 
 impl TriggerListenerHandle {
@@ -320,9 +338,6 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         if let Some(repress_workflow_id) = route.repress_workflow_id.clone() {
             pipeline = pipeline.with_repress_workflow_id(repress_workflow_id);
         }
-        if let Some(sessions) = agent_loop_registry.clone() {
-            pipeline = pipeline.with_agent_sessions(sessions);
-        }
         Arc::new(pipeline)
     });
     // Read-time chaining: the builtin template is visible exactly when the
@@ -400,12 +415,20 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         state_store: schedule_state_store,
         shutdown: shutdown.clone(),
     });
+    // Keep the pipeline for the direct-path attach step; the router already
+    // holds its own clone for the external-event route. Wiring happens via
+    // `attach_compression_direct` (bootstrap: listener first, service second)
+    // or via `CompressionHandlerDeps.pipeline` (tests that build the
+    // pipeline handle explicitly).
+    let compression_pipeline = routed_pipeline.clone();
+    let _ = hook_handler_registry;
     TriggerListenerHandle {
         listener,
         shutdown,
         handle,
         timer_bindings,
         ledger,
+        compression_pipeline,
     }
 }
 

@@ -210,6 +210,33 @@ pub fn still_over_budget_escalated(streak: u32) -> bool {
     streak >= TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
 }
 
+impl TokenTrackerState {
+    /// Record one still-over-budget completion for `target` on a persisted
+    /// snapshot; returns the consecutive count. Shares the escalation
+    /// predicate with the live tracker so snapshot paths escalate alike.
+    pub fn record_still_over_budget(&mut self, target: &str) -> u32 {
+        let count = self
+            .still_over_budget_counts
+            .get(target)
+            .copied()
+            .unwrap_or(0)
+            + 1;
+        self.still_over_budget_counts
+            .insert(target.to_string(), count);
+        count
+    }
+
+    /// Clear the still-over-budget streak for `target` on a persisted snapshot.
+    pub fn reset_still_over_budget(&mut self, target: &str) {
+        self.still_over_budget_counts.remove(target);
+    }
+
+    /// Re-arm the pre-request budget warning on a persisted snapshot.
+    pub fn reset_preflight_warning(&mut self) {
+        self.preflight_warning_emitted = false;
+    }
+}
+
 impl TokenUsageTracker {
     pub fn new(token_limit: u64) -> Self {
         Self {

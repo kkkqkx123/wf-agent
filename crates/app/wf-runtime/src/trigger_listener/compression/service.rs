@@ -16,21 +16,58 @@ pub const COMPRESSION_SERVICE_HANDLER_NAME: &str =
 /// Thin hook adapter for the `CONTEXT_COMPRESSION_REQUESTED` signal.
 ///
 /// Synchronous duties only: parse the signal, skip snapshots that carry
-/// nothing to compress, publish the snapshot-carrying routed handoff, then
-/// return. No execution policy lives here: retry budget, degraded fallback,
-/// write-back orchestration and audit all belong to `CompressionPipeline`,
-/// which the listener drives through the builtin template route. The fire
-/// therefore always returns at takeover, never after the compression lands.
-/// The caller must arm the listener side (builtin template chained into the
-/// listener registry and the pipeline wired into the action router),
-/// otherwise published handoffs never run.
+/// nothing to compress, spawn the pipeline directly when it is held, then
+/// publish the snapshot-carrying routed copy for audit. No execution policy
+/// lives here: retry budget, degraded fallback, write-back orchestration
+/// and audit all belong to `CompressionPipeline`. The direct spawn is the
+/// execution path; the routed copy is audit only and no longer drives
+/// execution (the router keeps serving it for external handoffs, deduped by
+/// the same claim). The fire therefore always returns at takeover, never
+/// after the compression lands. The pipeline claim is the sole correctness
+/// barrier; the emission guard and any distribution key are throttling and
+/// observability only.
 pub struct CompressionService {
     bus: Arc<EventBus>,
+    pipeline: std::sync::RwLock<Option<Arc<super::pipeline::CompressionPipeline>>>,
 }
 
 impl CompressionService {
     pub fn new(bus: Arc<EventBus>) -> Self {
-        Self { bus }
+        Self {
+            bus,
+            pipeline: std::sync::RwLock::new(None),
+        }
+    }
+
+    /// Attach the trigger-side pipeline for the direct execution path.
+    /// Idempotent: the last attached pipeline wins, so re-bootstrap simply
+    /// re-points the adapter without restarts.
+    pub(crate) fn set_pipeline(&self, pipeline: Arc<super::pipeline::CompressionPipeline>) {
+        if let Ok(mut slot) = self.pipeline.write() {
+            *slot = Some(pipeline);
+        }
+    }
+
+    fn direct_spawn(&self, execution_id: &str, signal: &CompressionSignal) -> bool {
+        let pipeline = self
+            .pipeline
+            .read()
+            .ok()
+            .and_then(|slot| slot.clone());
+        let Some(pipeline) = pipeline else {
+            return false;
+        };
+        pipeline.spawn(super::pipeline::CompressionRequest::new(
+            execution_id.to_string(),
+            signal.target_context_id.clone(),
+            signal.token_limit,
+            signal.array_version,
+            signal.depth,
+            signal.messages.clone(),
+            signal.plan.clone(),
+            signal.directive.clone(),
+            signal.agent_loop_id.clone(),
+        ))
     }
 
     /// Publish the routed handoff copy for a parsed signal: same audit
@@ -92,6 +129,10 @@ impl HookHandler for CompressionService {
             );
             return HookOutcome::Continue;
         }
+        // Direct execution path first; the routed copy below stays as the
+        // audit trail. When no pipeline is attached the routed copy is the
+        // legacy fallback and the router claims it instead.
+        self.direct_spawn(&ctx.execution_id.to_string(), &signal);
         self.publish_routed(&ctx.execution_id.to_string(), &signal);
         HookOutcome::Continue
     }

@@ -260,10 +260,17 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     // builtin default when the section is absent). File folding runs inside
     // the chain template (context transform node), so no fold attachment is
     // wired here.
+    // Direct execution path: the adapter spawns the route pipeline without a
+    // bus round-trip; the routed copy stays as the audit trail. The claim on
+    // the pipeline is the sole correctness barrier.
     let _compression = register_compression_handler(
         &hook_handler_registry,
-        crate::trigger_listener::CompressionHandlerDeps { event_bus },
+        crate::trigger_listener::CompressionHandlerDeps {
+            event_bus,
+            pipeline: None,
+        },
     );
+    listener.attach_compression_direct(&_compression);
     TriggerSubsystem {
         execution_contexts,
         trigger_state_registry,

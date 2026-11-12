@@ -74,30 +74,25 @@ impl AgentIterationCoordinator {
             },
         )
         .await;
+        // Single parking rule shared with the workflow waiter: version
+        // advance continues, cancellation propagates, every other terminal
+        // parks with the same message shape (agent keeps its pause product
+        // form, workflow keeps its classified-failure form).
+        if let Some(message) = wf_execution_shared::settle_parking_message(
+            wf_execution_shared::CONVERSATION_CONTEXT_ID,
+            version,
+            &outcome,
+        ) {
+            return Ok(self.compression_failure_park(entity, version, &message).await);
+        }
         match outcome {
             wf_execution_shared::context_store::CompressionSettleOutcome::VersionAdvanced => {
                 Ok(None)
             }
-            wf_execution_shared::context_store::CompressionSettleOutcome::Failed { message } => {
-                Ok(self.compression_failure_park(entity, version, &message).await)
-            }
-            wf_execution_shared::context_store::CompressionSettleOutcome::FlightReleased => {
-                Ok(self
-                    .compression_failure_park(
-                        entity,
-                        version,
-                        "compression anchor released without version advance",
-                    )
-                    .await)
-            }
-            wf_execution_shared::context_store::CompressionSettleOutcome::Timeout => {
-                Ok(self
-                    .compression_failure_park(entity, version, "compression settle budget exceeded")
-                    .await)
-            }
             wf_execution_shared::context_store::CompressionSettleOutcome::Cancelled => {
                 Err(AgentError::LlmError(wf_llm::LlmError::Cancelled))
             }
+            _ => Ok(None),
         }
     }
 
@@ -183,17 +178,6 @@ impl AgentIterationCoordinator {
             .write()
             .await
             .set_pending_compaction(forced_plan.clone(), Vec::new());
-        let compression_request = wf_execution_shared::context_store::compression_request(
-            wf_execution_shared::CONVERSATION_CONTEXT_ID,
-            tokens_used,
-            effective_limit,
-            request.messages.len(),
-            version,
-            true,
-            &messages,
-            &forced_plan,
-            "",
-        );
         // Snapshot the pre-compression state before the safety-net summary
         // workflow runs; the compressed view is checkpointed on write-back.
         self.boundary_checkpoint(
@@ -201,24 +185,31 @@ impl AgentIterationCoordinator {
             wf_types::checkpoint::CheckpointTiming::BeforeCompression,
         )
         .await;
-        // The agent hook vocabulary has no compression point, so the static
-        // slice stays empty by design (vocabulary extension is out of scope).
-        let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
+        // Single shared emission entry with the regular path; the agent hook
+        // vocabulary has no compression point, so the static slice stays
+        // empty by design (vocabulary extension is out of scope). The
+        // stateless plan never consults planning advice, so no directive
+        // can reach the forced path (known boundary, shared wording).
+        let emission = wf_execution_shared::UnifiedEmission {
+            target: wf_execution_shared::CONVERSATION_CONTEXT_ID,
+            tokens_used,
+            token_limit: effective_limit,
+            array_version: version,
+            forced: true,
+            messages: &messages,
+            plan: &forced_plan,
+            directive: "",
+            execution_id: entity.id(),
+            agent_loop_id: Some(entity.id()),
+            static_defs: &[],
+        };
+        let (outcome, audit) = wf_execution_shared::dispatch_unified_emission(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
-            entity.id(),
-            Some(entity.id()),
+            &emission,
             entity.get_abort_signal(),
-            &compression_request,
-            &[],
         )
         .await;
-        let mut audit = wf_execution_shared::context_store::compression_event(
-            &entity.id().to_string(),
-            Some(entity.id()),
-            &compression_request,
-        );
-        wf_execution_shared::context_store::annotate_compression_audit(&mut audit, &outcome);
         let _ = bus.publish(audit);
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
@@ -456,48 +447,38 @@ impl AgentIterationCoordinator {
         plan: Vec<wf_execution_shared::CompactionPlanItem>,
         directive: String,
     ) -> bool {
-        let execution_id = entity.id().clone();
-        let compression_request = wf_execution_shared::context_store::compression_request(
-            wf_execution_shared::CONVERSATION_CONTEXT_ID,
-            tokens_used,
-            context_limit,
-            messages.len(),
-            version,
-            false,
-            &messages,
-            &plan,
-            &directive,
-        );
         // Snapshot the pre-compression state; the compacted view lands in
         // a post-compression checkpoint when the summary workflow writes
-        // back.
+        // back. Single shared emission entry with the forced path and the
+        // workflow emitter: request build, sync dispatch and audit
+        // annotation live in the shared layer.
         self.boundary_checkpoint(
             entity,
             wf_types::checkpoint::CheckpointTiming::BeforeCompression,
         )
         .await;
-        // The event-bus copy stays the audit / persistence / user-rule
-        // channel; delivery is the synchronous hook dispatch (the
-        // compression service takes over here). Dispatch first so the audit
-        // copy can persist the taker outcome.
         // The agent hook vocabulary has no compression point, so the static
         // slice stays empty by design (vocabulary extension is out of scope).
-        let outcome = wf_execution_shared::context_store::dispatch_compression_signal(
+        let emission = wf_execution_shared::UnifiedEmission {
+            target: wf_execution_shared::CONVERSATION_CONTEXT_ID,
+            tokens_used,
+            token_limit: context_limit,
+            array_version: version,
+            forced: false,
+            messages: &messages,
+            plan: &plan,
+            directive: &directive,
+            execution_id: entity.id(),
+            agent_loop_id: Some(entity.id()),
+            static_defs: &[],
+        };
+        let (outcome, audit) = wf_execution_shared::dispatch_unified_emission(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
-            entity.id(),
-            Some(entity.id()),
+            &emission,
             entity.get_abort_signal(),
-            &compression_request,
-            &[],
         )
         .await;
-        let mut audit = wf_execution_shared::context_store::compression_event(
-            &execution_id.to_string(),
-            Some(entity.id()),
-            &compression_request,
-        );
-        wf_execution_shared::context_store::annotate_compression_audit(&mut audit, &outcome);
         if let Some(ref bus) = self.event_bus {
             let _ = bus.publish(audit);
         }

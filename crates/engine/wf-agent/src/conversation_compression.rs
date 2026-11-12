@@ -229,6 +229,7 @@ pub async fn apply_compression(
     if !meta.blocks.is_empty() {
         session.apply_compaction_result(meta.messages, &meta.blocks, limits);
     } else {
+        session.clear_pending_compaction();
         session.compress_with_tail(meta.messages, meta.tail_keep);
     }
     session.end_compression_flight(meta.array_version);

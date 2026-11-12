@@ -123,30 +123,31 @@ pub async fn emit_token_usage_events(
 
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let injected_count = injected_messages(config).len();
-    // Per-request dynamic overhead beyond the read array: system prompt,
-    // transform injections, inline messages, tool-loop turns and tool
-    // declarations. Derived from the assembled request (the same text the
-    // provider receives) so none of it ever accumulates into the array
-    // ledger, mirroring the agent-side request-minus-view subtraction.
-    let dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
-        u64::from(wf_llm::estimate_request_tokens(request)),
-        u64::from(wf_llm::estimate_messages(&message_context::get_context(
-            &ctx.variables,
-            read_context_id(config),
-        ))),
+    // Shared dynamic overhead beyond the read array, applied to every
+    // declared target. Calibration composition stays on the shared helper
+    // so agent and workflow emitters agree on the bias path.
+    let request_estimate = u64::from(wf_llm::estimate_request_tokens(request));
+    let read_stable = u64::from(wf_llm::estimate_messages(&message_context::get_context(
+        &ctx.variables,
+        read_context_id(config),
+    )));
+    let shared_dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
+        request_estimate,
+        read_stable,
     );
+    let bias = tracker.calibration_bias();
     for context_id in declared_contexts(config) {
         let context_messages = message_context::get_context(&ctx.variables, &context_id);
         if context_messages.is_empty() {
             // No named array to compress: nothing to write back to.
             continue;
         }
-        // Array budget = ledger estimate (recomputed lazily after
-        // replacements) + this request's dynamic overhead, calibrated
-        // by the actual-minus-estimated bias.
-        let stable =
-            message_context::ledger_estimated_tokens(&ctx.variables, &context_id) + dynamic;
-        let estimated = tracker.calibrated(stable);
+        let ledger_stable =
+            message_context::ledger_estimated_tokens(&ctx.variables, &context_id);
+        let estimated = wf_execution_shared::context_store::hot_from_parts(
+            ledger_stable.saturating_add(shared_dynamic),
+            bias,
+        );
         let version = message_context::array_version(&ctx.variables, &context_id);
         if wf_execution_shared::context_store::over_budget(estimated, context_limit)
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
@@ -283,110 +284,82 @@ pub async fn await_compression_settle(
         return Ok(());
     }
     let execution_id = ctx.execution_id.to_string();
-    if let Some(ref bus) = ctx.event_bus {
-        for event in bus.recent_events() {
-            if let Some(matched) =
-                wf_execution_shared::match_compression_failure(&event, &execution_id, None)
+    let timeout_ms = wf_execution_shared::compression_settle_timeout_ms();
+    for (target, version) in anchored {
+        let outcome = wf_execution_shared::context_store::settle_compression_anchor(
+            version,
+            timeout_ms,
+            ctx.cancellation.clone(),
             {
-                for (target, version) in &anchored {
-                    if matched.target_context_id == *target && matched.array_version == *version {
-                        pause_for_compression_failure(ctx, &matched.message);
-                        return Err(compression_failure(ctx, matched.message.clone()));
+                let variables = ctx.variables.clone();
+                let target = target.clone();
+                move || {
+                    let variables = variables.clone();
+                    let target = target.clone();
+                    async move { message_context::array_version(&variables, &target) }
+                }
+            },
+            {
+                let tracker = tracker.clone();
+                let target = target.clone();
+                move || {
+                    let tracker = tracker.clone();
+                    let target = target.clone();
+                    async move {
+                        tracker.lock().await.compression_flight(&target).is_none_or(
+                            |flight| flight.version != version,
+                        )
                     }
                 }
-            }
-        }
-    }
-    for (target, version) in anchored {
-        let settle_timeout =
-            std::time::Duration::from_millis(wf_execution_shared::compression_settle_timeout_ms());
-        let poll_interval =
-            std::time::Duration::from_millis(wf_execution_shared::COMPRESSION_SETTLE_POLL_MS);
-        let settled = match ctx.cancellation.clone() {
-            Some(token) => {
-                tokio::select! {
-                    settled = wf_common::poll_until(poll_interval, settle_timeout, || async {
-                        if message_context::array_version(&ctx.variables, &target) != version {
-                            return true;
-                        }
-                        if let Some(ref bus) = ctx.event_bus {
-                            bus.recent_events().iter().any(|event| {
+            },
+            {
+                let bus = ctx.event_bus.clone();
+                let execution_id = execution_id.clone();
+                let target = target.clone();
+                move || {
+                    let bus = bus.clone();
+                    let execution_id = execution_id.clone();
+                    let target = target.clone();
+                    async move {
+                        bus.as_ref().and_then(|bus| {
+                            bus.recent_events().iter().find_map(|event| {
                                 wf_execution_shared::match_compression_failure(
                                     event,
                                     &execution_id,
                                     Some(version),
                                 )
-                                .is_some_and(|matched| matched.target_context_id == target)
+                                .filter(|matched| matched.target_context_id == target)
+                                .map(|matched| matched.message.clone())
                             })
-                        } else {
-                            false
-                        }
-                    }) => settled,
-                    _ = token.cancelled() => {
-                        return Err(crate::error::WorkflowError::NodeFailure {
-                            node_id: ctx.node_id.clone(),
-                            category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
-                            detail: "aborted while waiting for compression".to_string(),
-                            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
-                        });
-                    }
-                }
-            }
-            None => {
-                wf_common::poll_until(poll_interval, settle_timeout, || async {
-                    if message_context::array_version(&ctx.variables, &target) != version {
-                        return true;
-                    }
-                    if let Some(ref bus) = ctx.event_bus {
-                        bus.recent_events().iter().any(|event| {
-                            wf_execution_shared::match_compression_failure(
-                                event,
-                                &execution_id,
-                                Some(version),
-                            )
-                            .is_some_and(|matched| matched.target_context_id == target)
                         })
-                    } else {
-                        false
-                    }
-                })
-                .await
-            }
-        };
-        if !settled {
-            let message = format!(
-                "context compression timed out for '{}' at version {}; the execution pauses for external handling",
-                target, version
-            );
-            pause_for_compression_failure(ctx, &message);
-            return Err(compression_failure(ctx, message));
-        }
-        if message_context::array_version(&ctx.variables, &target) != version {
-            continue;
-        }
-        if let Some(ref bus) = ctx.event_bus {
-            let mut failure: Option<String> = None;
-            for event in bus.recent_events() {
-                if let Some(matched) =
-                    wf_execution_shared::match_compression_failure(&event, &execution_id, None)
-                {
-                    if matched.target_context_id == target && matched.array_version == version {
-                        failure = Some(matched.message.clone());
-                        break;
                     }
                 }
-            }
-            if let Some(message) = failure {
+            },
+        )
+        .await;
+        match outcome {
+            wf_execution_shared::context_store::CompressionSettleOutcome::VersionAdvanced => {}
+            wf_execution_shared::context_store::CompressionSettleOutcome::Failed { message } => {
                 pause_for_compression_failure(ctx, &message);
                 return Err(compression_failure(ctx, message));
             }
+            wf_execution_shared::context_store::CompressionSettleOutcome::FlightReleased
+            | wf_execution_shared::context_store::CompressionSettleOutcome::Timeout => {
+                let message = format!(
+                    "context compression timed out for '{target}' at version {version}; the execution pauses for external handling"
+                );
+                pause_for_compression_failure(ctx, &message);
+                return Err(compression_failure(ctx, message));
+            }
+            wf_execution_shared::context_store::CompressionSettleOutcome::Cancelled => {
+                return Err(crate::error::WorkflowError::NodeFailure {
+                    node_id: ctx.node_id.clone(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: "aborted while waiting for compression".to_string(),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                });
+            }
         }
-        let message = format!(
-            "context compression timed out for '{}' at version {}; the execution pauses for external handling",
-            target, version
-        );
-        pause_for_compression_failure(ctx, &message);
-        return Err(compression_failure(ctx, message));
     }
     Ok(())
 }
@@ -516,15 +489,13 @@ pub async fn check_preflight_budget(
     if context_limit == 0 {
         return;
     }
-    let mut estimated = u64::from(wf_llm::estimate_request_tokens(request));
-    if estimated as f64 > context_limit as f64 * 0.8 {
-        if let Ok(count) = gateway
-            .count_tokens(request, ctx.cancellation.clone())
-            .await
-        {
-            estimated = u64::from(count.input_tokens);
-        }
-    }
+    let estimated = wf_execution_shared::context_store::refine_request_estimate(
+        gateway,
+        request,
+        context_limit,
+        ctx.cancellation.clone(),
+    )
+    .await;
     let mut tracker = tracker.lock().await;
     if estimated > context_limit && tracker.consume_preflight_warning() {
         if let Some(ref bus) = ctx.event_bus {

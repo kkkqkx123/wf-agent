@@ -29,126 +29,78 @@ impl AgentIterationCoordinator {
             return Ok(None);
         }
         let execution_id = entity.id().to_string();
-        if let Some(ref bus) = self.event_bus {
-            for event in bus.recent_events() {
-                if let Some(matched) = wf_execution_shared::match_compression_failure(
-                    &event,
-                    &execution_id,
-                    Some(version),
-                ) {
-                    return Ok(self
-                        .compression_failure_park(entity, version, &matched.message)
-                        .await);
-                }
-            }
-        }
-        let settle_timeout = std::time::Duration::from_millis(self.effective_settle_timeout_ms());
-        let poll_interval =
-            std::time::Duration::from_millis(wf_execution_shared::COMPRESSION_SETTLE_POLL_MS);
+        let conversation_handle = entity.conversation().clone();
+        let bus_handle = self.event_bus.clone();
         let abort = entity.get_abort_signal();
-        // Event-driven settle with a poll fallback: the version advance
-        // and the flight release are shared-memory signals, so they never
-        // depend on the bounded event history. The subscription wakes the
-        // waiter on terminal failure without waiting for the next poll
-        // tick; the poll tick covers lagged subscriptions and transports
-        // without a bus.
-        let mut subscription = self.event_bus.as_ref().map(|bus| bus.subscribe());
-        let deadline = tokio::time::Instant::now() + settle_timeout;
-        let settled = loop {
+        let outcome = wf_execution_shared::context_store::settle_compression_anchor(
+            version,
+            self.effective_settle_timeout_ms(),
+            Some(abort.clone()),
             {
-                let conversation = entity.conversation().read().await;
-                if conversation.conversation_version() != version {
-                    break true;
+                let handle = conversation_handle.clone();
+                move || {
+                    let handle = handle.clone();
+                    async move { handle.read().await.conversation_version() }
                 }
-                if !conversation.compression_flight().is_some_and(|flight| {
-                    wf_execution_shared::check_anchor(flight.version, version)
-                }) {
-                    break true;
+            },
+            {
+                let handle = conversation_handle.clone();
+                move || {
+                    let handle = handle.clone();
+                    async move {
+                        !handle.read().await.compression_flight().is_some_and(|flight| {
+                            wf_execution_shared::check_anchor(flight.version, version)
+                        })
+                    }
                 }
-            }
-            if let Some(ref bus) = self.event_bus {
-                if bus.recent_events().iter().any(|event| {
-                    wf_execution_shared::match_compression_failure(
-                        event,
-                        &execution_id,
-                        Some(version),
-                    )
-                    .is_some()
-                }) {
-                    break true;
-                }
-            }
-            if tokio::time::Instant::now() >= deadline {
-                break false;
-            }
-            let wait = tokio::time::sleep(poll_interval);
-            if let Some(ref mut sub) = subscription {
-                tokio::select! {
-                    result = sub.recv() => {
-                        match result {
-                            Ok(event) => {
-                                if wf_execution_shared::match_compression_failure(
-                                    &event,
+            },
+            {
+                let bus = bus_handle.clone();
+                let execution_id = execution_id.clone();
+                move || {
+                    let bus = bus.clone();
+                    let execution_id = execution_id.clone();
+                    async move {
+                        bus.as_ref().and_then(|bus| {
+                            bus.recent_events().iter().find_map(|event| {
+                                wf_execution_shared::match_compression_failure(
+                                    event,
                                     &execution_id,
                                     Some(version),
                                 )
-                                .is_some()
-                                {
-                                    break true;
-                                }
-                            }
-                            Err(_) => {
-                                // Lagged or closed subscription: fall through
-                                // to the shared-memory checks above on the
-                                // next iteration instead of stalling here.
-                            }
-                        }
-                    }
-                    _ = wait => {}
-                    _ = abort.cancelled() => {
-                        return Err(AgentError::LlmError(wf_llm::LlmError::Cancelled));
+                                .map(|matched| matched.message.clone())
+                            })
+                        })
                     }
                 }
-            } else {
-                tokio::select! {
-                    _ = wait => {}
-                    _ = abort.cancelled() => {
-                        return Err(AgentError::LlmError(wf_llm::LlmError::Cancelled));
-                    }
-                }
+            },
+        )
+        .await;
+        match outcome {
+            wf_execution_shared::context_store::CompressionSettleOutcome::VersionAdvanced => {
+                Ok(None)
             }
-        };
-        if !settled {
-            return Ok(self
-                .compression_failure_park(entity, version, "compression settle budget exceeded")
-                .await);
-        }
-        {
-            let conversation = entity.conversation().read().await;
-            if conversation.conversation_version() != version {
-                return Ok(None);
+            wf_execution_shared::context_store::CompressionSettleOutcome::Failed { message } => {
+                Ok(self.compression_failure_park(entity, version, &message).await)
             }
-        }
-        if let Some(ref bus) = self.event_bus {
-            for event in bus.recent_events() {
-                if let Some(matched) = wf_execution_shared::match_compression_failure(
-                    &event,
-                    &execution_id,
-                    Some(version),
-                ) {
-                    return Ok(self
-                        .compression_failure_park(entity, version, &matched.message)
-                        .await);
-                }
+            wf_execution_shared::context_store::CompressionSettleOutcome::FlightReleased => {
+                Ok(self
+                    .compression_failure_park(
+                        entity,
+                        version,
+                        "compression anchor released without version advance",
+                    )
+                    .await)
+            }
+            wf_execution_shared::context_store::CompressionSettleOutcome::Timeout => {
+                Ok(self
+                    .compression_failure_park(entity, version, "compression settle budget exceeded")
+                    .await)
+            }
+            wf_execution_shared::context_store::CompressionSettleOutcome::Cancelled => {
+                Err(AgentError::LlmError(wf_llm::LlmError::Cancelled))
             }
         }
-        Ok(self
-            .compression_failure_park(
-                entity,
-                version,
-                "compression anchor released without version advance",
-            )
-            .await)
     }
 
     /// Park the loop after a terminal compression failure: the pause makes
@@ -377,17 +329,15 @@ impl AgentIterationCoordinator {
         if context_limit == 0 {
             return;
         }
-        let stable = conversation.estimated_view_tokens();
-        let dynamic =
-            wf_execution_shared::context_store::dynamic_request_overhead(prompt_est as u64, stable);
-        let estimated = conversation.calibrated_estimate(stable.saturating_add(dynamic));
         // Compaction requires a known model window. Without one the
         // decision holds and the forced safety-net owns recovery.
+        // The hot estimate is refreshed inside the decision so the
+        // emitted budget and the threshold comparison share one sample.
         if conversation.compaction_window() == 0 {
             return;
         }
         drop(conversation);
-        self.record_compaction_decision(entity, estimated, context_limit, prompt_est)
+        self.record_compaction_decision(entity, context_limit, prompt_est)
             .await;
     }
 }
@@ -399,7 +349,6 @@ impl AgentIterationCoordinator {
     pub(super) async fn record_compaction_decision(
         &self,
         entity: &AgentLoopEntity,
-        estimated: u64,
         context_limit: u64,
         prompt_est: u32,
     ) {
@@ -412,29 +361,20 @@ impl AgentIterationCoordinator {
         let mut conversation = entity.conversation().write().await;
         conversation.refresh_hot_estimate();
         if conversation.compaction_mode() == wf_execution_shared::CompactionMode::Handoff {
-            let dynamic_probe = wf_execution_shared::context_store::dynamic_request_overhead(
-                prompt_est as u64,
-                conversation.estimated_view_tokens(),
-            );
-            let hot_probe = conversation.calibrated_estimate(
-                conversation
-                    .compaction_state()
-                    .hot_tokens
-                    .saturating_add(dynamic_probe),
-            );
+            let hot_probe =
+                wf_execution_shared::context_store::request_hot_estimate(
+                    conversation.compaction_state().hot_tokens,
+                    prompt_est as u64,
+                    conversation.calibration_bias(),
+                );
             if conversation.try_exit_handoff(hot_probe) {
                 return;
             }
         }
-        let dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
+        let hot = wf_execution_shared::context_store::request_hot_estimate(
+            conversation.compaction_state().hot_tokens,
             prompt_est as u64,
-            conversation.estimated_view_tokens(),
-        );
-        let hot = conversation.calibrated_estimate(
-            conversation
-                .compaction_state()
-                .hot_tokens
-                .saturating_add(dynamic),
+            conversation.calibration_bias(),
         );
         match conversation.decide_compaction(hot, &limits) {
             wf_execution_shared::CompactionDecision::Hold => {}
@@ -502,7 +442,7 @@ impl AgentIterationCoordinator {
                     .emit_compaction_signal(
                         entity,
                         version,
-                        estimated,
+                        hot,
                         context_limit,
                         messages,
                         items,

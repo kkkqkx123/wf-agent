@@ -375,11 +375,15 @@ impl AgentIterationCoordinator {
             .unwrap_or_else(wf_execution_shared::process_compaction_limits)
     }
 
-    /// Effective settle budget: explicit injection wins, otherwise the
-    /// process-wide install.
+    /// Effective settle budget: the larger of the explicit injection and
+    /// the process-wide install wins, so an assembly-time correction that
+    /// only bumps the global still lifts coordinators holding a stale
+    /// explicit value up to the worst-case claim cost.
     pub(crate) fn effective_settle_timeout_ms(&self) -> u64 {
+        let global = wf_execution_shared::compression_settle_timeout_ms();
         self.settle_timeout_ms
-            .unwrap_or_else(wf_execution_shared::compression_settle_timeout_ms)
+            .map(|explicit| explicit.max(global))
+            .unwrap_or(global)
     }
 
     /// Inject the file-content observer (agent actor partition) into the
@@ -541,16 +545,14 @@ impl AgentIterationCoordinator {
             if let Some(ref bus) = self.event_bus {
                 let context_limit = entity.conversation().read().await.context_limit();
                 if context_limit > 0 {
-                    let mut estimated = u64::from(wf_llm::estimate_request_tokens(&request));
-                    if estimated as f64 > context_limit as f64 * 0.8 {
-                        if let Ok(count) = self
-                            .gateway
-                            .count_tokens(&request, Some(entity.get_abort_signal()))
-                            .await
-                        {
-                            estimated = u64::from(count.input_tokens);
-                        }
-                    }
+                    let estimated =
+                        wf_execution_shared::context_store::refine_request_estimate(
+                            &self.gateway,
+                            &request,
+                            context_limit,
+                            Some(entity.get_abort_signal()),
+                        )
+                        .await;
                     if estimated > context_limit {
                         let mut conversation = entity.conversation().write().await;
                         if conversation.consume_preflight_warning() {

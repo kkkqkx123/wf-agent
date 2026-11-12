@@ -1,6 +1,8 @@
 use serde_json::Value;
 use wf_core::EventBus;
+use wf_llm::LlmGateway;
 use wf_types::events::BaseEvent;
+use wf_types::llm::LlmRequest;
 use wf_types::message::Message;
 use wf_types::Id;
 
@@ -336,6 +338,110 @@ where
         ))
         .await;
     }
+}
+
+/// Terminal state of one compression settle wait. Version advance means the
+/// write-back landed, flight release without advance means the anchor went
+/// away on its own, failure carries the terminal message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompressionSettleOutcome {
+    VersionAdvanced,
+    FlightReleased,
+    Failed { message: String },
+    Timeout,
+    Cancelled,
+}
+
+/// Unified settle wait for every compression emitter. Polls the version
+/// anchor, the terminal failure and the flight release on one cadence and
+/// races the whole wait against cancellation. Success wins over failure
+/// when both appear together, matching the historical emitter behavior.
+#[allow(clippy::too_many_arguments)]
+pub async fn settle_compression_anchor<V, VFut, R, RFut, F, FFut>(
+    anchor: u64,
+    timeout_ms: u64,
+    cancel: Option<tokio_util::sync::CancellationToken>,
+    mut current_version: V,
+    mut is_flight_released: R,
+    mut find_failure: F,
+) -> CompressionSettleOutcome
+where
+    V: FnMut() -> VFut,
+    VFut: std::future::Future<Output = u64>,
+    R: FnMut() -> RFut,
+    RFut: std::future::Future<Output = bool>,
+    F: FnMut() -> FFut,
+    FFut: std::future::Future<Output = Option<String>>,
+{
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    let poll = std::time::Duration::from_millis(crate::token_events::COMPRESSION_SETTLE_POLL_MS);
+    loop {
+        if current_version().await != anchor {
+            return CompressionSettleOutcome::VersionAdvanced;
+        }
+        if let Some(message) = find_failure().await {
+            return CompressionSettleOutcome::Failed { message };
+        }
+        if is_flight_released().await {
+            return CompressionSettleOutcome::FlightReleased;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return CompressionSettleOutcome::Timeout;
+        }
+        match cancel.clone() {
+            Some(token) => {
+                tokio::select! {
+                    _ = tokio::time::sleep(poll) => {}
+                    _ = token.cancelled() => {
+                        return CompressionSettleOutcome::Cancelled;
+                    }
+                }
+            }
+            None => tokio::time::sleep(poll).await,
+        }
+    }
+}
+
+/// Apply the actual-minus-estimated bias to a stable array estimate. Single
+/// home for the bias composition so trackers and hot helpers agree.
+pub fn apply_calibration_bias(stable_estimate: u64, bias: i64) -> u64 {
+    if bias >= 0 {
+        stable_estimate.saturating_add(bias as u64)
+    } else {
+        stable_estimate.saturating_sub((-bias) as u64)
+    }
+}
+
+/// Canonical hot estimate from one stable projection and one assembled
+/// request estimate. The dynamic overhead never accumulates into the ledger.
+pub fn request_hot_estimate(stable_projection: u64, request_estimate: u64, bias: i64) -> u64 {
+    let dynamic = dynamic_request_overhead(request_estimate, stable_projection);
+    apply_calibration_bias(stable_projection.saturating_add(dynamic), bias)
+}
+
+/// Canonical hot estimate from a precomputed stable plus dynamic pair.
+/// Keeps multi-target emitters that share one dynamic overhead on the same
+/// calibration path without changing their sharing semantics.
+pub fn hot_from_parts(stable_plus_dynamic: u64, bias: i64) -> u64 {
+    apply_calibration_bias(stable_plus_dynamic, bias)
+}
+
+/// Refined whole-request estimate for preflight warnings. Uses the local
+/// estimate below the precision threshold and the provider count when near
+/// or over budget. Warning only, never blocks the request.
+pub async fn refine_request_estimate(
+    gateway: &LlmGateway,
+    request: &LlmRequest,
+    context_limit: u64,
+    cancel: Option<tokio_util::sync::CancellationToken>,
+) -> u64 {
+    let mut estimated = u64::from(wf_llm::estimate_request_tokens(request));
+    if context_limit > 0 && estimated as f64 > context_limit as f64 * 0.8 {
+        if let Ok(count) = gateway.count_tokens(request, cancel).await {
+            estimated = u64::from(count.input_tokens);
+        }
+    }
+    estimated
 }
 
 #[cfg(test)]
@@ -722,5 +828,102 @@ mod tests {
             "unresolvable static handlers fail open at the gate"
         );
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn calibration_bias_applies_both_directions() {
+        assert_eq!(super::apply_calibration_bias(1000, 50), 1050);
+        assert_eq!(super::apply_calibration_bias(1000, -200), 800);
+        assert_eq!(super::apply_calibration_bias(10, -20), 0);
+    }
+
+    #[test]
+    fn hot_estimate_combines_overhead_and_bias() {
+        assert_eq!(super::request_hot_estimate(1000, 1200, 0), 1200);
+        assert_eq!(super::request_hot_estimate(1000, 800, 0), 1000);
+        assert_eq!(super::hot_from_parts(1200, 50), 1250);
+    }
+
+    #[tokio::test]
+    async fn settle_reports_version_advance() {
+        let outcome = super::settle_compression_anchor(
+            7,
+            1000,
+            None,
+            || async { 8 },
+            || async { false },
+            || async { None },
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            super::CompressionSettleOutcome::VersionAdvanced
+        );
+    }
+
+    #[tokio::test]
+    async fn settle_reports_failure_before_release() {
+        let outcome = super::settle_compression_anchor(
+            7,
+            1000,
+            None,
+            || async { 7 },
+            || async { true },
+            || async { Some("boom".to_string()) },
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            super::CompressionSettleOutcome::Failed {
+                message: "boom".to_string()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn settle_reports_release_without_version() {
+        let outcome = super::settle_compression_anchor(
+            7,
+            1000,
+            None,
+            || async { 7 },
+            || async { true },
+            || async { None },
+        )
+        .await;
+        assert_eq!(outcome, super::CompressionSettleOutcome::FlightReleased);
+    }
+
+    #[tokio::test]
+    async fn settle_times_out_without_progress() {
+        let outcome =
+            super::settle_compression_anchor(7, 30, None, || async { 7 }, || async { false }, || async {
+                None
+            })
+            .await;
+        assert_eq!(outcome, super::CompressionSettleOutcome::Timeout);
+    }
+
+    #[tokio::test]
+    async fn settle_observes_cancellation() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let waiter = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            waiter.cancel();
+        });
+        let outcome = super::settle_compression_anchor(
+            7,
+            1000,
+            Some(token),
+            || async {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                7
+            },
+            || async { false },
+            || async { None },
+        )
+        .await;
+        assert_eq!(outcome, super::CompressionSettleOutcome::Cancelled);
     }
 }

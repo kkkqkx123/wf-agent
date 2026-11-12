@@ -590,7 +590,7 @@ async fn in_flight_plan_coalesces_new_compaction_signal() {
         .await
         .begin_compression_flight(version, false);
     coordinator
-        .record_compaction_decision(&entity, 90_000, 100_000, 100)
+        .record_compaction_decision(&entity, 100_000, 100)
         .await;
     let session = entity.conversation().read().await;
     assert!(
@@ -628,7 +628,7 @@ async fn undispatched_emission_counts_nothing() {
     // the flight never anchors, the pending plan dies, and nothing is
     // counted as emitted.
     coordinator
-        .record_compaction_decision(&entity, 90_000, 100_000, 100)
+        .record_compaction_decision(&entity, 100_000, 100)
         .await;
     let session = entity.conversation().read().await;
     assert!(session.compression_flight().is_none());

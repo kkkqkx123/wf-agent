@@ -50,15 +50,17 @@ pub(super) fn build_degraded_notice(error: &str, dropped: usize) -> Message {
 
 /// Trim the emission snapshot to the summary input headroom, accounting the
 /// request-level directive against the same budget. A zero token limit
-/// skips trimming (no budget to fit).
+/// skips trimming (no budget to fit). Returns the trimmed snapshot plus
+/// the count of head messages dropped so plan indices built on the
+/// untrimmed snapshot can shift forward before slicing.
 pub(super) fn trim_snapshot(
     messages: Vec<Message>,
     token_limit: u64,
     directive: &str,
     tail_keep: usize,
-) -> Vec<Message> {
+) -> (Vec<Message>, usize) {
     if token_limit == 0 {
-        return messages;
+        return (messages, 0);
     }
     let directive_tokens = if directive.is_empty() {
         0
@@ -67,12 +69,46 @@ pub(super) fn trim_snapshot(
             &Message::system_text(directive.to_string()),
         ))
     };
-    trim_messages_to_budget(
+    let original_len = messages.len();
+    let trimmed = trim_messages_to_budget(
         messages,
         (token_limit * SUMMARY_INPUT_HEADROOM_NUM / SUMMARY_INPUT_HEADROOM_DEN)
             .saturating_sub(directive_tokens),
         tail_keep,
-    )
+    );
+    let dropped = original_len.saturating_sub(trimmed.len());
+    (trimmed, dropped)
+}
+
+/// Shift plan indices forward by the head messages dropped during trimming.
+/// Preserves block identity and depth; intervals collapsing to empty are
+/// filtered so slicing never covers stale content. An empty return means
+/// the whole planned prefix was trimmed away and the caller falls back to
+/// the single-summary mode.
+pub(super) fn shift_plan_for_trim(
+    plan: &[wf_execution_shared::CompactionPlanItem],
+    dropped: usize,
+) -> Vec<wf_execution_shared::CompactionPlanItem> {
+    if dropped == 0 {
+        return plan.to_vec();
+    }
+    plan.iter()
+        .filter_map(|item| {
+            let start = item.start.saturating_sub(dropped);
+            let end = item.end.saturating_sub(dropped);
+            if start < end {
+                Some(wf_execution_shared::CompactionPlanItem {
+                    block_id: item.block_id.clone(),
+                    start,
+                    end,
+                    depth: item.depth,
+                    extra_block_ids: item.extra_block_ids.clone(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Slice the headroom-trimmed snapshot into one chain run per plan item,
@@ -111,4 +147,65 @@ pub(super) fn slice_snapshot(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::message::{MessageContentValue, MessageRole};
+
+    fn text_message(text: &str) -> Message {
+        Message {
+            id: wf_common::generate_id(),
+            role: MessageRole::User,
+            content: MessageContentValue::Text(text.to_string()),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: None,
+        }
+    }
+
+    fn plan_item(block: &str, start: usize, end: usize) -> wf_execution_shared::CompactionPlanItem {
+        wf_execution_shared::CompactionPlanItem {
+            block_id: block.to_string(),
+            start,
+            end,
+            depth: 0,
+            extra_block_ids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn shift_without_trim_keeps_plan() {
+        let plan = vec![plan_item("b0000", 0, 2), plan_item("b0001", 2, 4)];
+        assert_eq!(super::shift_plan_for_trim(&plan, 0), plan);
+    }
+
+    #[test]
+    fn shift_past_trimmed_head_keeps_content_aligned() {
+        let messages: Vec<Message> = (0..4).map(|i| text_message(&format!("m{i}"))).collect();
+        let plan = vec![plan_item("b0000", 2, 4)];
+        let shifted = super::shift_plan_for_trim(&plan, 2);
+        assert_eq!(shifted.len(), 1);
+        assert_eq!((shifted[0].start, shifted[0].end), (0, 2));
+        let snapshot = &messages[2..];
+        let items = super::slice_snapshot(snapshot, &shifted, "");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].messages.len(), 2);
+    }
+
+    #[test]
+    fn shift_fully_trimmed_plan_falls_back_to_single_summary() {
+        let messages: Vec<Message> = (0..2).map(|i| text_message(&format!("m{i}"))).collect();
+        let plan = vec![plan_item("b0000", 0, 2)];
+        let shifted = super::shift_plan_for_trim(&plan, 2);
+        assert!(shifted.is_empty());
+        let items = super::slice_snapshot(&messages, &shifted, "");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].messages.len(), 2);
+    }
 }

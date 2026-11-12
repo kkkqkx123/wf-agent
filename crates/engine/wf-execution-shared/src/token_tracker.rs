@@ -392,11 +392,7 @@ impl TokenUsageTracker {
     /// Apply the calibration bias to a stable array estimate before a
     /// compression decision (never below zero).
     pub fn calibrated(&self, stable_estimate: u64) -> u64 {
-        if self.calibration_bias >= 0 {
-            stable_estimate.saturating_add(self.calibration_bias as u64)
-        } else {
-            stable_estimate.saturating_sub((-self.calibration_bias) as u64)
-        }
+        crate::context_store::apply_calibration_bias(stable_estimate, self.calibration_bias)
     }
 
     /// Decision track: strict `>` comparison against the limit; always false

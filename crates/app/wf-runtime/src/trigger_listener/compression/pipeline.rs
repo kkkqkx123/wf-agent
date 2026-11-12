@@ -256,10 +256,14 @@ impl CompressionPipeline {
         // the spawned run so offline analysis can link each terminal back to
         // its summary run.
         let run_id = wf_common::generate_id();
-        let snapshot =
+        let (snapshot, dropped) =
             input_window::trim_snapshot(messages, token_limit, &directive, policy.tail_keep);
+        // Plan indices address the untrimmed snapshot: shift them past the
+        // trimmed head so slices cover the intended content. A fully
+        // trimmed plan falls back to the single-summary mode.
+        let shifted_plan = input_window::shift_plan_for_trim(&plan, dropped);
         // Request-level semantics: the same directive heads every slice.
-        let items = input_window::slice_snapshot(&snapshot, &plan, &directive);
+        let items = input_window::slice_snapshot(&snapshot, &shifted_plan, &directive);
         let start = wf_common::now();
         let service_handled = Arc::clone(&self.handled);
         let callback = async move {

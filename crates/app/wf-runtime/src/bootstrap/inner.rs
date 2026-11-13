@@ -17,7 +17,7 @@ use crate::mode::detect_all;
 use crate::storage_manager::StorageManager;
 use crate::trigger_listener::TriggerExecutionRecorder;
 
-use super::code_context::resolve_code_context_transport;
+use super::code_context::resolve_code_context_service;
 use super::config::{adjust_log_config, resolve_infra_config, InfraSourceConfig, RuntimeConfig};
 use super::file_checkpoint::init_file_checkpoint_stack;
 use super::llm::{create_auth_registry, create_llm_gateway, register_llm_config};
@@ -178,16 +178,19 @@ impl Runtime {
         let mut shell_config = config.shell.clone();
         // Code-context transport resolves before the tool registry builds:
         // managed mode starts the supervised process here so the registry
-        // handlers and retrieval tools observe the effective address.
-        let (code_context, code_context_sidecar) =
-            resolve_code_context_transport(config.tools.code_context.clone()).await;
+        // handlers and retrieval tools observe the live endpoint and health.
+        let (code_context, code_context_sidecar) = resolve_code_context_service(
+            config.tools.code_context.clone(),
+            config.mcp.project_root.as_deref(),
+        )
+        .await;
         let tool_registry = init_tool_registry_with_mcp(
             &mut shell_config,
             &sandbox_runtime,
             skill_loader.clone(),
             &mcp_manager,
             &event_bus,
-            code_context.clone(),
+            Some(code_context.clone()),
         )
         .await?;
 
@@ -248,8 +251,12 @@ impl Runtime {
         )
         .await?;
         config.resource.apply_custom_source();
+        // Resource registration consults the live service state so tools the
+        // service cannot serve are never registered for the model.
+        let mut resource_options = config.resource.options.clone();
+        resource_options.code_context = Some(code_context.clone());
         init_plugins_and_resources(
-            &config.resource.options,
+            &resource_options,
             &registries,
             &tool_registry,
             #[cfg(feature = "plugins")]
@@ -257,18 +264,12 @@ impl Runtime {
         )
         .await?;
 
-        // Build the fold-summary chain with the effective code-context
-        // snapshot at construction time, so execution reads only node
-        // config. Absent service keeps the safe skip behavior.
-        if let Some(service) = code_context.clone() {
-            let template =
-                wf_resource::predefined::workflow::create_fold_summary_workflow_with_service(
-                    None, &service,
-                );
-            if let Err(e) = registries.upsert_workflow_template(template) {
-                warn!("code-context snapshot bake skipped: {e}");
-            }
-        }
+        // Both compression chains are baked from the same effective service
+        // so a re-compression pass folds exactly like the first pass; the
+        // managed address is decided before the process starts, so a restart
+        // never invalidates the baked endpoint. A reconfigure re-bakes through
+        // the same helper.
+        super::code_context::bake_fold_chains(&registries, &code_context);
 
         register_llm_config(&llm_gateway, &config.llm)?;
 
@@ -525,6 +526,7 @@ impl Runtime {
             checkpoint_event_bridge_handle,
             gc_timer_handle,
             code_context_sidecar,
+            code_context_service: Some(code_context),
             output: config.output.clone(),
             presets: config.presets.clone(),
             tools: config.tools.clone(),

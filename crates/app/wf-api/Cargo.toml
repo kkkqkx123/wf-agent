@@ -34,6 +34,7 @@ wf-tools = { path = "../../engine/wf-tools" }
 wf-agent = { path = "../../engine/wf-agent" }
 wf-workflow = { path = "../../engine/wf-workflow" }
 wf-execution-shared = { path = "../../engine/wf-execution-shared" }
+wf-integration = { path = "../../infra/wf-integration" }
 wf-script = { path = "../../infra/wf-script" }
 portable-pty.workspace = true
 wf-sandbox = { path = "../../infra/wf-sandbox" }

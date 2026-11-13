@@ -235,13 +235,42 @@ pub struct CodeContextConfigInput {
     pub managed_binary: Option<String>,
     pub managed_port: Option<u16>,
     pub managed_startup_timeout_ms: Option<u64>,
+    pub managed_max_restarts: Option<u32>,
     pub fold_min_tokens: Option<usize>,
     pub fold_max_tokens: Option<usize>,
     pub fold_max_items: Option<usize>,
     pub fold_max_retries: Option<u32>,
+    pub fold_total_budget_ms: Option<u64>,
     pub default_project_id: Option<i64>,
     pub default_limit: Option<usize>,
     pub max_results: Option<usize>,
+    /// Who resolves and indexes the workspace project (`managed` | `external`).
+    /// Absent derives from the transport mode.
+    pub supply_mode: Option<String>,
+    pub managed_watch: Option<bool>,
+    pub watch_timeout_ms: Option<u64>,
+    /// Environment variable holding the bearer token. Declarations carry no
+    /// secrets, matching the LLM auth convention.
+    pub auth_token_env: Option<String>,
+    pub managed_log_level: Option<String>,
+}
+
+fn parse_supply_mode(
+    raw: Option<&str>,
+    transport: wf_integration::TransportMode,
+) -> ConfigResult<wf_integration::IndexSupplyMode> {
+    use wf_integration::{IndexSupplyMode, TransportMode};
+    match raw.map(str::trim).map(str::to_lowercase).as_deref() {
+        None | Some("") => Ok(match transport {
+            TransportMode::Managed => IndexSupplyMode::Managed,
+            TransportMode::External => IndexSupplyMode::External,
+        }),
+        Some("managed") => Ok(IndexSupplyMode::Managed),
+        Some("external") => Ok(IndexSupplyMode::External),
+        Some(other) => Err(ConfigError::Validation(format!(
+            "code-context supplyMode must be 'managed' or 'external', got '{other}'"
+        ))),
+    }
 }
 
 fn parse_transport_mode(raw: Option<&str>) -> ConfigResult<wf_integration::TransportMode> {
@@ -315,6 +344,11 @@ pub fn validate_code_context_config(input: &CodeContextConfigInput) -> ConfigRes
             "code-context foldMaxRetries must be at least 1".into(),
         ));
     }
+    if input.fold_total_budget_ms.is_some_and(|v| v < 1) {
+        return Err(ConfigError::Validation(
+            "code-context foldTotalBudgetMs must be at least 1".into(),
+        ));
+    }
     if input.default_limit.is_some_and(|v| v < 1) {
         return Err(ConfigError::Validation(
             "code-context defaultLimit must be at least 1".into(),
@@ -323,6 +357,20 @@ pub fn validate_code_context_config(input: &CodeContextConfigInput) -> ConfigRes
     if input.max_results.is_some_and(|v| v < 1) {
         return Err(ConfigError::Validation(
             "code-context maxResults must be at least 1".into(),
+        ));
+    }
+    if input.watch_timeout_ms.is_some_and(|v| v < 1) {
+        return Err(ConfigError::Validation(
+            "code-context watchTimeoutMs must be at least 1".into(),
+        ));
+    }
+    if input
+        .auth_token_env
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(ConfigError::Validation(
+            "code-context authTokenEnv must not be blank".into(),
         ));
     }
     Ok(())
@@ -335,11 +383,12 @@ pub fn transform_code_context_config(
 
     validate_code_context_config(&input)?;
     let defaults = Validated::default();
+    let transport_mode = parse_transport_mode(input.transport_mode.as_deref())?;
     Ok(Validated {
         enabled: input.enabled.unwrap_or(false),
         transport: wf_integration::ServiceTransport {
             timeout_ms: input.timeout_ms.unwrap_or(defaults.transport.timeout_ms),
-            transport_mode: parse_transport_mode(input.transport_mode.as_deref())?,
+            transport_mode,
             base_url: input.base_url.and_then(|url| {
                 let trimmed = url.trim();
                 (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -357,12 +406,31 @@ pub fn transform_code_context_config(
             managed_startup_timeout_ms: input
                 .managed_startup_timeout_ms
                 .unwrap_or(defaults.transport.managed_startup_timeout_ms),
+            managed_max_restarts: input
+                .managed_max_restarts
+                .unwrap_or(defaults.transport.managed_max_restarts),
+            auth_token_env: input
+                .auth_token_env
+                .and_then(|name| {
+                    let trimmed = name.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_string())
+                }),
+            managed_log_level: input
+                .managed_log_level
+                .and_then(|level| {
+                    let trimmed = level.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_string())
+                })
+                .unwrap_or(defaults.transport.managed_log_level),
         },
         fold: wf_integration::FoldPolicy {
             min_tokens: input.fold_min_tokens.unwrap_or(defaults.fold.min_tokens),
             max_tokens: input.fold_max_tokens.unwrap_or(defaults.fold.max_tokens),
             max_items: input.fold_max_items.unwrap_or(defaults.fold.max_items),
             max_retries: input.fold_max_retries.unwrap_or(defaults.fold.max_retries),
+            total_budget_ms: input
+                .fold_total_budget_ms
+                .unwrap_or(defaults.fold.total_budget_ms),
         },
         retrieval: wf_integration::RetrievalPolicy {
             default_project_id: input.default_project_id,
@@ -370,6 +438,15 @@ pub fn transform_code_context_config(
                 .default_limit
                 .unwrap_or(defaults.retrieval.default_limit),
             max_results: input.max_results.unwrap_or(defaults.retrieval.max_results),
+        },
+        project: wf_integration::ProjectPolicy {
+            supply: parse_supply_mode(input.supply_mode.as_deref(), transport_mode)?,
+            managed_watch: input
+                .managed_watch
+                .unwrap_or(defaults.project.managed_watch),
+            watch_timeout_ms: input
+                .watch_timeout_ms
+                .unwrap_or(defaults.project.watch_timeout_ms),
         },
     })
 }
@@ -447,7 +524,9 @@ mod tests {
         assert_eq!(config.transport.timeout_ms, 60_000);
         assert_eq!(config.fold.max_tokens, 2000);
         assert_eq!(config.fold.min_tokens, 800);
-        assert!(!config.is_usable());
+        assert_eq!(config.transport.managed_max_restarts, 3);
+        assert_eq!(config.fold.total_budget_ms, 60_000);
+        assert!(!config.enabled);
 
         let err = transform_code_context_config(CodeContextConfigInput {
             enabled: Some(true),
@@ -455,7 +534,6 @@ mod tests {
         })
         .unwrap_err();
         assert!(matches!(err, ConfigError::Validation(_)));
-
         let err = transform_code_context_config(CodeContextConfigInput {
             enabled: Some(true),
             base_url: Some("ftp://host".into()),
@@ -473,25 +551,62 @@ mod tests {
 
         let config = transform_code_context_config(CodeContextConfigInput {
             enabled: Some(true),
-            base_url: Some("http://localhost:9000".into()),
+            base_url: Some("http://localhost:9000/".into()),
+            fold_total_budget_ms: Some(5_000),
             ..Default::default()
         })
         .unwrap();
-        assert!(config.is_usable());
-        assert!(config.external_base_url().is_some());
+        assert!(config.enabled);
+        assert_eq!(
+            config.transport.normalized_base_url().as_deref(),
+            Some("http://localhost:9000")
+        );
+        assert_eq!(config.fold.total_budget_ms, 5_000);
 
         let config = transform_code_context_config(CodeContextConfigInput {
             enabled: Some(true),
             transport_mode: Some("managed".into()),
+            managed_max_restarts: Some(1),
             ..Default::default()
         })
         .unwrap();
-        assert!(config.is_usable());
-        assert!(config.external_base_url().is_none());
-        let resolved = config.with_managed_address("http://127.0.0.1:9123".into());
+        assert!(config.enabled);
+        assert!(config.transport.normalized_base_url().is_none());
+        assert_eq!(config.transport.managed_max_restarts, 1);
+        // Supply mode follows the transport mode unless declared.
         assert_eq!(
-            resolved.external_base_url().as_deref(),
-            Some("http://127.0.0.1:9123")
+            config.project.supply,
+            wf_integration::IndexSupplyMode::Managed
         );
+
+        let declared = transform_code_context_config(CodeContextConfigInput {
+            enabled: Some(true),
+            base_url: Some("http://localhost:9000".into()),
+            supply_mode: Some("managed".into()),
+            managed_watch: Some(false),
+            auth_token_env: Some(" CCE_TOKEN ".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            declared.project.supply,
+            wf_integration::IndexSupplyMode::Managed
+        );
+        assert!(!declared.project.managed_watch);
+        assert_eq!(declared.transport.auth_token_env.as_deref(), Some("CCE_TOKEN"));
+
+        let err = transform_code_context_config(CodeContextConfigInput {
+            supply_mode: Some("neither".into()),
+            ..Default::default()
+        })
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Validation(_)));
+
+        let err = transform_code_context_config(CodeContextConfigInput {
+            fold_total_budget_ms: Some(0),
+            ..Default::default()
+        })
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Validation(_)));
     }
 }

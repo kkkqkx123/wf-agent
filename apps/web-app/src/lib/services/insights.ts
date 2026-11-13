@@ -206,12 +206,34 @@ export async function listInsightDependencies(): Promise<Dependency[]> {
 	return items.map(toInsightDependency);
 }
 
+/**
+ * Code-context service verdict: one row answering whether the service can be
+ * used right now and, if not, why. The server view is read-only, so polling it
+ * costs nothing.
+ */
+export async function getCodeContextDiagnostic(): Promise<Diagnostic> {
+	const view = await call<{
+		enabled?: boolean;
+		usable?: boolean;
+		summary?: string;
+	} | null>(client.GET('/api/v1/system/code-context'));
+	const enabled = Boolean(view?.enabled);
+	const usable = Boolean(view?.usable);
+	return {
+		name: 'Code context',
+		status: !enabled ? 'info' : usable ? 'healthy' : 'degraded',
+		value: !enabled ? 'disabled' : usable ? 'usable' : 'unavailable',
+		detail: view?.summary ?? '',
+	};
+}
+
 /** Diagnostics aggregated from health and storage probes. */
 export async function listInsightDiagnostics(): Promise<Diagnostic[]> {
 	const results = await Promise.allSettled([
 		call<InsightHealthDto>(client.GET('/health')),
 		call<unknown>(client.GET('/api/v1/storage/diagnose')),
 		call<unknown>(client.GET('/api/v1/storage/stats')),
+		call<unknown>(client.GET('/api/v1/system/code-context')),
 	]);
 	const diagnostics: Diagnostic[] = [];
 	if (results[0].status === 'fulfilled') {
@@ -258,6 +280,21 @@ export async function listInsightDiagnostics(): Promise<Diagnostic[]> {
 			status: 'info',
 			value: JSON.stringify(results[2].value).slice(0, 120),
 			detail: '',
+		});
+	}
+	if (results[3].status === 'fulfilled') {
+		const view = results[3].value as {
+			enabled?: boolean;
+			usable?: boolean;
+			summary?: string;
+		} | null;
+		const enabled = Boolean(view?.enabled);
+		const usable = Boolean(view?.usable);
+		diagnostics.push({
+			name: 'Code context',
+			status: !enabled ? 'info' : usable ? 'healthy' : 'degraded',
+			value: !enabled ? 'disabled' : usable ? 'usable' : 'unavailable',
+			detail: view?.summary ?? '',
 		});
 	}
 	return diagnostics;

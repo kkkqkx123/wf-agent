@@ -2237,6 +2237,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cli/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_cli_snapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dependencies/audit": {
         parameters: {
             query?: never;
@@ -6882,6 +6898,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/code-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_code_context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/code-context/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_dead_letters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/code-context/dead-letters/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_dead_letters_acknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/code-context/dead-letters/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_dead_letters_retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/code-context/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_code_context_reindex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/debug/heap": {
         parameters: {
             query?: never;
@@ -9422,6 +9518,27 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_CliSnapshot: {
+            /**
+             * @description Versioned CLI snapshot published by the server. `revision` is a
+             *     content fingerprint, not a counter: shells compare it for equality
+             *     and replace the whole snapshot on change, never diffing entries.
+             */
+            data?: {
+                commands: components["schemas"]["CliCommandView"][];
+                completions: components["schemas"]["CliCompletionSource"][];
+                markdown_rules: components["schemas"]["CliMarkdownRule"][];
+                /**
+                 * Format: int64
+                 * @description Content fingerprint of the five contribution sets.
+                 */
+                revision: number;
+                settings: components["schemas"]["CliSettingField"][];
+                tool_summaries: components["schemas"]["CliToolSummary"][];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_ConnectView: {
             data?: {
                 token: string;
@@ -11092,6 +11209,117 @@ export interface components {
             /** Format: int64 */
             older_than?: number | null;
         };
+        /**
+         * @description Applicability condition of a snapshot command. Carried for fidelity;
+         *     shells ignore it until host-side condition evaluation lands.
+         */
+        CliCommandCondition: {
+            /** @description Hide the command while any overlay or modal is open. */
+            hide_when_overlay?: boolean;
+            /** @description Only offer the command while connected to the server. */
+            require_connected?: boolean;
+            /** @description Identity roles admitting the command (empty means every role). */
+            roles?: string[];
+            /** @description Screen names admitting the command (empty means every screen). */
+            screens?: string[];
+        };
+        /**
+         * @description One user-facing command in the snapshot: slash entry, palette row and
+         *     help line share this definition. Mirrors the SDK command shape.
+         */
+        CliCommandView: {
+            /** @description One-line description for palette filtering and help. */
+            description: string;
+            /** @description Palette group and help section. */
+            group: string;
+            /** @description Stable command id (`<plugin>.<verb>`); doubles as the registry key. */
+            id: string;
+            /** @description Display-only default key hint; the host keymap always wins. */
+            key_hint?: string | null;
+            /** @description Whether the command appears in the command palette. */
+            palette?: boolean;
+            /** @description Extra slash spellings, all without the leading slash. */
+            slash_aliases?: string[];
+            /** @description Argument syntax shown in help (`""` when the command takes none). */
+            slash_argument?: string;
+            /**
+             * @description Slash name without the leading slash (`None` hides the slash entry
+             *     while keeping the palette row).
+             */
+            slash_name?: string | null;
+            /** @description Short display title for palette rows and help. */
+            title: string;
+            /** @description Applicability condition evaluated by the host (ignored for now). */
+            when?: components["schemas"]["CliCommandCondition"];
+        };
+        /** @description One static completion item in the snapshot. */
+        CliCompletionItem: {
+            /** @description One-line description shown beside the label. */
+            description?: string | null;
+            /** @description Display label (defaults to the value in the host). */
+            label?: string | null;
+            /** @description Text inserted on accept. */
+            value: string;
+        };
+        /** @description One static completion source in the snapshot; `id` is the registry key. */
+        CliCompletionSource: {
+            id: string;
+            /** @description Items offered while the trigger is active. */
+            items?: components["schemas"]["CliCompletionItem"][];
+            /** @description Trigger characters activating this source (`#`, `@`, `/`). */
+            trigger_chars: string[];
+        };
+        /**
+         * @description One Markdown rewrite rule in the snapshot; `id` is the registry key.
+         *     The pattern is always literal text, never an expression.
+         */
+        CliMarkdownRule: {
+            /** @description Rule id; doubles as the registry key. */
+            id: string;
+            /** @description Literal text to replace (never empty, never a pattern). */
+            pattern: string;
+            /** @description Replacement text. */
+            replacement?: string;
+            /** @description Surfaces the rule runs on; empty means every surface. */
+            surfaces?: string[];
+        };
+        /** @description One settings row in the snapshot; `key` is the registry key. */
+        CliSettingField: {
+            /** @description Value used when nothing is stored. */
+            fallback: string;
+            /** @description Dotted key (`<plugin>.<name>`); doubles as the registry key. */
+            key: string;
+            /** @description Display label for the settings row. */
+            label: string;
+            /** @description Allowed values; empty means free-form text. */
+            values?: string[];
+        };
+        /**
+         * @description Versioned CLI snapshot published by the server. `revision` is a
+         *     content fingerprint, not a counter: shells compare it for equality
+         *     and replace the whole snapshot on change, never diffing entries.
+         */
+        CliSnapshot: {
+            commands: components["schemas"]["CliCommandView"][];
+            completions: components["schemas"]["CliCompletionSource"][];
+            markdown_rules: components["schemas"]["CliMarkdownRule"][];
+            /**
+             * Format: int64
+             * @description Content fingerprint of the five contribution sets.
+             */
+            revision: number;
+            settings: components["schemas"]["CliSettingField"][];
+            tool_summaries: components["schemas"]["CliToolSummary"][];
+        };
+        /** @description One tool summary template in the snapshot; `tool_name` is the key. */
+        CliToolSummary: {
+            /** @description Template for the pending/running call line. */
+            call_template?: string;
+            /** @description Template for the settled result line. */
+            result_template?: string;
+            /** @description Tool name this summary renders; doubles as the registry key. */
+            tool_name: string;
+        };
         CloneBody: {
             new_id?: string | null;
         };
@@ -11202,6 +11430,31 @@ export interface components {
             cycle_edges: string[];
             cycle_nodes: string[];
             has_cycle: boolean;
+        };
+        /**
+         * @description Body of `POST /api/v1/system/code-context/dead-letters/acknowledge`.
+         *
+         *     Acknowledging stops the retry passes for one module of one file: it is the
+         *     operator saying "this failure is accepted", not a repair.
+         */
+        DeadLetterAcknowledgeBody: {
+            /** @description Recorded file path of the dead letter. */
+            file_path: string;
+            /**
+             * @description Module to acknowledge (relation / summary / embedding / bm25 / export).
+             *     Omitted acknowledges every module of the file.
+             */
+            module?: string | null;
+        };
+        /**
+         * @description Body of `POST /api/v1/system/code-context/dead-letters/retry`.
+         *
+         *     Paths are project-relative as the service records them. An empty list
+         *     retries every candidate.
+         */
+        DeadLetterRetryBody: {
+            /** @description Files to retry; empty retries every dead letter. */
+            files?: string[];
         };
         /** @description One edge of the agent decision graph. */
         DecisionEdgeDoc: {
@@ -25346,6 +25599,61 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_cli_snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versioned CLI contribution snapshot; empty when the server runs no plugins */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CliSnapshot"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -44220,13 +44528,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Export payload in the requested format */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "text/plain": string;
+                    "application/json": unknown;
                 };
             };
             /** @description Invalid parameters */
@@ -48678,6 +48987,325 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_code_context: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_dead_letters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dead-lettered files of the workspace project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service not attached or maintenance rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_dead_letters_acknowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeadLetterAcknowledgeBody"];
+            };
+        };
+        responses: {
+            /** @description Acknowledge outcome */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service not attached or maintenance rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_dead_letters_retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeadLetterRetryBody"];
+            };
+        };
+        responses: {
+            /** @description Retry outcome */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service not attached or maintenance rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_code_context_reindex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated status view after the reindex was queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service not attached or reindex rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {

@@ -269,6 +269,11 @@ impl ContextProcessorHandler {
         let params = FoldParams {
             base_url: service_config(config, "service_base_url")?,
             timeout_ms: usize_config(config, "service_timeout_ms", 60_000)? as u64,
+            total_budget_ms: usize_config(
+                config,
+                "total_budget_ms",
+                defaults.total_budget_ms as usize,
+            )? as u64,
             min_tokens: usize_config(config, "min_tokens", defaults.min_tokens)?,
             max_tokens: usize_config(config, "max_tokens", defaults.max_tokens)?.max(1),
             max_items: usize_config(config, "max_items", defaults.max_items)?.max(1),

@@ -19,6 +19,7 @@ use wf_metrics::{
 };
 
 use crate::envelope::{err, InvalidParams};
+use crate::metrics::text_response;
 
 pub(crate) const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
@@ -180,7 +181,10 @@ pub(crate) struct ExportQuery {
     tag = "system",
     params(ExportQuery),
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Export payload in the requested format", content(
+            (String = "text/plain"),
+            (serde_json::Value = "application/json"),
+        )),
         (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -190,13 +194,15 @@ pub(crate) async fn handle_export(
     State(state): State<RegistryState>,
     Query(query): Query<ExportQuery>,
 ) -> Response {
+    // An export is a payload, not an envelope: a Prometheus scrape or a JSON
+    // dump is consumed as-is by whatever asked for that format, so wrapping it
+    // would break both readers.
     match query.format.as_deref() {
-        Some("json") | None => {
-            crate::envelope::ok(format_registry_json(&state.registry)).into_response()
-        }
-        Some("prometheus") => {
-            crate::envelope::ok(format_registry_prometheus(&state.registry)).into_response()
-        }
+        Some("json") | None => axum::Json(format_registry_json(&state.registry)).into_response(),
+        Some("prometheus") => text_response(
+            PROMETHEUS_CONTENT_TYPE,
+            format_registry_prometheus(&state.registry),
+        ),
         Some(other) => err(InvalidParams::validation(format!(
             "unsupported export format: {other}"
         )))

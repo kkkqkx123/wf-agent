@@ -10,7 +10,7 @@ pub async fn init_tool_registry_with_mcp(
     skill_loader: Arc<wf_tools::SkillLoader>,
     mcp_manager: &Option<Arc<wf_tools::mcp::connection::McpConnectionManager>>,
     event_bus: &Arc<wf_core::event::EventBus>,
-    code_context: Option<wf_integration::CodeContextConfig>,
+    code_context: Option<wf_integration::SharedCodeContextService>,
 ) -> RuntimeResult<Arc<wf_tools::registry::ToolRegistry>> {
     if shell_config.output_event_enabled && shell_config.event_sink.is_none() {
         shell_config.event_sink = Some(Arc::new(
@@ -37,7 +37,7 @@ pub async fn init_tool_registry_with_mcp(
                 scope_mode: fs_scope_mode,
                 ..Default::default()
             },
-            code_context: code_context.unwrap_or_default(),
+            code_context: Some(code_context.unwrap_or_default()),
             ..Default::default()
         },
     )

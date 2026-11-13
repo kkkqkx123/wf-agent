@@ -312,7 +312,11 @@ mod tests {
         let ctx = make_ctx();
         crate::checkpoint::record::save_checkpoint(
             &ctx.storage,
-            &ghost_checkpoint("cp-ghost", "exec-ghost", "checkpoint"),
+            &ghost_checkpoint(
+                "cp-ghost",
+                "exec-ghost",
+                ExecutionDomain::Workflow.checkpoint_entity_type(),
+            ),
         )
         .await
         .unwrap();

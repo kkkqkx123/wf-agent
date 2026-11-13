@@ -37,3 +37,29 @@
 # denied_commands = ["sudo", "su"]
 # read_commands = ["ls", "cat", "git"]
 # write_commands = ["cargo", "npm", "python3"]
+# Code-context service (CCE server) backing the fold stage of context
+# compression and the code_search / code_keyword_search / code_symbols /
+# code_references / code_definition / read_file_folded tools.
+# Omit the whole section (or set enabled = false) to leave the service off.
+[code_context]
+# enabled = false
+# transport_mode = "external"            # external | managed
+# base_url = "http://127.0.0.1:9000"     # required when enabled with external transport
+# timeout_ms = 60000                     # per-call timeout
+# managed_binary = "cce-server"          # PATH lookup when relative
+# managed_port = 0                       # 0 picks an ephemeral loopback port
+# managed_startup_timeout_ms = 15000
+# managed_max_restarts = 3               # restarts after unexpected exits
+# managed_log_level = "info"             # passed to the child process environment
+# auth_token_env = "CCE_TOKEN"           # env var name holding the bearer token
+# fold_min_tokens = 800
+# fold_max_tokens = 2000
+# fold_max_items = 32
+# fold_max_retries = 2
+# fold_total_budget_ms = 60000           # whole fold stage; exhaustion skips folding
+# supply_mode = "managed"                # managed | external (derived from transport_mode)
+# managed_watch = true                   # managed supply keeps the index fresh
+# watch_timeout_ms = 10000
+# default_project_id = 1                 # explicit override, not the source of truth
+# default_limit = 10
+# max_results = 100

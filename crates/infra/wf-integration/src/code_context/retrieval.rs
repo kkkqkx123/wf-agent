@@ -142,15 +142,6 @@ pub fn require_query(parameters: &Value) -> Result<String, String> {
         .ok_or_else(|| "Missing or invalid 'query' parameter".to_string())
 }
 
-/// Resolve the project id from the call or the configured default.
-pub fn resolve_project_id(parameters: &Value, default: Option<i64>) -> Result<i64, String> {
-    parameters
-        .get("project_id")
-        .and_then(|v| v.as_i64())
-        .or(default)
-        .ok_or_else(|| "Missing 'project_id' and no default project is configured".to_string())
-}
-
 /// Clamp a caller-supplied count to the policy budget. The policy default
 /// applies when the call names nothing; the policy ceiling applies above
 /// it; the service applies its own hard limit beyond that.
@@ -253,11 +244,6 @@ mod tests {
     fn query_and_project_validation() {
         assert!(require_query(&serde_json::json!({ "query": "fold" })).is_ok());
         assert!(require_query(&serde_json::json!({})).is_err());
-        assert_eq!(
-            resolve_project_id(&serde_json::json!({}), Some(3)).unwrap(),
-            3
-        );
-        assert!(resolve_project_id(&serde_json::json!({}), None).is_err());
         assert_eq!(clamp_limit(Some(99), 10, 100), 99);
         assert_eq!(clamp_limit(Some(999), 10, 100), 100);
         assert_eq!(clamp_limit(None, 10, 100), 10);

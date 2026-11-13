@@ -105,6 +105,9 @@ pub struct Runtime {
     /// Supervised local code-context service for managed transport. Kept
     /// alive for the runtime lifetime and stopped during shutdown.
     pub(super) code_context_sidecar: Option<wf_integration::RunningSidecar>,
+    /// Live code-context service state. Shared with the API context so
+    /// diagnostics read the same instance every consumer uses.
+    pub(super) code_context_service: Option<wf_integration::SharedCodeContextService>,
 }
 
 impl Runtime {

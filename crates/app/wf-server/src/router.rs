@@ -150,6 +150,7 @@ pub fn api_router_with_dirs(
         // own absolute prefixes and is merged at the root below)
         .merge(api::system::events::routes())
         .merge(api::system::dependencies::routes())
+        .merge(api::system::code_context::routes())
         .merge(api::system::directories::routes())
         .merge(api::system::server::routes())
         .merge(ws::routes());

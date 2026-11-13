@@ -11,7 +11,21 @@ fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
     Arc::new(gateway)
 }
 
+/// Compaction tuning is a process-wide install performed by runtime bootstrap.
+/// These tests build their context directly, so they install the built-in
+/// limits first: a missing install panics loudly by design rather than
+/// silently falling back to defaults.
+fn install_compaction_limits() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        wf_execution_shared::set_process_compaction_limits(
+            wf_execution_shared::builtin_compaction_limits(),
+        );
+    });
+}
+
 fn make_ctx() -> Arc<ApiContext> {
+    install_compaction_limits();
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::text("hello from mock"));
     let mut ctx = ApiContext::from_runtime_parts(
@@ -97,6 +111,7 @@ async fn runs_agent_loop_to_completion() {
 /// the persisted branches of the agent queries return real data.
 #[tokio::test]
 async fn persisted_agent_execution_readable_after_restart() {
+    install_compaction_limits();
     let storage = Arc::new(StorageContext::new_memory());
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::text("persisted agent"));

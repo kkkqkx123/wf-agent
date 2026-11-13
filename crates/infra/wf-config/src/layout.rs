@@ -58,6 +58,13 @@ pub const META_DIR: &str = "meta";
 /// command output and other regenerable artifacts.
 pub const TMP_DIR: &str = "tmp";
 
+/// Managed code-context service stores under
+/// `{project_root}/.wf/code-context`: the embedded metadata, vector and
+/// keyword stores owned by this workspace. Workspace-scoped so two projects
+/// never share one index, and ignored so the stores never enter version
+/// control.
+pub const CODE_CONTEXT_DIR: &str = "code-context";
+
 /// Content of the `.gitignore` maintained inside each volatile directory:
 /// ignore everything but keep the ignore file itself tracked-ignored.
 pub const VOLATILE_GITIGNORE_CONTENT: &str = "*\n!.gitignore\n";
@@ -80,6 +87,21 @@ pub fn ensure_project_wf_volatile_dirs(project_root: &std::path::Path) -> std::i
         }
     }
     Ok(())
+}
+
+/// Create the managed code-context data directory with its ignore file and
+/// return the path. The stores are regenerable index caches, so they follow
+/// the same never-commit convention as the other volatile directories.
+pub fn ensure_project_code_context_dir(
+    project_root: &std::path::Path,
+) -> std::io::Result<std::path::PathBuf> {
+    let dir = project_root.join(PROJECT_WF_DIR).join(CODE_CONTEXT_DIR);
+    std::fs::create_dir_all(&dir)?;
+    let ignore = dir.join(GITIGNORE_FILE);
+    if std::fs::read(&ignore).is_err() {
+        std::fs::write(&ignore, VOLATILE_GITIGNORE_CONTENT)?;
+    }
+    Ok(dir)
 }
 
 /// Project-layer infrastructure directory:

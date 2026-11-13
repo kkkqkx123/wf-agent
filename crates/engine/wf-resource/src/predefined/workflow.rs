@@ -31,15 +31,17 @@ pub fn workflow_metadata(tags: &[&str]) -> WorkflowMetadata {
 }
 
 pub use child::prefetch::{
-    create_prefetch_workflow, prefetch_inline_definition, PREFETCH_AGENT_NODE_ID,
-    PREFETCH_AVAILABLE_TOOLS, PREFETCH_END_NODE_ID, PREFETCH_START_NODE_ID, PREFETCH_WORKFLOW_ID,
+    code_context_tools, create_prefetch_workflow, create_prefetch_workflow_with_tools,
+    prefetch_inline_definition, prefetch_inline_definition_with_tools, PREFETCH_AGENT_NODE_ID,
+    PREFETCH_END_NODE_ID, PREFETCH_START_NODE_ID, PREFETCH_WORKFLOW_ID,
 };
 
 pub use child::fold_summary::{
-    create_fold_summary_repress_workflow, create_fold_summary_workflow,
-    create_fold_summary_workflow_with_policy, create_fold_summary_workflow_with_service,
-    FOLD_SUMMARY_END_NODE_ID, FOLD_SUMMARY_FOLD_NODE_ID, FOLD_SUMMARY_LLM_NODE_ID,
-    FOLD_SUMMARY_REPRESS_WORKFLOW_ID, FOLD_SUMMARY_START_NODE_ID, FOLD_SUMMARY_WORKFLOW_ID,
+    create_fold_summary_repress_workflow, create_fold_summary_repress_workflow_with_service,
+    create_fold_summary_workflow, create_fold_summary_workflow_with_policy,
+    create_fold_summary_workflow_with_service, FOLD_SUMMARY_END_NODE_ID, FOLD_SUMMARY_FOLD_NODE_ID,
+    FOLD_SUMMARY_LLM_NODE_ID, FOLD_SUMMARY_REPRESS_WORKFLOW_ID, FOLD_SUMMARY_START_NODE_ID,
+    FOLD_SUMMARY_WORKFLOW_ID,
 };
 
 pub use registration::register;

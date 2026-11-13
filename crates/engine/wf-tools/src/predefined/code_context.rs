@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use wf_integration::{CodeContextConfig, FoldBatchItem, FoldBatchRequest, FoldClient};
+use wf_integration::{FoldBatchItem, FoldBatchRequest, FoldClient};
 
 use super::schema::{ToolDefinition, ToolParameter};
 use crate::error::{ToolError, ToolResult};
@@ -141,32 +141,63 @@ pub const ALL: &[&ToolDefinition] = &[
     &CODE_DEFINITION,
 ];
 
-fn base_url(config: &CodeContextConfig) -> ToolResult<String> {
-    if !config.is_usable() {
-        return Err(ToolError::ExecutionError(
-            "Code-context service is not configured".into(),
-        ));
+/// Resolve the endpoint for one call scope.
+///
+/// Every handler validates its parameters first, so a malformed call never
+/// pays a service probe, and then asks the service for an endpoint: the
+/// answer reflects the live state (disabled, unresolved, failed to start,
+/// unreachable, or missing a subsystem the call needs).
+async fn endpoint_for(
+    service: &wf_integration::CodeContextService,
+    scope: wf_integration::CallScope,
+) -> ToolResult<String> {
+    service
+        .endpoint_for(scope)
+        .await
+        .map_err(ToolError::ExecutionError)
+}
+
+fn client(service: &wf_integration::CodeContextService) -> ToolResult<reqwest::Client> {
+    service.client().map_err(ToolError::ExecutionError)
+}
+
+/// Resolve the project for one call from the live service state. The call's
+/// own `project_id` wins; otherwise the runtime-resolved workspace project
+/// applies, and a project that is not ready fails with a project-state reason
+/// instead of a bare number.
+async fn resolve_project_id(
+    service: &Arc<wf_integration::CodeContextService>,
+    parameters: &Value,
+) -> ToolResult<i64> {
+    service
+        .project_id_for(parameters.get("project_id").and_then(|v| v.as_i64()))
+        .await
+        .map_err(ToolError::ValidationFailed)
+}
+
+/// Capability scope a code-context tool needs. Single mapping shared by the
+/// runtime gate (handler) and the assembly-time visibility filter.
+pub fn scope_of(tool_id: &str) -> Option<wf_integration::CallScope> {
+    use wf_integration::CallScope;
+    match tool_id {
+        "code_search" => Some(CallScope::HybridSearch),
+        "code_keyword_search" => Some(CallScope::KeywordSearch),
+        "code_symbols" | "code_references" | "code_definition" => Some(CallScope::Navigation),
+        "read_file_folded" => Some(CallScope::Fold),
+        _ => None,
     }
-    config.external_base_url().ok_or_else(|| {
-        ToolError::ExecutionError(
-            "Code-context service address is unresolved (managed transport starts at bootstrap)"
-                .into(),
-        )
-    })
 }
 
 /// Create the async handler for the code_search tool.
 pub fn code_search_handler(
-    config: &CodeContextConfig,
+    service: &wf_integration::SharedCodeContextService,
     fs: &FsToolHandlers,
 ) -> StatelessAsyncHandler {
-    let config = config.clone();
+    let service = Arc::clone(service);
     let fs = fs.clone();
-    let client = wf_integration::http_client(config.transport.timeout_ms);
     Arc::new(move |parameters: Value, ctx| {
-        let config = config.clone();
+        let service = Arc::clone(&service);
         let fs = fs.clone();
-        let client = client.clone();
         Box::pin(async move {
             let directory_prefix = parameters
                 .get("directory_prefix")
@@ -177,22 +208,19 @@ pub fn code_search_handler(
             if let Some(prefix) = directory_prefix {
                 fs.ensure_read_scoped("code_search", prefix, &ctx)?;
             }
-            let client = client.map_err(ToolError::ExecutionError)?;
-            let base = base_url(&config)?;
             let query =
                 wf_integration::require_query(&parameters).map_err(ToolError::ValidationFailed)?;
-            let project_id = wf_integration::resolve_project_id(
-                &parameters,
-                config.retrieval.default_project_id,
-            )
-            .map_err(ToolError::ValidationFailed)?;
+            let project_id = resolve_project_id(&service, &parameters).await?;
+            let config = service.config();
             let limit = wf_integration::clamp_limit(
                 parameters.get("limit").and_then(|v| v.as_u64()),
                 config.retrieval.default_limit,
                 config.retrieval.max_results,
             );
+            let base = endpoint_for(&service, wf_integration::CallScope::HybridSearch).await?;
+            let http = client(&service)?;
             wf_integration::search(
-                &client,
+                &http,
                 &base,
                 config.transport.timeout_ms,
                 &query,
@@ -207,29 +235,26 @@ pub fn code_search_handler(
 }
 
 /// Create the async handler for the code_keyword_search tool.
-pub fn code_keyword_search_handler(config: &CodeContextConfig) -> StatelessAsyncHandler {
-    let config = config.clone();
-    let client = wf_integration::http_client(config.transport.timeout_ms);
+pub fn code_keyword_search_handler(
+    service: &wf_integration::SharedCodeContextService,
+) -> StatelessAsyncHandler {
+    let service = Arc::clone(service);
     Arc::new(move |parameters: Value, _ctx| {
-        let config = config.clone();
-        let client = client.clone();
+        let service = Arc::clone(&service);
         Box::pin(async move {
-            let client = client.map_err(ToolError::ExecutionError)?;
-            let base = base_url(&config)?;
             let query =
                 wf_integration::require_query(&parameters).map_err(ToolError::ValidationFailed)?;
-            let project_id = wf_integration::resolve_project_id(
-                &parameters,
-                config.retrieval.default_project_id,
-            )
-            .map_err(ToolError::ValidationFailed)?;
+            let project_id = resolve_project_id(&service, &parameters).await?;
+            let config = service.config();
             let top_n = wf_integration::clamp_limit(
                 parameters.get("top_n").and_then(|v| v.as_u64()),
                 config.retrieval.default_limit,
                 config.retrieval.max_results,
             );
+            let base = endpoint_for(&service, wf_integration::CallScope::KeywordSearch).await?;
+            let http = client(&service)?;
             wf_integration::keyword_search(
-                &client,
+                &http,
                 &base,
                 config.transport.timeout_ms,
                 &query,
@@ -244,65 +269,47 @@ pub fn code_keyword_search_handler(config: &CodeContextConfig) -> StatelessAsync
 
 /// Create the async handler for the code_symbols tool.
 pub fn code_symbols_handler(
-    config: &CodeContextConfig,
+    service: &wf_integration::SharedCodeContextService,
     fs: &FsToolHandlers,
 ) -> StatelessAsyncHandler {
-    let config = config.clone();
+    let service = Arc::clone(service);
     let fs = fs.clone();
-    let client = wf_integration::http_client(config.transport.timeout_ms);
     Arc::new(move |parameters: Value, ctx| {
-        let config = config.clone();
+        let service = Arc::clone(&service);
         let fs = fs.clone();
-        let client = client.clone();
         Box::pin(async move {
             let paths =
                 wf_integration::resolve_paths(&parameters).map_err(ToolError::ValidationFailed)?;
             for path in &paths {
                 fs.ensure_read_scoped("code_symbols", path, &ctx)?;
             }
-            let client = client.map_err(ToolError::ExecutionError)?;
-            let base = base_url(&config)?;
-            let project_id = wf_integration::resolve_project_id(
-                &parameters,
-                config.retrieval.default_project_id,
-            )
-            .map_err(ToolError::ValidationFailed)?;
-            wf_integration::symbols(
-                &client,
-                &base,
-                config.transport.timeout_ms,
-                project_id,
-                &paths,
-            )
-            .await
-            .map_err(ToolError::ExecutionError)
+            let project_id = resolve_project_id(&service, &parameters).await?;
+            let config = service.config();
+            let base = endpoint_for(&service, wf_integration::CallScope::Navigation).await?;
+            let http = client(&service)?;
+            wf_integration::symbols(&http, &base, config.transport.timeout_ms, project_id, &paths)
+                .await
+                .map_err(ToolError::ExecutionError)
         })
     })
 }
 
 /// Create the async handler for the code_references tool.
 pub fn code_references_handler(
-    config: &CodeContextConfig,
+    service: &wf_integration::SharedCodeContextService,
     fs: &FsToolHandlers,
 ) -> StatelessAsyncHandler {
-    let config = config.clone();
+    let service = Arc::clone(service);
     let fs = fs.clone();
-    let client = wf_integration::http_client(config.transport.timeout_ms);
     Arc::new(move |parameters: Value, ctx| {
-        let config = config.clone();
+        let service = Arc::clone(&service);
         let fs = fs.clone();
-        let client = client.clone();
         Box::pin(async move {
             let path =
                 wf_integration::require_path(&parameters).map_err(ToolError::ValidationFailed)?;
             fs.ensure_read_scoped("code_references", &path, &ctx)?;
-            let client = client.map_err(ToolError::ExecutionError)?;
-            let base = base_url(&config)?;
-            let project_id = wf_integration::resolve_project_id(
-                &parameters,
-                config.retrieval.default_project_id,
-            )
-            .map_err(ToolError::ValidationFailed)?;
+            let project_id = resolve_project_id(&service, &parameters).await?;
+            let config = service.config();
             let line =
                 wf_integration::require_line(&parameters).map_err(ToolError::ValidationFailed)?;
             let column = wf_integration::optional_column(&parameters)
@@ -315,7 +322,9 @@ pub fn code_references_handler(
                 column,
                 symbol,
             };
-            wf_integration::references(&client, &base, config.transport.timeout_ms, &query)
+            let base = endpoint_for(&service, wf_integration::CallScope::Navigation).await?;
+            let http = client(&service)?;
+            wf_integration::references(&http, &base, config.transport.timeout_ms, &query)
                 .await
                 .map_err(ToolError::ExecutionError)
         })
@@ -324,27 +333,20 @@ pub fn code_references_handler(
 
 /// Create the async handler for the code_definition tool.
 pub fn code_definition_handler(
-    config: &CodeContextConfig,
+    service: &wf_integration::SharedCodeContextService,
     fs: &FsToolHandlers,
 ) -> StatelessAsyncHandler {
-    let config = config.clone();
+    let service = Arc::clone(service);
     let fs = fs.clone();
-    let client = wf_integration::http_client(config.transport.timeout_ms);
     Arc::new(move |parameters: Value, ctx| {
-        let config = config.clone();
+        let service = Arc::clone(&service);
         let fs = fs.clone();
-        let client = client.clone();
         Box::pin(async move {
             let path =
                 wf_integration::require_path(&parameters).map_err(ToolError::ValidationFailed)?;
             fs.ensure_read_scoped("code_definition", &path, &ctx)?;
-            let client = client.map_err(ToolError::ExecutionError)?;
-            let base = base_url(&config)?;
-            let project_id = wf_integration::resolve_project_id(
-                &parameters,
-                config.retrieval.default_project_id,
-            )
-            .map_err(ToolError::ValidationFailed)?;
+            let project_id = resolve_project_id(&service, &parameters).await?;
+            let config = service.config();
             let line =
                 wf_integration::require_line(&parameters).map_err(ToolError::ValidationFailed)?;
             let column = wf_integration::optional_column(&parameters)
@@ -361,8 +363,10 @@ pub fn code_definition_handler(
                 column,
                 symbol,
             };
+            let base = endpoint_for(&service, wf_integration::CallScope::Navigation).await?;
+            let http = client(&service)?;
             wf_integration::definition(
-                &client,
+                &http,
                 &base,
                 config.transport.timeout_ms,
                 &query,
@@ -382,13 +386,13 @@ pub fn code_definition_handler(
 /// tool error.
 pub fn read_file_folded_handler(
     fs: &FsToolHandlers,
-    config: &CodeContextConfig,
+    service: &wf_integration::SharedCodeContextService,
 ) -> StatelessAsyncHandler {
     let fs = fs.clone();
-    let config = config.clone();
+    let service = Arc::clone(service);
     Arc::new(move |parameters: Value, ctx| {
         let fs = fs.clone();
-        let config = config.clone();
+        let service = Arc::clone(&service);
         Box::pin(async move {
             let content = fs.read_file(&parameters, &ctx)?;
             let text = content.as_str().unwrap_or("").to_string();
@@ -399,23 +403,17 @@ pub fn read_file_folded_handler(
             if !fold_requested {
                 return Ok(serde_json::json!({ "content": text, "folded": false }));
             }
+            let config = service.config();
             if wf_llm::estimate_tokens(&text) < config.fold.min_tokens {
                 return Ok(serde_json::json!({ "content": text, "folded": false }));
             }
-            let Some(base) = config.external_base_url() else {
+            let Some(base) = service.endpoint() else {
                 return Ok(serde_json::json!({
                     "content": text,
                     "folded": false,
                     "skip_reason": "code-context service is not configured",
                 }));
             };
-            if !config.enabled {
-                return Ok(serde_json::json!({
-                    "content": text,
-                    "folded": false,
-                    "skip_reason": "code-context service is disabled",
-                }));
-            }
             let path = parameters
                 .get("path")
                 .and_then(|v| v.as_str())
@@ -424,13 +422,15 @@ pub fn read_file_folded_handler(
             item.language = wf_integration::infer_language_hint(path);
             item.file_name = wf_integration::file_base_name(path);
             item.max_tokens = Some(config.fold.max_tokens);
-            let client = FoldClient::new(base, config.transport.timeout_ms)
-                .map_err(ToolError::ExecutionError)?;
-            match client
-                .fold_batch(FoldBatchRequest {
-                    items: vec![item],
-                    max_tokens: Some(config.fold.max_tokens),
-                })
+            let fold_client = FoldClient::new(base, client(&service)?);
+            match fold_client
+                .fold_batch(
+                    FoldBatchRequest {
+                        items: vec![item],
+                        max_tokens: Some(config.fold.max_tokens),
+                    },
+                    config.transport.timeout_ms,
+                )
                 .await
             {
                 Ok(response) => {
@@ -448,10 +448,10 @@ pub fn read_file_folded_handler(
                         "structure_known": first.structure_known,
                     }))
                 }
-                Err(reason) => Ok(serde_json::json!({
+                Err(error) => Ok(serde_json::json!({
                     "content": text,
                     "folded": false,
-                    "skip_reason": reason,
+                    "skip_reason": error.reason,
                 })),
             }
         })
@@ -461,21 +461,28 @@ pub fn read_file_folded_handler(
 /// Register code-context tool handlers into the registry.
 pub fn register(
     registry: &ToolRegistry,
-    config: &CodeContextConfig,
+    service: &wf_integration::SharedCodeContextService,
     fs: &FsToolHandlers,
 ) -> ToolResult<()> {
-    registry.register_stateless_async_handler("code_search", code_search_handler(config, fs));
+    registry.register_stateless_async_handler("code_search", code_search_handler(service, fs));
     registry.register_stateless_async_handler(
         "code_keyword_search",
-        code_keyword_search_handler(config),
+        code_keyword_search_handler(service),
     );
-    registry.register_stateless_async_handler("code_symbols", code_symbols_handler(config, fs));
     registry
-        .register_stateless_async_handler("code_references", code_references_handler(config, fs));
-    registry
-        .register_stateless_async_handler("code_definition", code_definition_handler(config, fs));
-    registry
-        .register_stateless_async_handler("read_file_folded", read_file_folded_handler(fs, config));
+        .register_stateless_async_handler("code_symbols", code_symbols_handler(service, fs));
+    registry.register_stateless_async_handler(
+        "code_references",
+        code_references_handler(service, fs),
+    );
+    registry.register_stateless_async_handler(
+        "code_definition",
+        code_definition_handler(service, fs),
+    );
+    registry.register_stateless_async_handler(
+        "read_file_folded",
+        read_file_folded_handler(fs, service),
+    );
     Ok(())
 }
 
@@ -495,10 +502,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handlers_report_unconfigured_service() {
-        let config = CodeContextConfig::default();
+        let service = std::sync::Arc::new(wf_integration::CodeContextService::disabled());
         let registry = ToolRegistry::new();
         let fs = FsToolHandlers::new(Default::default());
-        register(&registry, &config, &fs).unwrap();
+        register(&registry, &service, &fs).unwrap();
         let cases = [
             (
                 "code_search",
@@ -543,7 +550,7 @@ mod tests {
                 .expect("tool call resolves");
             assert!(!result.success, "{id} must fail without a service");
             let reason = result.error.unwrap_or_default();
-            assert!(reason.contains("not configured"), "{id}: {reason}");
+            assert!(reason.contains("disabled"), "{id}: {reason}");
         }
     }
 
@@ -554,13 +561,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("a.txt");
         std::fs::write(&path, "hello\n").unwrap();
-        let config = CodeContextConfig::default();
+        let service = std::sync::Arc::new(wf_integration::CodeContextService::disabled());
         let registry = ToolRegistry::new();
         let fs = FsToolHandlers::new(crate::filesystem::FsToolConfig {
             workspace_dir: Some(root.clone()),
             ..Default::default()
         });
-        register(&registry, &config, &fs).unwrap();
+        register(&registry, &service, &fs).unwrap();
         registry.register_tool(READ_FILE_FOLDED.tool_def());
         let ctx = crate::executor::trait_def::ToolExecutionContext::new("exec-1".into());
         let options = wf_types::tool::ToolExecutionOptions {
@@ -588,17 +595,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_project_id_is_rejected() {
-        let config = CodeContextConfig {
-            enabled: true,
-            transport: ServiceTransport {
-                base_url: Some("http://localhost:9".into()),
+        let service = std::sync::Arc::new(wf_integration::CodeContextService::external(
+            wf_integration::CodeContextConfig {
+                enabled: true,
+                transport: ServiceTransport {
+                    base_url: Some("http://localhost:9".into()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            ..Default::default()
-        };
+        ));
         let registry = ToolRegistry::new();
         let fs = FsToolHandlers::new(Default::default());
-        register(&registry, &config, &fs).unwrap();
+        register(&registry, &service, &fs).unwrap();
         registry.register_tool(CODE_SEARCH.tool_def());
         let ctx = crate::executor::trait_def::ToolExecutionContext::new("exec-1".into());
         let options = wf_types::tool::ToolExecutionOptions {
@@ -625,13 +634,13 @@ mod tests {
     async fn test_directory_prefix_outside_scope_is_rejected() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("frontend")).unwrap();
-        let config = CodeContextConfig::default();
+        let service = std::sync::Arc::new(wf_integration::CodeContextService::disabled());
         let registry = ToolRegistry::new();
         let fs = FsToolHandlers::new(crate::filesystem::FsToolConfig {
             workspace_dir: Some(root.path().to_path_buf()),
             ..Default::default()
         });
-        register(&registry, &config, &fs).unwrap();
+        register(&registry, &service, &fs).unwrap();
         registry.register_tool(CODE_SEARCH.tool_def());
         let root_str = root.path().to_string_lossy().to_string();
         let frontend = root.path().join("frontend").to_string_lossy().to_string();

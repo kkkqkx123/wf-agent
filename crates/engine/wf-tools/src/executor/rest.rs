@@ -104,7 +104,7 @@ pub struct RestRequestSpec {
 
 impl RestExecutor {
     pub fn new() -> ToolResult<Self> {
-        let client = wf_integration::http_client(DEFAULT_REST_CLIENT_TIMEOUT_MS)
+        let client = wf_integration::http_client(DEFAULT_REST_CLIENT_TIMEOUT_MS, None)
             .map_err(ToolError::Internal)?;
         Ok(Self {
             client,

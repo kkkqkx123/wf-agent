@@ -15,7 +15,7 @@ mod tests;
 mod tool_registry;
 mod trigger;
 
-pub use code_context::resolve_code_context_transport;
+pub use code_context::resolve_code_context_service;
 #[cfg(feature = "plugins")]
 pub use config::PluginConfig;
 pub use config::{adjust_log_config, resolve_infra_config};

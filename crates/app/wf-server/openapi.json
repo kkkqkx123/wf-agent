@@ -12500,6 +12500,46 @@
         ]
       }
     },
+    "/api/v1/cli/snapshot": {
+      "get": {
+        "tags": [
+          "cli"
+        ],
+        "operationId": "handle_cli_snapshot",
+        "responses": {
+          "200": {
+            "description": "Versioned CLI contribution snapshot; empty when the server runs no plugins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_CliSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/dependencies/audit": {
       "get": {
         "tags": [
@@ -30892,12 +30932,15 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Export payload in the requested format",
             "content": {
-              "application/json": {
+              "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "type": "string"
                 }
+              },
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -35034,6 +35077,266 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/code-context": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_code_context",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/code-context/dead-letters": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_dead_letters",
+        "responses": {
+          "200": {
+            "description": "Dead-lettered files of the workspace project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "422": {
+            "description": "Service not attached or maintenance rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/code-context/dead-letters/acknowledge": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_dead_letters_acknowledge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeadLetterAcknowledgeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "422": {
+            "description": "Service not attached or maintenance rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/code-context/dead-letters/retry": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_dead_letters_retry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeadLetterRetryBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Retry outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "422": {
+            "description": "Service not attached or maintenance rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/code-context/reindex": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_code_context_reindex",
+        "responses": {
+          "200": {
+            "description": "Updated status view after the reindex was queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "422": {
+            "description": "Service not attached or reindex rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -48636,6 +48939,77 @@
           }
         }
       },
+      "ApiEnvelope_CliSnapshot": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Versioned CLI snapshot published by the server. `revision` is a\ncontent fingerprint, not a counter: shells compare it for equality\nand replace the whole snapshot on change, never diffing entries.",
+            "required": [
+              "revision",
+              "commands",
+              "completions",
+              "settings",
+              "tool_summaries",
+              "markdown_rules"
+            ],
+            "properties": {
+              "commands": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CliCommandView"
+                }
+              },
+              "completions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CliCompletionSource"
+                }
+              },
+              "markdown_rules": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CliMarkdownRule"
+                }
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Content fingerprint of the five contribution sets.",
+                "minimum": 0
+              },
+              "settings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CliSettingField"
+                }
+              },
+              "tool_summaries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CliToolSummary"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_ConnectView": {
         "type": "object",
         "required": [
@@ -54720,6 +55094,279 @@
           }
         }
       },
+      "CliCommandCondition": {
+        "type": "object",
+        "description": "Applicability condition of a snapshot command. Carried for fidelity;\nshells ignore it until host-side condition evaluation lands.",
+        "properties": {
+          "hide_when_overlay": {
+            "type": "boolean",
+            "description": "Hide the command while any overlay or modal is open."
+          },
+          "require_connected": {
+            "type": "boolean",
+            "description": "Only offer the command while connected to the server."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Identity roles admitting the command (empty means every role)."
+          },
+          "screens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Screen names admitting the command (empty means every screen)."
+          }
+        }
+      },
+      "CliCommandView": {
+        "type": "object",
+        "description": "One user-facing command in the snapshot: slash entry, palette row and\nhelp line share this definition. Mirrors the SDK command shape.",
+        "required": [
+          "id",
+          "title",
+          "group",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "One-line description for palette filtering and help."
+          },
+          "group": {
+            "type": "string",
+            "description": "Palette group and help section."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable command id (`<plugin>.<verb>`); doubles as the registry key."
+          },
+          "key_hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display-only default key hint; the host keymap always wins."
+          },
+          "palette": {
+            "type": "boolean",
+            "description": "Whether the command appears in the command palette."
+          },
+          "slash_aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Extra slash spellings, all without the leading slash."
+          },
+          "slash_argument": {
+            "type": "string",
+            "description": "Argument syntax shown in help (`\"\"` when the command takes none)."
+          },
+          "slash_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Slash name without the leading slash (`None` hides the slash entry\nwhile keeping the palette row)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short display title for palette rows and help."
+          },
+          "when": {
+            "$ref": "#/components/schemas/CliCommandCondition",
+            "description": "Applicability condition evaluated by the host (ignored for now)."
+          }
+        }
+      },
+      "CliCompletionItem": {
+        "type": "object",
+        "description": "One static completion item in the snapshot.",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One-line description shown beside the label."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display label (defaults to the value in the host)."
+          },
+          "value": {
+            "type": "string",
+            "description": "Text inserted on accept."
+          }
+        }
+      },
+      "CliCompletionSource": {
+        "type": "object",
+        "description": "One static completion source in the snapshot; `id` is the registry key.",
+        "required": [
+          "id",
+          "trigger_chars"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliCompletionItem"
+            },
+            "description": "Items offered while the trigger is active."
+          },
+          "trigger_chars": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Trigger characters activating this source (`#`, `@`, `/`)."
+          }
+        }
+      },
+      "CliMarkdownRule": {
+        "type": "object",
+        "description": "One Markdown rewrite rule in the snapshot; `id` is the registry key.\nThe pattern is always literal text, never an expression.",
+        "required": [
+          "id",
+          "pattern"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Rule id; doubles as the registry key."
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Literal text to replace (never empty, never a pattern)."
+          },
+          "replacement": {
+            "type": "string",
+            "description": "Replacement text."
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Surfaces the rule runs on; empty means every surface."
+          }
+        }
+      },
+      "CliSettingField": {
+        "type": "object",
+        "description": "One settings row in the snapshot; `key` is the registry key.",
+        "required": [
+          "key",
+          "label",
+          "fallback"
+        ],
+        "properties": {
+          "fallback": {
+            "type": "string",
+            "description": "Value used when nothing is stored."
+          },
+          "key": {
+            "type": "string",
+            "description": "Dotted key (`<plugin>.<name>`); doubles as the registry key."
+          },
+          "label": {
+            "type": "string",
+            "description": "Display label for the settings row."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed values; empty means free-form text."
+          }
+        }
+      },
+      "CliSnapshot": {
+        "type": "object",
+        "description": "Versioned CLI snapshot published by the server. `revision` is a\ncontent fingerprint, not a counter: shells compare it for equality\nand replace the whole snapshot on change, never diffing entries.",
+        "required": [
+          "revision",
+          "commands",
+          "completions",
+          "settings",
+          "tool_summaries",
+          "markdown_rules"
+        ],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliCommandView"
+            }
+          },
+          "completions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliCompletionSource"
+            }
+          },
+          "markdown_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliMarkdownRule"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Content fingerprint of the five contribution sets.",
+            "minimum": 0
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliSettingField"
+            }
+          },
+          "tool_summaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliToolSummary"
+            }
+          }
+        }
+      },
+      "CliToolSummary": {
+        "type": "object",
+        "description": "One tool summary template in the snapshot; `tool_name` is the key.",
+        "required": [
+          "tool_name"
+        ],
+        "properties": {
+          "call_template": {
+            "type": "string",
+            "description": "Template for the pending/running call line."
+          },
+          "result_template": {
+            "type": "string",
+            "description": "Template for the settled result line."
+          },
+          "tool_name": {
+            "type": "string",
+            "description": "Tool name this summary renders; doubles as the registry key."
+          }
+        }
+      },
       "CloneBody": {
         "type": "object",
         "properties": {
@@ -55099,6 +55746,39 @@
           },
           "has_cycle": {
             "type": "boolean"
+          }
+        }
+      },
+      "DeadLetterAcknowledgeBody": {
+        "type": "object",
+        "description": "Body of `POST /api/v1/system/code-context/dead-letters/acknowledge`.\n\nAcknowledging stops the retry passes for one module of one file: it is the\noperator saying \"this failure is accepted\", not a repair.",
+        "required": [
+          "file_path"
+        ],
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Recorded file path of the dead letter."
+          },
+          "module": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Module to acknowledge (relation / summary / embedding / bm25 / export).\nOmitted acknowledges every module of the file."
+          }
+        }
+      },
+      "DeadLetterRetryBody": {
+        "type": "object",
+        "description": "Body of `POST /api/v1/system/code-context/dead-letters/retry`.\n\nPaths are project-relative as the service records them. An empty list\nretries every candidate.",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files to retry; empty retries every dead letter."
           }
         }
       },

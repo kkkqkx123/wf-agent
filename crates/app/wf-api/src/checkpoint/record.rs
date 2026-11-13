@@ -453,10 +453,16 @@ mod tests {
     use super::*;
     use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 
+    /// Checkpoints of a workflow execution carry the workflow domain entity
+    /// type: the read paths resolve the domain through the execution resolver
+    /// and filter on it, so a fixture with the retired `checkpoint` name would
+    /// be invisible to every domain-scoped read.
+    const WORKFLOW_ENTITY_TYPE: &str = "workflow_execution";
+
     fn make_checkpoint(id: &str, entity_id: &str, ts: i64) -> Checkpoint {
         Checkpoint {
             id: id.into(),
-            entity_type: "checkpoint".into(),
+            entity_type: WORKFLOW_ENTITY_TYPE.into(),
             entity_id: entity_id.into(),
             parent_entity_id: None,
             checkpoint_type: CheckpointType::Full,
@@ -512,26 +518,29 @@ mod tests {
             .unwrap();
 
         // The storage adapter filters checkpoints by the record's own
-        // `entity_type` (here "checkpoint", the workflow domain), combined
-        // with the checkpointed entity id.
-        let by_entity = list_checkpoints_by_entity(&ctx, "ex-1", "checkpoint")
+        // `entity_type` (the workflow domain), combined with the checkpointed
+        // entity id.
+        let by_entity = list_checkpoints_by_entity(&ctx, "ex-1", WORKFLOW_ENTITY_TYPE)
             .await
             .unwrap();
         assert_eq!(by_entity.len(), 2);
 
-        let latest = get_latest_checkpoint(&ctx, "ex-1", "checkpoint")
+        let latest = get_latest_checkpoint(&ctx, "ex-1", WORKFLOW_ENTITY_TYPE)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(latest.id, "cp-2");
 
-        let multi =
-            list_checkpoints_by_entities(&ctx, &["ex-1".into(), "ex-2".into()], "checkpoint")
-                .await
-                .unwrap();
+        let multi = list_checkpoints_by_entities(
+            &ctx,
+            &["ex-1".into(), "ex-2".into()],
+            WORKFLOW_ENTITY_TYPE,
+        )
+        .await
+        .unwrap();
         assert_eq!(multi.len(), 3);
 
-        let deleted = delete_checkpoints_by_entity(&ctx, "ex-1", "checkpoint")
+        let deleted = delete_checkpoints_by_entity(&ctx, "ex-1", WORKFLOW_ENTITY_TYPE)
             .await
             .unwrap();
         assert_eq!(deleted, 2);

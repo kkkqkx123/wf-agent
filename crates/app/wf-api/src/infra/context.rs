@@ -122,6 +122,9 @@ pub struct ApiContext {
     /// Shared keyword index opened by the host runtime. Stored separately
     /// so hybrid consumers observe it before the vector backend exists.
     keyword_index: Option<std::sync::Arc<dyn rag_core::KeywordIndex>>,
+    /// Live code-context service state. `None` keeps the diagnostics view
+    /// reporting the service as disabled.
+    code_context: Option<wf_integration::SharedCodeContextService>,
 }
 
 impl ApiContext {
@@ -146,6 +149,7 @@ impl ApiContext {
             sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
             keyword_index: None,
+            code_context: None,
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops,
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
@@ -199,6 +203,7 @@ impl ApiContext {
             sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
             keyword_index: None,
+            code_context: None,
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops,
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
@@ -365,6 +370,18 @@ impl ApiContext {
     }
 
     /// The shared keyword index, if the host opened one.
+    /// Inject the live code-context service handle read by the diagnostics
+    /// view. The same instance backs the tool handlers and the fold chains.
+    pub fn with_code_context(mut self, service: wf_integration::SharedCodeContextService) -> Self {
+        self.code_context = Some(service);
+        self
+    }
+
+    /// Attached code-context service, when the runtime wired one.
+    pub fn code_context(&self) -> Option<&wf_integration::SharedCodeContextService> {
+        self.code_context.as_ref()
+    }
+
     pub fn keyword_index(&self) -> Option<&std::sync::Arc<dyn rag_core::KeywordIndex>> {
         self.keyword_index.as_ref()
     }

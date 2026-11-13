@@ -19,17 +19,15 @@ pub const PREFETCH_END_NODE_ID: &str = "prefetch-end";
 const PREFETCH_AGENT_PROFILE_ID: &str = "DEFAULT";
 const PREFETCH_AGENT_MAX_ITERATIONS: u32 = 8;
 
-/// Tools the prefetch agent may call. Read-only code tools only; numeric
-/// service keys never cross this boundary because navigation runs on file
-/// paths plus line numbers.
-pub const PREFETCH_AVAILABLE_TOOLS: &[&str] = &[
-    "code_search",
-    "code_keyword_search",
-    "code_symbols",
-    "code_references",
-    "code_definition",
-    "read_file_folded",
-];
+/// Every code-context tool, in declaration order. The prefetch template
+/// starts from this set and the registration step filters it by what the live
+/// service can serve, so the two never drift apart.
+pub fn code_context_tools() -> Vec<&'static str> {
+    wf_tools::predefined::code_context::ALL
+        .iter()
+        .map(|definition| definition.id)
+        .collect()
+}
 
 pub use crate::predefined::agent_prompts::CODE_CONTEXT_PREFETCH_PROMPT_KEY as PREFETCH_AGENT_SYSTEM_PROMPT_KEY;
 
@@ -40,10 +38,17 @@ pub fn prefetch_inline_definition() -> AgentDefinition {
 /// Inline prefetch definition with an optional system-prompt override;
 /// `None` keeps the embedded default.
 pub fn prefetch_inline_definition_with_prompt(system_prompt: Option<String>) -> AgentDefinition {
-    let tools = PREFETCH_AVAILABLE_TOOLS
-        .iter()
-        .map(|name| (*name).to_string())
-        .collect::<Vec<_>>();
+    prefetch_inline_definition_with_tools(system_prompt, &code_context_tools())
+}
+
+/// Inline prefetch definition restricted to the tools the live service can
+/// serve. The caller decides the subset; this function only shapes the
+/// definition.
+pub fn prefetch_inline_definition_with_tools(
+    system_prompt: Option<String>,
+    tools: &[&str],
+) -> AgentDefinition {
+    let tools = tools.iter().map(|name| (*name).to_string()).collect::<Vec<_>>();
     AgentDefinition {
         id: "@standard/code-context-prefetch-agent".into(),
         name: "Code Context Prefetch".into(),
@@ -105,8 +110,8 @@ fn start_node() -> BaseStaticNode {
     }
 }
 
-fn agent_node_with_prompt(system_prompt: Option<String>) -> BaseStaticNode {
-    let inline = prefetch_inline_definition_with_prompt(system_prompt);
+fn agent_node_with_tools(system_prompt: Option<String>, tools: &[&str]) -> BaseStaticNode {
+    let inline = prefetch_inline_definition_with_tools(system_prompt, tools);
     let inline = serde_json::to_value(&inline).expect("inline definition serializes");
     BaseStaticNode {
         id: PREFETCH_AGENT_NODE_ID.into(),
@@ -140,6 +145,15 @@ pub fn create_prefetch_workflow() -> WorkflowTemplate {
 /// Prefetch workflow with an optional prefetch-agent system-prompt override;
 /// `None` keeps the embedded default.
 pub fn create_prefetch_workflow_with_prompt(system_prompt: Option<String>) -> WorkflowTemplate {
+    create_prefetch_workflow_with_tools(system_prompt, &code_context_tools())
+}
+
+/// Prefetch workflow whose agent may call only `tools`. The caller filters
+/// them by the live service capability; an empty set must not be scheduled.
+pub fn create_prefetch_workflow_with_tools(
+    system_prompt: Option<String>,
+    tools: &[&str],
+) -> WorkflowTemplate {
     let t = wf_common::now();
 
     WorkflowTemplate {
@@ -155,7 +169,11 @@ pub fn create_prefetch_workflow_with_prompt(system_prompt: Option<String>) -> Wo
             ),
             r#type: Some(WorkflowDefinitionType::Dependent),
             version: Some("1.0.0".into()),
-            nodes: vec![start_node(), agent_node_with_prompt(system_prompt), end_node()],
+            nodes: vec![
+                start_node(),
+                agent_node_with_tools(system_prompt, tools),
+                end_node(),
+            ],
             edges: vec![
                 edge(
                     "e-prefetch-start-to-agent",
@@ -207,7 +225,7 @@ mod tests {
         );
         assert_eq!(config.max_iterations, Some(PREFETCH_AGENT_MAX_ITERATIONS));
         let tools = config.available_tools.expect("tools present");
-        assert_eq!(tools.available.len(), PREFETCH_AVAILABLE_TOOLS.len());
+        assert_eq!(tools.available.len(), code_context_tools().len());
         assert_eq!(tools.enable_general_tool, Some(false));
     }
 

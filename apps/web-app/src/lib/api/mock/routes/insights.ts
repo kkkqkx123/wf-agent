@@ -7,6 +7,7 @@ import {
 	events,
 	dependencies,
 	diagnostics,
+	codeContextDiagnostic,
 } from '#lib/fixtures/insights';
 import { agentLoops } from '#lib/fixtures/agentLoops';
 import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
@@ -71,6 +72,9 @@ export function registerInsights(router: MockRouter): void {
 		return { ok: true };
 	});
 	router.on('GET', '/api/v1/storage/diagnose', () => camelToSnakeDeep(diagnostics));
+	router.on('GET', '/api/v1/system/code-context', () =>
+		camelToSnakeDeep(codeContextDiagnostic),
+	);
 	router.on('GET', '/api/v1/storage/stats', () => ({
 		files: 128,
 		total_bytes: 4_120_000,

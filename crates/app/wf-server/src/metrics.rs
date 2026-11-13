@@ -61,7 +61,9 @@ pub(crate) async fn handle_metrics(State(state): State<RegistryState>) -> Respon
     text_response(PROMETHEUS_CONTENT_TYPE, body)
 }
 
-fn text_response(content_type: &str, body: String) -> Response {
+/// Plain-text response with an explicit content type, shared with the REST
+/// export endpoint so the two Prometheus surfaces agree on the media type.
+pub(crate) fn text_response(content_type: &str, body: String) -> Response {
     let mut response = body.into_response();
     response.headers_mut().insert(
         CONTENT_TYPE,

@@ -72,6 +72,11 @@ impl Runtime {
             if let Some(keyword) = &self.keyword_index {
                 ctx = ctx.with_keyword_index(keyword.as_arc().clone());
             }
+            // Attach the live code-context service so the diagnostics view
+            // reads exactly the instance the tools and fold chains use.
+            if let Some(service) = &self.code_context_service {
+                ctx = ctx.with_code_context(service.clone());
+            }
             std::sync::Arc::new(ctx)
         })
     }

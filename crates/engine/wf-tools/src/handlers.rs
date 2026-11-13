@@ -12,10 +12,10 @@ pub struct BuiltinHandlersConfig {
     pub fs: FsToolConfig,
     pub shell: ShellToolConfig,
     pub web: predefined::web::WebToolConfig,
-    /// Code-context service config backing the enhanced read tool and
-    /// the retrieval tools. Disabled by default; handlers report the
-    /// service as unavailable until it is configured.
-    pub code_context: wf_integration::CodeContextConfig,
+    /// Code-context service backing the enhanced read tool and the
+    /// retrieval tools. Absent means the service is disabled and every
+    /// code-context call reports it as unavailable.
+    pub code_context: Option<wf_integration::SharedCodeContextService>,
     /// Retrieval tool wiring. Without a backend the tool reports the
     /// service as unavailable until one is injected.
     pub rag: predefined::rag::RagToolConfig,
@@ -60,7 +60,11 @@ pub fn register_builtin_handlers(
     predefined::memory::register(registry)?;
     predefined::utility::register(registry)?;
     predefined::web::register(registry, &config.web)?;
-    predefined::code_context::register(registry, &config.code_context, &handlers)?;
+    predefined::code_context::register(
+        registry,
+        &config.code_context.clone().unwrap_or_default(),
+        &handlers,
+    )?;
     predefined::knowledge::register(registry)?;
     predefined::rag::register(registry, &config.rag)?;
     predefined::general::register(registry)?;

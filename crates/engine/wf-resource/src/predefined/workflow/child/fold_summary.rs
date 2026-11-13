@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use wf_integration::{CodeContextConfig, FoldPolicy};
+use wf_integration::{CodeContextService, FoldPolicy};
 use wf_types::node::BaseStaticNode;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow::{WorkflowDefinition, WorkflowDefinitionType, WorkflowTemplate};
@@ -41,6 +41,24 @@ pub fn create_fold_summary_repress_workflow(
     )
 }
 
+/// Re-compression chain bound to the effective code-context service, so the
+/// repress pass folds exactly like the first pass instead of silently
+/// degrading to the local shell fold.
+pub fn create_fold_summary_repress_workflow_with_service(
+    compression_prompt: Option<String>,
+    service: &CodeContextService,
+) -> WorkflowTemplate {
+    let config = service.config();
+    build_template(
+        FOLD_SUMMARY_REPRESS_WORKFLOW_ID,
+        "Fold Summary Repress Workflow",
+        compression_prompt,
+        &config.fold,
+        service.endpoint(),
+        config.transport.timeout_ms,
+    )
+}
+
 pub fn create_fold_summary_workflow_with_policy(
     compression_prompt: Option<String>,
     fold: FoldPolicy,
@@ -57,19 +75,16 @@ pub fn create_fold_summary_workflow_with_policy(
 
 pub fn create_fold_summary_workflow_with_service(
     compression_prompt: Option<String>,
-    service: &CodeContextConfig,
+    service: &CodeContextService,
 ) -> WorkflowTemplate {
-    let (base_url, timeout_ms) = match service.external_base_url() {
-        Some(url) if service.enabled => (Some(url), service.transport.timeout_ms),
-        _ => (None, service.transport.timeout_ms),
-    };
+    let config = service.config();
     build_template(
         FOLD_SUMMARY_WORKFLOW_ID,
         "Fold Summary Workflow",
         compression_prompt,
-        &service.fold,
-        base_url,
-        timeout_ms,
+        &config.fold,
+        service.endpoint(),
+        config.transport.timeout_ms,
     )
 }
 
@@ -86,6 +101,7 @@ fn fold_node(
         "max_tokens": fold.max_tokens,
         "max_items": fold.max_items,
         "max_retries": fold.max_retries,
+        "total_budget_ms": fold.total_budget_ms,
         "service_timeout_ms": service_timeout_ms,
     });
     if let Some(url) = service_base_url {

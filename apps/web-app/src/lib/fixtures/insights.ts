@@ -547,3 +547,29 @@ export const diagnostics: Diagnostic[] = [
 		detail: 'Anthropic organisation quota nearing limit',
 	},
 ];
+
+/**
+ * Code-context service verdict as the system endpoint reports it. Preview
+ * serves this so the ops tab shows a populated panel instead of an empty
+ * card; the shape mirrors the server payload (snake_case after conversion).
+ */
+export const codeContextDiagnostic = {
+	enabled: true,
+	usable: true,
+	summary: 'service is usable (project 3 state: ready)',
+	service: {
+		enabled: true,
+		transportMode: 'managed',
+		supplyMode: 'managed',
+		endpoint: 'http://127.0.0.1:9123',
+		health: { reachable: true, healthy: true, vectors: true, bm25: true, embedding: true },
+		healthAgeMs: 1200,
+		project: {
+			state: 'ready',
+			projectId: 3,
+			lastIndexed: '2026-01-01T00:00:00Z',
+		},
+		availability: { fold: true, navigation: true, keyword: true, semantic: true },
+		sidecar: { phase: 'ready', restarts: 0, pid: 4821 },
+	},
+};

@@ -1,6 +1,7 @@
 //! Shared infrastructure: error types, context, config parsing, events,
 //! streams, subscriptions, persistence and metrics helpers.
 
+pub mod code_context;
 pub mod config;
 pub mod context;
 pub mod dependency;

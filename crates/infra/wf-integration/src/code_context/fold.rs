@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use wf_types::message::{Message, MessageContent, MessageRole};
 
-use crate::transport::{http_client, post_json};
+use crate::transport::{post_json, ServiceError};
 
 /// One entry of a batch fold request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,41 +90,46 @@ pub struct FoldBatchResponse {
 
 /// Thin HTTP client for the stateless batch fold endpoint.
 ///
-/// Constructed only when the service is configured; absence of a client is
+/// Constructed only when the service has an endpoint; absence of a client is
 /// the "folding disabled" gate. Any failure (unreachable service, timeout,
-/// request-level rejection) surfaces as a string the caller maps to "skip
-/// folding", never to a failure branch. Entry-level degradation arrives
-/// in-band with `structure_known == false` and is applied like any result.
+/// request-level rejection, open breaker) surfaces as a [`ServiceError`] the
+/// caller maps to "skip folding", never to a failure branch. Entry-level
+/// degradation arrives in-band with `structure_known == false` and is applied
+/// like any result.
 #[derive(Debug, Clone)]
 pub struct FoldClient {
     client: reqwest::Client,
     base_url: String,
-    timeout_ms: u64,
 }
 
 impl FoldClient {
-    /// Build a client for the given service base URL.
-    pub fn new(base_url: impl Into<String>, timeout_ms: u64) -> Result<Self, String> {
-        Ok(Self {
-            client: http_client(timeout_ms)?,
+    /// Wrap the caller's pooled client for the given service base URL.
+    pub fn new(base_url: impl Into<String>, client: reqwest::Client) -> Self {
+        Self {
+            client,
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            timeout_ms: timeout_ms.max(1),
-        })
+        }
     }
 
-    /// Fold one batch with a single overall timeout. Any transport failure,
-    /// timeout or request-level rejection is an error the caller maps to a
-    /// silent skip; entry-level degradation stays in-band.
-    pub async fn fold_batch(&self, request: FoldBatchRequest) -> Result<FoldBatchResponse, String> {
+    /// Fold one batch within the remaining stage budget. Any transport
+    /// failure, timeout or request-level rejection is an error the caller maps
+    /// to a silent skip; entry-level degradation stays in-band.
+    pub async fn fold_batch(
+        &self,
+        request: FoldBatchRequest,
+        timeout_ms: u64,
+    ) -> Result<FoldBatchResponse, ServiceError> {
         if request.items.is_empty() {
-            return Err("fold batch items must not be empty".to_string());
+            return Err(ServiceError::rejected("fold batch items must not be empty"));
         }
         let url = format!("{}/api/tools/fold/batch", self.base_url);
-        let body = serde_json::to_value(&request)
-            .map_err(|e| format!("fold batch request was not encodable: {e}"))?;
-        let payload = post_json(&self.client, &url, self.timeout_ms, &body).await?;
-        serde_json::from_value::<FoldBatchResponse>(payload)
-            .map_err(|e| format!("Fold batch response was not decodable: {e}"))
+        let body = serde_json::to_value(&request).map_err(|e| {
+            ServiceError::rejected(format!("fold batch request was not encodable: {e}"))
+        })?;
+        let payload = post_json(&self.client, &url, timeout_ms, &body).await?;
+        serde_json::from_value::<FoldBatchResponse>(payload).map_err(|e| {
+            ServiceError::protocol(format!("Fold batch response was not decodable: {e}"))
+        })
     }
 }
 

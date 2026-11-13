@@ -1,6 +1,6 @@
 use wf_integration::{
     apply_fold_results, build_fold_notice, select_fold_candidates, FoldBatchRequest, FoldCandidate,
-    FoldClient,
+    FoldClient, ServiceError,
 };
 use wf_types::message::Message;
 
@@ -14,6 +14,9 @@ pub struct FoldParams {
     pub base_url: Option<String>,
     /// Overall timeout for one service call in milliseconds.
     pub timeout_ms: u64,
+    /// Wall-clock budget for the whole fold stage in milliseconds; the
+    /// stage ends with a skip instead of holding the compression chain open.
+    pub total_budget_ms: u64,
     /// Tool-result messages below this estimated token count are never sent.
     pub min_tokens: usize,
     /// Per-entry token budget requested from the fold service.
@@ -30,6 +33,7 @@ impl Default for FoldParams {
         Self {
             base_url: None,
             timeout_ms: 60_000,
+            total_budget_ms: policy.total_budget_ms,
             min_tokens: policy.min_tokens,
             max_tokens: policy.max_tokens,
             max_items: policy.max_items,
@@ -46,6 +50,7 @@ impl FoldParams {
         Self {
             base_url: self.base_url.clone(),
             timeout_ms: self.timeout_ms.max(1),
+            total_budget_ms: self.total_budget_ms.max(1),
             min_tokens: self.min_tokens,
             max_tokens: self.max_tokens.max(1),
             max_items: self.max_items.max(1),
@@ -128,8 +133,8 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
             Some("code-context service is not configured".to_string()),
         );
     };
-    let client = match FoldClient::new(base_url, params.timeout_ms) {
-        Ok(client) => client,
+    let client = match wf_integration::service_client() {
+        Ok(http) => FoldClient::new(base_url, http),
         Err(reason) => {
             return finish(messages.to_vec(), 0, before, false, Some(reason));
         }
@@ -143,17 +148,36 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
 
     let mut pending: Vec<&[FoldCandidate]> = candidates.chunks(max_items).collect();
     let mut retry_round = 0usize;
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_millis(params.total_budget_ms.max(1));
 
-    while !pending.is_empty() && retry_round <= max_retries {
+    'rounds: while !pending.is_empty() && retry_round <= max_retries {
+        if std::time::Instant::now() >= deadline {
+            skipped = Some("fold stage budget exhausted".to_string());
+            break;
+        }
         let mut next_pending: Vec<&[FoldCandidate]> = Vec::new();
 
         for chunk in &pending {
-            match call_fold(&client, chunk, max_tokens).await {
+            let remaining_ms = deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .as_millis()
+                .max(1) as u64;
+            let call_timeout_ms = params.timeout_ms.min(remaining_ms).max(1);
+            match call_fold(&client, chunk, max_tokens, call_timeout_ms).await {
                 Ok(results) => {
                     applied = apply_fold_results(&applied, chunk, &results);
                     folded_count += chunk.len();
                 }
-                Err(reason) => {
+                Err(error) => {
+                    if skipped.is_none() {
+                        skipped = Some(error.reason.clone());
+                    }
+                    // An unavailable service rejects every further call, so
+                    // splitting and retrying would only multiply refusals.
+                    if error.is_unavailable() {
+                        break 'rounds;
+                    }
                     if chunk.len() > 1 {
                         let (left, right) = chunk.split_at(chunk.len() / 2);
                         next_pending.push(left);
@@ -161,10 +185,11 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
                     } else {
                         next_pending.push(chunk);
                     }
-                    if skipped.is_none() {
-                        skipped = Some(reason);
-                    }
                 }
+            }
+            if std::time::Instant::now() >= deadline {
+                skipped = Some("fold stage budget exhausted".to_string());
+                break 'rounds;
             }
         }
 
@@ -231,7 +256,8 @@ async fn call_fold(
     client: &FoldClient,
     chunk: &[FoldCandidate],
     max_tokens: usize,
-) -> Result<Vec<wf_integration::FoldBatchResultItem>, String> {
+    timeout_ms: u64,
+) -> Result<Vec<wf_integration::FoldBatchResultItem>, ServiceError> {
     let items: Vec<_> = chunk
         .iter()
         .cloned()
@@ -239,16 +265,19 @@ async fn call_fold(
         .collect();
     let expected = items.len();
     let response = client
-        .fold_batch(FoldBatchRequest {
-            items,
-            max_tokens: Some(max_tokens),
-        })
+        .fold_batch(
+            FoldBatchRequest {
+                items,
+                max_tokens: Some(max_tokens),
+            },
+            timeout_ms,
+        )
         .await?;
     if response.results.len() != expected {
-        return Err(format!(
+        return Err(ServiceError::protocol(format!(
             "fold result length mismatch: got {}, want {expected}",
             response.results.len()
-        ));
+        )));
     }
     Ok(response.results)
 }
@@ -262,6 +291,7 @@ mod tests {
         let raw = FoldParams {
             base_url: None,
             timeout_ms: 0,
+            total_budget_ms: 0,
             min_tokens: 5,
             max_tokens: 0,
             max_items: 0,
@@ -269,6 +299,7 @@ mod tests {
         };
         let fixed = raw.normalized();
         assert_eq!(fixed.timeout_ms, 1);
+        assert_eq!(fixed.total_budget_ms, 1);
         assert_eq!(fixed.max_tokens, 1);
         assert_eq!(fixed.max_items, 1);
         assert_eq!(fixed.max_retries, 1);

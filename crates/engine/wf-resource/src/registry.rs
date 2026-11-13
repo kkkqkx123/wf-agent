@@ -63,6 +63,10 @@ pub struct RegisterOptions {
     /// defaults. When present, fragments from this file replace same-id
     /// entries from the embedded configuration.
     pub fragments_config_path: Option<String>,
+    /// Live code-context service state, used to filter the tools and prefetch
+    /// workflow it can actually serve. A live handle rather than a config
+    /// snapshot, so recovery is observed instead of frozen.
+    pub code_context: Option<wf_integration::SharedCodeContextService>,
 }
 
 impl Default for RegisterOptions {
@@ -73,6 +77,7 @@ impl Default for RegisterOptions {
             custom_validation_level: crate::custom::types::CustomValidationLevel::default(),
             resource_assembler_activation: Vec::new(),
             fragments_config_path: None,
+            code_context: None,
         }
     }
 }

@@ -22,6 +22,14 @@
 
 `forward_registrations_requires_host` 用空指针调用对应 `unsafe fn`，预期返回错误码而非崩溃。该用例验证空指针守卫，不解引用空指针。
 
+### U3 sidecar 优雅停机信号（`crates/infra/wf-integration/src/transport/sidecar.rs`）
+
+| 位置 | 形式 | 说明 |
+|---|---|---|
+| `send_termination`（仅 Unix） | `unsafe` 块调用 `libc::kill` | 入参只有子进程 pid 与 SIGTERM 信号，pid 来自存活的 `tokio::process::Child` 句柄；不解引用任何指针、不转移所有权、不涉及内存读写。非 Unix 平台退化为 `start_kill`，无 `unsafe` |
+
+调用约定：`libc::kill` 只做信号投递，安全前提是 pid 指向本进程创建的存活子进程，由 `RunningSidecar` 与监督任务的生命周期保证。
+
 ## 二、已排除项
 
 宿主注册器回调字段为普通（非 `unsafe`）`extern "C" fn` 指针，调用无需 `unsafe` 块；此前误加的包裹已删除。测试中对宏生成的普通 `extern "C"` 导出的调用同样无需 `unsafe` 包裹，已清理。

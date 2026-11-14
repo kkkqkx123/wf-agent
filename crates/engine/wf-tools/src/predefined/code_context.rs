@@ -287,9 +287,15 @@ pub fn code_symbols_handler(
             let config = service.config();
             let base = endpoint_for(&service, wf_integration::CallScope::Navigation).await?;
             let http = client(&service)?;
-            wf_integration::symbols(&http, &base, config.transport.timeout_ms, project_id, &paths)
-                .await
-                .map_err(ToolError::ExecutionError)
+            wf_integration::symbols(
+                &http,
+                &base,
+                config.transport.timeout_ms,
+                project_id,
+                &paths,
+            )
+            .await
+            .map_err(ToolError::ExecutionError)
         })
     })
 }
@@ -469,16 +475,11 @@ pub fn register(
         "code_keyword_search",
         code_keyword_search_handler(service),
     );
+    registry.register_stateless_async_handler("code_symbols", code_symbols_handler(service, fs));
     registry
-        .register_stateless_async_handler("code_symbols", code_symbols_handler(service, fs));
-    registry.register_stateless_async_handler(
-        "code_references",
-        code_references_handler(service, fs),
-    );
-    registry.register_stateless_async_handler(
-        "code_definition",
-        code_definition_handler(service, fs),
-    );
+        .register_stateless_async_handler("code_references", code_references_handler(service, fs));
+    registry
+        .register_stateless_async_handler("code_definition", code_definition_handler(service, fs));
     registry.register_stateless_async_handler(
         "read_file_folded",
         read_file_folded_handler(fs, service),

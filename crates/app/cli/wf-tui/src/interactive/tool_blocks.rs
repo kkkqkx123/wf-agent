@@ -464,10 +464,7 @@ impl InteractiveController {
             size_hint.push_str(" · excerpt capped");
         }
         self.viewer_request = Some(ToolViewerRequest {
-            title: format!(
-                "{} · {} · {size_hint}",
-                block.tool_name, block.tool_call_id
-            ),
+            title: format!("{} · {} · {size_hint}", block.tool_name, block.tool_call_id),
             content,
             is_diff: block.kind == DisplayKind::Diff,
         });

@@ -39,19 +39,17 @@ pub mod wasm;
 
 pub use context::PluginContext;
 pub use contributions::{
-    parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, ContributionBridge,
-    ContributionManager, ContributionRegistrar, ContributionType, MiddlewareOutcome, NextFn,
-    OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt,
-    PluginChunkSplitter, PluginCliCommand, PluginCliCondition, PluginCompactionAdvisor,
-    PluginCompletionItem, PluginCompletionSource, PluginEvalJudge, PluginEventData,
-    PluginEventHandler, PluginExecutionContext, PluginHookHandler, PluginHookOutcome,
-    PluginLlmAuth, PluginLlmCodec, PluginLlmImages,
-    PluginLoginChallenge, PluginLoginStep, PluginMarkdownRule, PluginMetadataExtractor,
-    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginPostprocessor,
-    PluginRetrievalAdvisor, PluginRouteSelector, PluginSettingField, PluginTextAnalyzer,
-    parse_hook_outcome,
-    PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
-    PluginVectorEncoding, RegistrarGuard,
+    parse_hook_outcome, parse_middleware_outcome, AuthDescriptor, CodecHttpRequest,
+    ContributionBridge, ContributionManager, ContributionRegistrar, ContributionType,
+    MiddlewareOutcome, NextFn, OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
+    PluginAuthPrompt, PluginChunkSplitter, PluginCliCommand, PluginCliCondition,
+    PluginCompactionAdvisor, PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
+    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginHookHandler,
+    PluginHookOutcome, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
+    PluginLoginStep, PluginMarkdownRule, PluginMetadataExtractor, PluginMiddlewareHandler,
+    PluginNodeHandler, PluginNodeResult, PluginPostprocessor, PluginRetrievalAdvisor,
+    PluginRouteSelector, PluginSettingField, PluginTextAnalyzer, PluginToolContext,
+    PluginToolExecutor, PluginToolResult, PluginToolSummary, PluginVectorEncoding, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

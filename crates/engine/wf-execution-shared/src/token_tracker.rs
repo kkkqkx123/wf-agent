@@ -607,7 +607,10 @@ impl TokenUsageTracker {
         if !self.flight_expired_for(target, now_ms, timeout_ms) {
             return None;
         }
-        let version = self.compression_flights.get(target).map(|flight| flight.version);
+        let version = self
+            .compression_flights
+            .get(target)
+            .map(|flight| flight.version);
         if version.is_some() {
             self.compression_flights.remove(target);
         }

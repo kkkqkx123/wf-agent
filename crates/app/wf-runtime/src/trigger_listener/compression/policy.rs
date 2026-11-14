@@ -18,7 +18,9 @@ pub(crate) const COMPRESSION_RETRY_BACKOFF_SHIFT_CAP: u32 = 6;
 /// Sleep for the `attempt`-th retry (1-indexed first retry). Caps the shift
 /// so the delay stays bounded on high retry budgets.
 pub(crate) fn retry_backoff_ms(attempt: u32) -> u64 {
-    let shift = attempt.saturating_sub(1).min(COMPRESSION_RETRY_BACKOFF_SHIFT_CAP);
+    let shift = attempt
+        .saturating_sub(1)
+        .min(COMPRESSION_RETRY_BACKOFF_SHIFT_CAP);
     COMPRESSION_RETRY_BASE_DELAY_MS.saturating_mul(1_u64 << shift)
 }
 

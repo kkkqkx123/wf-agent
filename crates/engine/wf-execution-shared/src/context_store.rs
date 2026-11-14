@@ -81,10 +81,7 @@ pub fn compression_event(
 /// marks it with the no-taker flag. Pure annotation shared by every
 /// emitter so the audit vocabulary never drifts between the agent and
 /// workflow paths.
-pub fn annotate_compression_audit(
-    event: &mut BaseEvent,
-    outcome: &CompressionSignalOutcome,
-) {
+pub fn annotate_compression_audit(event: &mut BaseEvent, outcome: &CompressionSignalOutcome) {
     match outcome {
         CompressionSignalOutcome::Taken => {}
         CompressionSignalOutcome::Vetoed { .. } => {
@@ -165,9 +162,7 @@ pub fn find_compression_failure(
 ) -> Option<String> {
     events.iter().find_map(|event| {
         crate::match_compression_failure(event, execution_id, Some(version))
-            .filter(|matched| {
-                target.is_none_or(|want| matched.target_context_id == want)
-            })
+            .filter(|matched| target.is_none_or(|want| matched.target_context_id == want))
             .map(|matched| matched.message.clone())
     })
 }
@@ -506,20 +501,12 @@ pub fn request_hot_estimate(stable_projection: u64, request_estimate: u64, bias:
 /// the session single-array adapter and the variable-map multi-array adapter
 /// share the threshold-free guard logic; threshold comparison stays with the
 /// hot helpers above.
-pub fn array_should_emit(
-    ledger: &wf_types::llm::TokenLedger,
-    target: &str,
-    version: u64,
-) -> bool {
+pub fn array_should_emit(ledger: &wf_types::llm::TokenLedger, target: &str, version: u64) -> bool {
     ledger.should_emit(target, version)
 }
 
 /// Record an emission for one array version. Single home next to the guard.
-pub fn array_mark_emitted(
-    ledger: &mut wf_types::llm::TokenLedger,
-    target: &str,
-    version: u64,
-) {
+pub fn array_mark_emitted(ledger: &mut wf_types::llm::TokenLedger, target: &str, version: u64) {
     ledger.mark_emitted(target, version);
 }
 
@@ -940,7 +927,11 @@ mod tests {
         );
     }
 
-    fn static_def(hook_type: &str, handler: Option<&str>, condition: Option<&str>) -> crate::hooks::HookDefinition {
+    fn static_def(
+        hook_type: &str,
+        handler: Option<&str>,
+        condition: Option<&str>,
+    ) -> crate::hooks::HookDefinition {
         crate::hooks::HookDefinition {
             id: wf_types::Id::new(),
             hook_type: hook_type.to_string(),
@@ -1077,8 +1068,7 @@ mod tests {
         let via_shared = super::hot_estimate_with_shared_dynamic(stable, shared, 50);
         assert_eq!(via_request, via_shared);
         let ledger_like = stable;
-        let via_ledger_shape =
-            super::hot_estimate_with_shared_dynamic(ledger_like, shared, 50);
+        let via_ledger_shape = super::hot_estimate_with_shared_dynamic(ledger_like, shared, 50);
         assert_eq!(via_request, via_ledger_shape);
     }
 
@@ -1106,10 +1096,20 @@ mod tests {
     #[test]
     fn five_settle_terminals_map_once() {
         use super::CompressionSettleOutcome;
-        assert!(super::settle_parking_message("chat", 7, &CompressionSettleOutcome::VersionAdvanced).is_none());
-        assert!(super::settle_parking_message("chat", 7, &CompressionSettleOutcome::Cancelled).is_none());
+        assert!(super::settle_parking_message(
+            "chat",
+            7,
+            &CompressionSettleOutcome::VersionAdvanced
+        )
+        .is_none());
+        assert!(
+            super::settle_parking_message("chat", 7, &CompressionSettleOutcome::Cancelled)
+                .is_none()
+        );
         for outcome in [
-            CompressionSettleOutcome::Failed { message: "boom".to_string() },
+            CompressionSettleOutcome::Failed {
+                message: "boom".to_string(),
+            },
             CompressionSettleOutcome::FlightReleased,
             CompressionSettleOutcome::Timeout,
         ] {
@@ -1121,13 +1121,27 @@ mod tests {
     #[test]
     fn untaken_and_veto_audit_markers_differ() {
         let messages = vec![msg(MessageRole::User, "hi")];
-        let request = super::compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
+        let request =
+            super::compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[], "");
         let mut vetoed = super::compression_event("exec-1", None, &request);
-        super::annotate_compression_audit(&mut vetoed, &super::CompressionSignalOutcome::Vetoed { reason: "no".to_string() });
+        super::annotate_compression_audit(
+            &mut vetoed,
+            &super::CompressionSignalOutcome::Vetoed {
+                reason: "no".to_string(),
+            },
+        );
         let mut untaken = super::compression_event("exec-1", None, &request);
         super::annotate_compression_audit(&mut untaken, &super::CompressionSignalOutcome::Untaken);
-        let veto_cancelled = vetoed.metadata.as_ref().and_then(|m| m.get(crate::token_events::KEY_CANCELLED)).is_some();
-        let untaken_flag = untaken.metadata.as_ref().and_then(|m| m.get(crate::token_events::KEY_NO_TAKER)).is_some();
+        let veto_cancelled = vetoed
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(crate::token_events::KEY_CANCELLED))
+            .is_some();
+        let untaken_flag = untaken
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(crate::token_events::KEY_NO_TAKER))
+            .is_some();
         assert!(veto_cancelled && untaken_flag);
     }
 
@@ -1142,10 +1156,7 @@ mod tests {
             || async { None },
         )
         .await;
-        assert_eq!(
-            outcome,
-            super::CompressionSettleOutcome::VersionAdvanced
-        );
+        assert_eq!(outcome, super::CompressionSettleOutcome::VersionAdvanced);
     }
 
     #[tokio::test]
@@ -1183,11 +1194,15 @@ mod tests {
 
     #[tokio::test]
     async fn settle_times_out_without_progress() {
-        let outcome =
-            super::settle_compression_anchor(7, 30, None, || async { 7 }, || async { false }, || async {
-                None
-            })
-            .await;
+        let outcome = super::settle_compression_anchor(
+            7,
+            30,
+            None,
+            || async { 7 },
+            || async { false },
+            || async { None },
+        )
+        .await;
         assert_eq!(outcome, super::CompressionSettleOutcome::Timeout);
     }
 

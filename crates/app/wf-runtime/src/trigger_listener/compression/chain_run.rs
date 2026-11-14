@@ -237,16 +237,10 @@ pub(crate) async fn run_single_with_retry(
                 warn!("Compression sub-workflow '{workflow_id}' failed: {e}");
                 Some(e.to_string())
             }
-            Some(Ok(Ok(output))) => {
-                match serde_json::from_value::<Vec<Message>>(output) {
-                    Ok(messages) if !messages.is_empty() => {
-                        return (attempts, Ok(messages))
-                    }
-                    _ => Some(
-                        "compression sub-workflow returned no messages".to_string(),
-                    ),
-                }
-            }
+            Some(Ok(Ok(output))) => match serde_json::from_value::<Vec<Message>>(output) {
+                Ok(messages) if !messages.is_empty() => return (attempts, Ok(messages)),
+                _ => Some("compression sub-workflow returned no messages".to_string()),
+            },
         };
         if let Some(error) = failed {
             if attempts >= max_attempts {

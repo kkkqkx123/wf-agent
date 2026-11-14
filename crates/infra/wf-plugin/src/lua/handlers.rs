@@ -56,11 +56,8 @@ impl PluginHookHandler for LuaHookHandler {
                 let arg = locked
                     .create_table()
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
-                arg.set(
-                    "data",
-                    super::bridge::to_lua_value(locked, &data),
-                )
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                arg.set("data", super::bridge::to_lua_value(locked, &data))
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 match snapshot {
                     Some(ref value) => arg
                         .set("snapshot", super::bridge::to_lua_value(locked, value))

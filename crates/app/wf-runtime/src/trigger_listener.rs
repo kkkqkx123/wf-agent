@@ -60,11 +60,11 @@ pub use workflow_runner::{
 /// The engine's builtin hook handler for the `CONTEXT_COMPRESSION_REQUESTED`
 /// signal.
 pub use compression::CompressionService;
+pub(crate) use compression::{validate_compression_nesting, worst_case_budget_ms};
 pub use compression::{
     CompressionPolicy, BUILTIN_COMPRESSION_TEMPLATE_NAME, COMPRESSION_HANDLED_CAPACITY,
     COMPRESSION_SERVICE_HANDLER_NAME,
 };
-pub(crate) use compression::{validate_compression_nesting, worst_case_budget_ms};
 
 use std::sync::Arc;
 

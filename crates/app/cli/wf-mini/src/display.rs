@@ -63,24 +63,24 @@ impl DisplayConfig {
             .unwrap_or_default();
         let show_reasoning = resolve_show(
             cli.no_reasoning,
-            "WF_MINI_NO_REASONING",
+            "WF_REASONING",
             file.as_ref().and_then(|config| config.show_reasoning),
         );
         let show_usage = resolve_show(
             cli.no_usage,
-            "WF_MINI_NO_USAGE",
+            "WF_USAGE",
             file.as_ref().and_then(|config| config.show_usage),
         );
-        let show_tools = resolve_show(
+        let show_tools = resolve_hide(
             cli.quiet_tools,
-            "WF_MINI_QUIET_TOOLS",
+            "WF_QUIET_TOOLS",
             file.as_ref().and_then(|config| config.show_tools),
         );
         let approval_timeout_secs = resolve_approval_timeout(file.as_ref());
         let suggestion_display_limit = resolve_suggestion_display_limit(file.as_ref());
         let tool_output = resolve_tool_output(cli);
-        let color = color_enabled(cli, stdout_tty);
-        let stderr_color = stderr_color_enabled(cli, stderr_tty);
+        let color = wf_cli_shared::display::color_enabled(cli.no_color, stdout_tty);
+        let stderr_color = wf_cli_shared::display::stderr_color_enabled(cli.no_color, stderr_tty);
         Self {
             markdown,
             show_reasoning,
@@ -128,7 +128,17 @@ fn resolve_show(cli_hide: bool, env_name: &str, file_show: Option<bool>) -> bool
     if cli_hide {
         return false;
     }
-    if let Some(disabled) = env_disable_flag(env_name) {
+    if let Some(show) = wf_cli_shared::display::env_toggle(env_name) {
+        return show;
+    }
+    file_show.unwrap_or(true)
+}
+
+fn resolve_hide(cli_hide: bool, env_name: &str, file_show: Option<bool>) -> bool {
+    if cli_hide {
+        return false;
+    }
+    if let Some(disabled) = wf_cli_shared::display::env_disable_flag(env_name) {
         return !disabled;
     }
     file_show.unwrap_or(true)
@@ -138,16 +148,6 @@ fn env_markdown() -> Option<MarkdownMode> {
     std::env::var("WF_MINI_MARKDOWN")
         .ok()
         .and_then(|raw| MarkdownMode::parse_opt(&raw))
-}
-
-fn env_disable_flag(name: &str) -> Option<bool> {
-    std::env::var(name)
-        .ok()
-        .and_then(|raw| match raw.trim().to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" | "y" | "on" => Some(true),
-            "0" | "false" | "no" | "n" | "off" => Some(false),
-            _ => None,
-        })
 }
 
 fn resolve_approval_timeout(file: Option<&MiniConfig>) -> u64 {
@@ -234,46 +234,6 @@ fn resolve_tool_output(cli: &Cli) -> ToolOutputConfig {
         config.level = level;
     }
     config
-}
-
-/// Shared ANSI gate: `NO_COLOR` or a `dumb` terminal disables styling on
-/// every stream. TTY and `--no-color` checks stay per-stream so stdout and
-/// stderr gates remain independent.
-pub fn ansi_allowed() -> bool {
-    if std::env::var("NO_COLOR")
-        .map(|raw| !raw.trim().is_empty())
-        .unwrap_or(false)
-    {
-        return false;
-    }
-    if std::env::var("TERM")
-        .map(|raw| raw.trim().eq_ignore_ascii_case("dumb"))
-        .unwrap_or(false)
-    {
-        return false;
-    }
-    true
-}
-
-/// ANSI styling is emitted only for human TTY output: an explicit
-/// `--no-color`, a non-TTY stdout, `NO_COLOR` or a `dumb` terminal all force
-/// plain output. Styled mode degrades to plain text under these conditions
-/// instead of emitting escapes into pipes or files.
-pub fn color_enabled(cli: &Cli, stdout_tty: bool) -> bool {
-    if cli.no_color || !stdout_tty {
-        return false;
-    }
-    ansi_allowed()
-}
-
-/// Stderr diagnostics follow the same gate but on the stderr TTY, kept
-/// independent from the stdout `color` flag so disabling stdout styling
-/// never silences stderr styling and vice versa.
-pub fn stderr_color_enabled(cli: &Cli, stderr_tty: bool) -> bool {
-    if cli.no_color || !stderr_tty {
-        return false;
-    }
-    ansi_allowed()
 }
 
 #[cfg(test)]

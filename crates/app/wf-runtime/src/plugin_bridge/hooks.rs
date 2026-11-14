@@ -8,7 +8,7 @@ use wf_plugin::{
 };
 use wf_types::message::Message;
 
-use crate::hook_handler::{HookHandlerError, register_hook_handler};
+use crate::hook_handler::{register_hook_handler, HookHandlerError};
 
 /// Stable engine-side name for one bridged plugin hook. Names live in the
 /// registry's single global namespace, so the plugin id prefixes the plugin
@@ -36,10 +36,7 @@ pub(crate) fn required_permission_for_hook(hook_type: &str) -> Option<PluginPerm
 /// shapes, empty or malformed summaries) resolves to continue with a
 /// warning, so a misbehaving plugin never blocks the engine. A veto from
 /// any handler wins upstream; denial stays the safer direction.
-fn parse_bridge_outcome(
-    name: &str,
-    response: PluginResult<serde_json::Value>,
-) -> HookOutcome {
+fn parse_bridge_outcome(name: &str, response: PluginResult<serde_json::Value>) -> HookOutcome {
     let value = match response {
         Ok(value) => value,
         Err(error) => {
@@ -66,9 +63,9 @@ fn parse_bridge_outcome(
 /// the live messages, every other point carries none. The JSON is built
 /// per call and never enters the audit data map.
 fn snapshot_json(ctx: &HookContext) -> Option<serde_json::Value> {
-    ctx.attachment.as_ref().and_then(|attachment| {
-        serde_json::to_value(attachment.messages.as_ref()).ok()
-    })
+    ctx.attachment
+        .as_ref()
+        .and_then(|attachment| serde_json::to_value(attachment.messages.as_ref()).ok())
 }
 
 /// Hook data map as JSON for one hook call.
@@ -94,8 +91,7 @@ impl HookHandler for NativeHookBridge {
         let inner = self.inner.clone();
         let data = data_json(ctx);
         let snapshot = snapshot_json(ctx);
-        let response =
-            tokio::task::spawn_blocking(move || inner.handle(data, snapshot)).await;
+        let response = tokio::task::spawn_blocking(move || inner.handle(data, snapshot)).await;
         let response = match response {
             Ok(response) => response,
             Err(error) => {
@@ -172,7 +168,11 @@ fn register_one(
             "plugin '{plugin_id}' hook '{plugin_hook}': {detail}"
         )));
     }
-    tracing::debug!("  hook (engine-registered): {} -> {}", plugin_hook, engine_type);
+    tracing::debug!(
+        "  hook (engine-registered): {} -> {}",
+        plugin_hook,
+        engine_type
+    );
     Ok(())
 }
 

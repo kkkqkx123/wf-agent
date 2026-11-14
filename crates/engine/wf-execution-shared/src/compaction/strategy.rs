@@ -120,9 +120,7 @@ pub fn process_compaction_limits() -> CompactionLimits {
 /// otherwise the process-wide install. None keeps the global fallback
 /// explicit at the call site so later explicit plumbing can tighten here.
 /// Prefer passing `Some(..)` on production paths.
-pub fn resolve_effective_compaction_limits(
-    explicit: Option<CompactionLimits>,
-) -> CompactionLimits {
+pub fn resolve_effective_compaction_limits(explicit: Option<CompactionLimits>) -> CompactionLimits {
     match explicit {
         Some(limits) => limits,
         None => {

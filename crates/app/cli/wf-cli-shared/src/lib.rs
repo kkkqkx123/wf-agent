@@ -202,7 +202,7 @@ pub async fn run_headless_only(cli: Cli) -> CliResult<()> {
 /// Build the primary output sink for a CLI invocation: stdout (or the file /
 /// pipe target) optionally teed into the `--log` file.
 pub fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink + Send>> {
-    let color = !cli.no_color && stdout_tty;
+    let color = crate::display::color_enabled(cli.no_color, stdout_tty);
     let main: Box<dyn OutputSink + Send> = Box::new(HeadlessFileSink::stdout(cli.output, color));
     if let Some(path) = &cli.log {
         let file = HeadlessFileSink::file(path, cli.output, false)?;
@@ -212,18 +212,29 @@ pub fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink +
     }
 }
 
-/// Opt-in diagnostics switch from the environment. Accepts the same
-/// truthy spellings as the mini stderr toggles; anything else means off.
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .map(|raw| {
-            matches!(
-                raw.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "y" | "on"
-            )
-        })
-        .unwrap_or(false)
+/// Resolve an on/off stderr stream for headless runs. Priority is the
+/// explicit hide flag, then the explicit show flag, then the environment,
+/// then the hidden built-in default. `validate` rejects hide+show pairs
+/// up front so the hide-wins branch below never masks a user conflict.
+/// Headless keeps the hidden default and reads no config file so piped
+/// output stays stable regardless of interactive display preferences.
+fn resolve_run_stream(hide_flag: bool, show_flag: bool, env_name: &str) -> bool {
+    if hide_flag {
+        return false;
+    }
+    if show_flag {
+        return true;
+    }
+    crate::display::env_toggle(env_name).unwrap_or(false)
+}
+
+/// Resolve the headless quiet-tools switch. The explicit flag wins over
+/// the environment; anything else means show (failures always show).
+fn resolve_run_quiet(hide_flag: bool, env_name: &str) -> bool {
+    if hide_flag {
+        return true;
+    }
+    crate::display::env_disable_flag(env_name).unwrap_or(false)
 }
 
 /// Headless single-session form (`wf run` / piped stdin / `--no-tui`).
@@ -232,7 +243,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
 
     let format = cli.output;
     let sink = build_sink(cli, stdout_tty)?;
-    let diag_color = !cli.no_color && std::io::stderr().is_terminal();
+    let diag_color =
+        crate::display::stderr_color_enabled(cli.no_color, std::io::stderr().is_terminal());
 
     let (
         arg_prompt,
@@ -340,9 +352,10 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .map_err(CliError::Arguments)?;
     let attachments =
         crate::turn::load_user_attachment_specs(&attach_paths).map_err(CliError::Arguments)?;
-    let show_reasoning = show_reasoning_flag || env_flag_enabled("WF_RUN_SHOW_REASONING");
-    let show_usage = show_usage_flag || env_flag_enabled("WF_RUN_SHOW_USAGE");
-    let quiet_tools = cli.quiet_tools || env_flag_enabled("WF_RUN_QUIET_TOOLS");
+    let show_reasoning =
+        resolve_run_stream(cli.no_reasoning, show_reasoning_flag, "WF_REASONING");
+    let show_usage = resolve_run_stream(cli.no_usage, show_usage_flag, "WF_USAGE");
+    let quiet_tools = resolve_run_quiet(cli.quiet_tools, "WF_QUIET_TOOLS");
     let opts = RunOptions {
         prompt,
         images,

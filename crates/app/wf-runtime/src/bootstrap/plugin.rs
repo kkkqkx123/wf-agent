@@ -100,15 +100,14 @@ pub async fn init_plugins(
 
     let registry = Arc::new(wf_plugin::PluginRegistry::new());
     let contribution_manager = Arc::new(wf_plugin::ContributionManager::new());
-    let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> = Some(Arc::new(
-        crate::plugin_bridge::WfPluginBridge::new(
+    let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> =
+        Some(Arc::new(crate::plugin_bridge::WfPluginBridge::new(
             registries,
             tool_registry,
             llm_gateway,
             hook_registry,
             registry.clone(),
-        ),
-    ));
+        )));
 
     let event_bus = wf_core::EventBus::new(256);
 

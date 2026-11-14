@@ -20,9 +20,9 @@ impl AgentIterationCoordinator {
         let (version, in_flight) = {
             let conversation = entity.conversation().read().await;
             let version = conversation.conversation_version();
-            let in_flight = conversation.compression_flight().is_some_and(|flight| {
-                wf_execution_shared::check_anchor(flight.version, version)
-            });
+            let in_flight = conversation
+                .compression_flight()
+                .is_some_and(|flight| wf_execution_shared::check_anchor(flight.version, version));
             (version, in_flight)
         };
         if !in_flight {
@@ -48,9 +48,13 @@ impl AgentIterationCoordinator {
                 move || {
                     let handle = handle.clone();
                     async move {
-                        !handle.read().await.compression_flight().is_some_and(|flight| {
-                            wf_execution_shared::check_anchor(flight.version, version)
-                        })
+                        !handle
+                            .read()
+                            .await
+                            .compression_flight()
+                            .is_some_and(|flight| {
+                                wf_execution_shared::check_anchor(flight.version, version)
+                            })
                     }
                 }
             },
@@ -83,7 +87,9 @@ impl AgentIterationCoordinator {
             version,
             &outcome,
         ) {
-            return Ok(self.compression_failure_park(entity, version, &message).await);
+            return Ok(self
+                .compression_failure_park(entity, version, &message)
+                .await);
         }
         match outcome {
             wf_execution_shared::context_store::CompressionSettleOutcome::VersionAdvanced => {
@@ -334,12 +340,11 @@ impl AgentIterationCoordinator {
         let mut conversation = entity.conversation().write().await;
         conversation.refresh_hot_estimate();
         if conversation.compaction_mode() == wf_execution_shared::CompactionMode::Handoff {
-            let hot_probe =
-                wf_execution_shared::context_store::request_hot_estimate(
-                    conversation.compaction_state().hot_tokens,
-                    prompt_est as u64,
-                    conversation.calibration_bias(),
-                );
+            let hot_probe = wf_execution_shared::context_store::request_hot_estimate(
+                conversation.compaction_state().hot_tokens,
+                prompt_est as u64,
+                conversation.calibration_bias(),
+            );
             if conversation.try_exit_handoff(hot_probe) {
                 return;
             }

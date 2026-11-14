@@ -224,6 +224,22 @@ fn workflow_flags_parse_and_validate() {
 }
 
 #[test]
+fn run_show_flags_conflict_with_global_hide_flags() {
+    let cli = parse(&["--no-reasoning", "run", "hi", "--show-reasoning"]).unwrap();
+    let err = cli.validate().unwrap_err();
+    assert!(err.contains("--show-reasoning"), "{err}");
+
+    let cli = parse(&["--no-usage", "run", "hi", "--show-usage"]).unwrap();
+    let err = cli.validate().unwrap_err();
+    assert!(err.contains("--show-usage"), "{err}");
+
+    let cli = parse(&["run", "hi", "--show-reasoning"]).unwrap();
+    assert!(cli.validate().is_ok());
+    let cli = parse(&["--no-reasoning", "run", "hi"]).unwrap();
+    assert!(cli.validate().is_ok());
+}
+
+#[test]
 fn image_flags_parse_and_reject_workflow() {
     let cli = parse(&["run", "hi", "--image", "a.png", "--image", "b.jpg"]).unwrap();
     let Some(Command::Run { image, .. }) = &cli.command else {

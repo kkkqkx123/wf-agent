@@ -51,11 +51,7 @@ impl CompressionService {
     }
 
     fn direct_spawn(&self, execution_id: &str, signal: &CompressionSignal) -> bool {
-        let pipeline = self
-            .pipeline
-            .read()
-            .ok()
-            .and_then(|slot| slot.clone());
+        let pipeline = self.pipeline.read().ok().and_then(|slot| slot.clone());
         let Some(pipeline) = pipeline else {
             return false;
         };

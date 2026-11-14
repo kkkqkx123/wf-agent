@@ -132,10 +132,8 @@ pub async fn emit_token_usage_events(
         &ctx.variables,
         read_context_id(config),
     ));
-    let shared_dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
-        request_estimate,
-        read_stable,
-    );
+    let shared_dynamic =
+        wf_execution_shared::context_store::dynamic_request_overhead(request_estimate, read_stable);
     let bias = tracker.calibration_bias();
     for context_id in declared_contexts(config) {
         let context_messages = message_context::get_context(&ctx.variables, &context_id);
@@ -144,17 +142,13 @@ pub async fn emit_token_usage_events(
             continue;
         }
         let stable = wf_execution_shared::stable_projection(&context_messages);
-        let estimated = wf_execution_shared::hot_estimate_with_shared_dynamic(
-            stable,
-            shared_dynamic,
-            bias,
-        );
+        let estimated =
+            wf_execution_shared::hot_estimate_with_shared_dynamic(stable, shared_dynamic, bias);
         let version = message_context::array_version(&ctx.variables, &context_id);
         if wf_execution_shared::should_emit_hot(estimated, context_limit, false)
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
-            let limits =
-                wf_execution_shared::resolve_effective_compaction_limits(None);
+            let limits = wf_execution_shared::resolve_effective_compaction_limits(None);
             // Workflow compression is single-summary by construction (no
             // block table, never the layered planner); the stateless plan
             // never consults planning advice, so no directive applies.
@@ -180,14 +174,13 @@ pub async fn emit_token_usage_events(
                 agent_loop_id: None,
                 static_defs: &ctx.hook_definitions,
             };
-            let (outcome, mut event) =
-                wf_execution_shared::dispatch_unified_emission(
-                    ctx.hook_handler_registry.as_deref(),
-                    ctx.event_bus.as_deref(),
-                    &emission,
-                    ctx.cancellation.clone().unwrap_or_default(),
-                )
-                .await;
+            let (outcome, mut event) = wf_execution_shared::dispatch_unified_emission(
+                ctx.hook_handler_registry.as_deref(),
+                ctx.event_bus.as_deref(),
+                &emission,
+                ctx.cancellation.clone().unwrap_or_default(),
+            )
+            .await;
             if injected_count > 0 {
                 if let Some(meta) = event.metadata.as_mut() {
                     meta.insert(
@@ -290,9 +283,11 @@ pub async fn await_compression_settle(
                     let tracker = tracker.clone();
                     let target = target.clone();
                     async move {
-                        tracker.lock().await.compression_flight(&target).is_none_or(
-                            |flight| flight.version != version,
-                        )
+                        tracker
+                            .lock()
+                            .await
+                            .compression_flight(&target)
+                            .is_none_or(|flight| flight.version != version)
                     }
                 }
             },
@@ -322,7 +317,9 @@ pub async fn await_compression_settle(
         // continues, cancellation aborts, every other terminal parks with
         // the same message shape (workflow keeps its classified-failure
         // product form, the agent keeps its pause form).
-        if let Some(message) = wf_execution_shared::settle_parking_message(&target, version, &outcome) {
+        if let Some(message) =
+            wf_execution_shared::settle_parking_message(&target, version, &outcome)
+        {
             pause_for_compression_failure(ctx, &message);
             return Err(compression_failure(ctx, message));
         }
@@ -331,7 +328,8 @@ pub async fn await_compression_settle(
             wf_execution_shared::context_store::CompressionSettleOutcome::Cancelled => {
                 return Err(crate::error::WorkflowError::NodeFailure {
                     node_id: ctx.node_id.clone(),
-                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    category:
+                        wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: "aborted while waiting for compression".to_string(),
                     failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 });
@@ -400,15 +398,12 @@ pub async fn check_still_over_budget_escalation(
     }
     if let Some((target, streak)) = escalated {
         // Shared escalation wording with the agent waiter.
-        let message =
-            wf_execution_shared::still_over_budget_park_message(&target, streak);
+        let message = wf_execution_shared::still_over_budget_park_message(&target, streak);
         pause_for_compression_failure(ctx, &message);
         return Err(compression_failure(ctx, message));
     }
     Ok(())
 }
-
-
 
 /// Initialize the execution-scoped tracker limits from the node config
 /// (task budget) and the model window (context budget), then restore
@@ -475,13 +470,12 @@ pub async fn check_preflight_budget(
     let mut tracker = tracker.lock().await;
     if estimated > context_limit && tracker.consume_preflight_warning() {
         if let Some(ref bus) = ctx.event_bus {
-            let mut event =
-                wf_execution_shared::context_store::build_preflight_warning_event(
-                    &ctx.execution_id,
-                    Some(&ctx.node_id),
-                    estimated,
-                    context_limit,
-                );
+            let mut event = wf_execution_shared::context_store::build_preflight_warning_event(
+                &ctx.execution_id,
+                Some(&ctx.node_id),
+                estimated,
+                context_limit,
+            );
             let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
             let array_details: Vec<Value> = declared_contexts(config)
                 .iter()

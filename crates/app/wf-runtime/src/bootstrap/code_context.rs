@@ -58,9 +58,8 @@ pub async fn resolve_code_context_service(
                 }
             };
             let service = Arc::new(
-                CodeContextService::managed(config, endpoint).with_workspace_root(Some(
-                    workspace_root.clone(),
-                )),
+                CodeContextService::managed(config, endpoint)
+                    .with_workspace_root(Some(workspace_root.clone())),
             );
             match start_managed_service(&service, &workspace_root).await {
                 Ok(sidecar) => {
@@ -144,9 +143,7 @@ pub fn bake_fold_chains(
     service: &Arc<CodeContextService>,
 ) {
     let chains = [
-        wf_resource::predefined::workflow::create_fold_summary_workflow_with_service(
-            None, service,
-        ),
+        wf_resource::predefined::workflow::create_fold_summary_workflow_with_service(None, service),
         wf_resource::predefined::workflow::create_fold_summary_repress_workflow_with_service(
             None, service,
         ),
@@ -315,10 +312,7 @@ mod tests {
             assert_eq!(node["max_tokens"], serde_json::json!(512));
         }
         assert!(
-            matches!(
-                service.project_state(),
-                ProjectState::NotSupplied
-            ),
+            matches!(service.project_state(), ProjectState::NotSupplied),
             "external supply keeps the project unattributed"
         );
     }

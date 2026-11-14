@@ -30,13 +30,11 @@ mod terminal_report;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use chain_run::{run_single_with_retry, SingleRunError};
 pub use claim_table::COMPRESSION_HANDLED_CAPACITY;
 pub(crate) use pipeline::CompressionPipeline;
-pub(crate) use chain_run::{run_single_with_retry, SingleRunError};
 pub use policy::CompressionPolicy;
-pub(crate) use policy::{
-    validate_nesting as validate_compression_nesting, worst_case_budget_ms,
-};
+pub(crate) use policy::{validate_nesting as validate_compression_nesting, worst_case_budget_ms};
 #[cfg(test)]
 pub(crate) use registry::builtin_compression_template;
 pub(crate) use registry::CompressionRoutedRegistry;

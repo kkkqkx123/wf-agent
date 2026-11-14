@@ -8,9 +8,8 @@ use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
 
 use crate::trigger_listener::{
-    register_compression_handler, start_trigger_listener_with_parts,
-    ExecutionContextRegistry, ListenerDeps, TriggerExecutionRecorder, TriggerLedger,
-    WorkflowRunner,
+    register_compression_handler, start_trigger_listener_with_parts, ExecutionContextRegistry,
+    ListenerDeps, TriggerExecutionRecorder, TriggerLedger, WorkflowRunner,
 };
 
 /// Assembled event-driven trigger subsystem produced by
@@ -73,7 +72,10 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     // any execution can emit) so workflow and agent waits read the same
     // number. Single install point keeps the two globals together.
     {
-        let settle = limits.compression.as_ref().and_then(|c| c.settle_timeout_ms);
+        let settle = limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.settle_timeout_ms);
         if matches!(settle, Some(0)) {
             tracing::warn!("compression settle timeout ignored: non-positive value");
         }
@@ -81,10 +83,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
             .compaction
             .clone()
             .unwrap_or_else(wf_execution_shared::compaction::builtin_compaction_limits);
-        wf_execution_shared::install_compression_budgets(
-            settle.filter(|v| *v > 0),
-            compaction,
-        );
+        wf_execution_shared::install_compression_budgets(settle.filter(|v| *v > 0), compaction);
     }
     // The terminal-failure handling strategy is declared by the summary
     // workflow resource itself (`compression_fallback` on its
@@ -193,9 +192,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
                 compression_policy.run_timeout_ms,
                 compression_policy.max_retries,
             );
-            tracing::error!(
-                "{reason}; correcting settle budget to worst-case {required} ms"
-            );
+            tracing::error!("{reason}; correcting settle budget to worst-case {required} ms");
             wf_execution_shared::set_compression_settle_timeout_ms(required);
         }
     }

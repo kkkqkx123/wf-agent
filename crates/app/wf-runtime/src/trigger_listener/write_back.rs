@@ -146,16 +146,15 @@ pub(crate) async fn handle_subworkflow_output(
                     .current_version(target.execution_id, target.target_context_id)
                     .await
                     .unwrap_or(target.expected_version);
-                let discarded =
-                    wf_execution_shared::context_store::build_stale_discarded_event(
-                        target.execution_id,
-                        target.agent_loop_id,
-                        target.target_context_id,
-                        target.expected_version,
-                        current,
-                        &detail,
-                        target.run_id.as_deref(),
-                    );
+                let discarded = wf_execution_shared::context_store::build_stale_discarded_event(
+                    target.execution_id,
+                    target.agent_loop_id,
+                    target.target_context_id,
+                    target.expected_version,
+                    current,
+                    &detail,
+                    target.run_id.as_deref(),
+                );
                 let _ = bus.publish(discarded);
                 return Err(CompressionWriteBackError::Expired(format!(
                     "expired: {detail}"

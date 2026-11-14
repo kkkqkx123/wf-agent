@@ -48,7 +48,10 @@ pub fn prefetch_inline_definition_with_tools(
     system_prompt: Option<String>,
     tools: &[&str],
 ) -> AgentDefinition {
-    let tools = tools.iter().map(|name| (*name).to_string()).collect::<Vec<_>>();
+    let tools = tools
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
     AgentDefinition {
         id: "@standard/code-context-prefetch-agent".into(),
         name: "Code Context Prefetch".into(),

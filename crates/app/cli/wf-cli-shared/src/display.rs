@@ -70,6 +70,60 @@ pub fn parse_disable_flag(text: &str) -> Option<bool> {
     }
 }
 
+/// Shared ANSI gate: `NO_COLOR` or a `dumb` terminal disables styling on
+/// every stream. TTY and `--no-color` checks stay per-stream so stdout and
+/// stderr gates remain independent.
+pub fn ansi_allowed() -> bool {
+    if std::env::var("NO_COLOR")
+        .map(|raw| !raw.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if std::env::var("TERM")
+        .map(|raw| raw.trim().eq_ignore_ascii_case("dumb"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    true
+}
+
+/// ANSI styling is emitted only for human TTY output: an explicit
+/// `no_color`, a non-TTY stdout, `NO_COLOR` or a `dumb` terminal all force
+/// plain output.
+pub fn color_enabled(no_color: bool, tty: bool) -> bool {
+    if no_color || !tty {
+        return false;
+    }
+    ansi_allowed()
+}
+
+/// Stderr diagnostics follow the same gate but on the stderr TTY, kept
+/// independent from the stdout `color` flag so disabling stdout styling
+/// never silences stderr styling and vice versa.
+pub fn stderr_color_enabled(no_color: bool, tty: bool) -> bool {
+    if no_color || !tty {
+        return false;
+    }
+    ansi_allowed()
+}
+
+/// Read an on/off environment variable (`on/true/1/yes` means on,
+/// `off/false/0/no` means off). Anything else, including unset, means
+/// no opinion so the caller falls back to flags, files and defaults.
+pub fn env_toggle(name: &str) -> Option<bool> {
+    std::env::var(name).ok().and_then(|raw| parse_toggle(&raw))
+}
+
+/// Read a disabling environment variable (`1/true/yes/on` means disabled).
+/// Anything else, including unset, means no opinion.
+pub fn env_disable_flag(name: &str) -> Option<bool> {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| parse_disable_flag(&raw))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +156,13 @@ mod tests {
         assert_eq!(parse_disable_flag("1"), Some(true));
         assert_eq!(parse_disable_flag("0"), Some(false));
         assert_eq!(parse_disable_flag("bogus"), None);
+    }
+
+    #[test]
+    fn color_gates_require_tty_and_clean_environment() {
+        assert!(!super::color_enabled(true, true));
+        assert!(!super::color_enabled(false, false));
+        assert!(!super::stderr_color_enabled(true, true));
+        assert!(!super::stderr_color_enabled(false, false));
     }
 }

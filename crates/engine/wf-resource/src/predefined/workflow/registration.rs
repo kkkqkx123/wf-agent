@@ -79,7 +79,9 @@ mod tests {
     }
 
     fn prefetch_agent_tools(regs: &ResourceRegistries) -> Option<Vec<String>> {
-        let template = regs.workflows.get(super::super::child::prefetch::PREFETCH_WORKFLOW_ID)?;
+        let template = regs
+            .workflows
+            .get(super::super::child::prefetch::PREFETCH_WORKFLOW_ID)?;
         let agent = template
             .definition
             .nodes

@@ -409,12 +409,10 @@ pub fn transform_code_context_config(
             managed_max_restarts: input
                 .managed_max_restarts
                 .unwrap_or(defaults.transport.managed_max_restarts),
-            auth_token_env: input
-                .auth_token_env
-                .and_then(|name| {
-                    let trimmed = name.trim();
-                    (!trimmed.is_empty()).then(|| trimmed.to_string())
-                }),
+            auth_token_env: input.auth_token_env.and_then(|name| {
+                let trimmed = name.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            }),
             managed_log_level: input
                 .managed_log_level
                 .and_then(|level| {
@@ -593,7 +591,10 @@ mod tests {
             wf_integration::IndexSupplyMode::Managed
         );
         assert!(!declared.project.managed_watch);
-        assert_eq!(declared.transport.auth_token_env.as_deref(), Some("CCE_TOKEN"));
+        assert_eq!(
+            declared.transport.auth_token_env.as_deref(),
+            Some("CCE_TOKEN")
+        );
 
         let err = transform_code_context_config(CodeContextConfigInput {
             supply_mode: Some("neither".into()),

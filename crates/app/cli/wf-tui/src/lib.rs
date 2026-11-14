@@ -130,10 +130,10 @@ fn warn_mini_only_flags(cli: &Cli) {
         ignored.push("--markdown (mini stdout only; TUI always renders styled)");
     }
     if cli.no_reasoning {
-        ignored.push("--no-reasoning (mini only; TUI uses [rendering] show_thinking)");
+        ignored.push("--no-reasoning (mini and `wf run` only; TUI uses [rendering] show_thinking)");
     }
     if cli.no_usage {
-        ignored.push("--no-usage (mini only; TUI uses [footer_segments] usage)");
+        ignored.push("--no-usage (mini and `wf run` only; TUI uses [footer_segments] usage)");
     }
     if cli.quiet_tools {
         ignored.push("--quiet-tools (mini and `wf run` only; TUI uses [tool_output] enabled)");
@@ -152,7 +152,11 @@ fn warn_mini_only_flags(cli: &Cli) {
     }
     eprintln!(
         "[wf] note: {} ignored by the full TUI: {}",
-        if ignored.len() == 1 { "this flag is" } else { "these flags are" },
+        if ignored.len() == 1 {
+            "this flag is"
+        } else {
+            "these flags are"
+        },
         ignored.join(", ")
     );
 }

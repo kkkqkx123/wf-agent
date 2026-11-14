@@ -542,14 +542,13 @@ impl AgentIterationCoordinator {
             if let Some(ref bus) = self.event_bus {
                 let context_limit = entity.conversation().read().await.context_limit();
                 if context_limit > 0 {
-                    let estimated =
-                        wf_execution_shared::context_store::refine_request_estimate(
-                            &self.gateway,
-                            &request,
-                            context_limit,
-                            Some(entity.get_abort_signal()),
-                        )
-                        .await;
+                    let estimated = wf_execution_shared::context_store::refine_request_estimate(
+                        &self.gateway,
+                        &request,
+                        context_limit,
+                        Some(entity.get_abort_signal()),
+                    )
+                    .await;
                     if estimated > context_limit {
                         let mut conversation = entity.conversation().write().await;
                         if conversation.consume_preflight_warning() {

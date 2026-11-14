@@ -179,7 +179,11 @@ impl ConversationSession {
     /// Delegates to the shared array guard so the session and the variable
     /// map share one predicate.
     pub fn should_emit_compression(&self, version: u64) -> bool {
-        crate::context_store::array_should_emit(&self.state.ledger, CONVERSATION_CONTEXT_ID, version)
+        crate::context_store::array_should_emit(
+            &self.state.ledger,
+            CONVERSATION_CONTEXT_ID,
+            version,
+        )
     }
 
     /// Record that a compression request was emitted for this version.

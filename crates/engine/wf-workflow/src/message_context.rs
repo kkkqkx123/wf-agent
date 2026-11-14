@@ -101,9 +101,7 @@ pub fn take_expired_tracker_flight(
         now_ms,
         timeout_ms,
     )?;
-    state
-        .compression_flights
-        .remove(&normalize_id(context_id));
+    state.compression_flights.remove(&normalize_id(context_id));
     serde_json::to_value(&state)
         .ok()
         .map(|value| variables.insert(key.to_string(), value))?;

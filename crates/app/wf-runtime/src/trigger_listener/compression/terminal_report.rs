@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use tracing::warn;
 use wf_core::EventBus;
-use wf_types::Id;
 use wf_types::message::Message;
 use wf_types::workflow::CompressionFallbackMode;
+use wf_types::Id;
 
 use super::super::{ExecutionContextRegistry, TriggerLedger};
 use super::input_window::{build_degraded_notice, trim_messages_to_budget};

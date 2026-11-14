@@ -187,7 +187,8 @@ impl<'a> SessionRenderer<'a> {
                 }
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
                 if *success {
-                    let background_active = background.as_ref().is_some_and(|marker| marker.is_active());
+                    let background_active =
+                        background.as_ref().is_some_and(|marker| marker.is_active());
                     if !self.show_tools && !background_active {
                         return Ok(());
                     }
@@ -616,7 +617,8 @@ mod tests {
     }
 
     #[test]
-    fn subagent_failure_always_shows() {        let mut sink = MemorySink::new();
+    fn subagent_failure_always_shows() {
+        let mut sink = MemorySink::new();
         let diag = shared_diag();
         {
             let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);

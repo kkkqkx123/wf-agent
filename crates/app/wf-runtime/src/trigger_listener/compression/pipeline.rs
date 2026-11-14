@@ -210,8 +210,7 @@ impl CompressionPipeline {
     pub(crate) fn spawn(&self, request: CompressionRequest) -> bool {
         debug!(
             "Compression spawn target={}:{}",
-            request.target_context_id,
-            request.array_version
+            request.target_context_id, request.array_version
         );
         let key = claim_table::claim_key(
             &request.execution_id,

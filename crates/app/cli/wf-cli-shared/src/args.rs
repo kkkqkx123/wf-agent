@@ -66,15 +66,20 @@ pub struct Cli {
     /// other forms. Overrides `WF_MINI_MARKDOWN` and the config file.
     #[arg(long, value_enum, global = true)]
     pub markdown: Option<MarkdownMode>,
-    /// Suppress reasoning deltas on stderr. Mini only.
+    /// Suppress reasoning deltas on stderr. Mini and `wf run` share this
+    /// switch; the full TUI ignores it and uses `[rendering] show_thinking`.
+    /// Reads `WF_REASONING` (`on` shows, `off` hides) with the same meaning.
     #[arg(long = "no-reasoning", global = true)]
     pub no_reasoning: bool,
-    /// Suppress usage lines on stderr. Mini only.
+    /// Suppress usage lines on stderr. Mini and `wf run` share this switch;
+    /// the full TUI ignores it and uses `[footer_segments] usage`.
+    /// Reads `WF_USAGE` (`on` shows, `off` hides) with the same meaning.
     #[arg(long = "no-usage", global = true)]
     pub no_usage: bool,
     /// Suppress successful tool lifecycle lines on stderr (failures
-    /// still show). Mini and headless run share this switch; the full
-    /// TUI ignores it. Also reads `WF_RUN_QUIET_TOOLS` for `wf run`.
+    /// still show). Mini and `wf run` share this switch; the full
+    /// TUI ignores it and uses `[tool_output] enabled`.
+    /// Reads `WF_QUIET_TOOLS` (`on` quiets, `off` shows) with the same meaning.
     #[arg(long = "quiet-tools", global = true)]
     pub quiet_tools: bool,
     /// Tool output detail for mini (`low`, `medium`, `high`). Mini only;
@@ -226,6 +231,23 @@ impl Cli {
             if *interactive && *assume_yes {
                 return Err("--interactive and --assume-yes are mutually exclusive".to_string());
             }
+            if self.no_reasoning {
+                if let Some(Command::Run { show_reasoning, .. }) = &self.command {
+                    if *show_reasoning {
+                        return Err("--show-reasoning and --no-reasoning are mutually exclusive"
+                            .to_string());
+                    }
+                }
+            }
+            if self.no_usage {
+                if let Some(Command::Run { show_usage, .. }) = &self.command {
+                    if *show_usage {
+                        return Err(
+                            "--show-usage and --no-usage are mutually exclusive".to_string()
+                        );
+                    }
+                }
+            }
             if let Some(secs) = approval_timeout {
                 if *secs == 0 {
                     return Err("--approval-timeout must be greater than 0".to_string());
@@ -331,10 +353,14 @@ pub enum Command {
         /// runs with no human on the line).
         #[arg(long = "assume-yes", short = 'y')]
         assume_yes: bool,
-        /// Show reasoning deltas on stderr (opt-in diagnostics).
+        /// Show reasoning deltas on stderr (opt-in diagnostics for `wf run`,
+        /// default hidden). Mutually exclusive with the global `--no-reasoning`.
+        /// Reads `WF_REASONING` (`on` shows, `off` hides) with the same meaning.
         #[arg(long = "show-reasoning")]
         show_reasoning: bool,
-        /// Show usage lines on stderr (opt-in diagnostics).
+        /// Show usage lines on stderr (opt-in diagnostics for `wf run`,
+        /// default hidden). Mutually exclusive with the global `--no-usage`.
+        /// Reads `WF_USAGE` (`on` shows, `off` hides) with the same meaning.
         #[arg(long = "show-usage")]
         show_usage: bool,
         /// Workflow id to execute instead of an agent turn.

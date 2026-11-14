@@ -148,8 +148,8 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
 
     let mut pending: Vec<&[FoldCandidate]> = candidates.chunks(max_items).collect();
     let mut retry_round = 0usize;
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_millis(params.total_budget_ms.max(1));
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(params.total_budget_ms.max(1));
 
     'rounds: while !pending.is_empty() && retry_round <= max_retries {
         if std::time::Instant::now() >= deadline {

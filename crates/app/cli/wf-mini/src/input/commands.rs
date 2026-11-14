@@ -14,6 +14,7 @@ pub enum SlashCommand {
     Reasoning(Option<String>),
     Usage(Option<String>),
     Tools(Option<String>),
+    ToolDetail(Option<String>),
     Display,
     Recap,
     Steer {
@@ -239,6 +240,13 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
             None => Some(SlashCommand::Tools(None)),
             Some(toggle) if tokens.next().is_none() => {
                 Some(SlashCommand::Tools(Some(toggle.to_string())))
+            }
+            _ => None,
+        },
+        "/tooldetail" => match tokens.next() {
+            None => Some(SlashCommand::ToolDetail(None)),
+            Some(level) if tokens.next().is_none() => {
+                Some(SlashCommand::ToolDetail(Some(level.to_string())))
             }
             _ => None,
         },
@@ -526,6 +534,14 @@ mod tests {
         assert_eq!(
             parse_command("/tools on"),
             Some(SlashCommand::Tools(Some("on".to_string())))
+        );
+        assert_eq!(
+            parse_command("/tooldetail high"),
+            Some(SlashCommand::ToolDetail(Some("high".to_string())))
+        );
+        assert_eq!(
+            parse_command("/tooldetail"),
+            Some(SlashCommand::ToolDetail(None))
         );
         assert_eq!(parse_command("/display"), Some(SlashCommand::Display));
         assert_eq!(parse_command("/display x"), None);

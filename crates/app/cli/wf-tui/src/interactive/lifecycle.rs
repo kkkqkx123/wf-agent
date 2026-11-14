@@ -60,6 +60,7 @@ impl InteractiveController {
             scroll_cover: 0,
             tool_started_at: HashMap::new(),
             tool_blocks: HashMap::new(),
+            show_reasoning: true,
             tool_order: Vec::new(),
             subagent_blocks: HashMap::new(),
             subagent_order: Vec::new(),

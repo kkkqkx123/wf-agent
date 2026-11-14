@@ -143,6 +143,53 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
         )
     }
 
+    /// Truncated error preview for a failed tool. The error leads when
+    /// present, otherwise the raw result; empty sources stay empty so the
+    /// failure line keeps its exact historical shape.
+    pub(crate) fn error_preview(&self, result: &str, error: Option<&str>) -> String {
+        let source = match error {
+            Some(text) if !text.trim().is_empty() => text,
+            _ if !result.trim().is_empty() => result,
+            _ => return String::new(),
+        };
+        let config = &self.display.tool_output;
+        tui_core::tool_output::collapse_output(
+            source,
+            config.error_preview_lines,
+            config.preview_max_chars,
+        )
+        .text
+    }
+
+    /// Truncated success preview for high detail. Retrieval kinds never
+    /// render bodies here; the caller renders the count line instead.
+    pub(crate) fn success_preview(
+        &self,
+        tool_name: &str,
+        result: &str,
+        kind: wf_types::tool::DisplayKind,
+    ) -> String {
+        if result.trim().is_empty() {
+            return String::new();
+        }
+        let config = &self.display.tool_output;
+        if kind == wf_types::tool::DisplayKind::ShellTail {
+            return tui_core::tool_output::collapse_shell_tail(
+                result,
+                config.shell_preview_lines,
+                config.preview_max_chars,
+            )
+            .text;
+        }
+        let _ = tool_name;
+        tui_core::tool_output::collapse_output(
+            result,
+            config.preview_max_lines,
+            config.preview_max_chars,
+        )
+        .text
+    }
+
     pub(crate) fn tool_start_line(&self, tool_name: &str) -> String {
         if let Some(rendered) = self
             .tool_templates
@@ -187,7 +234,10 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::ToolStart { tool_name, .. } => {
-                if !self.display.show_tools {
+                if !self.display.effective_show_tools() {
+                    return None;
+                }
+                if self.display.tool_output.level == tui_core::tool_output::DetailLevel::Low {
                     return None;
                 }
                 self.end_stdout_line();
@@ -202,6 +252,9 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             ExecutionStreamEvent::ToolEnd {
                 tool_name,
                 success,
+                result,
+                error,
+                display,
                 background,
                 ..
             } => {
@@ -236,18 +289,44 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                         StderrKind::Failure,
                     );
                     self.sink.stderr_line(&line);
+                    let preview = self.error_preview(result, error.as_deref());
+                    if !preview.is_empty() {
+                        self.sink.stderr_line(&paint_stderr(
+                            &preview,
+                            &self.display,
+                            StderrKind::Failure,
+                        ));
+                    }
                     return None;
                 }
-                if !self.display.show_tools {
+                if !self.display.effective_show_tools() {
                     return None;
                 }
                 self.end_stdout_line();
-                let line = paint_stderr(
-                    &format!("tool ok: {tool_name}"),
-                    &self.display,
-                    StderrKind::Dim,
-                );
+                let mut summary = format!("tool ok: {tool_name}");
+                let mut body = String::new();
+                if self.display.tool_output.level == tui_core::tool_output::DetailLevel::High {
+                    let kind = display
+                        .as_ref()
+                        .map(|payload| payload.kind)
+                        .unwrap_or_else(|| tui_core::tool_output::infer_kind(tool_name));
+                    if kind == wf_types::tool::DisplayKind::Count {
+                        let total = result.lines().count();
+                        if total == 1 {
+                            summary.push_str(" · 1 line");
+                        } else if total > 1 {
+                            summary.push_str(&format!(" · {total} lines"));
+                        }
+                    } else {
+                        body = self.success_preview(tool_name, result, kind);
+                    }
+                }
+                let line = paint_stderr(&summary, &self.display, StderrKind::Dim);
                 self.sink.stderr_line(&line);
+                if !body.is_empty() {
+                    self.sink
+                        .stderr_line(&paint_stderr(&body, &self.display, StderrKind::Dim));
+                }
                 None
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
@@ -284,7 +363,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::SubAgentStarted { name, .. } => {
-                if !self.display.show_tools {
+                if !self.display.effective_show_tools() {
                     return None;
                 }
                 self.end_stdout_line();
@@ -307,7 +386,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                     self.sink.stderr_line(&line);
                     return None;
                 }
-                if !self.display.show_tools {
+                if !self.display.effective_show_tools() {
                     return None;
                 }
                 self.end_stdout_line();
@@ -321,7 +400,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             }
             ExecutionStreamEvent::SubAgentProgress { activity, .. } => {
                 let text = activity.as_deref().filter(|t| !t.trim().is_empty())?;
-                if !self.display.show_tools {
+                if !self.display.effective_show_tools() {
                     return None;
                 }
                 self.end_stdout_line();
@@ -344,7 +423,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                     );
                     self.sink.stderr_line(&line);
                 }
-                if self.display.show_tools {
+                if self.display.effective_show_tools() {
                     let line = paint_stderr(
                         &format!("completed in {iterations} iterations"),
                         &self.display,

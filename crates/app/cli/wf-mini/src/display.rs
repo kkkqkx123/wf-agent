@@ -4,6 +4,7 @@
 //! built-in default. Defaults preserve the historical behavior: verbatim
 //! markdown, all stderr streams shown, 120s approval timeout.
 
+use tui_core::tool_output::{DetailLevel, ToolOutputConfig};
 use wf_cli_shared::app_config::{self, MiniConfig};
 use wf_cli_shared::args::Cli;
 use wf_cli_shared::display::MarkdownMode;
@@ -32,6 +33,7 @@ pub struct DisplayConfig {
     pub stderr_color: bool,
     pub approval_timeout_secs: u64,
     pub suggestion_display_limit: usize,
+    pub tool_output: ToolOutputConfig,
 }
 
 impl Default for DisplayConfig {
@@ -45,6 +47,7 @@ impl Default for DisplayConfig {
             stderr_color: false,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             suggestion_display_limit: DEFAULT_SUGGESTION_DISPLAY_LIMIT,
+            tool_output: ToolOutputConfig::default(),
         }
     }
 }
@@ -75,6 +78,7 @@ impl DisplayConfig {
         );
         let approval_timeout_secs = resolve_approval_timeout(file.as_ref());
         let suggestion_display_limit = resolve_suggestion_display_limit(file.as_ref());
+        let tool_output = resolve_tool_output(cli);
         let color = color_enabled(cli, stdout_tty);
         let stderr_color = stderr_color_enabled(cli, stderr_tty);
         Self {
@@ -86,17 +90,24 @@ impl DisplayConfig {
             stderr_color,
             approval_timeout_secs,
             suggestion_display_limit,
+            tool_output,
         }
+    }
+
+    /// Whether success tool lines may render given both masters.
+    pub fn effective_show_tools(&self) -> bool {
+        self.show_tools && self.tool_output.enabled
     }
 
     /// One-line summary for the banner and `/display`.
     pub fn describe(&self) -> String {
         format!(
-            "markdown={} reasoning={} usage={} tools={} color={} stderr_color={} approval_timeout={}s suggestion_display_limit={}",
+            "markdown={} reasoning={} usage={} tools={} tool_detail={} color={} stderr_color={} approval_timeout={}s suggestion_display_limit={}",
             self.markdown.as_str(),
             on_off(self.show_reasoning),
             on_off(self.show_usage),
             on_off(self.show_tools),
+            self.tool_output.level.label(),
             on_off(self.color),
             on_off(self.stderr_color),
             self.approval_timeout_secs,
@@ -166,6 +177,63 @@ fn load_file_config() -> Option<MiniConfig> {
     app_config::ConfigManager::load(&path)
         .ok()
         .map(|manager| manager.config().mini.clone())
+}
+
+/// Parse a tool detail level name from flag, env or slash command.
+pub fn parse_tool_detail(raw: &str) -> Option<DetailLevel> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "low" => Some(DetailLevel::Low),
+        "medium" => Some(DetailLevel::Medium),
+        "high" => Some(DetailLevel::High),
+        _ => None,
+    }
+}
+
+/// Tool output thresholds for one mini session. Preview lengths come from
+/// the shared `[tool_output]` section so mini and the full TUI stay on one
+/// vocabulary; only the level has a CLI and env override. Unknown level
+/// values fall back to the file or default instead of failing the session.
+fn resolve_tool_output(cli: &Cli) -> ToolOutputConfig {
+    use wf_cli_shared::app_config::ToolDetailLevelName;
+    let mut config = ToolOutputConfig::default();
+    if let Some(path) = app_config::config_file_path() {
+        if let Ok(manager) = app_config::ConfigManager::load(&path) {
+            let file = &manager.config().tool_output;
+            if let Some(enabled) = file.enabled {
+                config.enabled = enabled;
+            }
+            if let Some(lines) = file.preview_max_lines {
+                config.preview_max_lines = lines;
+            }
+            if let Some(chars) = file.preview_max_chars {
+                config.preview_max_chars = chars;
+            }
+            if let Some(lines) = file.shell_preview_lines {
+                config.shell_preview_lines = lines;
+            }
+            if let Some(lines) = file.error_preview_lines {
+                config.error_preview_lines = lines;
+            }
+            if let Some(bytes) = file.block_max_bytes {
+                config.block_max_bytes = bytes;
+            }
+            if let Some(level) = file.level {
+                config.level = match level {
+                    ToolDetailLevelName::Low => DetailLevel::Low,
+                    ToolDetailLevelName::Medium => DetailLevel::Medium,
+                    ToolDetailLevelName::High => DetailLevel::High,
+                };
+            }
+        }
+    }
+    let env_level = std::env::var("WF_MINI_TOOL_DETAIL")
+        .ok()
+        .and_then(|raw| parse_tool_detail(&raw));
+    let cli_level = cli.tool_detail.as_deref().and_then(parse_tool_detail);
+    if let Some(level) = cli_level.or(env_level) {
+        config.level = level;
+    }
+    config
 }
 
 /// Shared ANSI gate: `NO_COLOR` or a `dumb` terminal disables styling on

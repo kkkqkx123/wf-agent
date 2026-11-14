@@ -76,6 +76,11 @@ pub struct Cli {
     /// Mini only.
     #[arg(long = "quiet-tools", global = true)]
     pub quiet_tools: bool,
+    /// Tool output detail for mini (`low`, `medium`, `high`). Mini only;
+    /// ignored by other forms. Overrides `WF_MINI_TOOL_DETAIL` and the
+    /// `[tool_output]` config section.
+    #[arg(long = "tool-detail", value_name = "LEVEL", global = true)]
+    pub tool_detail: Option<String>,
     /// Remote server URL (e.g. http://localhost:3000). Overrides WF_REMOTE env.
     #[arg(long, global = true)]
     pub remote: Option<String>,
@@ -325,6 +330,12 @@ pub enum Command {
         /// runs with no human on the line).
         #[arg(long = "assume-yes", short = 'y')]
         assume_yes: bool,
+        /// Show reasoning deltas on stderr (opt-in diagnostics).
+        #[arg(long = "show-reasoning")]
+        show_reasoning: bool,
+        /// Show usage lines on stderr (opt-in diagnostics).
+        #[arg(long = "show-usage")]
+        show_usage: bool,
         /// Workflow id to execute instead of an agent turn.
         #[arg(long)]
         workflow: Option<String>,

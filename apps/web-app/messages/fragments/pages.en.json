@@ -487,6 +487,8 @@
 	"page.settings.sessionTitlesDesc": "How new sessions are named. Manual renames always win.",
 	"page.settings.settingsRestored": "Settings restored",
 	"page.settings.shell": "Shell",
+	"page.settings.showReasoning": "Show thinking",
+	"page.settings.showReasoningDesc": "Show the live thinking block in the chat timeline. Hiding it does not affect the answer or tool cards.",
 	"page.settings.shortcuts": "Shortcuts",
 	"page.settings.sidebarWidth": "Sidebar width",
 	"page.settings.storedServerSide": "Stored server-side.",

@@ -212,6 +212,20 @@ pub fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink +
     }
 }
 
+/// Opt-in diagnostics switch from the environment. Accepts the same
+/// truthy spellings as the mini stderr toggles; anything else means off.
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|raw| {
+            matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "y" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Headless single-session form (`wf run` / piped stdin / `--no-tui`).
 async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
     use std::io::IsTerminal;
@@ -236,6 +250,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         interactive,
         approval_timeout,
         assume_yes,
+        show_reasoning_flag,
+        show_usage_flag,
         worktree,
     ) = match &cli.command {
         Some(Command::Run {
@@ -254,6 +270,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             interactive,
             approval_timeout,
             assume_yes,
+            show_reasoning,
+            show_usage,
             worktree,
             remote: _,
         }) => (
@@ -272,6 +290,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             *interactive,
             *approval_timeout,
             *assume_yes,
+            *show_reasoning,
+            *show_usage,
             worktree.clone(),
         ),
         _ => (
@@ -289,6 +309,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             Vec::new(),
             false,
             None,
+            false,
+            false,
             false,
             None,
         ),
@@ -318,6 +340,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .map_err(CliError::Arguments)?;
     let attachments =
         crate::turn::load_user_attachment_specs(&attach_paths).map_err(CliError::Arguments)?;
+    let show_reasoning = show_reasoning_flag || env_flag_enabled("WF_RUN_SHOW_REASONING");
+    let show_usage = show_usage_flag || env_flag_enabled("WF_RUN_SHOW_USAGE");
     let opts = RunOptions {
         prompt,
         images,
@@ -335,6 +359,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         assume_yes,
         timeout_ms: cli.timeout,
         context,
+        show_reasoning,
+        show_usage,
     };
 
     // A worktree run relocates before connecting: the new worktree becomes

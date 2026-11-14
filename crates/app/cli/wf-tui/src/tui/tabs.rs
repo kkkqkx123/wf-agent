@@ -8,7 +8,9 @@ use crate::screens::ScreenKind;
 use crate::session_tabs::SessionTab;
 
 use super::data_cache::DataResult;
-use super::input_classify::{load_session_scrollbar_opt_in, load_tool_output_config};
+use super::input_classify::{
+    load_reasoning_enabled, load_session_scrollbar_opt_in, load_tool_output_config,
+};
 use super::TuiApp;
 
 impl TuiApp {
@@ -59,6 +61,7 @@ impl TuiApp {
         session.apply_copy_policy(self.copy_policy);
         session.apply_clear_selection_after_copy(self.clear_selection_after_copy());
         session.set_tool_config(load_tool_output_config());
+        session.set_show_reasoning(load_reasoning_enabled());
         session.set_session_scrollbar(load_session_scrollbar_opt_in());
         session
     }

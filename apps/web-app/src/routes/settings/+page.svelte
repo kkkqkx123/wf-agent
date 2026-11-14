@@ -537,6 +537,16 @@
 								Preview {toolBudgetsHint}
 							</p>
 						</div>
+						<div class="mt-3 border-t border-border/60 pt-3">
+							<Switch
+								checked={preferences.reasoningVisible}
+								label={t('page.settings.showReasoning')}
+								onchange={() => preferences.setReasoningVisible(!preferences.reasoningVisible)}
+							/>
+							<p class="mt-2 text-caption text-muted-foreground">
+								{t('page.settings.showReasoningDesc')}
+							</p>
+						</div>
 					</Card>
 
 					<Card title={t('page.settings.editor')} description={t('page.settings.editorDesc')}>

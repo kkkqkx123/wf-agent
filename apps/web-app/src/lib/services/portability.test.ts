@@ -21,6 +21,7 @@ function validBackup(): SettingsBackup {
 			minimapMode: 'auto',
 			toolOutputPreviews: true,
 			toolOutputDetail: 'balanced',
+			reasoningVisible: true,
 			chatExecutionType: 'agent',
 		},
 		shortcuts: { 'app.commandPalette': 'Mod+K' },
@@ -82,6 +83,13 @@ describe('settings backup rejection', () => {
 
 	it('rejects non-JSON text', () => {
 		expect(() => parseBackupDocument('not json {')).toThrow(/JSON/);
+	});
+
+	it('defaults missing reasoning visibility to shown for old backups', () => {
+		const backup = validBackup();
+		const { reasoningVisible: _dropped, ...rest } = backup.preferences;
+		const parsed = validateBackupDocument({ ...backup, preferences: rest });
+		expect(parsed.preferences.reasoningVisible).toBe(true);
 	});
 
 	it('falls back nothing: corrupt input throws instead of repairing', () => {

@@ -35,6 +35,24 @@ pub(crate) async fn fetch_execution_status(client: &WfClient, id: &str) -> CliRe
         .ok_or_else(|| CliError::Configuration(format!("execution has no status: {id}")))
 }
 
+/// Terminal preview budget for one `--stream` row. Tool results and
+/// reasoning deltas arrive unbounded; rows beyond this stay readable and
+/// never flood the terminal. Failures stay visible because the head of the
+/// message is kept and only the tail is marked as omitted.
+pub(crate) const STREAM_TOOL_PREVIEW_CHARS: usize = 2000;
+pub(crate) const STREAM_REASONING_PREVIEW_CHARS: usize = 1000;
+
+/// Bounded head preview with an omission marker. Short inputs pass
+/// through unchanged so the common case keeps exact bytes.
+pub(crate) fn truncate_stream_text(text: &str, max_chars: usize) -> String {
+    let total: usize = text.chars().count();
+    if total <= max_chars {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(max_chars).collect();
+    format!("{}...[truncated {} chars]", head, total - max_chars)
+}
+
 /// One-line text rendering of a stream event for `--stream` TTY output.
 pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
     match event {
@@ -47,7 +65,10 @@ pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
             format!("iteration #{iteration} started")
         }
         ExecutionStreamEvent::LlmDelta { content } => content.clone(),
-        ExecutionStreamEvent::ReasoningDelta { content } => format!("thinking: {content}"),
+        ExecutionStreamEvent::ReasoningDelta { content } => format!(
+            "thinking: {}",
+            truncate_stream_text(content, STREAM_REASONING_PREVIEW_CHARS)
+        ),
         ExecutionStreamEvent::ToolStart {
             tool_name,
             tool_call_id,
@@ -60,11 +81,15 @@ pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
             ..
         } => {
             if *success {
-                format!("tool {tool_name} ok: {result}")
+                format!(
+                    "tool {tool_name} ok: {}",
+                    truncate_stream_text(result, STREAM_TOOL_PREVIEW_CHARS)
+                )
             } else {
+                let detail = error.as_deref().unwrap_or(result.as_str());
                 format!(
                     "tool {tool_name} failed: {}",
-                    error.as_deref().unwrap_or(result.as_str())
+                    truncate_stream_text(detail, STREAM_TOOL_PREVIEW_CHARS)
                 )
             }
         }
@@ -195,7 +220,15 @@ pub(crate) async fn run_stream(
             }
         }
         if text {
-            println!("{}", stream_event_line(&event));
+            // Answer deltas stream without an extra newline per frame so
+            // the terminal shows continuous text; every other event keeps
+            // one row per event.
+            if let ExecutionStreamEvent::LlmDelta { content } = &event {
+                print!("{content}");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            } else {
+                println!("{}", stream_event_line(&event));
+            }
         } else {
             let data = serde_json::to_value(&event)?;
             render_envelope(
@@ -375,4 +408,39 @@ pub(crate) fn map_frames(
             }
         })
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_text_passes_short_inputs_through() {
+        assert_eq!(truncate_stream_text("ok", 2000), "ok");
+        assert_eq!(truncate_stream_text("", 2000), "");
+    }
+
+    #[test]
+    fn stream_tool_result_truncates_with_marker() {
+        let big = "x".repeat(STREAM_TOOL_PREVIEW_CHARS + 10);
+        let line = stream_event_line(&ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".into(),
+            tool_name: "read_file".into(),
+            success: true,
+            result: big,
+            error: None,
+            display: None,
+            background: None,
+        });
+        assert!(line.starts_with("tool read_file ok: "), "{line}");
+        assert!(line.contains("truncated 10 chars"), "{line}");
+    }
+
+    #[test]
+    fn stream_reasoning_truncates_with_marker() {
+        let big = "y".repeat(STREAM_REASONING_PREVIEW_CHARS + 5);
+        let line = stream_event_line(&ExecutionStreamEvent::ReasoningDelta { content: big });
+        assert!(line.starts_with("thinking: "), "{line}");
+        assert!(line.contains("truncated 5 chars"), "{line}");
+    }
 }

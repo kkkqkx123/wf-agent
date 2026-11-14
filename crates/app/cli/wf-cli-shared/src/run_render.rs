@@ -71,6 +71,8 @@ pub(crate) struct SessionRenderer<'a> {
     line_pending: bool,
     saw_text: bool,
     tool_started_at: HashMap<String, Instant>,
+    show_reasoning: bool,
+    show_usage: bool,
     pub(crate) had_output: bool,
     /// Observed background shell sessions handed back without waiting, in
     /// completion order. Observer-only: sessions stay server-owned. Used
@@ -88,9 +90,19 @@ impl<'a> SessionRenderer<'a> {
             line_pending: false,
             saw_text: false,
             tool_started_at: HashMap::new(),
+            show_reasoning: false,
+            show_usage: false,
             had_output: false,
             background_sessions: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_show_reasoning(&mut self, show: bool) {
+        self.show_reasoning = show;
+    }
+
+    pub(crate) fn set_show_usage(&mut self, show: bool) {
+        self.show_usage = show;
     }
 
     pub(crate) fn on_event(
@@ -173,14 +185,53 @@ impl<'a> SessionRenderer<'a> {
             }
             ExecutionStreamEvent::IterationEnd { .. } => self.flush_iteration()?,
             ExecutionStreamEvent::IterationStart { .. } => {}
-            // Reasoning / usage / sub-agent lifecycle carry no business or
-            // diagnostics output in the headless renderer; the reducer still
-            // folds them into the footer snapshot.
-            ExecutionStreamEvent::ReasoningDelta { .. }
-            | ExecutionStreamEvent::Usage { .. }
-            | ExecutionStreamEvent::SubAgentStarted { .. }
-            | ExecutionStreamEvent::SubAgentEnded { .. }
+            ExecutionStreamEvent::ReasoningDelta { content } => {
+                if !self.show_reasoning {
+                    return Ok(());
+                }
+                self.had_output = true;
+                let mut diag = wf_common::lock::lock_ok(diag.lock());
+                let _ = diag.line(&format!(
+                    "thinking: {}",
+                    crate::cmd::execution_stream::truncate_stream_text(
+                        content,
+                        crate::cmd::execution_stream::STREAM_REASONING_PREVIEW_CHARS
+                    )
+                ));
+            }
+            ExecutionStreamEvent::Usage {
+                prompt_tokens,
+                completion_tokens,
+                cost,
+                cache_read_tokens,
+                ..
+            } => {
+                if !self.show_usage {
+                    return Ok(());
+                }
+                self.had_output = true;
+                let mut line = format!(
+                    "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens"
+                );
+                if let Some(cached) = cache_read_tokens {
+                    line.push_str(&format!(" ({cached} cached)"));
+                }
+                if let Some(value) = cost {
+                    line.push_str(&format!(" (~${value:.4})"));
+                }
+                let mut diag = wf_common::lock::lock_ok(diag.lock());
+                let _ = diag.line(&line);
+            }
+            ExecutionStreamEvent::SubAgentStarted { .. }
             | ExecutionStreamEvent::SubAgentProgress { .. } => return Ok(()),
+            ExecutionStreamEvent::SubAgentEnded { name, success, .. } => {
+                if *success {
+                    return Ok(());
+                }
+                self.had_output = true;
+                let mut diag = wf_common::lock::lock_ok(diag.lock());
+                let _ = diag.err(&format!("subagent failed: {name}"));
+            }
         }
         Ok(())
     }
@@ -422,5 +473,105 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].content, "part one");
         assert_eq!(messages[1].content, "two");
+    }
+
+    #[test]
+    fn reasoning_and_usage_stay_hidden_by_default() {
+        let mut sink = MemorySink::new();
+        let diag = shared_diag();
+        let had_output = {
+            let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::ReasoningDelta {
+                        content: "thinking".into(),
+                    },
+                    &diag,
+                )
+                .unwrap();
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::Usage {
+                        prompt_tokens: 1,
+                        completion_tokens: 2,
+                        cost: None,
+                        reasoning_tokens: None,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        total_tokens: None,
+                    },
+                    &diag,
+                )
+                .unwrap();
+            renderer.had_output
+        };
+        assert_eq!(sink.text(), "");
+        assert_eq!(diag_text(&diag), "");
+        assert!(!had_output);
+    }
+
+    #[test]
+    fn reasoning_and_usage_show_when_enabled() {
+        let mut sink = MemorySink::new();
+        let diag = shared_diag();
+        let had_output = {
+            let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);
+            renderer.set_show_reasoning(true);
+            renderer.set_show_usage(true);
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::ReasoningDelta {
+                        content: "thinking".into(),
+                    },
+                    &diag,
+                )
+                .unwrap();
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::Usage {
+                        prompt_tokens: 10,
+                        completion_tokens: 20,
+                        cost: Some(0.001),
+                        reasoning_tokens: None,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        total_tokens: None,
+                    },
+                    &diag,
+                )
+                .unwrap();
+            renderer.had_output
+        };
+        assert_eq!(sink.text(), "");
+        let text = diag_text(&diag);
+        assert!(text.contains("thinking: thinking"), "{text}");
+        assert!(
+            text.contains("usage: 10 prompt + 20 completion tokens"),
+            "{text}"
+        );
+        assert!(had_output);
+    }
+
+    #[test]
+    fn subagent_failure_always_shows() {
+        let mut sink = MemorySink::new();
+        let diag = shared_diag();
+        {
+            let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::SubAgentEnded {
+                        id: "s1".into(),
+                        name: "helper".into(),
+                        success: false,
+                        tool_call_id: None,
+                        background: None,
+                    },
+                    &diag,
+                )
+                .unwrap();
+        }
+        let text = diag_text(&diag);
+        assert!(text.contains("subagent failed: helper"), "{text}");
     }
 }

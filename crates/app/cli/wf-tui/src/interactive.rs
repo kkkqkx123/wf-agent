@@ -323,6 +323,9 @@ pub struct InteractiveController {
     anchor_disabled: HashSet<anchors::AnchorKind>,
     /// Thresholds for tool-output previews and block storage.
     tool_config: tui_core::tool_output::ToolOutputConfig,
+    /// Whether live reasoning deltas reach the transcript. Display-only:
+    /// history recording keeps its own path regardless of this switch.
+    show_reasoning: bool,
     /// Successful tool calls accumulated for the Low detail-level activity
     /// group. Flushed into one summary row at the next non-tool row.
     activity: Vec<(String, bool)>,

@@ -29,7 +29,7 @@ impl NativeSession {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
                 output::diag_line("sessions: /sessions [--named] [filter] list recent server sessions newest-first as [n] id · title · status · age (quoted \"phrase\" matches exactly, --named hides untitled), /resume [n|id-or-filter] continue a session (bare resumes latest, number reuses the last listing), /rename <title> rename current session, /delete [n|id-or-filter] delete a session in two steps (repeat the same command to confirm, bare deletes current)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
-                output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
+                output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /tooldetail [low|medium|high], /display show all");
                 output::diag_line("nested loops: /loops [execution] list workflow nested targets, /steer [--node <id>] <text> steering input, /followup [--node <id>] <text> follow-up input, /append-mode [--node <id>] steering|followup, /convert-pending [--node <id>]");
                 output::diag_line("context: /context show keys, /context clear, /context {json} replace, /context set KEY VALUE, /context remove KEY, /context-file <path> load");
                 output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
@@ -197,6 +197,29 @@ impl NativeSession {
                 self.apply_toggle("tools", toggle, |config, show| {
                     config.show_tools = show;
                 });
+                CommandAction::Continue
+            }
+            SlashCommand::ToolDetail(level) => {
+                match level.as_deref() {
+                    None => {
+                        output::diag_line(&format!(
+                            "tooldetail: {}",
+                            self.display.tool_output.level.label()
+                        ));
+                    }
+                    Some(raw) => match crate::display::parse_tool_detail(raw) {
+                        Some(parsed) => {
+                            self.display.tool_output.level = parsed;
+                            output::diag_line(&format!(
+                                "tooldetail: {}",
+                                self.display.tool_output.level.label()
+                            ));
+                        }
+                        None => output::diag_line(&format!(
+                            "unknown tool detail '{raw}' (low|medium|high)"
+                        )),
+                    },
+                }
                 CommandAction::Continue
             }
             SlashCommand::Display => {

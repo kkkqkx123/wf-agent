@@ -1806,6 +1806,8 @@
 	"page.settings.settingsRestored": "设置已恢复",
 	"page.settings.shell": "外壳",
 	"page.settings.shortcuts": "快捷键",
+	"page.settings.showReasoning": "显示思考过程",
+	"page.settings.showReasoningDesc": "在聊天时间线中显示实时思考块。隐藏后不影响正文与工具卡片。",
 	"page.settings.sidebarWidth": "侧栏宽度",
 	"page.settings.storedServerSide": "存储在服务端。",
 	"page.settings.summarizeToolOutputs": "摘要工具输出",

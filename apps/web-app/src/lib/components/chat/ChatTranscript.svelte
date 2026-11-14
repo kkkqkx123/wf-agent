@@ -14,6 +14,7 @@
 	import InteractionPrompt from '#lib/components/chat/InteractionPrompt.svelte';
 	import { isTranscriptAnchor } from '#lib/chat/transcript-anchors';
 	import { chatStream } from '#lib/stores/stream-run.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import { NEW_SESSION } from '#lib/stores/sessions.svelte';
 	import { formatDuration, formatNumber } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
@@ -61,7 +62,7 @@
 			{/if}
 			{#if showLive}
 				<BackgroundTasksBar />
-				{#if chatStream.reasoning}
+				{#if preferences.reasoningVisible && chatStream.reasoning}
 					<ReasoningBlock content={chatStream.reasoning} streaming={chatStream.active} />
 				{/if}
 				{#snippet liveMember(entry: ToolCallEntry)}

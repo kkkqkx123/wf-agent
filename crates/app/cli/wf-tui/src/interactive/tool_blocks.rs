@@ -208,6 +208,11 @@ impl InteractiveController {
         self.tool_config = config;
     }
 
+    /// Replace the live reasoning visibility resolved at startup.
+    pub(crate) fn set_show_reasoning(&mut self, show: bool) {
+        self.show_reasoning = show;
+    }
+
     /// Flush a pending low-level activity group into one summary row.
     /// No-op unless the level is Low and tools were accumulated.
     pub(crate) fn flush_activity(&mut self) {

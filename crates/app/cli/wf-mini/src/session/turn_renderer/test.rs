@@ -46,6 +46,18 @@ fn tool_start() -> ExecutionStreamEvent {
     }
 }
 
+fn high_display() -> DisplayConfig {
+    let mut display = DisplayConfig::default();
+    display.tool_output.level = tui_core::tool_output::DetailLevel::High;
+    display
+}
+
+fn low_display() -> DisplayConfig {
+    let mut display = DisplayConfig::default();
+    display.tool_output.level = tui_core::tool_output::DetailLevel::Low;
+    display
+}
+
 fn tool_end(success: bool) -> ExecutionStreamEvent {
     ExecutionStreamEvent::ToolEnd {
         tool_call_id: "t1".to_string(),
@@ -439,4 +451,64 @@ fn stderr_without_color_has_no_escapes() {
     };
     let (_, _, stderr, _) = render_with(display, vec![tool_end(false)]);
     assert!(!stderr.contains('\x1b'), "{stderr:?}");
+}
+
+#[test]
+fn low_detail_hides_tool_start_but_keeps_end() {
+    let (_, _, stderr, _) = render_with(low_display(), vec![tool_start(), tool_end(true)]);
+    assert_eq!(stderr, "tool ok: write_file\n");
+}
+
+#[test]
+fn high_detail_shows_success_preview_for_text_tools() {
+    let (_, _, stderr, _) = render_with(
+        high_display(),
+        vec![ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".to_string(),
+            tool_name: "write_file".to_string(),
+            success: true,
+            result: "line one\nline two".to_string(),
+            error: None,
+            display: None,
+            background: None,
+        }],
+    );
+    assert!(stderr.contains("tool ok: write_file"), "{stderr}");
+    assert!(stderr.contains("line one"), "{stderr}");
+}
+
+#[test]
+fn high_detail_counts_retrieval_tools_without_body() {
+    let (_, _, stderr, _) = render_with(
+        high_display(),
+        vec![ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".to_string(),
+            tool_name: "read_file".to_string(),
+            success: true,
+            result: "a\nb\nc".to_string(),
+            error: None,
+            display: None,
+            background: None,
+        }],
+    );
+    assert!(stderr.contains("tool ok: read_file · 3 lines"), "{stderr}");
+    assert!(!stderr.contains("\na\n"), "{stderr}");
+}
+
+#[test]
+fn tool_failure_always_carries_error_preview() {
+    let (_, _, stderr, _) = render_with(
+        DisplayConfig::default(),
+        vec![ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".to_string(),
+            tool_name: "write_file".to_string(),
+            success: false,
+            result: String::new(),
+            error: Some("disk full".to_string()),
+            display: None,
+            background: None,
+        }],
+    );
+    assert!(stderr.contains("tool failed: write_file"), "{stderr}");
+    assert!(stderr.contains("disk full"), "{stderr}");
 }

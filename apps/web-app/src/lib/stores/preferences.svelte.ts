@@ -52,6 +52,7 @@ interface PersistedPreferences {
 	editorWordWrap?: boolean;
 	toolOutputPreviews?: boolean;
 	toolOutputDetail?: ToolOutputDetail;
+	reasoningVisible?: boolean;
 	recapEnabled?: boolean;
 	autoTitleMode?: AutoTitleMode;
 	titleModel?: string;
@@ -101,6 +102,7 @@ class PreferencesStore {
 	editorWordWrap = $state(false);
 	toolOutputPreviews = $state(true);
 	toolOutputDetail = $state<ToolOutputDetail>('balanced');
+	reasoningVisible = $state(true);
 	recapEnabled = $state(true);
 	autoTitleMode = $state<AutoTitleMode>('truncate');
 	titleModel = $state('');
@@ -160,6 +162,9 @@ class PreferencesStore {
 		}
 		if (stored.toolOutputDetail !== undefined) {
 			this.toolOutputDetail = parseToolOutputDetail(stored.toolOutputDetail);
+		}
+		if (typeof stored.reasoningVisible === 'boolean') {
+			this.reasoningVisible = stored.reasoningVisible;
 		}
 		if (typeof stored.recapEnabled === 'boolean') {
 			this.recapEnabled = stored.recapEnabled;
@@ -283,6 +288,11 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setReasoningVisible(visible: boolean): void {
+		this.reasoningVisible = visible;
+		this.persist();
+	}
+
 	setRecapEnabled(enabled: boolean): void {
 		this.recapEnabled = enabled;
 		this.persist();
@@ -325,6 +335,7 @@ class PreferencesStore {
 		this.executionFloatSize = 'standard';
 		this.toolOutputPreviews = backup.toolOutputPreviews;
 		this.toolOutputDetail = parseToolOutputDetail(backup.toolOutputDetail);
+		this.reasoningVisible = backup.reasoningVisible;
 		this.chatExecutionType = backup.chatExecutionType;
 		this.persist();
 	}
@@ -350,6 +361,7 @@ class PreferencesStore {
 					editorWordWrap: this.editorWordWrap,
 					toolOutputPreviews: this.toolOutputPreviews,
 					toolOutputDetail: this.toolOutputDetail,
+					reasoningVisible: this.reasoningVisible,
 					recapEnabled: this.recapEnabled,
 					autoTitleMode: this.autoTitleMode,
 					titleModel: this.titleModel,

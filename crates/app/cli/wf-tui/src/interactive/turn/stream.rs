@@ -159,7 +159,9 @@ impl InteractiveController {
                 );
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
-                self.pacer.push_reasoning(content);
+                if self.show_reasoning {
+                    self.pacer.push_reasoning(content);
+                }
             }
             ExecutionStreamEvent::Usage { .. } => {}
             ExecutionStreamEvent::SubAgentStarted {

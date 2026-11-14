@@ -348,6 +348,29 @@ pub(crate) fn load_motion_mode_override() -> Option<tui_style::motion::MotionMod
     }
 }
 
+/// Best-effort reasoning visibility from the rendering config. Missing
+/// config means shown; an explicit off display or a disabled thinking
+/// switch hides the live reasoning rows. Display-only: history and memory
+/// keep their content regardless of this switch.
+pub(crate) fn load_reasoning_enabled() -> bool {
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return true,
+    };
+    let manager = match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager,
+        Err(_) => return true,
+    };
+    let rendering = &manager.config().rendering;
+    if matches!(
+        rendering.reasoning_display,
+        Some(crate::app_config::ReasoningDisplayModeName::Off)
+    ) {
+        return false;
+    }
+    rendering.show_thinking.unwrap_or(true)
+}
+
 /// Best-effort theme choice from the config file.
 pub(crate) fn load_theme_choice() -> Option<crate::app_config::ThemeChoice> {
     let path = crate::app_config::config_file_path()?;

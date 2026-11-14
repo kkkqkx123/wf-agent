@@ -25,6 +25,7 @@ export interface LocalPreferencesBackup {
 	minimapMode: BackupMinimap;
 	toolOutputPreviews: boolean;
 	toolOutputDetail: BackupToolDetail;
+	reasoningVisible: boolean;
 	chatExecutionType: BackupChatExecution;
 }
 
@@ -55,6 +56,7 @@ const PREFERENCE_KEYS: ReadonlyArray<keyof LocalPreferencesBackup> = [
 	'minimapMode',
 	'toolOutputPreviews',
 	'toolOutputDetail',
+	'reasoningVisible',
 	'chatExecutionType',
 ];
 
@@ -145,6 +147,10 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 		minimapMode: minimapMode as BackupMinimap,
 		toolOutputPreviews: checkBoolean(raw.toolOutputPreviews, 'preferences.toolOutputPreviews'),
 		toolOutputDetail: toolOutputDetail as BackupToolDetail,
+		reasoningVisible: checkBoolean(
+			(raw as Record<string, unknown>).reasoningVisible ?? true,
+			'preferences.reasoningVisible',
+		),
 		chatExecutionType: chatExecutionType as BackupChatExecution,
 	};
 }

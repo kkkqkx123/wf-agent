@@ -63,6 +63,10 @@ pub struct RunOptions {
     pub timeout_ms: Option<u64>,
     /// Structured agent context for agent turns (`--context` / `--context-file`).
     pub context: serde_json::Map<String, serde_json::Value>,
+    /// Show reasoning deltas on stderr (`--show-reasoning`).
+    pub show_reasoning: bool,
+    /// Show usage lines on stderr (`--show-usage`).
+    pub show_usage: bool,
 }
 
 impl Default for RunOptions {
@@ -83,6 +87,8 @@ impl Default for RunOptions {
             assume_yes: false,
             timeout_ms: None,
             context: serde_json::Map::new(),
+            show_reasoning: false,
+            show_usage: false,
         }
     }
 }
@@ -227,6 +233,8 @@ async fn run_workflow(
         // could be mistaken for a server-side execution.
         let execution_id = "remote-stream".to_string();
         let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
+        renderer.set_show_reasoning(opts.show_reasoning);
+        renderer.set_show_usage(opts.show_usage);
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
         let had_output = renderer.had_output;
@@ -284,6 +292,8 @@ async fn run_agent(
         // could be mistaken for a server-side execution.
         let execution_id = "remote-stream".to_string();
         let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
+        renderer.set_show_reasoning(opts.show_reasoning);
+        renderer.set_show_usage(opts.show_usage);
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
         let had_output = renderer.had_output;

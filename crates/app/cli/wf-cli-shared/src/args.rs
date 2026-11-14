@@ -72,8 +72,9 @@ pub struct Cli {
     /// Suppress usage lines on stderr. Mini only.
     #[arg(long = "no-usage", global = true)]
     pub no_usage: bool,
-    /// Suppress tool lifecycle lines on stderr (failures still show).
-    /// Mini only.
+    /// Suppress successful tool lifecycle lines on stderr (failures
+    /// still show). Mini and headless run share this switch; the full
+    /// TUI ignores it. Also reads `WF_RUN_QUIET_TOOLS` for `wf run`.
     #[arg(long = "quiet-tools", global = true)]
     pub quiet_tools: bool,
     /// Tool output detail for mini (`low`, `medium`, `high`). Mini only;

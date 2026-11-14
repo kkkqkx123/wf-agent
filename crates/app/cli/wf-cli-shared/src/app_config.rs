@@ -212,16 +212,6 @@ pub struct ToolOutputFileConfig {
     /// reserve it for inspecting retrieval behavior.
     #[serde(default)]
     pub level: Option<ToolDetailLevelName>,
-    #[serde(default)]
-    pub tool_call_details: Option<bool>,
-    #[serde(default)]
-    pub compact_notifications: Option<bool>,
-    #[serde(default)]
-    pub show_bash_output: Option<bool>,
-    #[serde(default)]
-    pub show_agentgrep_output: Option<bool>,
-    #[serde(default)]
-    pub diff_line_wrap: Option<bool>,
 }
 
 /// Theme choice for the TUI. `auto` (default) probes the terminal.
@@ -505,16 +495,6 @@ pub struct RenderingConfig {
     pub overscroll_status: Option<OverscrollStatusModeName>,
     #[serde(default)]
     pub diff_mode: Option<DiffDisplayModeName>,
-    #[serde(default)]
-    pub diff_line_wrap: Option<bool>,
-    #[serde(default)]
-    pub tool_call_details: Option<bool>,
-    #[serde(default)]
-    pub compact_notifications: Option<bool>,
-    #[serde(default)]
-    pub show_bash_output: Option<bool>,
-    #[serde(default)]
-    pub show_agentgrep_output: Option<bool>,
     #[serde(default)]
     pub external_sessions: Option<bool>,
     #[serde(default)]

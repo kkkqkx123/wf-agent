@@ -99,6 +99,7 @@ async fn run_interactive(
             resolved.cli_mode
         )));
     }
+    warn_mini_only_flags(cli);
     match resolved.cli_mode {
         CliMode::Tui => {
             let handle = ClientHandle::from_cli(cli).await?;
@@ -118,6 +119,42 @@ async fn run_interactive(
         }
         CliMode::Run => unreachable!("run_interactive called with CliMode::Run"),
     }
+}
+
+/// One-shot diagnostic for mini-only display flags passed to the full
+/// TUI. Parsing accepts them globally but the TUI never reads them;
+/// warn once without changing behavior so scripts notice the no-op.
+fn warn_mini_only_flags(cli: &Cli) {
+    let mut ignored = Vec::new();
+    if cli.markdown.is_some() {
+        ignored.push("--markdown (mini stdout only; TUI always renders styled)");
+    }
+    if cli.no_reasoning {
+        ignored.push("--no-reasoning (mini only; TUI uses [rendering] show_thinking)");
+    }
+    if cli.no_usage {
+        ignored.push("--no-usage (mini only; TUI uses [footer_segments] usage)");
+    }
+    if cli.quiet_tools {
+        ignored.push("--quiet-tools (mini and `wf run` only; TUI uses [tool_output] enabled)");
+    }
+    if cli.tool_detail.is_some() {
+        ignored.push("--tool-detail (mini only; TUI uses [tool_output] level)");
+    }
+    if cli.history_file.is_some() {
+        ignored.push("--history-file (mini prompt history only; TUI sessions are server-side)");
+    }
+    if cli.no_history {
+        ignored.push("--no-history (mini prompt history only; TUI sessions are server-side)");
+    }
+    if ignored.is_empty() {
+        return;
+    }
+    eprintln!(
+        "[wf] note: {} ignored by the full TUI: {}",
+        if ignored.len() == 1 { "this flag is" } else { "these flags are" },
+        ignored.join(", ")
+    );
 }
 
 /// Terminal facility probe (`wf debug-terminal`).

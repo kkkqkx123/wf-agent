@@ -73,6 +73,7 @@ pub(crate) struct SessionRenderer<'a> {
     tool_started_at: HashMap<String, Instant>,
     show_reasoning: bool,
     show_usage: bool,
+    show_tools: bool,
     pub(crate) had_output: bool,
     /// Observed background shell sessions handed back without waiting, in
     /// completion order. Observer-only: sessions stay server-owned. Used
@@ -92,6 +93,7 @@ impl<'a> SessionRenderer<'a> {
             tool_started_at: HashMap::new(),
             show_reasoning: false,
             show_usage: false,
+            show_tools: true,
             had_output: false,
             background_sessions: Vec::new(),
         }
@@ -103,6 +105,10 @@ impl<'a> SessionRenderer<'a> {
 
     pub(crate) fn set_show_usage(&mut self, show: bool) {
         self.show_usage = show;
+    }
+
+    pub(crate) fn set_show_tools(&mut self, show: bool) {
+        self.show_tools = show;
     }
 
     pub(crate) fn on_event(
@@ -138,6 +144,9 @@ impl<'a> SessionRenderer<'a> {
                 self.had_output = true;
                 self.tool_started_at
                     .insert(tool_call_id.clone(), Instant::now());
+                if !self.show_tools {
+                    return Ok(());
+                }
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
                 let _ = diag.line(&format!("▲ {tool_name}"));
             }
@@ -178,6 +187,10 @@ impl<'a> SessionRenderer<'a> {
                 }
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
                 if *success {
+                    let background_active = background.as_ref().is_some_and(|marker| marker.is_active());
+                    if !self.show_tools && !background_active {
+                        return Ok(());
+                    }
                     let _ = diag.ok(&line);
                 } else {
                     let _ = diag.err(&line);
@@ -553,8 +566,57 @@ mod tests {
     }
 
     #[test]
-    fn subagent_failure_always_shows() {
+    fn quiet_tools_hides_success_but_keeps_failure() {
         let mut sink = MemorySink::new();
+        let diag = shared_diag();
+        {
+            let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);
+            renderer.set_show_tools(false);
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::ToolStart {
+                        tool_call_id: "t1".into(),
+                        tool_name: "read_file".into(),
+                    },
+                    &diag,
+                )
+                .unwrap();
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::ToolEnd {
+                        tool_call_id: "t1".into(),
+                        tool_name: "read_file".into(),
+                        success: true,
+                        result: String::new(),
+                        error: None,
+                        display: None,
+                        background: None,
+                    },
+                    &diag,
+                )
+                .unwrap();
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::ToolEnd {
+                        tool_call_id: "t2".into(),
+                        tool_name: "write_file".into(),
+                        success: false,
+                        result: String::new(),
+                        error: Some("denied".into()),
+                        display: None,
+                        background: None,
+                    },
+                    &diag,
+                )
+                .unwrap();
+        }
+        let text = diag_text(&diag);
+        assert!(!text.contains("read_file"), "{text}");
+        assert!(text.contains("write_file"), "{text}");
+    }
+
+    #[test]
+    fn subagent_failure_always_shows() {        let mut sink = MemorySink::new();
         let diag = shared_diag();
         {
             let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);

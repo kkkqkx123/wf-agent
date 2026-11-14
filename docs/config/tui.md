@@ -7,7 +7,7 @@
 - `behavior`：`mouse_capture`、`copy_on_select`、`session_scrollbar`、`sidebar`、`approval_timeout_secs`、`recap`、`double_escape_action`
 - `terminal`：`copy_target`、`cursor_style`、`cursor_blinking`、`scroll_speed`、`scroll_acceleration`、`keyboard_enhancement`、`show_terminal_progress`、`auto_title_mode`、`title_model`
 - `mini`：`markdown`、`show_reasoning`、`show_usage`、`show_tools`、`approval_timeout_secs`、`suggestion_display_limit`、`history_limit`
-- `tool_output`：预览行数/字符数、`level`、`tool_call_details`、`compact_notifications`、`show_bash_output`、`show_agentgrep_output`、`diff_line_wrap`
+- `tool_output`：预览行数/字符数、`level`、存储摘录上限
 - `appearance`：`theme`、`colors`、`emoji`、`centered`、动画开关、`keybinding_hints`
 - `rendering`：思考/推理显示、markdown 间距、LaTeX、图、图片/待办固定、usage 显示、overscroll 状态、diff 模式、外部会话等
 - `motion`：`mode`、`disabled_animations`、`animation_fps`、`redraw_fps`、`performance`、`sidebar_refresh_interval_ms`

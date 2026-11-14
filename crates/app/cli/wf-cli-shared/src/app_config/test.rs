@@ -10,10 +10,6 @@ emoji = false
 idle_animation = true
 
 [rendering]
-tool_call_details = true
-compact_notifications = true
-show_bash_output = true
-show_agentgrep_output = false
 usage_display = "used"
 overscroll_status = "on"
 
@@ -37,10 +33,6 @@ debug_socket = false
     .unwrap();
     assert_eq!(parsed.appearance.theme, Some(ThemeChoice::Light));
     assert_eq!(parsed.appearance.emoji, Some(false));
-    assert_eq!(parsed.rendering.tool_call_details, Some(true));
-    assert_eq!(parsed.rendering.compact_notifications, Some(true));
-    assert_eq!(parsed.rendering.show_bash_output, Some(true));
-    assert_eq!(parsed.rendering.show_agentgrep_output, Some(false));
     assert_eq!(
         parsed.rendering.usage_display,
         Some(UsageDisplayModeName::Used)

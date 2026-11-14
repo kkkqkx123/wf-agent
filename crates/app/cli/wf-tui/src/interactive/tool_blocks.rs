@@ -457,8 +457,17 @@ impl InteractiveController {
             content.push_str("[earlier output omitted]\n");
         }
         content.push_str(&block.output);
+        let lines = content.lines().count().max(1);
+        let bytes = content.len();
+        let mut size_hint = format!("{lines} lines · {bytes} bytes");
+        if block.output_capped || block.display_truncated {
+            size_hint.push_str(" · excerpt capped");
+        }
         self.viewer_request = Some(ToolViewerRequest {
-            title: format!("{} · {}", block.tool_name, block.tool_call_id),
+            title: format!(
+                "{} · {} · {size_hint}",
+                block.tool_name, block.tool_call_id
+            ),
             content,
             is_diff: block.kind == DisplayKind::Diff,
         });

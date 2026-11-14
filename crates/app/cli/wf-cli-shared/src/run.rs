@@ -67,6 +67,9 @@ pub struct RunOptions {
     pub show_reasoning: bool,
     /// Show usage lines on stderr (`--show-usage`).
     pub show_usage: bool,
+    /// Show successful tool lifecycle lines on stderr. Failures always
+    /// show. Mirrors the mini `show_tools` master switch.
+    pub show_tools: bool,
 }
 
 impl Default for RunOptions {
@@ -89,6 +92,7 @@ impl Default for RunOptions {
             context: serde_json::Map::new(),
             show_reasoning: false,
             show_usage: false,
+            show_tools: true,
         }
     }
 }
@@ -235,6 +239,7 @@ async fn run_workflow(
         let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
         renderer.set_show_reasoning(opts.show_reasoning);
         renderer.set_show_usage(opts.show_usage);
+        renderer.set_show_tools(opts.show_tools);
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
         let had_output = renderer.had_output;
@@ -294,6 +299,7 @@ async fn run_agent(
         let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
         renderer.set_show_reasoning(opts.show_reasoning);
         renderer.set_show_usage(opts.show_usage);
+        renderer.set_show_tools(opts.show_tools);
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
         let had_output = renderer.had_output;

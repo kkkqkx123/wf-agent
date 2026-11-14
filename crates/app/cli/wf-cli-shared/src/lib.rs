@@ -342,6 +342,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         crate::turn::load_user_attachment_specs(&attach_paths).map_err(CliError::Arguments)?;
     let show_reasoning = show_reasoning_flag || env_flag_enabled("WF_RUN_SHOW_REASONING");
     let show_usage = show_usage_flag || env_flag_enabled("WF_RUN_SHOW_USAGE");
+    let quiet_tools = cli.quiet_tools || env_flag_enabled("WF_RUN_QUIET_TOOLS");
     let opts = RunOptions {
         prompt,
         images,
@@ -361,6 +362,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         context,
         show_reasoning,
         show_usage,
+        show_tools: !quiet_tools,
     };
 
     // A worktree run relocates before connecting: the new worktree becomes

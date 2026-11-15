@@ -17,6 +17,7 @@ pub mod args_observe;
 pub mod args_remote;
 pub mod args_tooling;
 pub mod args_workflow;
+pub mod backends;
 pub mod cmd;
 pub mod connection;
 pub mod display;
@@ -38,6 +39,7 @@ pub mod turn;
 pub mod workspace;
 
 pub use args::{Cli, Command};
+pub use backends::{collect_backend_candidates, probe_backends, BackendCandidate, BackendStatus};
 pub use connection::ClientHandle;
 pub use error::{CliError, CliResult};
 pub use output::{

@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth_session;
+pub mod backends;
 pub mod directory;
 pub mod envelope;
 pub mod extract;
@@ -19,7 +20,8 @@ pub use api::system::health::HealthView;
 pub use api::workflow::executions::{ExecuteBody, ExecuteView};
 pub use metrics::{router, serve};
 pub use router::{
-    api_router_with_config, full_router_with_middleware, serve_api_with_config,
+    api_router_with_config, api_router_with_dirs, api_router_with_dirs_and_backends,
+    full_router_with_middleware, full_router_with_middleware_and_backends, serve_api_with_config,
     serve_full_with_config,
 };
 pub use server::{ServeError, ServerHandle};

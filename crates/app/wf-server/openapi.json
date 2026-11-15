@@ -35092,6 +35092,635 @@
         ]
       }
     },
+    "/api/v1/system/backends": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_system_backends",
+        "responses": {
+          "200": {
+            "description": "Backend registry with live status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackendListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "create_system_backend",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackendUpsertBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Backend created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/import": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "import_system_backends",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackendImportBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Import report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackendImportView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_backend",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backend with live status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackendEntryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "update_system_backend",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackendUpsertBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Backend updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "delete_system_backend",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backend removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/backups": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_system_backend_backups",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup index for one backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "trigger_system_backend_backup",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupTriggerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Backup triggered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupTriggerView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/tunnel/start": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "start_system_backend_tunnel",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tunnel started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TunnelStartView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/tunnel/stop": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "stop_system_backend_tunnel",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tunnel stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TunnelStopView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backups": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_system_backups",
+        "responses": {
+          "200": {
+            "description": "Backup index across backends",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/code-context": {
       "get": {
         "tags": [
@@ -35521,6 +36150,46 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/directories/resolve": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_directories_resolve",
+        "responses": {
+          "200": {
+            "description": "Anchored scope identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DirectoriesResolveView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -48439,6 +49108,149 @@
           }
         }
       },
+      "ApiEnvelope_BackendEntryView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One registry row plus its live status: the shape `remote status`\nconsumes when the management service is reachable.",
+            "required": [
+              "name",
+              "entry",
+              "url",
+              "status",
+              "tunnel"
+            ],
+            "properties": {
+              "backup_error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "entry": {
+                "$ref": "#/components/schemas/BackendEntry"
+              },
+              "last_backup_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/BackendStatusView"
+              },
+              "tunnel": {
+                "$ref": "#/components/schemas/TunnelStateView"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_BackendImportView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "imported",
+              "skipped"
+            ],
+            "properties": {
+              "imported": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "skipped": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ImportSkippedView"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_BackendListView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "backends",
+              "source"
+            ],
+            "properties": {
+              "backends": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BackendEntryView"
+                }
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_BackgroundExecuteView": {
         "type": "object",
         "required": [
@@ -48456,6 +49268,81 @@
                 "type": "boolean"
               },
               "execution_id": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_BackupListView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "backups"
+            ],
+            "properties": {
+              "backups": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BackupRecordView"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_BackupTriggerView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "backend",
+              "execution"
+            ],
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "execution": {
+                "type": "string"
+              },
+              "id": {
                 "type": "string"
               }
             }
@@ -49525,6 +50412,47 @@
             "properties": {
               "removed": {
                 "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_DirectoriesResolveView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The scope this request is anchored on, for backend affinity checks.\nReturns hashes and fingerprints only, never raw server paths beyond\nthe directory the client itself named.",
+            "required": [
+              "project_id",
+              "fingerprint",
+              "directory_exists"
+            ],
+            "properties": {
+              "directory_exists": {
+                "type": "boolean"
+              },
+              "fingerprint": {
+                "$ref": "#/components/schemas/BackendFingerprintView"
+              },
+              "project_id": {
+                "type": "string"
               }
             }
           },
@@ -53041,6 +53969,87 @@
           }
         }
       },
+      "ApiEnvelope_TunnelStartView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "name",
+              "pid",
+              "argv"
+            ],
+            "properties": {
+              "argv": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "name": {
+                "type": "string"
+              },
+              "pid": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_TunnelStopView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "name",
+              "stopped"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "stopped": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_UndoPreviewDoc": {
         "type": "object",
         "required": [
@@ -54618,6 +55627,257 @@
           }
         }
       },
+      "BackendEntry": {
+        "type": "object",
+        "description": "Persisted registry entry: connection references only, never key material.",
+        "required": [
+          "host",
+          "username"
+        ],
+        "properties": {
+          "backup_executions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "backup_interval_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "backup_retention_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "backup_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "host": {
+            "type": "string"
+          },
+          "jump_host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "local_port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "remote_dir": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "server_port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "BackendEntryView": {
+        "type": "object",
+        "description": "One registry row plus its live status: the shape `remote status`\nconsumes when the management service is reachable.",
+        "required": [
+          "name",
+          "entry",
+          "url",
+          "status",
+          "tunnel"
+        ],
+        "properties": {
+          "backup_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entry": {
+            "$ref": "#/components/schemas/BackendEntry"
+          },
+          "last_backup_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BackendStatusView"
+          },
+          "tunnel": {
+            "$ref": "#/components/schemas/TunnelStateView"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "BackendFingerprintView": {
+        "type": "object",
+        "description": "Content fingerprint of the anchored project for cross-machine affinity:\nthe version-control origin plus commit first, then a committed marker id\nfor checkouts without version control. Empty when the project carries no\ncross-machine identity.",
+        "properties": {
+          "git_head": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "git_origin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "marker_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BackendImportBody": {
+        "type": "object",
+        "properties": {
+          "hosts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BackendEntry"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BackendImportView": {
+        "type": "object",
+        "required": [
+          "imported",
+          "skipped"
+        ],
+        "properties": {
+          "imported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportSkippedView"
+            }
+          }
+        }
+      },
+      "BackendListView": {
+        "type": "object",
+        "required": [
+          "backends",
+          "source"
+        ],
+        "properties": {
+          "backends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackendEntryView"
+            }
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "BackendStatusView": {
+        "type": "object",
+        "description": "Runtime reachability of one backend. Unreachable rows are data, never\nerrors, so one dead backend cannot hide the rest.",
+        "required": [
+          "reachable"
+        ],
+        "properties": {
+          "api_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_probe_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "latency_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BackendUpsertBody": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BackendEntry"
+          }
+        ]
+      },
       "BackgroundExecuteView": {
         "type": "object",
         "required": [
@@ -54629,6 +55889,89 @@
             "type": "boolean"
           },
           "execution_id": {
+            "type": "string"
+          }
+        }
+      },
+      "BackupListView": {
+        "type": "object",
+        "required": [
+          "backups"
+        ],
+        "properties": {
+          "backups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackupRecordView"
+            }
+          }
+        }
+      },
+      "BackupRecordView": {
+        "type": "object",
+        "description": "One backup index row: when the bundle was taken, for which\nbackend/execution, and its size plus checksum.",
+        "required": [
+          "id",
+          "backend",
+          "execution",
+          "created_ms",
+          "size_bytes",
+          "sha256",
+          "path"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "created_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "execution": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "BackupTriggerBody": {
+        "type": "object",
+        "required": [
+          "execution"
+        ],
+        "properties": {
+          "execution": {
+            "type": "string"
+          }
+        }
+      },
+      "BackupTriggerView": {
+        "type": "object",
+        "required": [
+          "id",
+          "backend",
+          "execution"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "execution": {
+            "type": "string"
+          },
+          "id": {
             "type": "string"
           }
         }
@@ -56069,6 +57412,26 @@
         ],
         "properties": {
           "directory": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectoriesResolveView": {
+        "type": "object",
+        "description": "The scope this request is anchored on, for backend affinity checks.\nReturns hashes and fingerprints only, never raw server paths beyond\nthe directory the client itself named.",
+        "required": [
+          "project_id",
+          "fingerprint",
+          "directory_exists"
+        ],
+        "properties": {
+          "directory_exists": {
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "$ref": "#/components/schemas/BackendFingerprintView"
+          },
+          "project_id": {
             "type": "string"
           }
         }
@@ -57682,6 +59045,21 @@
         ],
         "properties": {
           "json": {
+            "type": "string"
+          }
+        }
+      },
+      "ImportSkippedView": {
+        "type": "object",
+        "required": [
+          "name",
+          "reason"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
             "type": "string"
           }
         }
@@ -60080,6 +61458,78 @@
           },
           "nodes": {
             "type": "object"
+          }
+        }
+      },
+      "TunnelStartView": {
+        "type": "object",
+        "required": [
+          "name",
+          "pid",
+          "argv"
+        ],
+        "properties": {
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TunnelStateView": {
+        "type": "object",
+        "description": "Runtime tunnel supervision state. The server never auto-restarts a dead\nforward: an abnormal exit marks the entry interrupted with its reason.",
+        "required": [
+          "running"
+        ],
+        "properties": {
+          "interrupted_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "started_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "TunnelStopView": {
+        "type": "object",
+        "required": [
+          "name",
+          "stopped"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "stopped": {
+            "type": "boolean"
           }
         }
       },

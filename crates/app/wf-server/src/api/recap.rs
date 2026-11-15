@@ -162,6 +162,7 @@ mod tests {
                 crate::directory::DirectoryConfig::default(),
             )),
             locks: crate::api::workflow::locks::DefinitionLocks::default(),
+            backends: None,
         };
         // Unknown session: no history, so the read converges to null text
         // with a success envelope instead of an error bubble.

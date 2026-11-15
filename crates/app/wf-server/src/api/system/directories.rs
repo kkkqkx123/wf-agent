@@ -16,6 +16,10 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/system/directories", get(handle_directories))
         .route(
+            "/system/directories/resolve",
+            get(handle_directories_resolve),
+        )
+        .route(
             "/system/directories/invalidate",
             post(handle_directories_invalidate),
         )
@@ -70,6 +74,53 @@ pub(crate) async fn handle_directories(State(state): State<ApiState>) -> impl In
                 project_id: scope.project_id,
             })
             .collect(),
+    })
+    .into_response()
+}
+
+/// Content fingerprint of the anchored project for cross-machine affinity:
+/// the version-control origin plus commit first, then a committed marker id
+/// for checkouts without version control. Empty when the project carries no
+/// cross-machine identity.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub(crate) struct BackendFingerprintView {
+    git_origin: Option<String>,
+    git_head: Option<String>,
+    marker_id: Option<String>,
+}
+
+/// The scope this request is anchored on, for backend affinity checks.
+/// Returns hashes and fingerprints only, never raw server paths beyond
+/// the directory the client itself named.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub(crate) struct DirectoriesResolveView {
+    project_id: String,
+    fingerprint: BackendFingerprintView,
+    directory_exists: bool,
+}
+
+#[utoipa::path(get, path = "/api/v1/system/directories/resolve", operation_id = "get_system_directories_resolve", tag = "system", responses((status = 200, description = "Anchored scope identity", body = crate::envelope::ApiEnvelope<DirectoriesResolveView>)), security(("api_key" = [])))]
+pub(crate) async fn handle_directories_resolve(
+    axum::Extension(scope): axum::Extension<Option<crate::directory::DirectoryScope>>,
+) -> impl IntoResponse {
+    let Some(scope) = scope else {
+        return error_response(wf_api::ApiError::Validation(
+            "directory is required: send x-wf-directory or ?directory".to_string(),
+        ))
+        .into_response();
+    };
+    let fingerprint = wf_common::workspace::project_fingerprint(&scope.project).await;
+    let directory_exists = tokio::fs::metadata(&scope.directory)
+        .await
+        .is_ok_and(|meta| meta.is_dir());
+    ok(DirectoriesResolveView {
+        project_id: scope.project_id,
+        fingerprint: BackendFingerprintView {
+            git_origin: fingerprint.git_origin,
+            git_head: fingerprint.git_head,
+            marker_id: fingerprint.marker_id,
+        },
+        directory_exists,
     })
     .into_response()
 }

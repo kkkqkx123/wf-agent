@@ -95,6 +95,11 @@ pub struct Cli {
     /// API key for remote server (x-api-key header). Also reads WF_API_KEY env.
     #[arg(long, global = true)]
     pub api_key: Option<String>,
+    /// Skip backend affinity verification (the project-identity check
+    /// against the server). Use when the server intentionally serves a
+    /// different checkout without shared version-control metadata.
+    #[arg(long = "no-affinity-check", global = true)]
+    pub no_affinity_check: bool,
     /// Skip interactive confirmation prompts for destructive operations.
     /// Also implied when stdin is not a TTY (scripted/CI mode).
     #[arg(long, global = true)]

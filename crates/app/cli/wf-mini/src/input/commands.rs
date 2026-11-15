@@ -35,6 +35,10 @@ pub enum SlashCommand {
     Loops(Option<String>),
     /// List recent server sessions (`/sessions [filter]`), newest first.
     Sessions(Option<String>),
+    /// List known backends with reachability (`/servers`), read-only.
+    /// Names come from the remote registry, reachability is probed live;
+    /// the connection itself never changes here.
+    Servers,
     /// Resume a server session (`/resume [id-or-filter]`), replacing the
     /// in-memory transcript. Bare `/resume` picks the latest session.
     Resume(Option<String>),
@@ -313,6 +317,7 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 Some(SlashCommand::Sessions(Some(rest.join(" "))))
             }
         }
+        "/servers" if tokens.next().is_none() => Some(SlashCommand::Servers),
         "/resume" => {
             let rest: Vec<&str> = tokens.collect();
             if rest.is_empty() {

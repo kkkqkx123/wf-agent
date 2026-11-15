@@ -1,121 +1,26 @@
 //! Remote host registry and execution bundle pull.
 //!
-//! Hosts live in `$XDG_CONFIG_HOME/wf/remotes.json` (or `$HOME/.config`).
-//! Only references are stored; private key material is never written.
-//! Lifecycle commands only print the system `ssh` invocations for the user
-//! or an outer script to run. Pull reads the server-owned bundle export and
-//! merges the checkpoint chain, then writes one versioned JSON bundle for
-//! local review.
-
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-
-use serde::{Deserialize, Serialize};
+//! Registry writes live server-side: `add` / `update` / `remove` / `import`
+//! require the management service and never touch the local file. The local
+//! `remotes.json` stays a one-time import source and a read-only fallback
+//! for `list` / `status` and the human-driven `tunnel` / `start` / `stop`
+//! printers. Pull reads the server-owned bundle export and merges the
+//! checkpoint chain, then writes one versioned JSON bundle for local
+//! review. Backups run on the server by plan; CLI only queries and
+//! triggers them.
 
 use crate::args::Cli;
 use crate::args_remote::RemoteSub;
+use crate::backends::{
+    collect_backend_candidates, create_server_backend, fetch_server_backends, fetch_server_backups,
+    import_server_backends, load_registry, management_client, probe_backends,
+    remove_server_backend, start_server_tunnel, stop_server_tunnel, trigger_server_backup,
+    update_server_backend, RemoteHost,
+};
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct RemoteRegistry {
-    #[serde(default)]
-    hosts: BTreeMap<String, RemoteHost>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RemoteHost {
-    host: String,
-    port: Option<u16>,
-    username: String,
-    key_path: Option<String>,
-    jump_host: Option<String>,
-    remote_dir: Option<String>,
-    server_port: Option<u16>,
-    local_port: Option<u16>,
-}
-
-fn registry_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|home| home.join(".config"))
-        })?;
-    Some(base.join("wf").join("remotes.json"))
-}
-
-/// Load the registry, failing loud on a present but unreadable or corrupt
-/// file so a broken registry cannot masquerade as an empty one. A missing
-/// file still means no hosts yet.
-fn load_registry() -> CliResult<RemoteRegistry> {
-    let Some(path) = registry_path() else {
-        return Ok(RemoteRegistry::default());
-    };
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(RemoteRegistry::default()),
-        Err(e) => {
-            return Err(CliError::Configuration(format!(
-                "cannot read remote registry {}: {e}",
-                path.display()
-            )));
-        }
-    };
-    if text.trim().is_empty() {
-        return Ok(RemoteRegistry::default());
-    }
-    serde_json::from_str(&text).map_err(|e| {
-        CliError::Configuration(format!("invalid remote registry {}: {e}", path.display()))
-    })
-}
-
-fn save_registry(registry: &RemoteRegistry) -> CliResult<()> {
-    let Some(path) = registry_path() else {
-        return Err(CliError::Configuration(
-            "cannot locate config directory for remote registry".to_string(),
-        ));
-    };
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let text = serde_json::to_string_pretty(registry)
-        .map_err(|e| CliError::Configuration(format!("remote registry encode: {e}")))?;
-    std::fs::write(&path, text)?;
-    Ok(())
-}
-
-/// Build the tunnel config for a registry entry. A hand-edited entry with
-/// an empty host fails here instead of producing an `ssh` call to nowhere.
-fn to_tunnel(name: &str, host: &RemoteHost) -> CliResult<wf_client::SshTunnelConfig> {
-    if host.host.trim().is_empty() {
-        return Err(CliError::Configuration(format!(
-            "remote host '{name}' has an empty host; fix it with `wf remote add {name}`"
-        )));
-    }
-    let schema = wf_types::script::schema::SshConfigSchema {
-        host: host.host.clone(),
-        port: host.port,
-        username: host.username.clone(),
-        key_path: host.key_path.clone(),
-        jump_host: host.jump_host.clone(),
-        remote_dir: host.remote_dir.clone(),
-        server_port: host.server_port,
-        local_port: host.local_port,
-    };
-    let local_port = host
-        .local_port
-        .unwrap_or(wf_client::DEFAULT_LOCAL_TUNNEL_PORT);
-    wf_client::SshTunnelConfig::from_schema(&schema, local_port).ok_or_else(|| {
-        CliError::Configuration(format!(
-            "remote host '{name}' has an empty host; fix it with `wf remote add {name}`"
-        ))
-    })
-}
 
 pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
     match sub {
@@ -135,40 +40,144 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                     "remote add requires a name, --host and --username".to_string(),
                 ));
             }
-            let mut registry = load_registry()?;
-            registry.hosts.insert(
-                name.clone(),
-                RemoteHost {
-                    host: host.clone(),
-                    port: *port,
-                    username: username.clone(),
-                    key_path: key_path.clone(),
-                    jump_host: jump_host.clone(),
-                    remote_dir: remote_dir.clone(),
-                    server_port: *server_port,
-                    local_port: *local_port,
-                },
-            );
-            save_registry(&registry)?;
+            if port == &Some(0) || server_port == &Some(0) || local_port == &Some(0) {
+                return Err(CliError::Arguments(
+                    "remote add rejects port 0; omit the flag or pick 1-65535".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let entry = RemoteHost {
+                host: host.clone(),
+                port: *port,
+                username: username.clone(),
+                key_path: key_path.clone(),
+                jump_host: jump_host.clone(),
+                remote_dir: remote_dir.clone(),
+                server_port: *server_port,
+                local_port: *local_port,
+                backup_interval_secs: None,
+                backup_retention_count: None,
+                backup_retention_days: None,
+                backup_executions: Vec::new(),
+            };
+            create_server_backend(&client, name, &entry).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("remote-add", serde_json::json!({"name": name})),
             )
         }
+        RemoteSub::Update {
+            name,
+            host,
+            port,
+            username,
+            key_path,
+            jump_host,
+            remote_dir,
+            server_port,
+            local_port,
+            clear_optional,
+        } => {
+            if name.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote update requires a name".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let rows = fetch_server_backends(&client).await?.ok_or_else(|| {
+                CliError::Configuration(
+                    "cannot reach the management service; start wf-server with the backend domain enabled (backends.toml) and retry"
+                        .to_string(),
+                )
+            })?;
+            let current = rows
+                .iter()
+                .find(|row| row.name == *name)
+                .and_then(|row| row.entry.clone())
+                .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
+            let mut merged = current;
+            if let Some(host) = host {
+                merged.host = host.clone();
+            }
+            if let Some(port) = port {
+                merged.port = Some(*port);
+            }
+            if let Some(username) = username {
+                merged.username = username.clone();
+            }
+            if key_path.is_some() || *clear_optional {
+                merged.key_path = key_path.clone();
+            }
+            if jump_host.is_some() || *clear_optional {
+                merged.jump_host = jump_host.clone();
+            }
+            if remote_dir.is_some() || *clear_optional {
+                merged.remote_dir = remote_dir.clone();
+            }
+            if let Some(server_port) = server_port {
+                merged.server_port = Some(*server_port);
+            }
+            if let Some(local_port) = local_port {
+                merged.local_port = Some(*local_port);
+            }
+            if merged.host.trim().is_empty() || merged.username.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote update must keep a non-empty host and username".to_string(),
+                ));
+            }
+            update_server_backend(&client, name, &merged).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-update", serde_json::json!({"name": name})),
+            )
+        }
+        RemoteSub::Remove { name } => {
+            let client = management_client(cli);
+            remove_server_backend(&client, name).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-remove", serde_json::json!({"name": name})),
+            )
+        }
         RemoteSub::List => {
+            let client = management_client(cli);
+            if let Some(rows) = fetch_server_backends(&client).await? {
+                let data = serde_json::json!({
+                    "hosts": rows.iter().map(|row| &row.name).collect::<Vec<_>>(),
+                    "source": "server",
+                });
+                return render_envelope(cli.output, OutputEnvelope::success("remote-list", data));
+            }
             let registry = load_registry()?;
             let data = serde_json::json!({
                 "hosts": registry.hosts.keys().collect::<Vec<_>>(),
+                "source": "local",
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-list", data))
         }
-        RemoteSub::Tunnel { name, url_only } => {
+        RemoteSub::Import => {
             let registry = load_registry()?;
-            let host = registry
-                .hosts
-                .get(name)
-                .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
-            let tunnel = to_tunnel(name, host)?;
+            if registry.hosts.is_empty() {
+                return render_envelope(
+                    cli.output,
+                    OutputEnvelope::success(
+                        "remote-import",
+                        serde_json::json!({"imported": [], "skipped": [], "note": "local registry is empty; nothing to import"}),
+                    ),
+                );
+            }
+            let client = management_client(cli);
+            let (imported, skipped) = import_server_backends(&client, &registry.hosts).await?;
+            let data = serde_json::json!({
+                "imported": imported,
+                "skipped": skipped.iter().map(|(name, reason)| serde_json::json!({"name": name, "reason": reason})).collect::<Vec<_>>(),
+                "note": "local remotes.json is now a read-only snapshot; writes go to the management service",
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-import", data))
+        }
+        RemoteSub::Tunnel { name, url_only } => {
+            let host = resolve_print_entry(cli, name).await?;
+            let tunnel = crate::backends::to_tunnel(name, &host)?;
             if *url_only {
                 return print_line_to_cli(cli, &tunnel.local_base_url());
             }
@@ -180,12 +189,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("remote-tunnel", data))
         }
         RemoteSub::Start { name, url_only } => {
-            let registry = load_registry()?;
-            let host = registry
-                .hosts
-                .get(name)
-                .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
-            let tunnel = to_tunnel(name, host)?;
+            let host = resolve_print_entry(cli, name).await?;
+            let tunnel = crate::backends::to_tunnel(name, &host)?;
             if *url_only {
                 return print_line_to_cli(cli, &tunnel.local_base_url());
             }
@@ -198,16 +203,120 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("remote-start", data))
         }
         RemoteSub::Stop { name } => {
-            let registry = load_registry()?;
-            let host = registry
-                .hosts
-                .get(name)
-                .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
-            let tunnel = to_tunnel(name, host)?;
+            let host = resolve_print_entry(cli, name).await?;
+            let tunnel = crate::backends::to_tunnel(name, &host)?;
             let data = serde_json::json!({
                 "stop_argv": tunnel.server_stop_argv(),
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-stop", data))
+        }
+        RemoteSub::Up { name } => {
+            let client = management_client(cli);
+            let (pid, argv) = start_server_tunnel(&client, name).await?;
+            let data = serde_json::json!({
+                "name": name,
+                "pid": pid,
+                "argv": argv,
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-up", data))
+        }
+        RemoteSub::Down { name } => {
+            let client = management_client(cli);
+            let stopped = stop_server_tunnel(&client, name).await?;
+            let data = serde_json::json!({
+                "name": name,
+                "stopped": stopped,
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-down", data))
+        }
+        RemoteSub::Status => {
+            let client = management_client(cli);
+            let current = wf_client::ClientConfig::resolve(cli.remote.clone(), cli.api_key.clone());
+            if let Some(rows) = fetch_server_backends(&client).await? {
+                let data = serde_json::json!({
+                    "backends": rows
+                        .iter()
+                        .map(|row| {
+                            let url = row.url.clone().unwrap_or_else(|| {
+                                row.entry.as_ref().map(|entry| {
+                                    crate::backends::to_tunnel(&row.name, entry)
+                                        .map(|tunnel| tunnel.local_base_url())
+                                        .unwrap_or_default()
+                                }).unwrap_or_default()
+                            });
+                            serde_json::json!({
+                                "name": row.name,
+                                "url": url,
+                                "current": url == current.base_url,
+                                "reachable": row.status.as_ref().map(|status| status.reachable).unwrap_or(false),
+                                "latency_ms": row.status.as_ref().and_then(|status| status.latency_ms),
+                                "version": row.status.as_ref().and_then(|status| status.version.clone()),
+                                "api_version": row.status.as_ref().and_then(|status| status.api_version.clone()),
+                                "tunnel_running": row.tunnel.as_ref().map(|tunnel| tunnel.running).unwrap_or(false),
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                    "source": "server",
+                });
+                return render_envelope(cli.output, OutputEnvelope::success("remote-status", data));
+            }
+            let statuses = probe_backends(collect_backend_candidates(&current.base_url)).await;
+            let data = serde_json::json!({
+                "backends": statuses
+                    .iter()
+                    .map(|status| {
+                        serde_json::json!({
+                            "name": status.name,
+                            "url": status.url,
+                            "current": status.current,
+                            "reachable": status.reachable,
+                            "latency_ms": status.latency_ms,
+                            "version": status.version,
+                            "api_version": status.api_version,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+                "source": "local",
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-status", data))
+        }
+        RemoteSub::Backups { backend } => {
+            let client = management_client(cli);
+            let records = fetch_server_backups(&client, backend.as_deref()).await?;
+            let data = serde_json::json!({
+                "backups": records
+                    .iter()
+                    .map(|record| {
+                        serde_json::json!({
+                            "id": record.id,
+                            "backend": record.backend,
+                            "execution": record.execution,
+                            "created_ms": record.created_ms,
+                            "size_bytes": record.size_bytes,
+                            "path": record.path,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-backups", data))
+        }
+        RemoteSub::BackupNow { backend, execution } => {
+            if backend.trim().is_empty() || execution.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote backup-now requires a backend name and --execution".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let id = trigger_server_backup(&client, backend, execution).await?;
+            let data = serde_json::json!({
+                "id": id,
+                "backend": backend,
+                "execution": execution,
+            });
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-backup-now", data),
+            )
         }
         RemoteSub::Pull {
             execution,
@@ -248,4 +357,23 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             )
         }
     }
+}
+
+/// Resolve a print entry for the human-driven printers: prefer the server
+/// row, fall back to the read-only local snapshot.
+async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<RemoteHost> {
+    let client = management_client(cli);
+    if let Some(rows) = fetch_server_backends(&client).await? {
+        if let Some(row) = rows.into_iter().find(|row| row.name == name) {
+            if let Some(entry) = row.entry {
+                return Ok(entry);
+            }
+        }
+    }
+    let registry = load_registry()?;
+    registry
+        .hosts
+        .get(name)
+        .cloned()
+        .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))
 }

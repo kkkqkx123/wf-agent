@@ -17,6 +17,40 @@ use wf_client::WfClient;
 use crate::args::Cli;
 use crate::error::{CliError, CliResult};
 
+/// Backend affinity verdict for the resolved connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Affinity {
+    /// Same project by path id or shared content fingerprint.
+    Confirmed,
+    /// Neither side carries a comparable identity; the server may still
+    /// be correct, so the caller proceeds with a warning.
+    Weak,
+    /// Both sides carry identity and they disagree.
+    Mismatch,
+}
+
+/// Decide affinity from the local and remote project identities. Path ids
+/// only match on a shared filesystem; fingerprints bridge machines. A
+/// missing fingerprint on either side weakens the verdict instead of
+/// failing it, since plain checkouts carry no cross-machine identity.
+pub(crate) fn check_affinity(
+    local_id: &str,
+    local_fingerprint: &wf_common::workspace::ProjectFingerprint,
+    remote_id: &str,
+    remote_fingerprint: &wf_common::workspace::ProjectFingerprint,
+) -> Affinity {
+    if local_id == remote_id {
+        return Affinity::Confirmed;
+    }
+    if local_fingerprint.same_project(remote_fingerprint) {
+        return Affinity::Confirmed;
+    }
+    if local_fingerprint.is_empty() || remote_fingerprint.is_empty() {
+        return Affinity::Weak;
+    }
+    Affinity::Mismatch
+}
+
 /// Connected client handle shared by all commands and session drivers.
 pub struct ClientHandle {
     client: WfClient,
@@ -49,6 +83,7 @@ impl ClientHandle {
             directory: Some(directory),
         };
         handle.check_reachable().await?;
+        handle.check_affinity(cli).await?;
         Ok(handle)
     }
 
@@ -65,6 +100,55 @@ impl ClientHandle {
 
     pub fn into_client(self) -> WfClient {
         self.client
+    }
+
+    /// Confirm the resolved server actually serves the current project.
+    /// The probe runs right after the health check so a wrong backend
+    /// fails here instead of surfacing later as writes to another ledger.
+    async fn check_affinity(&self, cli: &Cli) -> CliResult<()> {
+        if cli.no_affinity_check {
+            return Ok(());
+        }
+        let Some(directory) = self.directory.as_deref() else {
+            return Ok(());
+        };
+        let identity = self.client.backend_identity().await.map_err(|e| {
+            CliError::Configuration(format!(
+                "backend affinity probe failed at {}: {e}; check --remote and --directory",
+                self.client.base_url()
+            ))
+        })?;
+        let workspace = std::path::PathBuf::from(directory);
+        let local_project = wf_common::workspace::discover_project_root(&workspace);
+        let local_id = wf_common::workspace::project_id_for(&local_project);
+        let local_fingerprint = wf_common::workspace::project_fingerprint(&local_project).await;
+        let remote_fingerprint = wf_common::workspace::ProjectFingerprint {
+            git_origin: identity.fingerprint.git_origin,
+            git_head: identity.fingerprint.git_head,
+            marker_id: identity.fingerprint.marker_id,
+        };
+        match check_affinity(
+            &local_id,
+            &local_fingerprint,
+            &identity.project_id,
+            &remote_fingerprint,
+        ) {
+            Affinity::Confirmed => Ok(()),
+            Affinity::Weak => {
+                eprintln!(
+                    "warning: cannot confirm backend affinity with {} (no shared project identity); \
+                     check --remote and --directory, or pass --no-affinity-check to silence",
+                    self.client.base_url()
+                );
+                Ok(())
+            }
+            Affinity::Mismatch => Err(CliError::Configuration(format!(
+                "backend affinity mismatch: server at {} serves a different project; \
+                 check --remote / WF_REMOTE_TUNNEL_PORT / --directory, \
+                 or pass --no-affinity-check to override",
+                self.client.base_url()
+            ))),
+        }
     }
 
     async fn check_reachable(&self) -> CliResult<()> {
@@ -88,5 +172,84 @@ impl ClientHandle {
                 }
                 other => CliError::from(other),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_common::workspace::ProjectFingerprint;
+
+    fn fingerprinted(origin: Option<&str>, marker: Option<&str>) -> ProjectFingerprint {
+        ProjectFingerprint {
+            git_origin: origin.map(str::to_string),
+            git_head: Some("abc".to_string()),
+            marker_id: marker.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn same_path_id_confirms_without_fingerprint() {
+        assert_eq!(
+            check_affinity(
+                "id",
+                &ProjectFingerprint::default(),
+                "id",
+                &ProjectFingerprint::default()
+            ),
+            Affinity::Confirmed
+        );
+    }
+
+    #[test]
+    fn shared_origin_confirms_across_machines() {
+        assert_eq!(
+            check_affinity(
+                "local-id",
+                &fingerprinted(Some("git@example:repo.git"), None),
+                "remote-id",
+                &fingerprinted(Some("git@example:repo.git"), None),
+            ),
+            Affinity::Confirmed
+        );
+    }
+
+    #[test]
+    fn shared_marker_confirms_without_vcs() {
+        assert_eq!(
+            check_affinity(
+                "local-id",
+                &fingerprinted(None, Some("proj-1")),
+                "remote-id",
+                &fingerprinted(None, Some("proj-1")),
+            ),
+            Affinity::Confirmed
+        );
+    }
+
+    #[test]
+    fn missing_identity_weakens_instead_of_failing() {
+        assert_eq!(
+            check_affinity(
+                "local-id",
+                &ProjectFingerprint::default(),
+                "remote-id",
+                &fingerprinted(Some("git@example:repo.git"), None),
+            ),
+            Affinity::Weak
+        );
+    }
+
+    #[test]
+    fn conflicting_identity_mismatches() {
+        assert_eq!(
+            check_affinity(
+                "local-id",
+                &fingerprinted(Some("git@example:a.git"), None),
+                "remote-id",
+                &fingerprinted(Some("git@example:b.git"), None),
+            ),
+            Affinity::Mismatch
+        );
     }
 }

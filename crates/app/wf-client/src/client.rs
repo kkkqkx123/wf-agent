@@ -282,6 +282,19 @@ impl WfClient {
         unwrap_generated_envelope(envelope.into_inner())
     }
 
+    /// Backend affinity probe: the scope this connection is anchored on
+    /// (path project id plus cross-machine fingerprint). Callers compare
+    /// the result against the local workspace to confirm the server
+    /// actually serves the current project.
+    pub async fn backend_identity(&self) -> ClientResult<crate::models::DirectoriesResolveView> {
+        let envelope = self
+            .generated
+            .get_system_directories_resolve()
+            .await
+            .map_err(map_progenitor)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
     /// Typed server info probe.
     pub async fn info_typed(&self) -> ClientResult<crate::models::InfoView> {
         let envelope = self

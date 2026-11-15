@@ -20,7 +20,7 @@ use wf_api::ApiContext;
 
 use crate::directory::{directory_middleware, execution_existence_middleware, DirectoryContext};
 use crate::middleware::{self, ServerMiddlewareConfig};
-use crate::server::{serve_with_router, ServeError, ServerHandle};
+use crate::server::{serve_with_router_and_backends, ServeError, ServerHandle};
 use crate::server_config::ServerConfig;
 use crate::static_files::serve_static;
 use crate::{api, metrics, ws};
@@ -31,6 +31,7 @@ pub(crate) struct ApiState {
     pub(crate) config: Arc<ServerMiddlewareConfig>,
     pub(crate) dirs: Arc<DirectoryContext>,
     pub(crate) locks: api::workflow::locks::DefinitionLocks,
+    pub(crate) backends: Option<Arc<crate::backends::BackendManager>>,
 }
 
 /// Public API version served under `/api/{API_VERSION}` and reported by
@@ -68,6 +69,19 @@ pub fn api_router_with_dirs(
     ctx: Arc<ApiContext>,
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
+) -> Router {
+    api_router_with_dirs_and_backends(ctx, config, dirs, None)
+}
+
+/// Same as [`api_router_with_dirs`] with an explicit backend manager for
+/// the server-owned registry, tunnel and backup domain. `None` keeps the
+/// backend surface disabled (503) so existing tests and direct-link
+/// deployments observe zero behavior change.
+pub fn api_router_with_dirs_and_backends(
+    ctx: Arc<ApiContext>,
+    config: Arc<ServerMiddlewareConfig>,
+    dirs: Arc<DirectoryContext>,
+    backends: Option<Arc<crate::backends::BackendManager>>,
 ) -> Router {
     let domain: Router<ApiState> = Router::new()
         // workflow definition + execution + graph analysis
@@ -152,6 +166,7 @@ pub fn api_router_with_dirs(
         .merge(api::system::dependencies::routes())
         .merge(api::system::code_context::routes())
         .merge(api::system::directories::routes())
+        .merge(api::system::backends::routes())
         .merge(api::system::server::routes())
         .merge(ws::routes());
     let app = Router::new()
@@ -174,6 +189,7 @@ pub fn api_router_with_dirs(
         config,
         dirs,
         locks: api::workflow::locks::DefinitionLocks::default(),
+        backends,
     });
     mount_openapi_docs(app)
 }
@@ -206,8 +222,23 @@ pub fn full_router_with_middleware(
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
 ) -> Router {
+    full_router_with_middleware_and_backends(registry, ctx, config, dirs, None)
+}
+
+/// Same as [`full_router_with_middleware`] with an explicit backend
+/// manager. Production servers pass the manager built from
+/// `ServerConfig::backends`; tests keep `None` for the disabled surface.
+pub fn full_router_with_middleware_and_backends(
+    registry: Arc<wf_metrics::MetricsRegistry>,
+    ctx: Arc<ApiContext>,
+    config: Arc<ServerMiddlewareConfig>,
+    dirs: Arc<DirectoryContext>,
+    backends: Option<Arc<crate::backends::BackendManager>>,
+) -> Router {
     let http = registry.http();
-    let router = metrics::router(registry).merge(api_router_with_dirs(ctx, config, dirs));
+    let router = metrics::router(registry).merge(api_router_with_dirs_and_backends(
+        ctx, config, dirs, backends,
+    ));
     middleware::with_request_metrics(router, Some(http))
 }
 
@@ -218,9 +249,41 @@ pub async fn serve_api_with_config(
     config: &ServerConfig,
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let router = api_router_with_dirs(ctx, Arc::new(config.middleware.clone()), dirs);
+    let backends = backend_manager_for_config(&config.backends).await;
+    if let Some(manager) = backends.as_ref() {
+        manager.start_background();
+    }
+    let router = api_router_with_dirs_and_backends(
+        ctx,
+        Arc::new(config.middleware.clone()),
+        dirs,
+        backends.clone(),
+    );
     let router = with_static_fallback(router, &config.static_dir);
-    serve_with_router(router, config.bind_addr).await
+    serve_with_router_and_backends(router, config.bind_addr, backends).await
+}
+
+async fn backend_manager_for_config(
+    config: &crate::backends::BackendConfig,
+) -> Option<Arc<crate::backends::BackendManager>> {
+    use crate::backends::{BackendManager, BackendStore};
+    if !config.enabled {
+        return None;
+    }
+    let store = match config.backup_dir.as_deref() {
+        Some(dir) => {
+            let path = dir.join("backends.db");
+            match BackendStore::open_sqlite_file(&path).await {
+                Ok(store) => store,
+                Err(e) => {
+                    tracing::warn!(error = %e, "backend sqlite open failed; using memory store");
+                    BackendStore::new_memory()
+                }
+            }
+        }
+        None => BackendStore::new_memory(),
+    };
+    Some(BackendManager::new(config.clone(), store))
 }
 
 /// Serve metrics + API on the address owned by `config`, applying the
@@ -231,10 +294,19 @@ pub async fn serve_full_with_config(
     config: &ServerConfig,
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let router =
-        full_router_with_middleware(registry, ctx, Arc::new(config.middleware.clone()), dirs);
+    let backends = backend_manager_for_config(&config.backends).await;
+    if let Some(manager) = backends.as_ref() {
+        manager.start_background();
+    }
+    let router = full_router_with_middleware_and_backends(
+        registry,
+        ctx,
+        Arc::new(config.middleware.clone()),
+        dirs,
+        backends.clone(),
+    );
     let router = with_static_fallback(router, &config.static_dir);
-    serve_with_router(router, config.bind_addr).await
+    serve_with_router_and_backends(router, config.bind_addr, backends).await
 }
 
 /// Layer the static-file SPA fallback onto `router` when a frontend build
@@ -247,14 +319,16 @@ where
         return router;
     };
     let dir = Arc::new(dir);
-    router.fallback(move |headers: axum::http::HeaderMap, uri: axum::http::Uri| {
-        let dir = Arc::clone(&dir);
-        let if_none_match = headers
-            .get(axum::http::header::IF_NONE_MATCH)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        async move { serve_static(&dir, uri.path(), if_none_match.as_deref()).await }
-    })
+    router.fallback(
+        move |headers: axum::http::HeaderMap, uri: axum::http::Uri| {
+            let dir = Arc::clone(&dir);
+            let if_none_match = headers
+                .get(axum::http::header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned);
+            async move { serve_static(&dir, uri.path(), if_none_match.as_deref()).await }
+        },
+    )
 }
 
 /// Test helper: metrics + API router with a programmable middleware
@@ -268,5 +342,5 @@ pub(crate) async fn serve_full_with_middleware(
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
     let router = full_router_with_middleware(registry, ctx, config, dirs);
-    serve_with_router(router, addr).await
+    serve_with_router_and_backends(router, addr, None).await
 }

@@ -27,7 +27,7 @@ impl NativeSession {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
-                output::diag_line("sessions: /sessions [--named] [filter] list recent server sessions newest-first as [n] id · title · status · age (quoted \"phrase\" matches exactly, --named hides untitled), /resume [n|id-or-filter] continue a session (bare resumes latest, number reuses the last listing), /rename <title> rename current session, /delete [n|id-or-filter] delete a session in two steps (repeat the same command to confirm, bare deletes current)");
+                output::diag_line("sessions: /sessions [--named] [filter] list recent server sessions newest-first as [n] id · title · status · age (quoted \"phrase\" matches exactly, --named hides untitled), /resume [n|id-or-filter] continue a session (bare resumes latest, number reuses the last listing), /rename <title> rename current session, /delete [n|id-or-filter] delete a session in two steps (repeat the same command to confirm, bare deletes current), /servers list known backends with reachability (read-only)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /tooldetail [low|medium|high], /display show all");
                 output::diag_line("full output: inline tool previews are capped excerpts; expand in the full TUI viewer or query execution detail/audit for the retained prefix (headless `wf run` keeps lifecycle lines only)");
@@ -361,6 +361,10 @@ impl NativeSession {
                 self.list_sessions(filter).await;
                 CommandAction::Continue
             }
+            SlashCommand::Servers => {
+                self.list_servers().await;
+                CommandAction::Continue
+            }
             SlashCommand::Resume(target) => {
                 self.resume_to(target).await;
                 CommandAction::Continue
@@ -413,5 +417,71 @@ impl NativeSession {
     /// via history recall instead of being silently dropped.
     pub(crate) fn keep_failed_input(&mut self, text: &str) {
         self.history.push(text);
+    }
+
+    /// List known backends with live reachability, read-only. Prefers
+    /// the server list with live status; falls back to local direct
+    /// probing when the management service is unreachable or disabled.
+    /// Names come from the registry; the current row marks this session's
+    /// connection, which never changes here.
+    pub(crate) async fn list_servers(&self) {
+        if let Ok(Some(rows)) = wf_cli_shared::backends::fetch_server_backends(&self.client).await {
+            if rows.is_empty() {
+                output::diag_line("no known backends");
+                return;
+            }
+            let current = self.client.base_url().to_string();
+            for row in &rows {
+                let url = row.url.clone().unwrap_or_default();
+                let reachable = row
+                    .status
+                    .as_ref()
+                    .map(|status| status.reachable)
+                    .unwrap_or(false);
+                let state = if reachable {
+                    "reachable"
+                } else {
+                    "unreachable"
+                };
+                let version = row
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.version.clone())
+                    .unwrap_or_else(|| "-".to_string());
+                let mark = if url == current { " (current)" } else { "" };
+                let tunnel = match row.tunnel.as_ref() {
+                    Some(tunnel) if tunnel.running => " · tunnel=up",
+                    Some(tunnel) if tunnel.interrupted_reason.is_some() => " · tunnel=interrupted",
+                    _ => "",
+                };
+                output::diag_line(&format!(
+                    "{} · {url}{mark} · {state} · v{version}{tunnel}",
+                    row.name
+                ));
+            }
+            return;
+        }
+        let current = self.client.base_url().to_string();
+        let statuses =
+            wf_cli_shared::probe_backends(wf_cli_shared::collect_backend_candidates(&current))
+                .await;
+        if statuses.is_empty() {
+            output::diag_line("no known backends");
+            return;
+        }
+        for status in &statuses {
+            let name = status.name.as_deref().unwrap_or("-");
+            let state = if status.reachable {
+                "reachable"
+            } else {
+                "unreachable"
+            };
+            let version = status.version.as_deref().unwrap_or("-");
+            let mark = if status.current { " (current)" } else { "" };
+            output::diag_line(&format!(
+                "{name} · {}{mark} · {state} · v{version}",
+                status.url
+            ));
+        }
     }
 }

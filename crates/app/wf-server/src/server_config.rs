@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use wf_config::error::{ConfigError, ConfigResult};
 
+use crate::backends::BackendConfig;
 use crate::directory::DirectoryConfig;
 use crate::middleware::ServerMiddlewareConfig;
 
@@ -49,6 +50,9 @@ pub struct ServerConfig {
     /// validated explicit directory; a non-empty list restricts serving to
     /// the listed roots.
     pub directory: DirectoryConfig,
+    /// Backend management domain (registry hosting, probing, tunnels,
+    /// backups). Disabled by default; see `backends.toml`.
+    pub backends: BackendConfig,
 }
 
 impl Default for ServerConfig {
@@ -58,6 +62,7 @@ impl Default for ServerConfig {
             middleware: ServerMiddlewareConfig::default(),
             static_dir: None,
             directory: DirectoryConfig::default(),
+            backends: BackendConfig::default(),
         }
     }
 }
@@ -93,6 +98,7 @@ impl ServerConfig {
             middleware: ServerMiddlewareConfig::resolve(settings_layer, project_layer)?,
             static_dir: Self::resolve_static_dir(settings_layer, project_layer, cli_static_dir)?,
             directory: Self::resolve_directory(settings_layer, project_layer)?,
+            backends: BackendConfig::resolve(settings_layer, project_layer)?,
         })
     }
 

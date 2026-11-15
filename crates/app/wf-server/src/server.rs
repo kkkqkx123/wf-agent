@@ -24,6 +24,7 @@ pub struct ServerHandle {
     pub(crate) addr: SocketAddr,
     pub(crate) shutdown: oneshot::Sender<()>,
     pub(crate) task: JoinHandle<()>,
+    pub(crate) backends: Option<std::sync::Arc<crate::backends::BackendManager>>,
 }
 
 impl ServerHandle {
@@ -34,9 +35,13 @@ impl ServerHandle {
     }
 
     /// Signal graceful shutdown and await the server task, draining
-    /// in-flight requests before returning.
+    /// in-flight requests before returning. Backend tunnels and loops
+    /// shut down first so no `ssh -N` outlives the management service.
     pub async fn shutdown(self) {
         crate::api::system::server::mark_server_stopping();
+        if let Some(backends) = self.backends {
+            backends.shutdown().await;
+        }
         let _ = self.shutdown.send(());
         let _ = self.task.await;
     }
@@ -71,5 +76,39 @@ pub(crate) async fn serve_with_router(
         addr: bound_addr,
         shutdown: shutdown_tx,
         task,
+        backends: None,
+    })
+}
+
+/// Same as [`serve_with_router`] with an explicit backend manager for
+/// graceful tunnel and loop shutdown. `None` keeps the previous
+/// behavior for callers without the backend domain.
+pub(crate) async fn serve_with_router_and_backends(
+    router: Router,
+    addr: SocketAddr,
+    backends: Option<std::sync::Arc<crate::backends::BackendManager>>,
+) -> Result<ServerHandle, ServeError> {
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| ServeError::Bind(e.to_string()))?;
+    let bound_addr = listener
+        .local_addr()
+        .map_err(|e| ServeError::Bind(e.to_string()))?;
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let task = tokio::spawn(async move {
+        if let Err(err) = axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+        {
+            tracing::error!(target: "wf_server", error = %err, "HTTP server failed");
+        }
+    });
+    Ok(ServerHandle {
+        addr: bound_addr,
+        shutdown: shutdown_tx,
+        task,
+        backends,
     })
 }

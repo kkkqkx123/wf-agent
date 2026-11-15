@@ -2,10 +2,17 @@
 //!
 //! Zed-style placement: execution stays on the remote host inside its own
 //! `wf-server` process. This module only builds system `ssh` invocations and
-//! resolves which HTTP base URL the client should use. It never splices
-//! remote shell commands and never implements private key handling.
+//! resolves which HTTP base URL the client should use. It never manages
+//! private keys and never spawns processes. The single remote shell command
+//! it assembles (an optional quoted directory prefix plus a fixed server
+//! launch) is printed for the user or an outer script to run.
 
 use serde::{Deserialize, Serialize};
+
+/// Local tunnel entry port used when a registry entry leaves it unset.
+/// Single source so the CLI fallback cannot drift from the library default;
+/// concurrent tunnels to different hosts need distinct ports.
+pub const DEFAULT_LOCAL_TUNNEL_PORT: u16 = 18080;
 
 /// SSH tunnel description derived from connection config.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,7 +93,12 @@ impl SshTunnelConfig {
     ) -> Vec<String> {
         let port = server_port.unwrap_or(self.remote_port);
         let launch = match remote_dir.filter(|s| !s.trim().is_empty()) {
-            Some(dir) => format!("cd {dir} && wf-server --addr 127.0.0.1:{port}"),
+            Some(dir) => {
+                format!(
+                    "cd {} && wf-server --addr 127.0.0.1:{port}",
+                    shell_quote(dir)
+                )
+            }
             None => format!("wf-server --addr 127.0.0.1:{port}"),
         };
         let mut argv = vec![
@@ -109,6 +121,11 @@ impl SshTunnelConfig {
         argv
     }
 
+    /// Stop invocation scoped to the instance this tunnel was launched for:
+    /// the match pattern carries the exact loopback bind address, so hosts
+    /// running several servers do not lose the unrelated ones. Best effort
+    /// by construction: it only pairs with servers started through
+    /// [`SshTunnelConfig::server_launch_argv`].
     pub fn server_stop_argv(&self) -> Vec<String> {
         let mut argv = vec![
             "ssh".to_string(),
@@ -126,12 +143,34 @@ impl SshTunnelConfig {
             argv.push(jump.to_string());
         }
         argv.push(self.ssh_target());
-        argv.push("pkill -f wf-server".to_string());
+        argv.push(format!(
+            "pkill -f 'wf-server --addr 127.0.0.1:{}'",
+            self.remote_port
+        ));
         argv
     }
 }
 
+/// Quote one shell word with POSIX single quotes so user-supplied directories
+/// survive spaces and metacharacters in the printed launch command.
+fn shell_quote(raw: &str) -> String {
+    let mut quoted = String::with_capacity(raw.len() + 2);
+    quoted.push('\'');
+    for chunk in raw.split('\'') {
+        quoted.push_str(chunk);
+        quoted.push_str("'\\''");
+    }
+    quoted.truncate(quoted.len() - 4);
+    quoted.push('\'');
+    quoted
+}
+
 /// Resolve the HTTP base URL with explicit flag first, then tunnel, then default.
+///
+/// The tunnel slot serves programmatic callers holding a live tunnel config.
+/// CLI frontends pass `None` here by design: registry host names never
+/// auto-resolve, and the active tunnel reaches the client only through the
+/// `WF_REMOTE_TUNNEL_PORT` environment bridge.
 pub fn resolve_base_url(
     explicit_remote: Option<&str>,
     tunnel: Option<&SshTunnelConfig>,
@@ -230,8 +269,40 @@ mod tests {
         assert_eq!(argv.first().expect("ssh").as_str(), "ssh");
         assert_eq!(
             argv.last().expect("stop command").as_str(),
-            "pkill -f wf-server"
+            "pkill -f 'wf-server --addr 127.0.0.1:3000'"
         );
         assert!(argv.contains(&"dev@example".to_string()));
+    }
+
+    #[test]
+    fn server_stop_follows_custom_server_port() {
+        let mut custom = schema();
+        custom.server_port = Some(4001);
+        let tunnel =
+            SshTunnelConfig::from_schema(&custom, DEFAULT_LOCAL_TUNNEL_PORT).expect("tunnel");
+        let stop = tunnel.server_stop_argv();
+        assert!(stop
+            .last()
+            .expect("stop command")
+            .contains("127.0.0.1:4001"));
+    }
+
+    #[test]
+    fn launch_quotes_remote_dir_with_spaces() {
+        let tunnel =
+            SshTunnelConfig::from_schema(&schema(), DEFAULT_LOCAL_TUNNEL_PORT).expect("tunnel");
+        let argv = tunnel.server_launch_argv(Some("/srv/my projects/app"), None);
+        let launch = argv.last().expect("launch command");
+        assert!(
+            launch.contains("cd '/srv/my projects/app' && wf-server"),
+            "unexpected launch: {launch}"
+        );
+    }
+
+    #[test]
+    fn shell_quote_escapes_single_quotes() {
+        assert_eq!(shell_quote("/srv/app"), "'/srv/app'");
+        assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+        assert_eq!(shell_quote(""), "''");
     }
 }

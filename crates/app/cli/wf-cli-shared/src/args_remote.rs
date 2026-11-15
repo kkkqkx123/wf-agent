@@ -31,7 +31,8 @@ pub enum RemoteSub {
         /// Remote wf-server port (loopback on the remote host).
         #[arg(long, value_name = "PORT")]
         server_port: Option<u16>,
-        /// Local tunnel entry port.
+        /// Local tunnel entry port (default 18080; concurrent tunnels to
+        /// different hosts need distinct ports).
         #[arg(long, value_name = "PORT")]
         local_port: Option<u16>,
     },
@@ -42,12 +43,19 @@ pub enum RemoteSub {
         /// Registered host name.
         #[arg(value_name = "NAME")]
         name: String,
+        /// Print only the local tunnel base URL as a single line for
+        /// scripting (e.g. `--remote $(wf remote tunnel NAME --url-only)`).
+        #[arg(long)]
+        url_only: bool,
     },
     /// Print the remote server launch and tunnel invocations for a host.
     Start {
         /// Registered host name.
         #[arg(value_name = "NAME")]
         name: String,
+        /// Print only the local tunnel base URL as a single line for scripting.
+        #[arg(long)]
+        url_only: bool,
     },
     /// Print the remote server stop invocation for a host.
     Stop {
@@ -55,7 +63,9 @@ pub enum RemoteSub {
         #[arg(value_name = "NAME")]
         name: String,
     },
-    /// Pull an execution bundle from the current server to a local file.
+    /// Pull an execution bundle from the currently resolved server
+    /// (same `--remote` resolution as every other command, not the
+    /// registry host directly) to a local file.
     Pull {
         /// Execution id on the remote server.
         #[arg(value_name = "ID")]

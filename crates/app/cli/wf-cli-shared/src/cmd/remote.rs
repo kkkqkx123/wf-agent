@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::args::Cli;
 use crate::args_remote::RemoteSub;
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -49,15 +49,29 @@ fn registry_path() -> Option<PathBuf> {
     Some(base.join("wf").join("remotes.json"))
 }
 
-fn load_registry() -> RemoteRegistry {
+/// Load the registry, failing loud on a present but unreadable or corrupt
+/// file so a broken registry cannot masquerade as an empty one. A missing
+/// file still means no hosts yet.
+fn load_registry() -> CliResult<RemoteRegistry> {
     let Some(path) = registry_path() else {
-        return RemoteRegistry::default();
+        return Ok(RemoteRegistry::default());
     };
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(RemoteRegistry::default()),
+        Err(e) => {
+            return Err(CliError::Configuration(format!(
+                "cannot read remote registry {}: {e}",
+                path.display()
+            )));
+        }
+    };
     if text.trim().is_empty() {
-        return RemoteRegistry::default();
+        return Ok(RemoteRegistry::default());
     }
-    serde_json::from_str(&text).unwrap_or_default()
+    serde_json::from_str(&text).map_err(|e| {
+        CliError::Configuration(format!("invalid remote registry {}: {e}", path.display()))
+    })
 }
 
 fn save_registry(registry: &RemoteRegistry) -> CliResult<()> {
@@ -75,7 +89,14 @@ fn save_registry(registry: &RemoteRegistry) -> CliResult<()> {
     Ok(())
 }
 
-fn to_tunnel(_name: &str, host: &RemoteHost) -> wf_client::SshTunnelConfig {
+/// Build the tunnel config for a registry entry. A hand-edited entry with
+/// an empty host fails here instead of producing an `ssh` call to nowhere.
+fn to_tunnel(name: &str, host: &RemoteHost) -> CliResult<wf_client::SshTunnelConfig> {
+    if host.host.trim().is_empty() {
+        return Err(CliError::Configuration(format!(
+            "remote host '{name}' has an empty host; fix it with `wf remote add {name}`"
+        )));
+    }
     let schema = wf_types::script::schema::SshConfigSchema {
         host: host.host.clone(),
         port: host.port,
@@ -86,18 +107,14 @@ fn to_tunnel(_name: &str, host: &RemoteHost) -> wf_client::SshTunnelConfig {
         server_port: host.server_port,
         local_port: host.local_port,
     };
-    let local_port = host.local_port.unwrap_or(18080);
-    wf_client::SshTunnelConfig::from_schema(&schema, local_port).unwrap_or(
-        wf_client::SshTunnelConfig {
-            host: schema.host.clone(),
-            port: schema.ssh_port(),
-            username: schema.username.clone(),
-            key_path: schema.key_path.clone(),
-            jump_host: schema.jump_host.clone(),
-            remote_port: schema.remote_server_port(),
-            local_port,
-        },
-    )
+    let local_port = host
+        .local_port
+        .unwrap_or(wf_client::DEFAULT_LOCAL_TUNNEL_PORT);
+    wf_client::SshTunnelConfig::from_schema(&schema, local_port).ok_or_else(|| {
+        CliError::Configuration(format!(
+            "remote host '{name}' has an empty host; fix it with `wf remote add {name}`"
+        ))
+    })
 }
 
 pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
@@ -118,7 +135,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                     "remote add requires a name, --host and --username".to_string(),
                 ));
             }
-            let mut registry = load_registry();
+            let mut registry = load_registry()?;
             registry.hosts.insert(
                 name.clone(),
                 RemoteHost {
@@ -139,19 +156,22 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             )
         }
         RemoteSub::List => {
-            let registry = load_registry();
+            let registry = load_registry()?;
             let data = serde_json::json!({
                 "hosts": registry.hosts.keys().collect::<Vec<_>>(),
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-list", data))
         }
-        RemoteSub::Tunnel { name } => {
-            let registry = load_registry();
+        RemoteSub::Tunnel { name, url_only } => {
+            let registry = load_registry()?;
             let host = registry
                 .hosts
                 .get(name)
                 .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
-            let tunnel = to_tunnel(name, host);
+            let tunnel = to_tunnel(name, host)?;
+            if *url_only {
+                return print_line_to_cli(cli, &tunnel.local_base_url());
+            }
             let data = serde_json::json!({
                 "local_base_url": tunnel.local_base_url(),
                 "forward": tunnel.forward_spec(),
@@ -159,13 +179,16 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-tunnel", data))
         }
-        RemoteSub::Start { name } => {
-            let registry = load_registry();
+        RemoteSub::Start { name, url_only } => {
+            let registry = load_registry()?;
             let host = registry
                 .hosts
                 .get(name)
                 .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
-            let tunnel = to_tunnel(name, host);
+            let tunnel = to_tunnel(name, host)?;
+            if *url_only {
+                return print_line_to_cli(cli, &tunnel.local_base_url());
+            }
             let data = serde_json::json!({
                 "local_base_url": tunnel.local_base_url(),
                 "forward": tunnel.forward_spec(),
@@ -175,12 +198,12 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("remote-start", data))
         }
         RemoteSub::Stop { name } => {
-            let registry = load_registry();
+            let registry = load_registry()?;
             let host = registry
                 .hosts
                 .get(name)
                 .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
-            let tunnel = to_tunnel(name, host);
+            let tunnel = to_tunnel(name, host)?;
             let data = serde_json::json!({
                 "stop_argv": tunnel.server_stop_argv(),
             });

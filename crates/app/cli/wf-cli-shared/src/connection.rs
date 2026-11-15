@@ -73,10 +73,19 @@ impl ClientHandle {
             .await
             .map(|_| ())
             .map_err(|e| match e {
-                wf_client::ClientError::Http(msg) => CliError::Configuration(format!(
-                    "cannot reach wf-server at {} ({msg}); start wf-server first",
-                    self.client.base_url()
-                )),
+                wf_client::ClientError::Http(msg) => {
+                    let mut hint = format!(
+                        "cannot reach wf-server at {} ({msg}); start wf-server first",
+                        self.client.base_url()
+                    );
+                    if wf_client::tunnel_base_url_from_env().is_some() {
+                        hint.push_str(
+                            "; the ssh tunnel bridge is set, so the tunnel itself may be down: \
+                             re-establish it (`wf remote tunnel <name>`) and retry",
+                        );
+                    }
+                    CliError::Configuration(hint)
+                }
                 other => CliError::from(other),
             })
     }

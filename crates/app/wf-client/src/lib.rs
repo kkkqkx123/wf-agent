@@ -27,7 +27,9 @@ pub use client::{
     DIRECTORY_HEADER, DIRECTORY_QUERY_PARAM,
 };
 pub use error::{ClientError, ClientResult};
-pub use remote::{resolve_base_url, tunnel_base_url_from_env, SshTunnelConfig};
+pub use remote::{
+    resolve_base_url, tunnel_base_url_from_env, SshTunnelConfig, DEFAULT_LOCAL_TUNNEL_PORT,
+};
 pub use sse::{endpoints, SseFrame};
 
 /// The fully-typed progenitor client and its model namespace, for call sites

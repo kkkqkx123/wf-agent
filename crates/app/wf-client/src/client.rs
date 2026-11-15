@@ -148,11 +148,16 @@ pub struct WorkflowNestedAgentLoop {
     pub append_mode: Option<String>,
 }
 
-/// Shared HTTP client for `wf-server`.
+/// Shared HTTP client for `wf-server`: `http` serves JSON calls with a
+/// bounded total timeout, `stream_http` serves SSE with connect timeout
+/// only so long-lived streams are never cut off mid-flight. Both carry
+/// the same default headers, so auth and directory context cannot drift
+/// between transports.
 #[derive(Debug, Clone)]
 pub struct WfClient {
     config: ClientConfig,
     http: reqwest::Client,
+    stream_http: reqwest::Client,
     generated: generated::Client,
 }
 
@@ -172,17 +177,28 @@ impl WfClient {
                 headers.insert(DIRECTORY_HEADER, value);
             }
         }
+        // JSON calls share a 15s total timeout so a dead server fails fast
+        // instead of hanging typed helpers that bypass `send`. SSE streams
+        // use a separate client with connect timeout only, otherwise
+        // long-lived streams would be cut off mid-flight.
         let http = reqwest::Client::builder()
             .user_agent("wf-client/0.1")
-            .default_headers(headers)
+            .default_headers(headers.clone())
             .connect_timeout(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(15))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .unwrap_or_else(|e| panic!("build reqwest JSON client: {e}"));
+        let stream_http = reqwest::Client::builder()
+            .user_agent("wf-client/0.1")
+            .default_headers(headers)
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|e| panic!("build reqwest stream client: {e}"));
         let generated = generated::Client::new_with_client(&config.base_url, http.clone());
         Self {
             config,
             http,
+            stream_http,
             generated,
         }
     }
@@ -227,9 +243,16 @@ impl WfClient {
         &self.generated
     }
 
-    /// Underlying `reqwest` client (used by the SSE layer).
+    /// Underlying `reqwest` client for JSON calls (typed helpers and the
+    /// `send` escape hatch share its 15s total timeout).
     pub fn http(&self) -> &reqwest::Client {
         &self.http
+    }
+
+    /// Underlying `reqwest` client for SSE streams (connect timeout only,
+    /// never a total timeout). Same default headers as [`WfClient::http`].
+    pub fn stream_http(&self) -> &reqwest::Client {
+        &self.stream_http
     }
 
     /// API key header value, when configured.
@@ -668,7 +691,10 @@ impl WfClient {
         T: DeserializeOwned,
     {
         let url = format!("{}{}", self.config.base_url, path);
-        let mut request = self.http.request(method, &url);
+        let mut request = self
+            .http
+            .request(method, &url)
+            .timeout(std::time::Duration::from_secs(15));
         if let Some(body) = body {
             request = request.json(body);
         }

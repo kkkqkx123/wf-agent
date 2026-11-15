@@ -87,7 +87,9 @@ pub struct Cli {
     /// `[tool_output]` config section.
     #[arg(long = "tool-detail", value_name = "LEVEL", global = true)]
     pub tool_detail: Option<String>,
-    /// Remote server URL (e.g. http://localhost:3000). Overrides WF_REMOTE env.
+    /// Remote server base URL (full HTTP/HTTPS URL, e.g. http://localhost:3000).
+    /// Overrides WF_REMOTE env. Registered `wf remote` host names are not
+    /// accepted here; pass their tunnel URL or set WF_REMOTE_TUNNEL_PORT.
     #[arg(long, global = true)]
     pub remote: Option<String>,
     /// API key for remote server (x-api-key header). Also reads WF_API_KEY env.
@@ -417,7 +419,8 @@ pub enum Command {
         /// (`auto` / `low` / `high` / `original`); empty means provider default.
         #[arg(long = "image-detail", value_name = "DETAIL")]
         image_detail: Option<String>,
-        /// Remote server URL for this run (overrides --remote / WF_REMOTE).
+        /// Remote server base URL for this run (full HTTP/HTTPS URL;
+        /// overrides --remote / WF_REMOTE).
         #[arg(long)]
         remote: Option<String>,
         /// Start the session in a new git worktree of the current project,

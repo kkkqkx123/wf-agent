@@ -218,7 +218,7 @@ impl WfClient {
     ) -> ClientResult<impl Stream<Item = Result<SseFrame, ClientError>> + Send + use<>> {
         let url = format!("{}{}", self.base_url(), path);
         let resp = self
-            .http()
+            .stream_http()
             .post(&url)
             .json(body)
             .send()
@@ -234,7 +234,7 @@ impl WfClient {
     ) -> ClientResult<impl Stream<Item = Result<SseFrame, ClientError>> + Send + use<>> {
         let url = format!("{}{}", self.base_url(), path);
         let resp = self
-            .http()
+            .stream_http()
             .get(&url)
             .send()
             .await

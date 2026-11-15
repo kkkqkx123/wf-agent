@@ -247,9 +247,13 @@ where
         return router;
     };
     let dir = Arc::new(dir);
-    router.fallback(move |uri: axum::http::Uri| {
+    router.fallback(move |headers: axum::http::HeaderMap, uri: axum::http::Uri| {
         let dir = Arc::clone(&dir);
-        async move { serve_static(&dir, uri.path()).await }
+        let if_none_match = headers
+            .get(axum::http::header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        async move { serve_static(&dir, uri.path(), if_none_match.as_deref()).await }
     })
 }
 

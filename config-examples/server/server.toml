@@ -1,17 +1,34 @@
 # Server transport configuration.
 #
 # Schema:    wf_server::server_config::ServerConfig file layer
-# (`bind_addr`, `static_dir`, `allowed_roots`).
+# (`bind_addr`, `static_dir`, `static_index`, `static_fallback`,
+# `static_immutable_max_age_secs`, `allowed_roots`).
 # Sample: copy to `{settings_dir}/server/` or `{project}/.wf/server/`
 # (independent family owned by wf-server).
-# Priority (high to low): `--addr` flag > `WF_SERVER_BIND_ADDR` /
-# `WF_SERVER_STATIC_DIR` / `WF_DIRECTORY_ROOTS` env >
+# Priority (high to low): `--addr` / `--static-dir` flags >
+# `WF_SERVER_BIND_ADDR` / `WF_SERVER_STATIC_DIR` /
+# `WF_SERVER_STATIC_INDEX` / `WF_SERVER_STATIC_FALLBACK` /
+# `WF_SERVER_STATIC_IMMUTABLE_MAX_AGE_SECS` / `WF_DIRECTORY_ROOTS` env >
 # project `.wf/server/` > settings-dir `server/` > built-in defaults.
 #
 # A missing file falls back to the default; a present but invalid file
 # fails startup, so a typo never silently binds elsewhere.
 
 bind_addr = "127.0.0.1:3000"
+
+# Static frontend hosting for the single-host bundle (one port for pages
+# plus API). Disabled unless `static_dir` is set; API-only deployments
+# simply leave every key below commented out. A relative dir resolves
+# against the server executable's directory (`wf-server` next to `web/`),
+# so the same file works from any working directory.
+# static_dir = "web"
+# SPA fallback page for extension-less app routes (deep links refresh).
+# static_index = "index.html"
+# Return the fallback page for unknown extension-less paths. Missing
+# fingerprinted assets always stay 404 so broken builds fail loudly.
+# static_fallback = true
+# Cache lifetime in seconds for immutable fingerprinted assets.
+# static_immutable_max_age_secs = 31536000
 
 # Extra servable directory roots (absolute paths). Explicit request
 # directories must fall inside one of these; empty permits every validated

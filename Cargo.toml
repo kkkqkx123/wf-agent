@@ -186,8 +186,9 @@ pulldown-cmark = "0.13"
 
 # HTTP transport
 axum = { version = "0.8", features = ["macros", "ws"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit", "fs"] }
+percent-encoding = "2"
 http = "1.1"
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "handshake"] }
 # Version only: the OpenAPI document belongs to the transport crate alone.

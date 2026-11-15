@@ -11,7 +11,6 @@
 //! own `routes()` and this file is the sole merge point, so the module tree
 //! mirrors the `wf-api` domain layout.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
@@ -21,8 +20,8 @@ use wf_api::ApiContext;
 use crate::directory::{directory_middleware, execution_existence_middleware, DirectoryContext};
 use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router_and_backends, ServeError, ServerHandle};
-use crate::server_config::ServerConfig;
-use crate::static_files::serve_static;
+use crate::server_config::{ServerConfig, StaticConfig};
+use crate::static_files::{serve_static, StaticHosting};
 use crate::{api, metrics, ws};
 
 #[derive(Clone)]
@@ -51,7 +50,8 @@ pub(crate) fn api_router(ctx: Arc<ApiContext>) -> Router {
 /// with a programmable middleware configuration. Domain routes are mounted
 /// under `/api/v1`; the system surface (`/health`, `/system/*`, `/`) stays at
 /// the root. Embedding and tests use this to exercise auth / rate limiting /
-/// CORS on the full API surface.
+/// CORS on the full API surface. Embedding stays API-only: the `/` root
+/// keeps the JSON answer and no static fallback is layered.
 pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddlewareConfig>) -> Router {
     let dirs = Arc::new(DirectoryContext::new(
         crate::directory::DirectoryConfig::default(),
@@ -70,18 +70,20 @@ pub fn api_router_with_dirs(
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
 ) -> Router {
-    api_router_with_dirs_and_backends(ctx, config, dirs, None)
+    api_router_with_dirs_and_backends(ctx, config, dirs, None, false)
 }
 
 /// Same as [`api_router_with_dirs`] with an explicit backend manager for
 /// the server-owned registry, tunnel and backup domain. `None` keeps the
 /// backend surface disabled (503) so existing tests and direct-link
-/// deployments observe zero behavior change.
+/// deployments observe zero behavior change. `static_enabled` hands the
+/// `/` root to the app shell; API-only callers keep `false`.
 pub fn api_router_with_dirs_and_backends(
     ctx: Arc<ApiContext>,
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
     backends: Option<Arc<crate::backends::BackendManager>>,
+    static_enabled: bool,
 ) -> Router {
     let domain: Router<ApiState> = Router::new()
         // workflow definition + execution + graph analysis
@@ -169,9 +171,15 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::system::backends::routes())
         .merge(api::system::server::routes())
         .merge(ws::routes());
-    let app = Router::new()
-        .merge(api::system::health::routes())
-        .nest("/api/v1", domain);
+    // Static hosting owns the `/` root for the app shell; the JSON root
+    // answer steps aside and discovery stays on `/api/v1/info`. Named
+    // routes (`/health`, `/metrics`, `/system/*`) keep API precedence.
+    let health = if static_enabled {
+        api::system::health::routes_without_root()
+    } else {
+        api::system::health::routes()
+    };
+    let app = Router::new().merge(health).nest("/api/v1", domain);
     // Execution read views share one existence gate: unknown ids fail as
     // not-found here instead of degrading to empty results per handler.
     // Layered inside auth so authenticated checks keep their precedence.
@@ -222,22 +230,28 @@ pub fn full_router_with_middleware(
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
 ) -> Router {
-    full_router_with_middleware_and_backends(registry, ctx, config, dirs, None)
+    full_router_with_middleware_and_backends(registry, ctx, config, dirs, None, false)
 }
 
 /// Same as [`full_router_with_middleware`] with an explicit backend
 /// manager. Production servers pass the manager built from
 /// `ServerConfig::backends`; tests keep `None` for the disabled surface.
+/// `static_enabled` hands the `/` root to the app shell.
 pub fn full_router_with_middleware_and_backends(
     registry: Arc<wf_metrics::MetricsRegistry>,
     ctx: Arc<ApiContext>,
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
     backends: Option<Arc<crate::backends::BackendManager>>,
+    static_enabled: bool,
 ) -> Router {
     let http = registry.http();
     let router = metrics::router(registry).merge(api_router_with_dirs_and_backends(
-        ctx, config, dirs, backends,
+        ctx,
+        config,
+        dirs,
+        backends,
+        static_enabled,
     ));
     middleware::with_request_metrics(router, Some(http))
 }
@@ -258,8 +272,9 @@ pub async fn serve_api_with_config(
         Arc::new(config.middleware.clone()),
         dirs,
         backends.clone(),
+        config.static_config.is_some(),
     );
-    let router = with_static_fallback(router, &config.static_dir);
+    let router = with_static_fallback(router, config.static_config.as_ref());
     serve_with_router_and_backends(router, config.bind_addr, backends).await
 }
 
@@ -313,29 +328,28 @@ pub async fn serve_full_with_config(
         Arc::new(config.middleware.clone()),
         dirs,
         backends.clone(),
+        config.static_config.is_some(),
     );
-    let router = with_static_fallback(router, &config.static_dir);
+    let router = with_static_fallback(router, config.static_config.as_ref());
     serve_with_router_and_backends(router, config.bind_addr, backends).await
 }
 
-/// Layer the static-file SPA fallback onto `router` when a frontend build
-/// directory is configured; API-only mode leaves the router untouched.
-fn with_static_fallback<S>(router: Router<S>, static_dir: &Option<PathBuf>) -> Router<S>
+/// Layer the static-file SPA fallback onto `router` when frontend hosting
+/// is configured; API-only mode leaves the router untouched. The fallback
+/// sits outside auth, rate limiting and CORS: pages carry no project data,
+/// so every route layer keeps gating only the API surface.
+fn with_static_fallback<S>(router: Router<S>, static_config: Option<&StaticConfig>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    let Some(dir) = static_dir.clone() else {
+    let Some(config) = static_config else {
         return router;
     };
-    let dir = Arc::new(dir);
+    let hosting = Arc::new(StaticHosting::from_config(config));
     router.fallback(
-        move |headers: axum::http::HeaderMap, uri: axum::http::Uri| {
-            let dir = Arc::clone(&dir);
-            let if_none_match = headers
-                .get(axum::http::header::IF_NONE_MATCH)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned);
-            async move { serve_static(&dir, uri.path(), if_none_match.as_deref()).await }
+        move |method: axum::http::Method, headers: axum::http::HeaderMap, uri: axum::http::Uri| {
+            let hosting = Arc::clone(&hosting);
+            async move { serve_static(&hosting, &method, uri.path(), &headers).await }
         },
     )
 }

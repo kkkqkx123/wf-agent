@@ -14,6 +14,8 @@ deploy/
 │   ├── fetch-package.sh      # 下载版本化产物包（基地址为占位符，见下）
 │   ├── install-server.sh     # 服务端一键安装（root：用户/目录/产物/配置/单元）
 │   ├── install-cli.sh        # CLI 安装（普通用户：仅二进制落位）
+│   ├── build-frontend.sh     # 构建前端静态包到 apps/web-app/build/
+│   ├── package-single.sh     # 组装单机包到 dist/wf-single/（单个二进制加 web/）
 │   ├── uninstall-server.sh   # 服务端卸载（默认保留数据与配置）
 │   └── service-status.sh     # 服务状态诊断
 ├── systemd/                  # 系统服务与个人单元模板（@@占位符，安装期渲染）
@@ -69,7 +71,9 @@ deploy/
   是工作区域总开关（默认开，关则全部工作区路由显式拒绝），
   `WF_STORAGE_SQLITE_DB_PATH` 钉死单全局库位置（相对路径在服务语境下无定义），
   `WF_OUTPUT_DIR` 钉死文件日志目录（logrotate 以此目录为轮转对象），
-  `WF_DIRECTORY_ROOTS` 列出可被显式请求的目录根（为空则允许任何已校验目录）；
+  `WF_DIRECTORY_ROOTS` 列出可被显式请求的目录根（为空则允许任何已校验目录），
+  `WF_SERVER_STATIC_DIR` 等静态变量留空即 API 纯接口模式（服务部署由单元显式
+  传 `--static-dir`，单机包由示例配置传目录）；
   密钥只留空键、不带值。
 
 ## 服务端安装（install-server.sh，root 运行）
@@ -122,6 +126,28 @@ deploy/
 配套同名 `.sha256` 校验文件。校验严格默认：有校验文件必须通过；
 缺校验文件直接失败，仅 `--allow-missing-checksum` 可显式绕过并告警。
 版本默认从根 `Cargo.toml` 的 workspace 版本读取。
+
+## 单机包（package-single.sh，无需 root）
+
+面向单机试用与演示：单个 `wf-server` 可执行文件加一个 `web/` 静态目录，
+页面与接口同端口，无反向代理。服务端安装（systemd）不受影响，两者分工：
+单机包只跑本机回环，系统服务仍走 `install-server.sh`。
+
+```shell
+# 组装单机包：dist/wf-single/{wf-server,web/,settings/,run-single.sh}
+./deploy/scripts/package-single.sh
+
+# 启动单机包（页面与接口同端口）
+./dist/wf-single/run-single.sh
+# 打开 http://127.0.0.1:3000/，接口健康检查 curl http://127.0.0.1:3000/api/v1/info
+```
+
+单机包要求后端静态托管（`server.toml` 的 `static_dir` 等字段与同名
+`WF_SERVER_STATIC_*` 环境变量，相对目录相对可执行文件解析，缺目录或
+缺回退页直接拒绝启动）。需要反向代理分开部署时，不组单机包，直接取
+`apps/web-app/build/` 产物另行提供即可。前端单独构建：
+`deploy/scripts/build-frontend.sh`（`--skip-install` 跳过依赖安装，
+`--preview` 构建预览桩包）。
 
 ## 卸载与诊断
 

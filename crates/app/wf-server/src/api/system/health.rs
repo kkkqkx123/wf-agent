@@ -38,8 +38,24 @@ pub(crate) struct InfoView {
 }
 
 pub(crate) fn routes() -> Router<ApiState> {
-    Router::new()
-        .route("/", get(handle_root))
+    routes_with_root(true)
+}
+
+/// Health surface without the `/` root answer. Static hosting takes the
+/// root for the app shell, so the JSON root message steps aside and the
+/// same discovery payload stays on `/api/v1/info`.
+pub(crate) fn routes_without_root() -> Router<ApiState> {
+    routes_with_root(false)
+}
+
+fn routes_with_root(with_root: bool) -> Router<ApiState> {
+    let router = Router::new();
+    let router = if with_root {
+        router.route("/", get(handle_root))
+    } else {
+        router
+    };
+    router
         .route("/health", get(handle_health))
         .route("/api/v1/info", get(handle_info))
         .route("/api/v1/storage/diagnose", get(handle_storage_diagnose))

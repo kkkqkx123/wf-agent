@@ -179,6 +179,16 @@ async fn main() {
         "directory scope ready"
     );
 
+    if let Some(statik) = server_config.static_config.as_ref() {
+        info!(
+            dir = %statik.dir.display(),
+            index = %statik.index,
+            fallback = statik.fallback,
+            immutable_max_age_secs = statik.immutable_max_age_secs,
+            "static frontend hosting enabled"
+        );
+    }
+
     let addr = server_config.bind_addr;
     // An empty allowlist on a non-loopback socket serves every path the
     // process can read to any key holder. Flag the fail-open default so

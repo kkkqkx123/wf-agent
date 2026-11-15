@@ -25,4 +25,8 @@ pub use router::{
     serve_full_with_config,
 };
 pub use server::{ServeError, ServerHandle};
-pub use server_config::ServerConfig;
+pub use server_config::{
+    ServerConfig, StaticConfig, DEFAULT_STATIC_IMMUTABLE_MAX_AGE_SECS, DEFAULT_STATIC_INDEX,
+    STATIC_DIR_ENV_VAR, STATIC_FALLBACK_ENV_VAR, STATIC_IMMUTABLE_MAX_AGE_ENV_VAR,
+    STATIC_INDEX_ENV_VAR,
+};

@@ -1,11 +1,9 @@
 //! Checkpoint unified records.
 
-use std::io::IsTerminal;
-
 use crate::args::{CheckpointDomain, CheckpointSub, Cli};
 use crate::cmd::render::render_envelope;
-use crate::error::{CliError, CliResult};
-use crate::output::{OutputEnvelope, OutputFormat};
+use crate::error::CliResult;
+use crate::output::OutputEnvelope;
 use wf_client::WfClient;
 
 use super::{confirm_destructive, encode_segment, entity_type};

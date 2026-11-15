@@ -3,7 +3,7 @@
 use futures::StreamExt;
 
 use crate::args::Cli;
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{print_chunk_to_cli, print_line_to_cli, render_envelope_to_cli};
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat};
 use wf_client::WfClient;
@@ -160,8 +160,9 @@ pub(crate) fn stream_terminal(
 }
 
 /// Run a workflow through the streaming server API: `--stream` prints
-/// events live, `--background` waits quietly and prints only the terminal
-/// result, otherwise the blocking execute endpoint runs it synchronously.
+/// events live, `--background` returns the execution id immediately
+/// through the server background endpoint and exits, otherwise the
+/// blocking execute endpoint runs it synchronously.
 pub(crate) async fn run_workflow_streaming(
     cli: &Cli,
     client: &WfClient,
@@ -174,8 +175,8 @@ pub(crate) async fn run_workflow_streaming(
         let typed = crate::turn::TurnParams::workflow_typed_body(input.as_ref());
         let view = client.execute_workflow_background(workflow, &typed).await?;
         let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
-        return render_envelope(
-            cli.output,
+        return render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-run", data).with_entity(workflow.to_string()),
         );
     }
@@ -210,12 +211,12 @@ pub(crate) async fn run_stream(
                 match &event {
                     ExecutionStreamEvent::Engine(base) => {
                         if let Some(id) = base.execution_id.as_deref() {
-                            println!("streaming execution {id}");
+                            print_line_to_cli(cli, &format!("streaming execution {id}"))?;
                         } else {
-                            println!("streaming workflow {workflow}");
+                            print_line_to_cli(cli, &format!("streaming workflow {workflow}"))?;
                         }
                     }
-                    _ => println!("streaming workflow {workflow}"),
+                    _ => print_line_to_cli(cli, &format!("streaming workflow {workflow}"))?,
                 }
             }
         }
@@ -224,15 +225,14 @@ pub(crate) async fn run_stream(
             // the terminal shows continuous text; every other event keeps
             // one row per event.
             if let ExecutionStreamEvent::LlmDelta { content } = &event {
-                print!("{content}");
-                let _ = std::io::Write::flush(&mut std::io::stdout());
+                print_chunk_to_cli(cli, content)?;
             } else {
-                println!("{}", stream_event_line(&event));
+                print_line_to_cli(cli, &stream_event_line(&event))?;
             }
         } else {
             let data = serde_json::to_value(&event)?;
-            render_envelope(
-                OutputFormat::JsonLines,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-run-event", data)
                     .with_entity(workflow.to_string()),
             )?;
@@ -241,8 +241,8 @@ pub(crate) async fn run_stream(
             let result = outcome?;
             let data =
                 serde_json::json!({"workflowId": workflow, "stream": true, "result": result});
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-run-stream", data)
                     .with_entity(workflow.to_string()),
             )?;
@@ -284,12 +284,12 @@ pub(crate) async fn watch_execution(
     let text = cli.output == OutputFormat::Text;
     let mut last = fetch_execution_status(client, id).await?;
     if text {
-        println!("{id} {last}");
+        print_line_to_cli(cli, &format!("{id} {last}"))?;
     }
     if once || is_terminal_status(&last) {
         let data = serde_json::json!({"executionId": id, "status": last});
-        return render_envelope(
-            cli.output,
+        return render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-watch", data).with_entity(id.to_string()),
         );
     }
@@ -327,13 +327,13 @@ async fn watch_via_stream(
                         if status != *last {
                             *last = status;
                             if text {
-                                println!("{id} {last}");
+                                print_line_to_cli(cli, &format!("{id} {last}"))?;
                             }
                         }
                         if terminal || is_terminal_status(last) {
                             let data = serde_json::json!({"executionId": id, "status": last});
-                            return render_envelope(
-                                cli.output,
+                            return render_envelope_to_cli(
+                                cli,
                                 OutputEnvelope::success("execution-watch", data).with_entity(id.to_string()),
                             );
                         }
@@ -366,12 +366,12 @@ async fn watch_via_poll(
                 if status != *last {
                     *last = status.clone();
                     if text {
-                        println!("{id} {last}");
+                        print_line_to_cli(cli, &format!("{id} {last}"))?;
                     }
                     if is_terminal_status(last) {
                         let data = serde_json::json!({"executionId": id, "status": last});
-                        return render_envelope(
-                            cli.output,
+                        return render_envelope_to_cli(
+                            cli,
                             OutputEnvelope::success("execution-watch", data).with_entity(id.to_string()),
                         );
                     }

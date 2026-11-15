@@ -51,6 +51,7 @@ use crate::output::OutputSink;
 /// Shared CLI entry point: resolve the interactive form and dispatch
 /// subcommands. For headless-only binaries, use [`run_headless_only`].
 pub async fn run(cli: Cli) -> CliResult<()> {
+    crate::cmd::render::set_log_file(cli.log.clone());
     // Diagnostics first: single source for headless debug forms so
     // `wf-headless debug-terminal` fails with a clear message instead of
     // falling through to a headless agent session with an empty prompt.
@@ -265,6 +266,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         show_reasoning_flag,
         show_usage_flag,
         worktree,
+        background,
     ) = match &cli.command {
         Some(Command::Run {
             prompt,
@@ -285,6 +287,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             show_reasoning,
             show_usage,
             worktree,
+            background,
             remote: _,
         }) => (
             prompt.clone(),
@@ -305,6 +308,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             *show_reasoning,
             *show_usage,
             worktree.clone(),
+            *background,
         ),
         _ => (
             None,
@@ -325,6 +329,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             false,
             false,
             None,
+            false,
         ),
     };
     // Stdin doubles as the answer channel with `--interactive`, so it must
@@ -352,8 +357,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .map_err(CliError::Arguments)?;
     let attachments =
         crate::turn::load_user_attachment_specs(&attach_paths).map_err(CliError::Arguments)?;
-    let show_reasoning =
-        resolve_run_stream(cli.no_reasoning, show_reasoning_flag, "WF_REASONING");
+    let show_reasoning = resolve_run_stream(cli.no_reasoning, show_reasoning_flag, "WF_REASONING");
     let show_usage = resolve_run_stream(cli.no_usage, show_usage_flag, "WF_USAGE");
     let quiet_tools = resolve_run_quiet(cli.quiet_tools, "WF_QUIET_TOOLS");
     let opts = RunOptions {
@@ -376,6 +380,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         show_reasoning,
         show_usage,
         show_tools: !quiet_tools,
+        background,
     };
 
     // A worktree run relocates before connecting: the new worktree becomes

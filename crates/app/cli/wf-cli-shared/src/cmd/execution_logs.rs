@@ -2,7 +2,7 @@
 
 use super::execution_stream::{is_terminal_event, is_terminal_status};
 use crate::args::Cli;
-use crate::cmd::render::render_envelope;
+use crate::cmd::render::{print_line_to_cli, render_envelope_to_cli};
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat};
 use wf_client::WfClient;
@@ -49,8 +49,8 @@ pub(crate) async fn show_execution_logs(
         if !follow {
             if !text {
                 let data = serde_json::Value::Array(items);
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-logs", data).with_entity(id.to_string()),
                 )?;
             }
@@ -148,8 +148,8 @@ async fn follow_via_stream(
         }
     }
     let data = serde_json::json!({"executionId": id, "followed": true});
-    render_envelope(
-        cli.output,
+    render_envelope_to_cli(
+        cli,
         OutputEnvelope::success("execution-logs-follow", data).with_entity(id.to_string()),
     )
 }
@@ -191,8 +191,8 @@ async fn follow_via_poll(
         }
     }
     let data = serde_json::json!({"executionId": id, "followed": true});
-    render_envelope(
-        cli.output,
+    render_envelope_to_cli(
+        cli,
         OutputEnvelope::success("execution-logs-follow", data).with_entity(id.to_string()),
     )
 }
@@ -249,10 +249,10 @@ fn render_entry(cli: &Cli, id: &str, entry: &serde_json::Value) -> CliResult<i64
     let timestamp = entry.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
     if cli.output == OutputFormat::Text {
         let message = entry.get("message").and_then(|v| v.as_str()).unwrap_or("");
-        println!("[{timestamp}] {message}");
+        print_line_to_cli(cli, &format!("[{timestamp}] {message}"))?;
     } else {
-        render_envelope(
-            OutputFormat::JsonLines,
+        render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-log", entry.clone()).with_entity(id.to_string()),
         )?;
     }

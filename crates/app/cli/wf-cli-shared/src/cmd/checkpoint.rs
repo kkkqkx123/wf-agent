@@ -5,10 +5,8 @@
 use std::io::IsTerminal;
 
 use crate::args::{CheckpointDomain, CheckpointSub, Cli};
-use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
-use crate::output::{OutputEnvelope, OutputFormat};
 
 fn entity_type(domain: Option<CheckpointDomain>) -> Option<&'static str> {
     // Workflow checkpoints are stored under the `workflow_execution`
@@ -60,22 +58,22 @@ mod unified;
 pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
     let handle = ClientHandle::from_cli(cli).await?;
     let client = handle.client();
-    if unified::handle_unified(cli, &client, sub).await?.is_some() {
+    if unified::handle_unified(cli, client, sub).await?.is_some() {
         return Ok(());
     }
-    if file_read::handle_file_read(cli, &client, sub)
+    if file_read::handle_file_read(cli, client, sub)
         .await?
         .is_some()
     {
         return Ok(());
     }
-    if file_write::handle_file_write(cli, &client, sub)
+    if file_write::handle_file_write(cli, client, sub)
         .await?
         .is_some()
     {
         return Ok(());
     }
-    if file_sync::handle_file_sync(cli, &client, sub)
+    if file_sync::handle_file_sync(cli, client, sub)
         .await?
         .is_some()
     {

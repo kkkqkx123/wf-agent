@@ -70,6 +70,9 @@ pub struct RunOptions {
     /// Show successful tool lifecycle lines on stderr. Failures always
     /// show. Mirrors the mini `show_tools` master switch.
     pub show_tools: bool,
+    /// Return the execution id immediately through the server background
+    /// endpoint instead of streaming to the terminal event (workflow only).
+    pub background: bool,
 }
 
 impl Default for RunOptions {
@@ -93,6 +96,7 @@ impl Default for RunOptions {
             show_reasoning: false,
             show_usage: false,
             show_tools: true,
+            background: false,
         }
     }
 }
@@ -211,6 +215,49 @@ async fn run_workflow(
         ) {
             return Err(CliError::Arguments(reason));
         }
+    }
+    if opts.background {
+        let typed = TurnParams::workflow_typed_body(input.as_ref());
+        let view = handle
+            .client()
+            .execute_workflow_background(workflow_id, &typed)
+            .await?;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        if !io.format.is_silent() {
+            match io.format {
+                crate::output::OutputFormat::Text => {
+                    io.sink
+                        .write_raw(&format!("execution {} background", view.execution_id))?;
+                }
+                crate::output::OutputFormat::Json => {
+                    let envelope = crate::output::OutputEnvelope::success(
+                        "execution-run",
+                        serde_json::to_value(&view).unwrap_or(serde_json::Value::Null),
+                    )
+                    .with_entity(workflow_id.to_string());
+                    if let Some(line) = envelope.render(io.format) {
+                        io.sink.write_raw(&line)?;
+                    }
+                }
+                crate::output::OutputFormat::JsonLines => {
+                    let line = serde_json::to_string(&serde_json::json!({
+                        "type": "execution_run",
+                        "workflowId": workflow_id,
+                        "executionId": view.execution_id,
+                        "background": true,
+                    }))?;
+                    io.sink.write_raw(&line)?;
+                }
+                crate::output::OutputFormat::Silent => {}
+            }
+            io.sink.flush()?;
+        }
+        return Ok(RunOutcome {
+            execution_id: view.execution_id,
+            iterations: 0,
+            duration_ms,
+            had_output: false,
+        });
     }
     if !io.format.is_silent() {
         io.sink.write_message(&crate::output::OutputMessage::new(

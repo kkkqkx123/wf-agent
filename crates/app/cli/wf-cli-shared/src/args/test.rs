@@ -390,6 +390,36 @@ fn worktree_flag_parses_and_rejects_workflow() {
 }
 
 #[test]
+fn run_background_requires_workflow_and_rejects_interactive() {
+    let cli = parse(&["run", "--workflow", "wf-1", "--background"]).unwrap();
+    assert!(cli.validate().is_ok());
+    let Some(Command::Run { background, .. }) = &cli.command else {
+        panic!("expected run");
+    };
+    assert!(*background);
+
+    let cli = parse(&["run", "hi", "--background"]).unwrap();
+    let err = cli.validate().unwrap_err();
+    assert!(err.contains("--background requires --workflow"), "{err}");
+
+    let cli = parse(&["run", "--workflow", "wf-1", "--background", "--interactive"]).unwrap();
+    let err = cli.validate().unwrap_err();
+    assert!(err.contains("mutually exclusive"), "{err}");
+
+    let cli = parse(&[
+        "run",
+        "--workflow",
+        "wf-1",
+        "--background",
+        "--interactive",
+        "--approval-timeout",
+        "30",
+    ])
+    .unwrap();
+    assert!(cli.validate().is_err());
+}
+
+#[test]
 fn directories_command_parses() {
     let cli = parse(&["directories"]).unwrap();
     assert!(matches!(cli.command, Some(Command::Directories)));

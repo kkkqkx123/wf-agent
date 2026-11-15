@@ -192,6 +192,7 @@ impl Cli {
             approval_timeout,
             assume_yes,
             worktree,
+            background,
             ..
         }) = &self.command
         {
@@ -230,6 +231,15 @@ impl Cli {
             }
             if *interactive && *assume_yes {
                 return Err("--interactive and --assume-yes are mutually exclusive".to_string());
+            }
+            if *background && workflow.is_none() {
+                return Err("--background requires --workflow".to_string());
+            }
+            if *background && *interactive {
+                return Err("--background and --interactive are mutually exclusive".to_string());
+            }
+            if *background && approval_timeout.is_some() {
+                return Err("--approval-timeout requires --interactive".to_string());
             }
             if self.no_reasoning {
                 if let Some(Command::Run { show_reasoning, .. }) = &self.command {
@@ -363,6 +373,12 @@ pub enum Command {
         /// Reads `WF_USAGE` (`on` shows, `off` hides) with the same meaning.
         #[arg(long = "show-usage")]
         show_usage: bool,
+        /// Return the execution id immediately through the server background
+        /// endpoint and exit instead of streaming progress (requires
+        /// --workflow). Follow up with `execution watch` or
+        /// `execution logs --follow` for the terminal result.
+        #[arg(long)]
+        background: bool,
         /// Workflow id to execute instead of an agent turn.
         #[arg(long)]
         workflow: Option<String>,

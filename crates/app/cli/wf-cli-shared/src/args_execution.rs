@@ -70,10 +70,9 @@ pub enum ExecutionSub {
         /// possible and fall back to plain strings.
         #[arg(long = "var", value_name = "KEY=VALUE")]
         vars: Vec<String>,
-        /// Return the execution id immediately and wait quietly for the
-        /// terminal result instead of streaming progress. The CLI process
-        /// still owns the runtime; true detach needs the server background
-        /// endpoint (`--remote` against a running server).
+        /// Return the execution id immediately through the server background
+        /// endpoint and exit instead of streaming progress. Follow up with
+        /// `execution watch` or `execution logs --follow` for the terminal result.
         #[arg(long)]
         background: bool,
         /// Stream execution events to stdout while the run proceeds.

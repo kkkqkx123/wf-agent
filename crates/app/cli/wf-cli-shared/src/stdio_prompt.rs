@@ -219,7 +219,7 @@ pub fn render_dialog_prompt(
 pub fn answer_dialog_headless(kind: &str, options: usize, line: Option<&str>) -> Value {
     match kind {
         "confirm" => {
-            let approved = line.is_some_and(|text| parse_approval_answer(text));
+            let approved = line.is_some_and(parse_approval_answer);
             serde_json::json!({"confirmed": approved})
         }
         "select" => {

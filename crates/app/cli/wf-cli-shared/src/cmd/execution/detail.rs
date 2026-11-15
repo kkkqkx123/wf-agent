@@ -1,7 +1,7 @@
 //! Execution detail views: show, variables, status and inspect.
 
 use crate::args::Cli;
-use crate::cmd::render::{render_envelope, render_failure};
+use crate::cmd::render::{render_envelope_to_cli, render_failure_to_cli};
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 use wf_client::WfClient;
@@ -13,8 +13,8 @@ pub(crate) async fn show_variables(client: &WfClient, cli: &Cli, id: &str) -> Cl
         .await
     {
         if vars.as_array().is_some_and(|v| !v.is_empty()) {
-            return render_envelope(
-                cli.output,
+            return render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-variables", vars).with_entity(id.to_string()),
             );
         }
@@ -24,21 +24,19 @@ pub(crate) async fn show_variables(client: &WfClient, cli: &Cli, id: &str) -> Cl
 
 pub(crate) async fn show_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()> {
     if let Ok(summary) = client.agent_loop_summary(id).await {
-        return render_envelope(
-            cli.output,
+        return render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-show", summary).with_entity(id.to_string()),
         );
     }
     match client.execution_detail(id).await {
-        Ok(exec) => render_envelope(
-            cli.output,
+        Ok(exec) => render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-show", exec).with_entity(id.to_string()),
         ),
-        Err(_) => render_failure(
-            cli.output,
-            "execution-show",
-            format!("execution not found: {id}"),
-        ),
+        Err(_) => {
+            render_failure_to_cli(cli, "execution-show", format!("execution not found: {id}"))
+        }
     }
 }
 
@@ -46,8 +44,8 @@ pub(crate) async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> 
     if let Ok(status) = client.execution_status(id).await {
         let text = status;
         let data = serde_json::json!({"executionId": id, "status": text, "source": "live"});
-        return render_envelope(
-            cli.output,
+        return render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-status", data).with_entity(id.to_string()),
         );
     }
@@ -57,8 +55,8 @@ pub(crate) async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> 
             .and_then(|s| s.as_str())
             .unwrap_or("unknown");
         let data = serde_json::json!({"executionId": id, "status": status, "source": "persisted", "summary": summary});
-        return render_envelope(
-            cli.output,
+        return render_envelope_to_cli(
+            cli,
             OutputEnvelope::success("execution-status", data).with_entity(id.to_string()),
         );
     }
@@ -69,13 +67,13 @@ pub(crate) async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> 
                 .and_then(|s| s.as_str())
                 .unwrap_or("unknown");
             let data = serde_json::json!({"executionId": id, "status": status, "source": "persisted", "execution": exec});
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-status", data).with_entity(id.to_string()),
             )
         }
-        Err(_) => render_failure(
-            cli.output,
+        Err(_) => render_failure_to_cli(
+            cli,
             "execution-status",
             format!("execution not found: {id}"),
         ),
@@ -161,8 +159,8 @@ pub(crate) async fn inspect_execution(
         out.insert("memory".into(), mem);
     }
     let data = serde_json::Value::Object(out);
-    render_envelope(
-        cli.output,
+    render_envelope_to_cli(
+        cli,
         OutputEnvelope::success("execution-inspect", data).with_entity(id.to_string()),
     )
 }

@@ -1,14 +1,12 @@
 //! Checkpoint file write operations.
 
-use std::io::IsTerminal;
-
-use crate::args::{CheckpointDomain, CheckpointSub, Cli};
+use crate::args::{CheckpointSub, Cli};
 use crate::cmd::render::render_envelope;
-use crate::error::{CliError, CliResult};
+use crate::error::CliResult;
 use crate::output::{OutputEnvelope, OutputFormat};
 use wf_client::WfClient;
 
-use super::{confirm_destructive, encode_segment, entity_type};
+use super::{confirm_destructive, encode_segment};
 
 pub(crate) async fn handle_file_write(
     cli: &Cli,

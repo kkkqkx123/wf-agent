@@ -11,7 +11,7 @@ use super::execution_stream::{run_workflow_streaming, watch_execution};
 use super::execution_view::{print_hierarchy, print_history, print_subtree};
 
 use crate::args::{Cli, ExecutionSub};
-use crate::cmd::render::{render_envelope, render_failure};
+use crate::cmd::render::render_envelope_to_cli;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -23,7 +23,7 @@ mod list;
 
 use detail::{inspect_execution, show_execution, show_variables, status_execution};
 use lifecycle::{cancel_execution, pause_execution, resume_execution};
-use list::{list_agent_executions, list_loop_summaries, list_workflow_executions, paged_or_array};
+use list::{list_agent_executions, list_loop_summaries, list_workflow_executions};
 
 pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
     let handle = ClientHandle::from_cli(cli).await?;
@@ -110,7 +110,7 @@ pub(crate) async fn run_with_client(
                 list_loop_summaries(client, *limit, *offset, status.as_deref(), order.as_deref())
                     .await?
             };
-            render_envelope(cli.output, OutputEnvelope::success("execution-list", data))
+            render_envelope_to_cli(cli, OutputEnvelope::success("execution-list", data))
         }
         ExecutionSub::Show {
             id,
@@ -124,8 +124,8 @@ pub(crate) async fn run_with_client(
                 let data: serde_json::Value = client
                     .get_json(&crate::paths::agent_loops_id_timeline(id))
                     .await?;
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-timeline", data).with_entity(id.clone()),
                 )
             } else if *iterations {
@@ -133,8 +133,8 @@ pub(crate) async fn run_with_client(
                 let data: serde_json::Value = client
                     .get_json(&crate::paths::agent_loops_id_iteration_history(id))
                     .await?;
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-iterations", data).with_entity(id.clone()),
                 )
             } else if *context_evolution {
@@ -142,8 +142,8 @@ pub(crate) async fn run_with_client(
                 let data: serde_json::Value = client
                     .get_json(&crate::paths::agent_loops_id_context_evolution(id))
                     .await?;
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-context-evolution", data)
                         .with_entity(id.clone()),
                 )
@@ -203,8 +203,8 @@ pub(crate) async fn run_with_client(
                         CliError::Business(format!("workflow [{workflow}] run failed: {e}"))
                     })?;
                 let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-run", data).with_entity(workflow.clone()),
                 )
             }
@@ -234,22 +234,22 @@ pub(crate) async fn run_with_client(
         }
         ExecutionSub::Cancel { id, .. } => {
             let data = cancel_execution(client, id).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-cancel", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Pause { id, .. } => {
             let data = pause_execution(client, id).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-pause", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Resume { id, .. } => {
             let data = resume_execution(client, id).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-resume", data).with_entity(id.clone()),
             )
         }
@@ -259,8 +259,8 @@ pub(crate) async fn run_with_client(
                 .append_agent_loop(id, text.clone(), mode.clone(), None)
                 .await
                 .map_err(CliError::from)?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-append", data).with_entity(id.clone()),
             )
         }
@@ -269,8 +269,8 @@ pub(crate) async fn run_with_client(
                 .set_agent_loop_append_mode(id, mode)
                 .await
                 .map_err(CliError::from)?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-append-mode", data).with_entity(id.clone()),
             )
         }
@@ -279,8 +279,8 @@ pub(crate) async fn run_with_client(
                 .convert_pending_to_steering(id)
                 .await
                 .map_err(CliError::from)?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-convert-pending", data).with_entity(id.clone()),
             )
         }
@@ -290,8 +290,8 @@ pub(crate) async fn run_with_client(
                 .await
                 .map_err(CliError::from)?;
             let data = serde_json::to_value(&loops).unwrap_or(serde_json::Value::Null);
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-agent-loops", data).with_entity(id.clone()),
             )
         }
@@ -311,8 +311,8 @@ pub(crate) async fn run_with_client(
                 )
                 .await
                 .map_err(CliError::from)?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-nested-append", data)
                     .with_entity(execution.clone()),
             )
@@ -326,8 +326,8 @@ pub(crate) async fn run_with_client(
                 .set_workflow_nested_append_mode(execution, node, mode)
                 .await
                 .map_err(CliError::from)?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-nested-append-mode", data)
                     .with_entity(execution.clone()),
             )
@@ -337,8 +337,8 @@ pub(crate) async fn run_with_client(
                 .convert_workflow_nested_pending(execution, node)
                 .await
                 .map_err(CliError::from)?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-nested-convert-pending", data)
                     .with_entity(execution.clone()),
             )
@@ -348,11 +348,11 @@ pub(crate) async fn run_with_client(
             let view = client.execution_hierarchy(id).await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
-                print_hierarchy(&data);
+                print_hierarchy(cli, &data)?;
                 Ok(())
             } else {
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-hierarchy", data).with_entity(id.clone()),
                 )
             }
@@ -363,11 +363,11 @@ pub(crate) async fn run_with_client(
                 .await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
-                print_subtree(&data);
+                print_subtree(cli, &data)?;
                 Ok(())
             } else {
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-subtree", data).with_entity(id.clone()),
                 )
             }
@@ -376,11 +376,11 @@ pub(crate) async fn run_with_client(
             let view = client.execution_history(id, include.as_deref()).await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
-                print_history(&data);
+                print_history(cli, &data)?;
                 Ok(())
             } else {
-                render_envelope(
-                    cli.output,
+                render_envelope_to_cli(
+                    cli,
                     OutputEnvelope::success("execution-history", data).with_entity(id.clone()),
                 )
             }
@@ -389,8 +389,8 @@ pub(crate) async fn run_with_client(
             let data: serde_json::Value = client
                 .delete_json(&format!("/api/v1/executions/{id}"))
                 .await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-delete", data).with_entity(id.clone()),
             )
         }
@@ -403,10 +403,7 @@ pub(crate) async fn run_with_client(
                 .await?;
             let removed = removed.as_u64().unwrap_or(0);
             let data = serde_json::json!({"removed": removed});
-            render_envelope(
-                cli.output,
-                OutputEnvelope::success("execution-cleanup", data),
-            )
+            render_envelope_to_cli(cli, OutputEnvelope::success("execution-cleanup", data))
         }
         ExecutionSub::Inspect {
             id,
@@ -436,15 +433,15 @@ pub(crate) async fn run_with_client(
         }
         ExecutionSub::Performance { id } => {
             let data = crate::cmd::analysis::performance_data(client, id).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-performance", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Bottleneck { id } => {
             let data = crate::cmd::analysis::bottleneck_data(client, id).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-bottleneck", data).with_entity(id.clone()),
             )
         }
@@ -457,23 +454,23 @@ pub(crate) async fn run_with_client(
             let data =
                 crate::cmd::analysis::errors_data(client, id, *chain, *root_cause, *recovery)
                     .await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-errors", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Compare { baseline, compared } => {
             let data = crate::cmd::analysis::compare_data(client, baseline, compared).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-compare", data)
                     .with_entity(format!("{baseline}:{compared}")),
             )
         }
         ExecutionSub::Progress { id } => {
             let data = crate::cmd::analysis::progress_data(client, id).await?;
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success("execution-progress", data).with_entity(id.clone()),
             )
         }
@@ -524,8 +521,8 @@ pub(crate) async fn run_with_client(
             } else {
                 "execution-state-list"
             };
-            render_envelope(
-                cli.output,
+            render_envelope_to_cli(
+                cli,
                 OutputEnvelope::success(kind, data).with_entity(id.clone()),
             )
         }

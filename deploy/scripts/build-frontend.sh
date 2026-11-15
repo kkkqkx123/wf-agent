@@ -2,7 +2,12 @@
 # Build the web frontend static bundle into apps/web-app/build/.
 #
 # Usage:
-#   deploy/scripts/build-frontend.sh [--skip-install] [--preview]
+#   deploy/scripts/build-frontend.sh [--skip-install] [--preview] [--api-base-url URL]
+#
+# Same-origin nginx deployments (recommended: nginx proxies /api to the
+# backend) need no --api-base-url and keep the default location.origin.
+# Only split-domain deployments (pages and API on different hosts) bake
+# the API origin in via VITE_API_BASE_URL and must tighten cors.toml.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -11,15 +16,21 @@ OUT="$FRONT/build"
 
 SKIP_INSTALL=0
 PREVIEW=0
-for arg in "$@"; do
-    case "$arg" in
-        --skip-install) SKIP_INSTALL=1 ;;
-        --preview) PREVIEW=1 ;;
+API_BASE_URL=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-install) SKIP_INSTALL=1; shift ;;
+        --preview) PREVIEW=1; shift ;;
+        --api-base-url=*) API_BASE_URL="${1#--api-base-url=}"; shift ;;
+        --api-base-url)
+            API_BASE_URL="${2:?missing value for --api-base-url}"
+            shift 2
+            ;;
         -h|--help|help)
             sed -n '2,5p' "$0" | sed 's/^# \?//'
             exit 0
             ;;
-        *) echo "Unknown argument: $arg" >&2; exit 2 ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
@@ -40,6 +51,10 @@ else
 fi
 
 echo "==> Building frontend ..."
+if [[ -n "$API_BASE_URL" ]]; then
+    echo "    VITE_API_BASE_URL=$API_BASE_URL (split-domain build)"
+    export VITE_API_BASE_URL="$API_BASE_URL"
+fi
 if [[ "$PREVIEW" -eq 1 ]]; then
     (cd "$FRONT" && npm run build:preview)
 else

@@ -19,6 +19,7 @@ deploy/
 │   ├── uninstall-server.sh   # 服务端卸载（默认保留数据与配置）
 │   └── service-status.sh     # 服务状态诊断
 ├── systemd/                  # 系统服务与个人单元模板（@@占位符，安装期渲染）
+├── nginx/                    # nginx 反代站点模板（WEB_MODE=nginx 时渲染，手改）
 ├── env/                      # 环境文件模板（0600，密钥只留空键）
 ├── templates/                # 生成目录：sync-deploy.sh 单向同步，评审但不手改
 ├── packaging/                # 系统包（deb/rpm）打包配置与维护钩子
@@ -72,9 +73,13 @@ deploy/
   `WF_STORAGE_SQLITE_DB_PATH` 钉死单全局库位置（相对路径在服务语境下无定义），
   `WF_OUTPUT_DIR` 钉死文件日志目录（logrotate 以此目录为轮转对象），
   `WF_DIRECTORY_ROOTS` 列出可被显式请求的目录根（为空则允许任何已校验目录），
-  `WF_SERVER_STATIC_DIR` 等静态变量留空即 API 纯接口模式（服务部署由单元显式
-  传 `--static-dir`，单机包由示例配置传目录）；
+  `WF_SERVER_STATIC_DIR` 等静态变量留空即 API 纯接口模式（单机部署由单元显式
+  传 `--static-dir`，单机包由示例配置传目录；nginx 部署后端保持留空，
+  页面由 nginx 提供）；
   密钥只留空键、不带值。
+- `deploy/nginx/`：可选的反代边缘层（手改模板，非同步生成）。
+  `WEB_MODE=nginx` 时 `install-server.sh` 把它渲染到 `NGINX_SITE`，
+  后端保持 API 纯接口模式，nginx 提供页面并按路径代理 API 面。
 
 ## 服务端安装（install-server.sh，root 运行）
 
@@ -87,7 +92,12 @@ deploy/
    仓库 `target/release` → 当前目录 → 已安装路径查找；`FETCH=yes` 时先经
    `fetch-package.sh` 下载。`START_SERVICE=yes` 时缺失直接失败，否则仅警告。
 4. 装前端：`INSTALL_WEB=yes`（默认）时把 `apps/web-app/build` 装到
-   `/usr/share/wf/web`，并在单元追加 `--static-dir`；缺失则不接线仅警告。
+   `STATIC_DIR`（默认 `/usr/share/wf/web`）。`WEB_MODE=single`（默认）时
+   在单元追加 `--static-dir`（页面与接口同端口）；`WEB_MODE=nginx` 时
+   该目录改为 nginx 站点根，后端保持 API 纯接口模式（单元不带
+   `--static-dir`），并把 `deploy/nginx/wf-agent.conf.template` 渲染到
+   `NGINX_SITE`（默认 `/etc/nginx/sites-available/wf-agent`，存在
+   `sites-enabled` 时自动软链），随后 `nginx -t` 校验；缺失则不接线仅警告。
 5. 渲染托管配置：调用 `render-config.sh --to managed`；仅新建的环境文件
    写入路径锚定（库路径→数据目录、输出目录→日志目录），密钥留空待运维填写，
    已存在文件一律不动。
@@ -107,6 +117,9 @@ deploy/
 | `SERVICE_USER` / `SERVICE_GROUP` | `wf` | 服务运行账户 |
 | `FETCH` / `PACKAGE_VERSION` / `BIN_SRC_DIR` | `no` | `yes` 时先下载；版本默认读 workspace；或直接指定产物目录 |
 | `INSTALL_CLI` / `INSTALL_WEB` | `no` / `yes` | 是否连带 CLI 二进制 / 前端静态目录 |
+| `WEB_MODE` | `single` | 部署模式：`single` 页面与接口同端口；`nginx` nginx 托管页面并反代 API（多租户可选） |
+| `NGINX_SITE` | `/etc/nginx/sites-available/wf-agent` | nginx 模式渲染的站点路径 |
+| `SERVER_NAME` / `NGINX_LISTEN` / `API_UPSTREAM` | `_` / `80` / `127.0.0.1:3000` | nginx 模式的站点名 / 监听端口 / 后端地址（后端保持回环绑定） |
 | `SKIP_CONFIG` / `SKIP_UNIT` | `no` | 跳过配置渲染 / 单元安装 |
 | `ENABLE_SERVICE` / `START_SERVICE` | `no` | `yes` 开机自启 / 安装后启动 |
 
@@ -144,10 +157,41 @@ deploy/
 
 单机包要求后端静态托管（`server.toml` 的 `static_dir` 等字段与同名
 `WF_SERVER_STATIC_*` 环境变量，相对目录相对可执行文件解析，缺目录或
-缺回退页直接拒绝启动）。需要反向代理分开部署时，不组单机包，直接取
-`apps/web-app/build/` 产物另行提供即可。前端单独构建：
+缺回退页直接拒绝启动）。需要反向代理分开部署时，不组单机包，走
+`WEB_MODE=nginx` 的服务端安装（见下节）。前端单独构建：
 `deploy/scripts/build-frontend.sh`（`--skip-install` 跳过依赖安装，
-`--preview` 构建预览桩包）。
+`--preview` 构建预览桩包；`--api-base-url URL` 仅分域部署时 baked API
+源，同源 nginx 代理保持默认即可）。
+
+## 反向代理部署（WEB_MODE=nginx，多租户可选）
+
+nginx 提供全部页面，后端只跑回环 API。同源代理是推荐形态：前端无需
+重构建（`VITE_API_BASE_URL` 保持默认 `location.origin`），CORS 无需放行。
+
+```shell
+# 单站点：页面由 nginx 提供，/api、/health、/system/*、/metrics 代理到回环后端
+sudo WEB_MODE=nginx SERVER_NAME=wf.example.com \
+  ./deploy/scripts/install-server.sh
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+强租户隔离：每租户一后端进程（各自回环端口、各自 `allowed_roots`、
+库与 API 密钥），nginx 按 `server_name` 分流（模板底部有双租户示例）：
+租户 A `127.0.0.1:3001` + `tenant-a.example.com`，租户 B
+`127.0.0.1:3002` + `tenant-b.example.com`，各跑一次 `install-server.sh`
+（`SERVICE_NAME`、`CONFIG_DIR`、`DATA_DIR`、`API_UPSTREAM`、`SERVER_NAME`
+分别命名）即可。弱隔离备选：单后端进程多目录（`x-wf-directory` 头区分），
+无需额外 nginx 配置，但任一 key 可达全部允许根。
+
+分域部署（页面与 API 不同域名）才需要重构建前端并收紧 CORS：
+
+```shell
+./deploy/scripts/build-frontend.sh --api-base-url https://api.example.com
+# 并把 cors.toml 的 allowed_origins 收敛到页面域名，AUTH_ENABLED=yes
+```
+
+注意：nginx 后的后端看不到直连 IP，限流/日志按 `X-Forwarded-For` 识别；
+后端 `WF_SERVER_BIND_ADDR` 保持回环，不要对外暴露。
 
 ## 卸载与诊断
 
@@ -194,6 +238,11 @@ sudo ./deploy/scripts/install-server.sh
 sudo WF_PACKAGE_BASE_URL=https://packages.example.com/wf-agent \
   FETCH=yes ENABLE_SERVICE=yes START_SERVICE=yes \
   ./deploy/scripts/install-server.sh
+
+# 服务端：nginx 托管页面（多租户可选，后端保持回环 API-only）
+sudo WEB_MODE=nginx SERVER_NAME=wf.example.com \
+  ./deploy/scripts/install-server.sh
+sudo nginx -t && sudo systemctl reload nginx
 
 # CLI：当前用户安装
 ./deploy/scripts/install-cli.sh

@@ -1,0 +1,162 @@
+# Reverse-proxy front end for wf-agent (optional nginx profile).
+#
+# Role: TLS termination, static-file offload and per-tenant routing in
+# front of one or more loopback wf-server processes. The backend stays
+# API-only in this profile (no --static-dir); nginx owns every page and
+# proxies only the API surface.
+#
+# Rendered once by deploy/scripts/install-server.sh in WEB_MODE=nginx from
+# the LISTEN / SERVER_NAME / WEB_ROOT / API_UPSTREAM knobs. Placeholders
+# (LISTEN, SERVER_NAME, WEB_ROOT, API_UPSTREAM) are already substituted
+# below; e.g. listen 80, catch-all server name _, web root with the
+# apps/web-app/build content, loopback backend 127.0.0.1:3000.
+#
+# Single backend + single site is the default. For strong tenant
+# isolation run one wf-server per tenant (separate port, separate
+# allowed_roots/database/API keys) and either duplicate this server
+# block per tenant (server_name + upstream differ) or add a
+# location-prefix split (see the commented example at the bottom).
+# The shared-single-process alternative (one upstream, tenants split by
+# the x-wf-directory request header) needs no extra nginx work but is
+# weak isolation: any key holder reaches every allowed root.
+
+upstream wf_backend {
+    server @@API_UPSTREAM@@;
+    keepalive 32;
+}
+
+server {
+    listen @@LISTEN@@;
+    server_name @@SERVER_NAME@@;
+
+    # Backend and static roots never overlap: API paths always proxy,
+    # everything else is a page or a fingerprinted asset.
+    root @@WEB_ROOT@@;
+    index index.html;
+
+    # Fingerprinted assets: safe for long caching (matches the backend
+    # single-host cache policy for /_app/immutable/).
+    location ^~ /_app/immutable/ {
+        expires 365d;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options nosniff;
+        try_files $uri =404;
+    }
+
+    # Static assets with an extension: short cache, never fall back to
+    # the SPA page so broken builds fail loudly (mirrors ServeDir miss
+    # semantics: dotted leaf stays 404).
+    location ~* \.[A-Za-z0-9]+$ {
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600";
+        add_header X-Content-Type-Options nosniff;
+        try_files $uri =404;
+    }
+
+    # Server-sent events: disable buffering, allow long-lived streams.
+    location = /api/v1/events/stream {
+        proxy_pass http://wf_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+
+    # WebSocket endpoint: browsers authenticate via the api_key query
+    # parameter (they cannot set headers on upgrade); keep the query
+    # string on proxy.
+    location = /api/v1/ws {
+        proxy_pass http://wf_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 1h;
+    }
+
+    # REST + query + audit surface (includes /api/v1/info).
+    location ^~ /api/ {
+        proxy_pass http://wf_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # Root-level backend paths (health, diagnostics, metrics export,
+    # debug docs). They must proxy before the SPA fallback below, or a
+    # same-named page would shadow them.
+    location = /health {
+        proxy_pass http://wf_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location ^~ /system/ {
+        proxy_pass http://wf_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location = /metrics {
+        proxy_pass http://wf_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location ^~ /api-docs/ {
+        proxy_pass http://wf_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA fallback: extension-less app routes serve the index page so
+    # deep links survive refresh; the page itself is never stored.
+    location / {
+        # Hidden segments stay invisible (mirrors the backend dot-segment
+        # guard for single-host mode).
+        location ~ /\. {
+            return 404;
+        }
+        add_header Cache-Control "no-store";
+        add_header X-Content-Type-Options nosniff;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Example: strong tenant isolation with one backend per tenant.
+    # Copy this server block per tenant, changing server_name, root
+    # (optional per-tenant branding) and upstream port. Each backend
+    # binds its own loopback port with its own allowed_roots, database
+    # and API keys; nginx is the only shared surface.
+    #
+    # upstream wf_tenant_a { server 127.0.0.1:3001; keepalive 16; }
+    # server {
+    #     listen <same port>;
+    #     server_name tenant-a.example.com;
+    #     root <same web root>;
+    #     location ^~ /api/ { proxy_pass http://wf_tenant_a; ... }
+    #     ...
+    # }
+    # upstream wf_tenant_b { server 127.0.0.1:3002; keepalive 16; }
+    # server {
+    #     listen <same port>;
+    #     server_name tenant-b.example.com;
+    #     root <same web root>;
+    #     location ^~ /api/ { proxy_pass http://wf_tenant_b; ... }
+    #     ...
+    # }
+}

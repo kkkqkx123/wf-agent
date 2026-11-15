@@ -36,9 +36,16 @@ PACKAGE_MODULE="${PACKAGE_MODULE:-server}"
 BIN_SRC_DIR="${BIN_SRC_DIR:-}"           # artifact dir (local build or fetched)
 STATIC_SRC="${STATIC_SRC:-}"             # web build dir; empty lets the script probe
 INSTALL_CLI="${INSTALL_CLI:-no}"        # yes: also install wf/wf-mini/wf-headless/wf-debug
-INSTALL_WEB="${INSTALL_WEB:-yes}"        # yes: install apps/web-app/build as the static dir
+INSTALL_WEB="${INSTALL_WEB:-yes}"        # yes: install apps/web-app/build (single: wf-server static dir; nginx: nginx web root)
 SKIP_CONFIG="${SKIP_CONFIG:-no}"         # yes: skip managed config rendering
 SKIP_UNIT="${SKIP_UNIT:-no}"             # yes: skip unit installation
+
+WEB_MODE="${WEB_MODE:-single}"           # single: pages+API on one port via --static-dir (default)
+                                            # nginx: API-only backend, nginx serves pages and proxies /api (multi-tenant)
+NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-available/wf-agent}"  # rendered site path in nginx mode
+SERVER_NAME="${SERVER_NAME:-_}"          # public host name for the nginx site (nginx mode only)
+NGINX_LISTEN="${NGINX_LISTEN:-80}"        # nginx listen port (nginx mode only)
+API_UPSTREAM="${API_UPSTREAM:-127.0.0.1:3000}"  # backend address nginx proxies to (nginx mode only)
 
 normalize() {
     local p="${1%/}"
@@ -56,8 +63,14 @@ if [[ "$(id -u)" -ne 0 ]]; then
     exit 1
 fi
 
+case "$WEB_MODE" in
+    single|nginx) ;;
+    *) echo "ERROR: WEB_MODE must be single|nginx (got: $WEB_MODE)" >&2; exit 2 ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+NGINX_TEMPLATE="$DEPLOY_ROOT/nginx/wf-agent.conf.template"
 REPO_ROOT="$(cd "$DEPLOY_ROOT/.." && pwd)"
 RENDER="$SCRIPT_DIR/render-config.sh"
 UNIT_TEMPLATE="$DEPLOY_ROOT/systemd/wf-server.service.template"
@@ -141,7 +154,11 @@ if [[ "$START_SERVICE" == "yes" && "$missing" == "1" ]]; then
     exit 1
 fi
 
-# Frontend static dir: probe the repo build output when not given.
+# Frontend install: single mode hands the dir to wf-server via --static-dir;
+# nginx mode hands the same dir to nginx as its web root and the backend
+# stays API-only (no --static-dir), so pages and API scale separately
+# and tenants split at the nginx layer.
+UNIT_STATIC_DIR=""
 if [[ "$INSTALL_WEB" == "yes" ]]; then
     if [[ -z "$STATIC_SRC" && -f "$REPO_ROOT/apps/web-app/build/index.html" ]]; then
         STATIC_SRC="$REPO_ROOT/apps/web-app/build"
@@ -155,8 +172,11 @@ if [[ "$INSTALL_WEB" == "yes" ]]; then
     elif [[ -d "$STATIC_DIR" ]]; then
         echo "Keeping existing web static dir: $STATIC_DIR"
     else
-        echo "WARNING: web static dir not found; continuing without --static-dir" >&2
+        echo "WARNING: web static dir not found; continuing without frontend" >&2
         STATIC_DIR=""
+    fi
+    if [[ "$WEB_MODE" == "single" ]]; then
+        UNIT_STATIC_DIR="$STATIC_DIR"
     fi
 else
     STATIC_DIR=""
@@ -194,8 +214,8 @@ if [[ "$SKIP_UNIT" != "yes" ]]; then
         # requests keep failing loud instead of binding somewhere silently.
         sed -i "s| --config @@PROJECT_ROOT@@||; s|ReadWritePaths=\(.*\) @@PROJECT_ROOT@@|ReadWritePaths=\1 $DATA_DIR $LOG_DIR|" "$tmp"
     fi
-    if [[ -n "$STATIC_DIR" ]]; then
-        sed -i "s|--settings-dir $CONFIG_DIR|--settings-dir $CONFIG_DIR --static-dir $STATIC_DIR|" "$tmp"
+    if [[ -n "$UNIT_STATIC_DIR" ]]; then
+        sed -i "s|--settings-dir $CONFIG_DIR|--settings-dir $CONFIG_DIR --static-dir $UNIT_STATIC_DIR|" "$tmp"
     fi
     if grep -q "@@" "$tmp"; then
         echo "error: unrendered placeholders remain in the unit" >&2
@@ -205,6 +225,41 @@ if [[ "$SKIP_UNIT" != "yes" ]]; then
     rm -f "$tmp"
     systemctl daemon-reload
     echo "Installed $UNIT_PATH"
+fi
+
+if [[ "$WEB_MODE" == "nginx" ]]; then
+    if [[ ! -f "$NGINX_TEMPLATE" ]]; then
+        echo "ERROR: nginx template not found: $NGINX_TEMPLATE" >&2
+        exit 1
+    fi
+    if [[ -z "$STATIC_DIR" ]]; then
+        echo "ERROR: WEB_MODE=nginx needs a frontend dir (INSTALL_WEB=yes with a build output)" >&2
+        exit 1
+    fi
+    tmp_nginx="$(mktemp)"
+    trap 'rm -rf "${FETCH_DEST:-}" "${tmp:-}" "$tmp_nginx"' EXIT
+    sed -e "s|@@LISTEN@@|$NGINX_LISTEN|g" \
+        -e "s|@@SERVER_NAME@@|$SERVER_NAME|g" \
+        -e "s|@@WEB_ROOT@@|$STATIC_DIR|g" \
+        -e "s|@@API_UPSTREAM@@|$API_UPSTREAM|g" \
+        "$NGINX_TEMPLATE" > "$tmp_nginx"
+    if grep -q "@@" "$tmp_nginx"; then
+        echo "error: unrendered placeholders remain in the nginx site" >&2
+        exit 1
+    fi
+    install -D -m 0644 "$tmp_nginx" "$NGINX_SITE"
+    rm -f "$tmp_nginx"
+    echo "Installed nginx site: $NGINX_SITE (root $STATIC_DIR -> $API_UPSTREAM)"
+    if [[ -d /etc/nginx/sites-enabled ]]; then
+        ln -sf "$NGINX_SITE" "/etc/nginx/sites-enabled/$(basename "$NGINX_SITE")"
+        echo "Linked into /etc/nginx/sites-enabled/"
+    fi
+    if command -v nginx >/dev/null 2>&1; then
+        nginx -t || echo "WARNING: nginx config test failed; fix $NGINX_SITE then reload" >&2
+    else
+        echo "Next: install nginx, then run: nginx -t && systemctl reload nginx"
+    fi
+    echo "Backend stays API-only: bind it to loopback (WF_SERVER_BIND_ADDR=$API_UPSTREAM) and keep AUTH_ENABLED=yes."
 fi
 
 if [[ "$ENABLE_SERVICE" == "yes" ]]; then

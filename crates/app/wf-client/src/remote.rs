@@ -10,9 +10,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Local tunnel entry port used when a registry entry leaves it unset.
-/// Single source so the CLI fallback cannot drift from the library default;
-/// concurrent tunnels to different hosts need distinct ports.
-pub const DEFAULT_LOCAL_TUNNEL_PORT: u16 = 18080;
+/// Re-exported from `wf-types` so the CLI fallback, the client library and
+/// the server backend domain share one compiled default; concurrent tunnels
+/// to different hosts need distinct ports.
+pub use wf_types::script::schema::DEFAULT_LOCAL_TUNNEL_PORT;
 
 /// SSH tunnel description derived from connection config.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

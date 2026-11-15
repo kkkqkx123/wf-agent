@@ -86,7 +86,7 @@ pub(crate) fn load_registry() -> CliResult<RemoteRegistry> {
 pub(crate) fn to_tunnel(name: &str, host: &RemoteHost) -> CliResult<wf_client::SshTunnelConfig> {
     if host.host.trim().is_empty() {
         return Err(CliError::Configuration(format!(
-            "remote host '{name}' has an empty host; fix it with `wf remote add {name}`"
+            "remote host '{name}' has an empty host; fix it with `wf remote update {name} --host <HOST>`"
         )));
     }
     let schema = wf_types::script::schema::SshConfigSchema {
@@ -104,9 +104,30 @@ pub(crate) fn to_tunnel(name: &str, host: &RemoteHost) -> CliResult<wf_client::S
         .unwrap_or(wf_client::DEFAULT_LOCAL_TUNNEL_PORT);
     wf_client::SshTunnelConfig::from_schema(&schema, local_port).ok_or_else(|| {
         CliError::Configuration(format!(
-            "remote host '{name}' has an empty host; fix it with `wf remote add {name}`"
+            "remote host '{name}' has an empty host; fix it with `wf remote update {name} --host <HOST>`"
         ))
     })
+}
+
+/// Align an entry resolved from the server row with the service's effective
+/// default port. The row URL carries the server default, while the local
+/// fallback only applies when the service is unreachable or the entry pins
+/// its own port. Explicit per-entry ports always win, so a customized server
+/// default cannot skew the printed tunnel address.
+pub(crate) fn apply_server_default_port(host: &mut RemoteHost, server_url: Option<&str>) {
+    if host.local_port.is_some() {
+        return;
+    }
+    if let Some(port) = server_url.and_then(port_from_tunnel_url) {
+        host.local_port = Some(port);
+    }
+}
+
+/// Port carried by a server-reported tunnel URL (`http://127.0.0.1:<port>`).
+/// Returns `None` on unexpected shapes so callers keep the locally computed
+/// address instead of printing a broken one.
+fn port_from_tunnel_url(url: &str) -> Option<u16> {
+    url.rsplit(':').next()?.trim().parse().ok()
 }
 
 /// One dialable backend: a registry entry's tunnel address or the currently
@@ -546,6 +567,48 @@ mod tests {
         };
         let err = to_tunnel("broken", &host).unwrap_err();
         assert!(err.to_string().contains("empty host"), "{err}");
+    }
+
+    fn host_with_local_port(local_port: Option<u16>) -> RemoteHost {
+        RemoteHost {
+            host: "example".to_string(),
+            port: None,
+            username: "dev".to_string(),
+            key_path: None,
+            jump_host: None,
+            remote_dir: None,
+            server_port: None,
+            local_port,
+            backup_interval_secs: None,
+            backup_retention_count: None,
+            backup_retention_days: None,
+            backup_executions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn server_url_aligns_unset_local_port() {
+        let mut host = host_with_local_port(None);
+        apply_server_default_port(&mut host, Some("http://127.0.0.1:19000"));
+        assert_eq!(host.local_port, Some(19000));
+    }
+
+    #[test]
+    fn explicit_local_port_wins_over_server_url() {
+        let mut host = host_with_local_port(Some(18081));
+        apply_server_default_port(&mut host, Some("http://127.0.0.1:19000"));
+        assert_eq!(host.local_port, Some(18081));
+    }
+
+    #[test]
+    fn malformed_server_url_keeps_local_fallback() {
+        let mut host = host_with_local_port(None);
+        apply_server_default_port(&mut host, None);
+        assert_eq!(host.local_port, None);
+        apply_server_default_port(&mut host, Some("not-a-url"));
+        assert_eq!(host.local_port, None);
+        apply_server_default_port(&mut host, Some("http://127.0.0.1:19000/"));
+        assert_eq!(host.local_port, None);
     }
 
     #[test]

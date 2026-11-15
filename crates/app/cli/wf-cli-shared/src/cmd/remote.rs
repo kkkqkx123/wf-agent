@@ -12,10 +12,10 @@
 use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
-    collect_backend_candidates, create_server_backend, fetch_server_backends, fetch_server_backups,
-    import_server_backends, load_registry, management_client, probe_backends,
-    remove_server_backend, start_server_tunnel, stop_server_tunnel, trigger_server_backup,
-    update_server_backend, RemoteHost,
+    apply_server_default_port, collect_backend_candidates, create_server_backend,
+    fetch_server_backends, fetch_server_backups, import_server_backends, load_registry,
+    management_client, probe_backends, remove_server_backend, start_server_tunnel,
+    stop_server_tunnel, trigger_server_backup, update_server_backend, RemoteHost,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -176,7 +176,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("remote-import", data))
         }
         RemoteSub::Tunnel { name, url_only } => {
-            let host = resolve_print_entry(cli, name).await?;
+            let (mut host, server_url) = resolve_print_entry(cli, name).await?;
+            apply_server_default_port(&mut host, server_url.as_deref());
             let tunnel = crate::backends::to_tunnel(name, &host)?;
             if *url_only {
                 return print_line_to_cli(cli, &tunnel.local_base_url());
@@ -189,7 +190,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("remote-tunnel", data))
         }
         RemoteSub::Start { name, url_only } => {
-            let host = resolve_print_entry(cli, name).await?;
+            let (mut host, server_url) = resolve_print_entry(cli, name).await?;
+            apply_server_default_port(&mut host, server_url.as_deref());
             let tunnel = crate::backends::to_tunnel(name, &host)?;
             if *url_only {
                 return print_line_to_cli(cli, &tunnel.local_base_url());
@@ -203,7 +205,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("remote-start", data))
         }
         RemoteSub::Stop { name } => {
-            let host = resolve_print_entry(cli, name).await?;
+            let (host, _) = resolve_print_entry(cli, name).await?;
             let tunnel = crate::backends::to_tunnel(name, &host)?;
             let data = serde_json::json!({
                 "stop_argv": tunnel.server_stop_argv(),
@@ -360,13 +362,15 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
 }
 
 /// Resolve a print entry for the human-driven printers: prefer the server
-/// row, fall back to the read-only local snapshot.
-async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<RemoteHost> {
+/// row, fall back to the read-only local snapshot. Also returns the
+/// server-reported tunnel URL when the row came from the service, so the
+/// printers stay consistent with a customized server default port.
+async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<(RemoteHost, Option<String>)> {
     let client = management_client(cli);
     if let Some(rows) = fetch_server_backends(&client).await? {
         if let Some(row) = rows.into_iter().find(|row| row.name == name) {
             if let Some(entry) = row.entry {
-                return Ok(entry);
+                return Ok((entry, row.url));
             }
         }
     }
@@ -375,5 +379,6 @@ async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<RemoteHost> {
         .hosts
         .get(name)
         .cloned()
+        .map(|entry| (entry, None))
         .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))
 }

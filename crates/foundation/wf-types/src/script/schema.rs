@@ -136,6 +136,12 @@ pub struct DockerConfigSchema {
     pub network_mode: Option<String>,
 }
 
+/// Local tunnel entry port used when a registry entry leaves it unset.
+/// Single source for the compiled-in default shared by the CLI fallback,
+/// the client library and the server backend domain; concurrent tunnels to
+/// different hosts need distinct ports.
+pub const DEFAULT_LOCAL_TUNNEL_PORT: u16 = 18080;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SshConfigSchema {
     pub host: String,

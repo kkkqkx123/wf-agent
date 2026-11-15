@@ -72,7 +72,8 @@ pub enum RemoteSub {
         /// Remote wf-server port (loopback on the remote host).
         #[arg(long, value_name = "PORT")]
         server_port: Option<u16>,
-        /// Local tunnel entry port.
+        /// Local tunnel entry port (default 18080; concurrent tunnels to
+        /// different hosts need distinct ports).
         #[arg(long, value_name = "PORT")]
         local_port: Option<u16>,
         /// Clear the jump host / remote dir / key path when set.

@@ -13,8 +13,10 @@ use wf_config::error::{ConfigError, ConfigResult};
 pub const BACKEND_CONFIG_FILE: &str = "backends.toml";
 
 /// Default local tunnel entry port when a registry entry leaves it unset.
-/// Mirrors `wf-client` so server-probed URLs match CLI-printed ones.
-pub const DEFAULT_LOCAL_TUNNEL_PORT: u16 = 18080;
+/// Re-exported from `wf-types` so server-probed URLs match CLI-printed ones
+/// by construction; the effective value stays overridable per server via
+/// `default_local_port`.
+pub use wf_types::script::schema::DEFAULT_LOCAL_TUNNEL_PORT;
 
 /// Default probe cadence in seconds.
 const DEFAULT_PROBE_INTERVAL_SECS: u64 = 30;

@@ -270,18 +270,27 @@ async fn backend_manager_for_config(
     if !config.enabled {
         return None;
     }
-    let store = match config.backup_dir.as_deref() {
-        Some(dir) => {
-            let path = dir.join("backends.db");
-            match BackendStore::open_sqlite_file(&path).await {
-                Ok(store) => store,
-                Err(e) => {
-                    tracing::warn!(error = %e, "backend sqlite open failed; using memory store");
-                    BackendStore::new_memory()
+    let store = match config.registry_path.as_deref() {
+        Some(path) => match BackendStore::open_sqlite_file(path).await {
+            Ok(store) => store,
+            Err(e) => {
+                tracing::warn!(error = %e, "backend sqlite open failed; using memory store");
+                BackendStore::new_memory()
+            }
+        },
+        None => match config.backup_dir.as_deref() {
+            Some(dir) => {
+                let path = dir.join("backends.db");
+                match BackendStore::open_sqlite_file(&path).await {
+                    Ok(store) => store,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "backend sqlite open failed; using memory store");
+                        BackendStore::new_memory()
+                    }
                 }
             }
-        }
-        None => BackendStore::new_memory(),
+            None => BackendStore::new_memory(),
+        },
     };
     Some(BackendManager::new(config.clone(), store))
 }

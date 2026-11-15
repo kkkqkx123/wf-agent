@@ -22,6 +22,7 @@ struct LiveForward {
 pub struct TunnelSupervisor {
     live: Mutex<HashMap<String, LiveForward>>,
     interrupted: Mutex<HashMap<String, String>>,
+    start_lock: Mutex<()>,
 }
 
 impl TunnelSupervisor {
@@ -80,6 +81,7 @@ impl TunnelSupervisor {
         entry: &super::types::BackendEntry,
         default_local_port: u16,
     ) -> Result<(u32, Vec<String>), String> {
+        let _start_guard = self.start_lock.lock().await;
         {
             let live = self.live.lock().await;
             if live.contains_key(name) {
@@ -96,7 +98,7 @@ impl TunnelSupervisor {
         let (program, args) = argv
             .split_first()
             .ok_or_else(|| "empty tunnel argv".to_string())?;
-        let child = tokio::process::Command::new(program)
+        let mut child = tokio::process::Command::new(program)
             .args(args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -104,10 +106,29 @@ impl TunnelSupervisor {
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("cannot start tunnel for backend '{name}': {e}"))?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(format!(
+                    "backend '{name}' tunnel exited immediately: {status}"
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(format!("backend '{name}' tunnel health check failed: {e}"));
+            }
+        }
         let pid = child.id().unwrap_or(0);
         let started_ms = wf_common::epoch_ms();
         let mut live = self.live.lock().await;
         if live.contains_key(name) {
+            let mut duplicate = child;
+            let _ = duplicate.kill().await;
+            let _ = duplicate.wait().await;
             return Err(format!("backend '{name}' tunnel is already running"));
         }
         live.insert(
@@ -178,6 +199,7 @@ impl TunnelSupervisor {
     /// Drop every supervised forward. Called on server shutdown so no
     /// `ssh -N` outlives the management service.
     pub async fn shutdown(&self) {
+        let _start_guard = self.start_lock.lock().await;
         let entries: Vec<String> = self.live.lock().await.keys().cloned().collect();
         for name in entries {
             self.stop(&name).await;

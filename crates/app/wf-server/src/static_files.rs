@@ -18,11 +18,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 /// Serve one unmatched path from `root`.
-pub(crate) async fn serve_static(
-    root: &Path,
-    path: &str,
-    if_none_match: Option<&str>,
-) -> Response {
+pub(crate) async fn serve_static(root: &Path, path: &str, if_none_match: Option<&str>) -> Response {
     if path.starts_with("/api/") {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -43,7 +39,11 @@ pub(crate) async fn serve_static(
         return StatusCode::NOT_FOUND.into_response();
     };
     let (bytes, served, is_index) = match read_file(served.clone()).await {
-        Some(bytes) => (bytes, served.clone(), served == root.join("index.html") || path == "/"),
+        Some(bytes) => (
+            bytes,
+            served.clone(),
+            served == root.join("index.html") || path == "/",
+        ),
         None => {
             // SPA fallback: serve the app shell for unknown app routes.
             let index = root.join("index.html");
@@ -102,7 +102,7 @@ fn etag_matches(supplied: &str, etag: &str) -> bool {
     supplied
         .split(',')
         .map(str::trim)
-        .any(|candidate| candidate == etag || candidate == "*" )
+        .any(|candidate| candidate == etag || candidate == "*")
 }
 
 fn insert_cache_headers(
@@ -250,7 +250,13 @@ mod tests {
     async fn honors_if_none_match() {
         let dir = site();
         let first = serve_static(dir.path(), "/app.js", None).await;
-        let etag = first.headers().get(header::ETAG).unwrap().to_str().unwrap().to_string();
+        let etag = first
+            .headers()
+            .get(header::ETAG)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         let second = serve_static(dir.path(), "/app.js", Some(&etag)).await;
         assert_eq!(second.status(), StatusCode::NOT_MODIFIED);
     }

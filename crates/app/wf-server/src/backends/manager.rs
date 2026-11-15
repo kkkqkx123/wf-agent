@@ -150,27 +150,37 @@ impl BackendManager {
         }
     }
 
-    /// One probe round: every entry in parallel, each with its own
+    /// One probe round: every entry in small batches, each with its own
     /// timeout; one entry's failure only updates that entry.
     pub async fn probe_round(&self) {
         self.tunnels.reap_exited().await;
-        let entries = self.store.list_entries().await.unwrap_or_default();
+        let entries: Vec<(String, BackendEntry)> = self
+            .store
+            .list_entries()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         let timeout = std::time::Duration::from_secs(self.config.probe_timeout_secs.max(1));
         let default_port = self.config.default_local_port;
-        let probes = entries.into_iter().map(|(name, entry)| async move {
-            let status = super::probe::probe_one(&entry, default_port, timeout).await;
-            (name, status)
-        });
-        for (name, status) in futures::future::join_all(probes).await {
-            self.statuses.insert(name, status);
+        for chunk in entries.chunks(16) {
+            let probes = chunk.iter().cloned().map(|(name, entry)| async move {
+                let status = super::probe::probe_one(&entry, default_port, timeout).await;
+                (name, status)
+            });
+            for (name, status) in futures::future::join_all(probes).await {
+                self.statuses.insert(name, status);
+            }
         }
     }
 
     /// One scheduled backup round over entries that opt into executions.
     /// Per-entry retention caps apply after each successful write; one
-    /// entry's failure only marks that entry.
+    /// entry's failure only marks that entry. Entries not yet due by
+    /// their own interval are skipped so a long fetch cannot stall others.
     async fn backup_round(&self) {
         let entries = self.store.list_entries().await.unwrap_or_default();
+        let now_ms = wf_common::epoch_ms();
         for (name, entry) in entries {
             if entry.backup_executions.is_empty() {
                 continue;
@@ -178,7 +188,19 @@ impl BackendManager {
             let interval = entry
                 .backup_interval_secs
                 .unwrap_or(self.config.backup_interval_secs);
-            let _ = interval;
+            if interval > 0 {
+                let due = self
+                    .backup_statuses
+                    .get(&name)
+                    .and_then(|status| status.last_backup_ms)
+                    .map(|last| {
+                        now_ms.saturating_sub(last) >= (interval as i64).saturating_mul(1000)
+                    })
+                    .unwrap_or(true);
+                if !due {
+                    continue;
+                }
+            }
             for execution in entry.backup_executions.clone() {
                 match super::backup::backup_one(
                     &self.store,
@@ -285,6 +307,7 @@ impl BackendManager {
         if self.store.get_entry(name).await?.is_some() {
             return Err(format!("backend '{name}' already exists"));
         }
+        self.ensure_unique_local_port(name, &entry).await?;
         self.store.put_entry(name, &entry).await
     }
 
@@ -294,7 +317,28 @@ impl BackendManager {
         if self.store.get_entry(name).await?.is_none() {
             return Err(format!("backend '{name}' not found"));
         }
+        self.ensure_unique_local_port(name, &entry).await?;
         self.store.put_entry(name, &entry).await
+    }
+
+    async fn ensure_unique_local_port(
+        &self,
+        name: &str,
+        entry: &BackendEntry,
+    ) -> Result<(), String> {
+        let wanted = entry.effective_local_port(self.config.default_local_port);
+        let entries = self.store.list_entries().await?;
+        for (other_name, other) in entries {
+            if other_name == name {
+                continue;
+            }
+            if other.effective_local_port(self.config.default_local_port) == wanted {
+                return Err(format!(
+                    "backend '{name}' local port {wanted} is already used by backend '{other_name}'; pick another local_port"
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub async fn remove(&self, name: &str) -> Result<bool, String> {
@@ -314,12 +358,34 @@ impl BackendManager {
         self.require_enabled()?;
         let mut imported = Vec::new();
         let mut skipped = Vec::new();
+        let mut accepted = self.store.list_entries().await?;
         for (name, entry) in hosts {
             if let Err(reason) = validate_backend_entry(&name, &entry) {
                 skipped.push(ImportSkipped { name, reason });
                 continue;
             }
+            let wanted = entry.effective_local_port(self.config.default_local_port);
+            let mut owner: Option<String> = None;
+            for (other_name, other) in &accepted {
+                if *other_name == name {
+                    continue;
+                }
+                if other.effective_local_port(self.config.default_local_port) == wanted {
+                    owner = Some(other_name.clone());
+                    break;
+                }
+            }
+            if let Some(other_name) = owner {
+                skipped.push(ImportSkipped {
+                    name: name.clone(),
+                    reason: format!(
+                        "local port {wanted} is already used by backend '{other_name}'; pick another local_port"
+                    ),
+                });
+                continue;
+            }
             self.store.put_entry(&name, &entry).await?;
+            accepted.insert(name.clone(), entry);
             imported.push(name);
         }
         Ok(ImportReport { imported, skipped })
@@ -470,5 +536,41 @@ mod tests {
         let report = manager.import_cli(hosts).await.unwrap();
         assert_eq!(report.imported, vec!["good".to_string()]);
         assert_eq!(report.skipped.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn duplicate_effective_port_is_rejected() {
+        let manager = enabled_manager();
+        manager.create("alpha", entry()).await.unwrap();
+        let err = manager.create("beta", entry()).await.unwrap_err();
+        assert!(err.contains("already used by backend 'alpha'"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn update_to_taken_port_is_rejected() {
+        let manager = enabled_manager();
+        manager.create("alpha", entry()).await.unwrap();
+        let mut other = entry();
+        other.local_port = Some(18081);
+        manager.create("beta", other).await.unwrap();
+        let mut colliding = entry();
+        colliding.local_port = Some(18081);
+        let err = manager.update("alpha", colliding).await.unwrap_err();
+        assert!(err.contains("already used by backend 'beta'"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn import_reports_port_conflicts() {
+        let manager = enabled_manager();
+        manager.create("alpha", entry()).await.unwrap();
+        let mut hosts = BTreeMap::new();
+        hosts.insert("beta".to_string(), entry());
+        let mut distinct = entry();
+        distinct.local_port = Some(18082);
+        hosts.insert("gamma".to_string(), distinct);
+        let report = manager.import_cli(hosts).await.unwrap();
+        assert_eq!(report.imported, vec!["gamma".to_string()]);
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].name, "beta");
     }
 }

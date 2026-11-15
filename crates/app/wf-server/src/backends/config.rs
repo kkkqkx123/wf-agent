@@ -38,6 +38,7 @@ pub struct BackendConfig {
     pub probe_timeout_secs: u64,
     pub default_local_port: u16,
     pub backup_dir: Option<std::path::PathBuf>,
+    pub registry_path: Option<std::path::PathBuf>,
     pub backup_interval_secs: u64,
     pub backup_retention_count: usize,
     pub backup_retention_days: u64,
@@ -51,6 +52,7 @@ impl Default for BackendConfig {
             probe_timeout_secs: DEFAULT_PROBE_TIMEOUT_SECS,
             default_local_port: DEFAULT_LOCAL_TUNNEL_PORT,
             backup_dir: None,
+            registry_path: None,
             backup_interval_secs: DEFAULT_BACKUP_INTERVAL_SECS,
             backup_retention_count: DEFAULT_BACKUP_RETENTION_COUNT,
             backup_retention_days: DEFAULT_BACKUP_RETENTION_DAYS,
@@ -96,6 +98,13 @@ impl BackendConfig {
                 self.backup_dir = Some(std::path::PathBuf::from(dir));
             }
         }
+        if let Some(path) = file.registry_path {
+            if path.trim().is_empty() {
+                self.registry_path = None;
+            } else {
+                self.registry_path = Some(std::path::PathBuf::from(path));
+            }
+        }
         if let Some(interval) = file.backup_interval_secs {
             self.backup_interval_secs = interval;
         }
@@ -128,6 +137,13 @@ impl BackendConfig {
                 self.backup_dir = None;
             } else {
                 self.backup_dir = Some(std::path::PathBuf::from(raw));
+            }
+        }
+        if let Ok(raw) = std::env::var("WF_BACKEND_REGISTRY_PATH") {
+            if raw.trim().is_empty() {
+                self.registry_path = None;
+            } else {
+                self.registry_path = Some(std::path::PathBuf::from(raw));
             }
         }
     }
@@ -173,6 +189,7 @@ struct BackendFileConfig {
     probe_timeout_secs: Option<u64>,
     default_local_port: Option<u16>,
     backup_dir: Option<String>,
+    registry_path: Option<String>,
     backup_interval_secs: Option<u64>,
     backup_retention_count: Option<usize>,
     backup_retention_days: Option<u64>,
@@ -283,11 +300,28 @@ mod tests {
             "enabled = true\nprobe_interval_secs = 0\n",
         )
         .unwrap();
-        let result = BackendConfig::resolve(Some(dir.path()), None);
+        let result = BackendConfig::resolve(Some(server_dir.as_path()), None);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("probe_interval_secs"));
+    }
+
+    #[test]
+    fn registry_path_resolves_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let server_dir = dir.path().join("server");
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\nregistry_path = \"/tmp/wf-registry.db\"\n",
+        )
+        .unwrap();
+        let config = BackendConfig::resolve(Some(server_dir.as_path()), None).unwrap();
+        assert_eq!(
+            config.registry_path,
+            Some(std::path::PathBuf::from("/tmp/wf-registry.db"))
+        );
     }
 }

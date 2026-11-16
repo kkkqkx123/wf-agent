@@ -13,7 +13,7 @@
 //! and aliases, and a gRPC transport. Add
 //! them only when hybrid sparse demand, distributed operations, or
 //! benchmarks proving REST is the bottleneck trigger the extension;
-//! query shaping stays additive via optional [`VectorQuery`] fields.
+//! collection and query shaping stays additive via optional fields.
 
 pub mod error;
 pub mod filter;
@@ -33,4 +33,7 @@ pub use qdrant::{QdrantConfig, QdrantVectorStore};
 #[cfg(feature = "simvec")]
 pub use simvec_adapter::SimvecVectorStore;
 pub use store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
-pub use types::{payload_text, DistanceMetric, ScoredPoint, VectorPoint};
+pub use types::{
+    payload_text, CompressionRatio, DistanceMetric, HnswConfig, QuantizationConfig,
+    QuantizationSearchParams, ScoredPoint, VectorPoint,
+};

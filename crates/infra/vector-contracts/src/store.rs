@@ -14,7 +14,10 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::filter::SearchFilter;
-use crate::types::{DistanceMetric, ScoredPoint, VectorPoint};
+use crate::types::{
+    DistanceMetric, HnswConfig, QuantizationConfig, QuantizationSearchParams, ScoredPoint,
+    VectorPoint,
+};
 
 /// Collection creation parameters.
 #[derive(Debug, Clone)]
@@ -26,6 +29,12 @@ pub struct CollectionSpec {
     pub dimension: usize,
     /// Distance function of the collection.
     pub distance: DistanceMetric,
+    /// Optional quantization declaration; unset keeps exact storage.
+    pub quantization: Option<QuantizationConfig>,
+    /// Optional graph tuning; unset keeps the backend default.
+    pub hnsw: Option<HnswConfig>,
+    /// Optional payload disk spill; unset keeps the backend default.
+    pub on_disk_payload: Option<bool>,
 }
 
 impl CollectionSpec {
@@ -35,6 +44,9 @@ impl CollectionSpec {
             name: name.into(),
             dimension,
             distance: DistanceMetric::Cosine,
+            quantization: None,
+            hnsw: None,
+            on_disk_payload: None,
         }
     }
 
@@ -43,14 +55,34 @@ impl CollectionSpec {
         self.distance = distance;
         self
     }
+
+    /// Declares collection quantization.
+    pub fn with_quantization(mut self, quantization: QuantizationConfig) -> Self {
+        self.quantization = Some(quantization);
+        self
+    }
+
+    /// Overrides the graph tuning.
+    pub fn with_hnsw(mut self, hnsw: HnswConfig) -> Self {
+        self.hnsw = Some(hnsw);
+        self
+    }
+
+    /// Toggles payload disk spill.
+    pub fn with_on_disk_payload(mut self, on_disk_payload: bool) -> Self {
+        self.on_disk_payload = Some(on_disk_payload);
+        self
+    }
 }
 
 /// Dense search query: a vector plus result shaping.
 ///
 /// `exact` and `hnsw_ef` are optional recall tuning: unset keeps the
-/// default exact behavior on every backend. Memory and simvec ignore the
-/// values (behavior never changes); Qdrant forwards them as search
-/// params. A zero `hnsw_ef` is invalid input on every backend.
+/// default exact behavior on every backend. Memory keeps exact scan and
+/// only validates the values; simvec and Qdrant forward them as search
+/// params. A zero `hnsw_ef` is invalid input on every backend. Quantized
+/// controls are validated everywhere and honored by backends with a
+/// quantized path.
 #[derive(Debug, Clone)]
 pub struct VectorQuery {
     /// Query embedding; must match the collection dimension.
@@ -65,6 +97,8 @@ pub struct VectorQuery {
     pub exact: Option<bool>,
     /// Optional recall width; unset keeps the backend default.
     pub hnsw_ef: Option<u64>,
+    /// Optional quantized-scan controls; unset keeps backend defaults.
+    pub quantization: Option<QuantizationSearchParams>,
 }
 
 impl VectorQuery {
@@ -77,6 +111,7 @@ impl VectorQuery {
             filter: None,
             exact: None,
             hnsw_ef: None,
+            quantization: None,
         }
     }
 
@@ -101,6 +136,12 @@ impl VectorQuery {
     /// Overrides the recall width.
     pub fn with_hnsw_ef(mut self, hnsw_ef: u64) -> Self {
         self.hnsw_ef = Some(hnsw_ef);
+        self
+    }
+
+    /// Overrides the quantized-scan controls.
+    pub fn with_quantization(mut self, quantization: QuantizationSearchParams) -> Self {
+        self.quantization = Some(quantization);
         self
     }
 }

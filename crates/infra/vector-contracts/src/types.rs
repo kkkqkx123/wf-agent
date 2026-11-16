@@ -34,6 +34,139 @@ pub enum DistanceMetric {
     Euclid,
 }
 
+/// Product quantization compression level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionRatio {
+    /// Fourfold compression.
+    X4,
+    /// Eightfold compression.
+    X8,
+    /// Sixteenfold compression.
+    X16,
+    /// Thirty-twofold compression.
+    X32,
+    /// Sixty-fourfold compression.
+    X64,
+}
+
+impl CompressionRatio {
+    /// Server-facing name used by remote backends.
+    pub fn as_name(self) -> &'static str {
+        match self {
+            CompressionRatio::X4 => "x4",
+            CompressionRatio::X8 => "x8",
+            CompressionRatio::X16 => "x16",
+            CompressionRatio::X32 => "x32",
+            CompressionRatio::X64 => "x64",
+        }
+    }
+}
+
+/// Backend-neutral quantization declaration for a collection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuantizationConfig {
+    /// Scalar int8 quantization with an optional quantile in `(0, 1]`.
+    Scalar { quantile: Option<f32> },
+    /// Product quantization with the requested compression level.
+    Product { compression: CompressionRatio },
+    /// Binary quantization for maximum compression.
+    Binary,
+}
+
+impl QuantizationConfig {
+    /// Scalar quantization with an explicit quantile.
+    pub fn scalar(quantile: f32) -> Self {
+        Self::Scalar {
+            quantile: Some(quantile),
+        }
+    }
+
+    /// Product quantization with the requested compression level.
+    pub fn product(compression: CompressionRatio) -> Self {
+        Self::Product { compression }
+    }
+
+    /// Binary quantization.
+    pub fn binary() -> Self {
+        Self::Binary
+    }
+}
+
+/// Collection-level graph tuning shared by local and remote backends.
+/// Every field is optional; unset fields keep the backend default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HnswConfig {
+    /// Graph connectivity per layer.
+    pub m: Option<usize>,
+    /// Build-time candidate list width.
+    pub ef_construct: Option<usize>,
+    /// Keep the graph on disk instead of memory when the backend supports it.
+    pub on_disk: Option<bool>,
+}
+
+impl HnswConfig {
+    /// Empty tuning that keeps every backend default.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Overrides the graph connectivity.
+    pub fn with_m(mut self, m: usize) -> Self {
+        self.m = Some(m);
+        self
+    }
+
+    /// Overrides the build-time candidate width.
+    pub fn with_ef_construct(mut self, ef_construct: usize) -> Self {
+        self.ef_construct = Some(ef_construct);
+        self
+    }
+
+    /// Toggles disk-backed graph storage.
+    pub fn with_on_disk(mut self, on_disk: bool) -> Self {
+        self.on_disk = Some(on_disk);
+        self
+    }
+}
+
+/// Per-query quantized-scan controls.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct QuantizationSearchParams {
+    /// Skip the quantized scan and use the exact path.
+    pub ignore: Option<bool>,
+    /// Rescore quantized candidates with exact vectors before returning.
+    pub rescore: Option<bool>,
+    /// Candidate multiplier for the quantized coarse scan (`>= 1.0`).
+    pub oversampling: Option<f64>,
+}
+
+impl QuantizationSearchParams {
+    /// Empty controls that keep backend defaults.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Toggles skipping the quantized scan.
+    pub fn with_ignore(mut self, ignore: bool) -> Self {
+        self.ignore = Some(ignore);
+        self
+    }
+
+    /// Toggles exact rescoring of quantized candidates.
+    pub fn with_rescore(mut self, rescore: bool) -> Self {
+        self.rescore = Some(rescore);
+        self
+    }
+
+    /// Overrides the candidate multiplier.
+    pub fn with_oversampling(mut self, oversampling: f64) -> Self {
+        self.oversampling = Some(oversampling);
+        self
+    }
+}
+
 /// One point to store: an id, a dense vector and a JSON payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VectorPoint {

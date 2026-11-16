@@ -475,15 +475,41 @@ impl QdrantVectorStore {
                 .map_or(false, |clause| clause.conditions.iter().any(condition_is_null))
     }
 
-    /// Builds the REST request body for a dense query, including the
-    /// optional recall-tuning params. Memory and simvec ignore the params
-    /// but reject a zero `hnsw_ef` the same way.
-    fn search_body(query: &VectorQuery) -> Result<serde_json::Value> {
+    fn validate_search_params(query: &VectorQuery) -> Result<()> {
         if query.hnsw_ef == Some(0) {
             return Err(VectorError::InvalidInput(
                 "hnsw_ef must be positive".to_string(),
             ));
         }
+        if let Some(params) = &query.quantization {
+            if params.oversampling.is_some_and(|v| !v.is_finite() || v < 1.0) {
+                return Err(VectorError::InvalidInput(format!(
+                    "quantization oversampling {} must be >= 1.0",
+                    params.oversampling.unwrap_or(0.0)
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn quantization_body(params: &crate::types::QuantizationSearchParams) -> serde_json::Value {
+        let mut body = serde_json::Map::new();
+        if let Some(ignore) = params.ignore {
+            body.insert("ignore".to_string(), json!(ignore));
+        }
+        if let Some(rescore) = params.rescore {
+            body.insert("rescore".to_string(), json!(rescore));
+        }
+        if let Some(oversampling) = params.oversampling {
+            body.insert("oversampling".to_string(), json!(oversampling));
+        }
+        serde_json::Value::Object(body)
+    }
+
+    /// Builds the REST request body for a dense query, including the
+    /// optional recall-tuning params.
+    fn search_body(query: &VectorQuery) -> Result<serde_json::Value> {
+        Self::validate_search_params(query)?;
         let mut body = json!({
             "query": query.vector,
             "limit": query.limit,
@@ -497,13 +523,19 @@ impl QdrantVectorStore {
                 body["filter"] = mapped;
             }
         }
-        if query.exact.is_some() || query.hnsw_ef.is_some() {
+        if query.exact.is_some() || query.hnsw_ef.is_some() || query.quantization.is_some() {
             let mut params = serde_json::Map::new();
             if let Some(exact) = query.exact {
                 params.insert("exact".to_string(), json!(exact));
             }
             if let Some(hnsw_ef) = query.hnsw_ef {
                 params.insert("hnsw_ef".to_string(), json!(hnsw_ef));
+            }
+            if let Some(quantization) = &query.quantization {
+                params.insert(
+                    "quantization".to_string(),
+                    Self::quantization_body(quantization),
+                );
             }
             body["params"] = serde_json::Value::Object(params);
         }
@@ -809,6 +841,96 @@ impl QdrantVectorStore {
         }
     }
 
+    fn validate_collection_spec(spec: &CollectionSpec) -> Result<()> {
+        if let Some(quantization) = &spec.quantization {
+            match quantization {
+                crate::types::QuantizationConfig::Scalar { quantile } => {
+                    if let Some(quantile) = quantile {
+                        if !quantile.is_finite() || *quantile <= 0.0 || *quantile > 1.0 {
+                            return Err(VectorError::InvalidInput(format!(
+                                "scalar quantization quantile {quantile} must be in (0,1]"
+                            )));
+                        }
+                    }
+                }
+                crate::types::QuantizationConfig::Product { .. } => {}
+                crate::types::QuantizationConfig::Binary => {}
+            }
+        }
+        if let Some(hnsw) = &spec.hnsw {
+            if hnsw.m.is_some_and(|m| m == 0) {
+                return Err(VectorError::InvalidInput(
+                    "hnsw m must be positive".to_string(),
+                ));
+            }
+            if let (Some(m), Some(ef_construct)) = (hnsw.m, hnsw.ef_construct) {
+                let floor = m.saturating_mul(2).max(4);
+                if ef_construct < floor {
+                    return Err(VectorError::InvalidInput(format!(
+                        "hnsw ef_construct {ef_construct} must be >= max(2*m, 4) = {floor} (m = {m})"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn collection_quantization_body(
+        quantization: &crate::types::QuantizationConfig,
+    ) -> serde_json::Value {
+        match quantization {
+            crate::types::QuantizationConfig::Scalar { quantile } => json!({
+                "scalar": {
+                    "type": "int8",
+                    "quantile": quantile.unwrap_or(0.99),
+                    "always_ram": true,
+                }
+            }),
+            crate::types::QuantizationConfig::Product { compression } => json!({
+                "product": {
+                    "compression": compression.as_name(),
+                    "always_ram": true,
+                }
+            }),
+            crate::types::QuantizationConfig::Binary => {
+                json!({"binary": {"always_ram": true}})
+            }
+        }
+    }
+
+    fn collection_hnsw_body(hnsw: &crate::types::HnswConfig) -> serde_json::Value {
+        let mut body = serde_json::Map::new();
+        if let Some(m) = hnsw.m {
+            body.insert("m".to_string(), json!(m));
+        }
+        if let Some(ef_construct) = hnsw.ef_construct {
+            body.insert("ef_construct".to_string(), json!(ef_construct));
+        }
+        if let Some(on_disk) = hnsw.on_disk {
+            body.insert("on_disk".to_string(), json!(on_disk));
+        }
+        serde_json::Value::Object(body)
+    }
+
+    fn collection_create_body(spec: &CollectionSpec) -> serde_json::Value {
+        let mut body = json!({
+            "vectors": {
+                "size": spec.dimension,
+                "distance": Self::distance_name(spec.distance),
+            }
+        });
+        if let Some(hnsw) = &spec.hnsw {
+            body["hnsw_config"] = Self::collection_hnsw_body(hnsw);
+        }
+        if let Some(quantization) = &spec.quantization {
+            body["quantization_config"] = Self::collection_quantization_body(quantization);
+        }
+        if let Some(on_disk_payload) = spec.on_disk_payload {
+            body["on_disk_payload"] = json!(on_disk_payload);
+        }
+        body
+    }
+
     /// Validates a payload-update target id shared by the three payload ops.
     fn check_payload_target(id: &str) -> Result<()> {
         if id.is_empty() {
@@ -945,6 +1067,7 @@ impl VectorStorage for QdrantVectorStore {
                 "collection dimension must be positive".to_string(),
             ));
         }
+        Self::validate_collection_spec(spec)?;
         let response = self
             .send_read(|| {
                 self.client
@@ -991,9 +1114,7 @@ impl VectorStorage for QdrantVectorStore {
                         spec.name,
                         self.wait_suffix()
                     )))
-                    .json(
-                    &json!({"vectors": {"size": spec.dimension, "distance": Self::distance_name(spec.distance)}}),
-                ),
+                    .json(&Self::collection_create_body(spec)),
             )
             .await?;
         let status = response.status();

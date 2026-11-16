@@ -45,6 +45,74 @@ impl SimvecVectorStore {
         }
     }
 
+    fn map_compression(
+        compression: crate::types::CompressionRatio,
+    ) -> simvec::CompressionRatio {
+        match compression {
+            crate::types::CompressionRatio::X4 => simvec::CompressionRatio::X4,
+            crate::types::CompressionRatio::X8 => simvec::CompressionRatio::X8,
+            crate::types::CompressionRatio::X16 => simvec::CompressionRatio::X16,
+            crate::types::CompressionRatio::X32 => simvec::CompressionRatio::X32,
+            crate::types::CompressionRatio::X64 => simvec::CompressionRatio::X64,
+        }
+    }
+
+    fn map_quantization(
+        quantization: &crate::types::QuantizationConfig,
+    ) -> simvec::QuantizationConfig {
+        match quantization {
+            crate::types::QuantizationConfig::Scalar { quantile } => {
+                simvec::QuantizationConfig::scalar(quantile.unwrap_or(0.99))
+            }
+            crate::types::QuantizationConfig::Product { compression } => {
+                simvec::QuantizationConfig::product(Self::map_compression(*compression))
+            }
+            crate::types::QuantizationConfig::Binary => simvec::QuantizationConfig::binary(),
+        }
+    }
+
+    fn map_hnsw(hnsw: &crate::types::HnswConfig) -> Result<simvec::HnswConfig> {
+        if hnsw.m.is_some_and(|m| m == 0) {
+            return Err(VectorError::InvalidInput(
+                "hnsw m must be positive".to_string(),
+            ));
+        }
+        let mut config = simvec::HnswConfig::default();
+        if let Some(m) = hnsw.m {
+            config.m = m;
+        }
+        if let Some(ef_construct) = hnsw.ef_construct {
+            config.ef_construct = ef_construct;
+        }
+        if let Some(on_disk) = hnsw.on_disk {
+            config.on_disk = Some(on_disk);
+        }
+        config.validate().map_err(map_engine_error)?;
+        Ok(config)
+    }
+
+    fn validate_search_params(query: &VectorQuery) -> Result<()> {
+        if query.hnsw_ef == Some(0) {
+            return Err(VectorError::InvalidInput(
+                "hnsw_ef must be positive".to_string(),
+            ));
+        }
+        if let Some(params) = &query.quantization {
+            if params.oversampling.is_some_and(|v| !v.is_finite() || v < 1.0) {
+                return Err(VectorError::InvalidInput(format!(
+                    "quantization oversampling {} must be >= 1.0",
+                    params.oversampling.unwrap_or(0.0)
+                )));
+            }
+        }
+        if query.vector.iter().any(|v| !v.is_finite()) {
+            return Err(VectorError::InvalidInput(
+                "query vector contains non-finite elements".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn map_filter(filter: &SearchFilter) -> Result<Option<simvec::VectorFilter>> {
         let mut mapped = simvec::VectorFilter::new();
         let mut empty = true;
@@ -346,12 +414,39 @@ impl VectorStorage for SimvecVectorStore {
                 "collection dimension must be positive".to_string(),
             ));
         }
+        if spec.quantization.is_some() && spec.dimension == 0 {
+            return Err(VectorError::InvalidInput(
+                "collection dimension must be positive".to_string(),
+            ));
+        }
+        if let Some(quantization) = &spec.quantization {
+            Self::map_quantization(quantization)
+                .validate(spec.dimension)
+                .map_err(map_engine_error)?;
+        }
+        if let Some(hnsw) = &spec.hnsw {
+            Self::map_hnsw(hnsw)?;
+        }
         if !self.engine.collection_exists(&spec.name) {
-            let config =
+            let mut config =
                 simvec::CollectionConfig::new(spec.dimension, Self::map_distance(spec.distance));
+            if let Some(quantization) = &spec.quantization {
+                config = config.with_quantization(Self::map_quantization(quantization));
+            }
+            if let Some(hnsw) = &spec.hnsw {
+                config = config.with_hnsw(Self::map_hnsw(hnsw)?);
+            }
+            if let Some(on_disk_payload) = spec.on_disk_payload {
+                config = config.with_on_disk_payload(on_disk_payload);
+            }
             self.engine
                 .create_collection(&spec.name, &config)
                 .map_err(map_engine_error)?;
+            if spec.quantization.is_some() {
+                self.engine
+                    .build_quantization(&spec.name)
+                    .map_err(map_engine_error)?;
+            }
             return Ok(true);
         }
         let existing = self
@@ -370,6 +465,34 @@ impl VectorStorage for SimvecVectorStore {
                 "collection '{}' uses {:?} distance, requested {:?}",
                 spec.name, existing.distance, spec.distance
             )));
+        }
+        if let Some(quantization) = &spec.quantization {
+            let requested = Self::map_quantization(quantization);
+            if existing.quantization_config.as_ref() != Some(&requested) {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses different quantization, recreate it",
+                    spec.name
+                )));
+            }
+        }
+        if let Some(hnsw) = &spec.hnsw {
+            let requested = Self::map_hnsw(hnsw)?;
+            if let simvec::IndexConfig::Hnsw(current) = &existing.index {
+                if current.m != requested.m
+                    || current.ef_construct != requested.ef_construct
+                    || current.on_disk != requested.on_disk
+                {
+                    return Err(VectorError::InvalidInput(format!(
+                        "collection '{}' uses different hnsw tuning, recreate it",
+                        spec.name
+                    )));
+                }
+            } else {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses a different index tier, recreate it",
+                    spec.name
+                )));
+            }
         }
         Ok(false)
     }
@@ -420,16 +543,7 @@ impl VectorStorage for SimvecVectorStore {
         if !self.engine.collection_exists(collection) {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
-        if query.hnsw_ef == Some(0) {
-            return Err(VectorError::InvalidInput(
-                "hnsw_ef must be positive".to_string(),
-            ));
-        }
-        if query.vector.iter().any(|v| !v.is_finite()) {
-            return Err(VectorError::InvalidInput(
-                "query vector contains non-finite elements".to_string(),
-            ));
-        }
+        Self::validate_search_params(query)?;
         let mut request = simvec::SearchQuery::new(query.vector.clone(), query.limit);
         if let Some(threshold) = query.score_threshold {
             request = request.with_score_threshold(threshold);
@@ -438,6 +552,22 @@ impl VectorStorage for SimvecVectorStore {
             if let Some(mapped) = Self::map_filter(filter)? {
                 request = request.with_filter(mapped);
             }
+        }
+        if let Some(hnsw_ef) = query.hnsw_ef {
+            request = request.with_search_mode(simvec::SearchMode::KNN {
+                k: query.limit,
+                ef_search: Some(hnsw_ef as usize),
+            });
+        }
+        if let Some(params) = &query.quantization {
+            request = request.with_quantization_params(simvec::QuantizationSearchParams {
+                ignore: params.ignore.unwrap_or(false),
+                exact: query.exact.unwrap_or(false),
+                rescore: params.rescore,
+                oversampling: params.oversampling,
+            });
+        } else if query.exact == Some(true) {
+            request = request.with_exact(true);
         }
         let hits = self
             .engine
@@ -540,24 +670,13 @@ impl VectorStorage for SimvecVectorStore {
         }
         match filter {
             None => self.engine.count(collection).map_err(map_engine_error),
-            Some(filter) => {
-                let query = VectorQuery {
-                    vector: vec![
-                        0.0;
-                        self.engine
-                            .collection_config(collection)
-                            .map_err(map_engine_error)?
-                            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?
-                            .vector_size
-                    ],
-                    limit: usize::MAX,
-                    score_threshold: None,
-                    filter: Some(filter.clone()),
-                    exact: None,
-                    hnsw_ef: None,
-                };
-                Ok(self.search(collection, &query).await?.len() as u64)
-            }
+            Some(filter) => match Self::map_filter(filter)? {
+                None => self.engine.count(collection).map_err(map_engine_error),
+                Some(mapped) => self
+                    .engine
+                    .count_by_filter(collection, &mapped)
+                    .map_err(map_engine_error),
+            },
         }
     }
 
@@ -566,58 +685,52 @@ impl VectorStorage for SimvecVectorStore {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
         let limit = query.limit.max(1);
-        let mut listed: Vec<(String, Vec<f32>, HashMap<String, serde_json::Value>)> = Vec::new();
-        let mut offset: Option<simvec::PointId> = None;
-        loop {
-            let (points, next) = self
+        let offset = query.offset.as_deref().map(simvec::PointId::from);
+        let (points, next) = match &query.filter {
+            None => self
                 .engine
-                .scroll(collection, 256, offset.as_ref(), Some(true), Some(true))
-                .map_err(map_engine_error)?;
-            let exhausted = next.is_none();
-            offset = next;
-            for point in points {
-                let payload = point.payload.clone().unwrap_or_default();
-                let resolved = payload
-                    .get(PID_KEY)
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| Self::id_string(&point.id));
-                if query
-                    .filter
-                    .as_ref()
-                    .is_none_or(|filter| filter.matches_point(&resolved, &payload))
-                {
-                    listed.push((resolved, point.vector.clone(), payload));
-                }
-            }
-            if exhausted {
-                break;
-            }
-        }
-        listed.sort_by(|a, b| a.0.cmp(&b.0));
-        let start = match &query.offset {
-            None => 0,
-            Some(cursor) => listed
-                .iter()
-                .position(|(id, _, _)| id > cursor)
-                .unwrap_or(listed.len()),
+                .scroll(collection, limit, offset.as_ref(), Some(true), Some(true))
+                .map_err(map_engine_error)?,
+            Some(filter) => match Self::map_filter(filter)? {
+                None => self
+                    .engine
+                    .scroll(collection, limit, offset.as_ref(), Some(true), Some(true))
+                    .map_err(map_engine_error)?,
+                Some(mapped) => self
+                    .engine
+                    .scroll_by_filter(
+                        collection,
+                        &mapped,
+                        limit,
+                        offset.as_ref(),
+                        Some(true),
+                        Some(true),
+                    )
+                    .map_err(map_engine_error)?,
+            },
         };
-        let end = (start + limit).min(listed.len());
-        let points = listed[start..end]
-            .iter()
-            .map(|(id, vector, payload)| VectorPoint {
-                id: id.clone(),
-                vector: vector.clone(),
-                payload: payload.clone(),
-            })
-            .collect::<Vec<_>>();
-        let next_offset = if end < listed.len() {
-            Some(listed[end - 1].0.clone())
-        } else {
+        let mut converted = Vec::with_capacity(points.len());
+        for point in points {
+            let payload = point.payload.clone().unwrap_or_default();
+            let resolved = payload
+                .get(PID_KEY)
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| Self::id_string(&point.id));
+            converted.push(VectorPoint {
+                id: resolved,
+                vector: point.vector.clone(),
+                payload,
+            });
+        }
+        let next_offset = next.as_ref().map(Self::id_string);
+        let next_offset = if converted.len() < limit {
             None
+        } else {
+            next_offset
         };
         Ok(ScrollPage {
-            points,
+            points: converted,
             next_offset,
         })
     }

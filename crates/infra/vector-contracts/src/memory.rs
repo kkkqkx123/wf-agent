@@ -26,7 +26,75 @@ struct StoredPoint {
 struct CollectionData {
     dimension: usize,
     distance: DistanceMetric,
+    quantization: Option<crate::types::QuantizationConfig>,
+    hnsw: Option<crate::types::HnswConfig>,
+    on_disk_payload: Option<bool>,
     points: HashMap<String, StoredPoint>,
+}
+
+fn validate_quantization(
+    quantization: Option<&crate::types::QuantizationConfig>,
+    dimension: usize,
+) -> Result<()> {
+    let Some(quantization) = quantization else {
+        return Ok(());
+    };
+    if dimension == 0 {
+        return Err(VectorError::InvalidInput(
+            "collection dimension must be positive".to_string(),
+        ));
+    }
+    match quantization {
+        crate::types::QuantizationConfig::Scalar { quantile } => {
+            if let Some(quantile) = quantile {
+                if !quantile.is_finite() || *quantile <= 0.0 || *quantile > 1.0 {
+                    return Err(VectorError::InvalidInput(format!(
+                        "scalar quantization quantile {quantile} must be in (0,1]"
+                    )));
+                }
+            }
+            Ok(())
+        }
+        crate::types::QuantizationConfig::Product { .. } => Ok(()),
+        crate::types::QuantizationConfig::Binary => Ok(()),
+    }
+}
+
+fn validate_hnsw(hnsw: Option<&crate::types::HnswConfig>) -> Result<()> {
+    let Some(hnsw) = hnsw else {
+        return Ok(());
+    };
+    if hnsw.m.is_some_and(|m| m == 0) {
+        return Err(VectorError::InvalidInput(
+            "hnsw m must be positive".to_string(),
+        ));
+    }
+    if let (Some(m), Some(ef_construct)) = (hnsw.m, hnsw.ef_construct) {
+        let floor = m.saturating_mul(2).max(4);
+        if ef_construct < floor {
+            return Err(VectorError::InvalidInput(format!(
+                "hnsw ef_construct {ef_construct} must be >= max(2*m, 4) = {floor} (m = {m})"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_search_quantization(query: &VectorQuery) -> Result<()> {
+    if query.hnsw_ef == Some(0) {
+        return Err(VectorError::InvalidInput(
+            "hnsw_ef must be positive".to_string(),
+        ));
+    }
+    if let Some(params) = &query.quantization {
+        if params.oversampling.is_some_and(|v| !v.is_finite() || v < 1.0) {
+            return Err(VectorError::InvalidInput(format!(
+                "quantization oversampling {} must be >= 1.0",
+                params.oversampling.unwrap_or(0.0)
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// In-process exact-scan vector store.
@@ -108,6 +176,8 @@ impl VectorStorage for InMemoryVectorStore {
                 "collection dimension must be positive".to_string(),
             ));
         }
+        validate_quantization(spec.quantization.as_ref(), spec.dimension)?;
+        validate_hnsw(spec.hnsw.as_ref())?;
         let mut collections = self.collections.write();
         if let Some(existing) = collections.get(&spec.name) {
             if existing.dimension != spec.dimension {
@@ -122,6 +192,26 @@ impl VectorStorage for InMemoryVectorStore {
                     spec.name, existing.distance, spec.distance
                 )));
             }
+            if spec.quantization.is_some() && existing.quantization != spec.quantization {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses different quantization, recreate it",
+                    spec.name
+                )));
+            }
+            if spec.hnsw.is_some() && existing.hnsw != spec.hnsw {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses different hnsw tuning, recreate it",
+                    spec.name
+                )));
+            }
+            if spec.on_disk_payload.is_some()
+                && existing.on_disk_payload != spec.on_disk_payload
+            {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses different on_disk_payload, recreate it",
+                    spec.name
+                )));
+            }
             return Ok(false);
         }
         collections.insert(
@@ -129,6 +219,9 @@ impl VectorStorage for InMemoryVectorStore {
             CollectionData {
                 dimension: spec.dimension,
                 distance: spec.distance,
+                quantization: spec.quantization.clone(),
+                hnsw: spec.hnsw,
+                on_disk_payload: spec.on_disk_payload,
                 points: HashMap::new(),
             },
         );
@@ -166,11 +259,7 @@ impl VectorStorage for InMemoryVectorStore {
         let data = collections
             .get(collection)
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
-        if query.hnsw_ef == Some(0) {
-            return Err(VectorError::InvalidInput(
-                "hnsw_ef must be positive".to_string(),
-            ));
-        }
+        validate_search_quantization(query)?;
         validate_query_vector(&query.vector, data.dimension)?;
         let mut hits: Vec<ScoredPoint> = data
             .points

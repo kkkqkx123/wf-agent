@@ -22,3 +22,7 @@ sha2.workspace = true
 flate2.workspace = true
 url.workspace = true
 tokio-util.workspace = true
+
+[dev-dependencies]
+sqlx = { workspace = true }
+tokio = { workspace = true }

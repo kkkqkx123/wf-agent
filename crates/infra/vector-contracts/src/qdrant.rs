@@ -316,7 +316,7 @@ impl QdrantVectorStore {
                 .map(|n| n.to_string())
                 .unwrap_or_default();
             if canonical == text {
-                variants.push(json!({"key": key, "match": {"value": float_value}}));
+                variants.push(json!({"key": key, "range": {"gte": float_value, "lte": float_value}}));
             }
         }
         if text == "true" || text == "false" {
@@ -339,7 +339,14 @@ impl QdrantVectorStore {
                 Ok((Self::text_match_condition(key, text), false))
             }
             (Equal, crate::filter::FilterValue::Number(number)) => {
-                Ok((json!({"key": key, "match": {"value": number}}), false))
+                if number.fract() == 0.0 {
+                    Ok((json!({"key": key, "match": {"value": *number as i64}}), false))
+                } else {
+                    Ok((
+                        json!({"key": key, "range": {"gte": number, "lte": number}}),
+                        false,
+                    ))
+                }
             }
             (Equal, crate::filter::FilterValue::Bool(flag)) => {
                 Ok((json!({"key": key, "match": {"value": flag}}), false))
@@ -348,7 +355,14 @@ impl QdrantVectorStore {
                 Ok((Self::text_match_condition(key, text), true))
             }
             (NotEqual, crate::filter::FilterValue::Number(number)) => {
-                Ok((json!({"key": key, "match": {"value": number}}), true))
+                if number.fract() == 0.0 {
+                    Ok((json!({"key": key, "match": {"value": *number as i64}}), true))
+                } else {
+                    Ok((
+                        json!({"key": key, "range": {"gte": number, "lte": number}}),
+                        true,
+                    ))
+                }
             }
             (NotEqual, crate::filter::FilterValue::Bool(flag)) => {
                 Ok((json!({"key": key, "match": {"value": flag}}), true))
@@ -371,8 +385,19 @@ impl QdrantVectorStore {
             (Contains, crate::filter::FilterValue::Text(part)) => {
                 Ok((json!({"key": key, "match": {"substring": part}}), false))
             }
-            (IsEmpty, _) => Ok((json!({"is_empty": {"key": key}}), false)),
-            (IsNull, _) => Ok((json!({"is_null": {"key": key}}), false)),
+            (IsEmpty, _) => Ok((
+                json!({
+                    "should": [
+                        {"key": key, "match": {"value": ""}},
+                        {"must": [{"is_empty": {"key": key}}], "must_not": [{"is_null": {"key": key}}]}
+                    ]
+                }),
+                false
+            )),
+            (IsNull, _) => Ok((
+                json!({"should": [{"is_null": {"key": key}}, {"is_empty": {"key": key}}]}),
+                false
+            )),
             (ValuesEqual, crate::filter::FilterValue::Number(bound)) => {
                 let count = Self::count_bound(*bound)?;
                 Ok((
@@ -430,6 +455,24 @@ impl QdrantVectorStore {
             )));
         }
         Ok(bound.ceil() as u64)
+    }
+
+    /// Whether a filter contains an `IsNull` condition anywhere, which
+    /// needs client-side exact filtering because the remote translation is
+    /// an over-approximation.
+    fn filter_has_is_null(filter: Option<&SearchFilter>) -> bool {
+        let Some(filter) = filter else {
+            return false;
+        };
+        fn condition_is_null(condition: &crate::filter::FieldFilter) -> bool {
+            condition.operator == crate::filter::FilterOperator::IsNull
+        }
+        filter.conditions.iter().any(condition_is_null)
+            || filter.should.iter().any(condition_is_null)
+            || filter
+                .min_should
+                .as_ref()
+                .map_or(false, |clause| clause.conditions.iter().any(condition_is_null))
     }
 
     /// Builds the REST request body for a dense query, including the
@@ -1081,7 +1124,15 @@ impl VectorStorage for QdrantVectorStore {
                 });
             }
         }
-        let body = Self::search_body(query)?;
+        let has_is_null = Self::filter_has_is_null(query.filter.as_ref());
+        let server_query = if has_is_null {
+            let mut clone = query.clone();
+            clone.limit = clone.limit.max(10000);
+            clone
+        } else {
+            query.clone()
+        };
+        let body = Self::search_body(&server_query)?;
         let response = self
             .send_read(|| {
                 self.client
@@ -1136,6 +1187,12 @@ impl VectorStorage for QdrantVectorStore {
                 score: Self::normalize_score(raw, distance),
                 payload,
             });
+        }
+        if has_is_null {
+            if let Some(filter) = &query.filter {
+                hits.retain(|hit| filter.matches_point(&hit.id, &hit.payload));
+            }
+            hits.truncate(query.limit);
         }
         tracing::debug!(
             collection = %collection,
@@ -1318,12 +1375,39 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64> {
         let started = Instant::now();
+        if Self::filter_has_is_null(filter) {
+            let mut total = 0u64;
+            let mut offset: Option<String> = None;
+            loop {
+                let mut query = ScrollQuery::new(256);
+                if let Some(filter) = filter {
+                    query = query.with_filter(filter.clone());
+                }
+                if let Some(cursor) = &offset {
+                    query = query.with_offset(cursor.clone());
+                }
+                let page = self.scroll(collection, &query).await?;
+                total += page.points.len() as u64;
+                match page.next_offset {
+                    Some(cursor) => offset = Some(cursor),
+                    None => break,
+                }
+            }
+            tracing::debug!(
+                collection = %collection,
+                count = total,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "qdrant count done"
+            );
+            return Ok(total);
+        }
         let mut body = json!({"exact": self.config.exact_count});
         if let Some(filter) = filter {
             if let Some(mapped) = Self::build_filter(filter)? {
                 body["filter"] = mapped;
             }
         }
+
         let response = self
             .send_read(|| {
                 self.client
@@ -1365,6 +1449,7 @@ impl VectorStorage for QdrantVectorStore {
                 body["filter"] = mapped;
             }
         }
+
         if let Some(offset) = &query.offset {
             body["offset"] = json!(Self::scroll_offset(offset));
         }
@@ -1377,10 +1462,22 @@ impl VectorStorage for QdrantVectorStore {
             .await?;
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
+
         Self::map_status(status, &text, collection)?;
         let (mut points, next_offset) = Self::parse_scroll_page(&text)?;
+        let raw_count = points.len();
         points.truncate(limit);
-        let next_offset = if points.is_empty() || points.len() < limit {
+        let has_is_null = query
+            .filter
+            .as_ref()
+            .map(|f| Self::filter_has_is_null(Some(f)))
+            .unwrap_or(false);
+        if has_is_null {
+            if let Some(filter) = &query.filter {
+                points.retain(|point| filter.matches_point(&point.id, &point.payload));
+            }
+        }
+        let next_offset = if raw_count == 0 || raw_count < limit {
             None
         } else {
             next_offset
@@ -1918,6 +2015,162 @@ mod tests {
             .delete_collection(&collection)
             .await
             .expect("cleanup collection");
+    }
+
+    /// Live-server filter parity: every filter operator and branch must
+    /// match the shared in-memory semantics. Runs only when `QDRANT_URL`
+    /// is set.
+    #[tokio::test]
+    async fn remote_filter_parity_when_server_configured() {
+        use crate::filter::{FieldFilter, FilterOperator};
+
+        let Some(base_url) = std::env::var("QDRANT_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+        else {
+            return;
+        };
+        let store = QdrantVectorStore::new(QdrantConfig::new(base_url)).expect("client builds");
+        let collection = format!("rag_filter_{}", std::process::id());
+        store
+            .ensure_collection(&CollectionSpec::new(&collection, 2))
+            .await
+            .expect("ensure");
+
+        let mk = |id: &str, ns: &str, source: &str, lang: &str, page: i64, tags: Vec<&str>, nick: &str, meta: serde_json::Value, gone: Option<serde_json::Value>| {
+            let mut payload = HashMap::from([
+                (NAMESPACE_KEY.to_string(), serde_json::json!(ns)),
+                (SOURCE_KEY.to_string(), serde_json::json!(source)),
+                ("lang".to_string(), serde_json::json!(lang)),
+                ("page".to_string(), serde_json::json!(page)),
+                ("tags".to_string(), serde_json::json!(tags)),
+                ("nick".to_string(), serde_json::json!(nick)),
+                ("meta".to_string(), meta),
+            ]);
+            if let Some(value) = gone {
+                payload.insert("gone".to_string(), value);
+            }
+            VectorPoint {
+                id: id.to_string(),
+                vector: if id == "a" { vec![1.0, 0.0] } else if id == "b" { vec![0.0, 1.0] } else { vec![1.0, 1.0] },
+                payload,
+            }
+        };
+        store
+            .upsert(
+                &collection,
+                &[
+                    mk("a", "kb", "doc-a.md", "en", 3, vec!["hot", "new"], "", serde_json::json!({}), Some(serde_json::Value::Null)),
+                    mk("b", "kb", "doc-b.md", "zh", 5, vec!["cold"], "bob", serde_json::json!({"k": 1}), Some(serde_json::json!("x"))),
+                    mk("c", "other", "doc-a.md", "en", 1, vec![], "", serde_json::json!({}), None),
+                ],
+            )
+            .await
+            .expect("upsert");
+
+        let count = |filter: SearchFilter| {
+            let store = store.clone();
+            let collection = collection.clone();
+            async move { store.count(&collection, Some(&filter)).await.unwrap() }
+        };
+
+        assert_eq!(count(SearchFilter::new().with_namespace("kb")).await, 2);
+        assert_eq!(count(SearchFilter::new().with_source("doc-a.md")).await, 2);
+        assert_eq!(count(SearchFilter::new().with_field("lang", "en")).await, 2);
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::GreaterEqual, 3.0))).await,
+            2
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::GreaterThan, 3.0))).await,
+            1
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::LessThan, 3.0))).await,
+            1
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::LessEqual, 3.0))).await,
+            2
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("lang", FilterOperator::NotEqual, "zh"))).await,
+            2
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("source", FilterOperator::Prefix, "doc"))).await,
+            3
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("source", FilterOperator::Contains, ".md"))).await,
+            3
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("nick", FilterOperator::IsEmpty, true))).await,
+            2
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("gone", FilterOperator::IsNull, true))).await,
+            2
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("tags", FilterOperator::ValuesEqual, 2.0))).await,
+            1
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("tags", FilterOperator::ValuesGreaterThan, 1.0))).await,
+            1
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_has_id("a").with_has_id("b")).await,
+            2
+        );
+        assert_eq!(
+            count(
+                SearchFilter::new()
+                    .with_should(FieldFilter::new("lang", FilterOperator::Equal, "en"))
+                    .with_should(FieldFilter::new("page", FilterOperator::Equal, 5.0))
+            )
+            .await,
+            3
+        );
+        let conditions = vec![
+            FieldFilter::new("lang", FilterOperator::Equal, "en"),
+            FieldFilter::new("page", FilterOperator::Equal, 3.0),
+            FieldFilter::new("page", FilterOperator::Equal, 5.0),
+        ];
+        assert_eq!(
+            count(SearchFilter::new().with_min_should(conditions, 2)).await,
+            1
+        );
+        assert_eq!(
+            count(SearchFilter::new().with_condition(FieldFilter::new("missing", FilterOperator::NotEqual, "x"))).await,
+            3
+        );
+
+        // payload ops parity
+        store
+            .overwrite_payload(&collection, "a", HashMap::from([("lang".to_string(), serde_json::json!("fr"))]))
+            .await
+            .expect("overwrite");
+        let fetched = store.fetch(&collection, &["a".to_string()]).await.expect("fetch");
+        assert_eq!(fetched[0].payload.get("lang"), Some(&serde_json::json!("fr")));
+        assert!(!fetched[0].payload.contains_key("namespace"));
+        store
+            .merge_payload(&collection, "a", HashMap::from([("page".to_string(), serde_json::json!(9))]))
+            .await
+            .expect("merge");
+        let fetched = store.fetch(&collection, &["a".to_string()]).await.expect("fetch");
+        assert_eq!(fetched[0].payload.get("page"), Some(&serde_json::json!(9)));
+        assert_eq!(fetched[0].payload.get("lang"), Some(&serde_json::json!("fr")));
+        store
+            .delete_payload_keys(&collection, "a", &["lang".to_string()])
+            .await
+            .expect("delete keys");
+        let fetched = store.fetch(&collection, &["a".to_string()]).await.expect("fetch");
+        assert!(!fetched[0].payload.contains_key("lang"));
+
+        store.delete_collection(&collection).await.expect("cleanup");
     }
 
     #[test]

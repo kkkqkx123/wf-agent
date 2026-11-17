@@ -31,6 +31,10 @@ const DEFAULT_BACKUP_RETENTION_DAYS: u64 = 7;
 
 /// Server-owned backend configuration. `enabled == false` keeps every new
 /// backend endpoint at 503 and spawns no background tasks.
+///
+/// Enabling grants API key holders the power to make this server open
+/// outbound SSH connections to registered hosts, so only enable it on a
+/// trusted management server.
 #[derive(Debug, Clone)]
 pub struct BackendConfig {
     pub enabled: bool,

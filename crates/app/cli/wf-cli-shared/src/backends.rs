@@ -10,6 +10,11 @@
 //! source and a read-only fallback for `list` / `status` when the
 //! management service is unreachable or disabled. Mutations require a
 //! reachable service and fail loud otherwise.
+//!
+//! Local services stay isolated: this module never enumerates sibling
+//! servers. Scoped discovery comes from the connected server only; the
+//! local file is the invoking user's own degraded fallback, never a
+//! cross-domain directory.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

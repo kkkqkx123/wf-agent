@@ -1,3 +1,8 @@
+//! Backend management scoped to this server instance: the registry,
+//! probes and tunnels below describe only what this server owns.
+//! Sibling local services are never enumerated; callers discover the
+//! remotes of the server they connected to, and nothing else.
+
 pub mod backup;
 pub mod config;
 pub mod manager;

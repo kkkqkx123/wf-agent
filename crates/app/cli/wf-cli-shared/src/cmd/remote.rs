@@ -9,6 +9,8 @@
 //! review. Backups run on the server by plan; CLI only queries and
 //! triggers them.
 
+use std::time::Duration;
+
 use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
@@ -34,6 +36,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             remote_dir,
             server_port,
             local_port,
+            dry_run,
         } => {
             if name.trim().is_empty() || host.trim().is_empty() || username.trim().is_empty() {
                 return Err(CliError::Arguments(
@@ -44,6 +47,9 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 return Err(CliError::Arguments(
                     "remote add rejects port 0; omit the flag or pick 1-65535".to_string(),
                 ));
+            }
+            if *dry_run {
+                return dry_run_add(name, host, port.unwrap_or(22), jump_host.is_some(), cli).await;
             }
             let client = management_client(cli);
             let entry = RemoteHost {
@@ -361,10 +367,60 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
     }
 }
 
-/// Resolve a print entry for the human-driven printers: prefer the server
-/// row, fall back to the read-only local snapshot. Also returns the
-/// server-reported tunnel URL when the row came from the service, so the
-/// printers stay consistent with a customized server default port.
+/// Validate a prospective entry without registering it: shape first, then
+/// a direct TCP probe of the SSH endpoint. Hosts behind a jump host skip
+/// the probe since direct reachability cannot be assessed; nothing is
+/// written in any dry-run path.
+async fn dry_run_add(
+    name: &str,
+    host: &str,
+    ssh_port: u16,
+    via_jump: bool,
+    cli: &Cli,
+) -> CliResult<()> {
+    if via_jump {
+        return render_envelope(
+            cli.output,
+            OutputEnvelope::success(
+                "remote-add-dry-run",
+                serde_json::json!({
+                    "name": name,
+                    "checked": false,
+                    "note": "jump host configured; direct probe skipped, shape is valid",
+                }),
+            ),
+        );
+    }
+    let reachable = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::net::TcpStream::connect((host, ssh_port)),
+    )
+    .await
+    .ok()
+    .and_then(|result| result.ok())
+    .is_some();
+    if !reachable {
+        return Err(CliError::Configuration(format!(
+            "remote host '{name}' is unreachable at {host}:{ssh_port}; nothing registered, retry without --dry-run to register anyway"
+        )));
+    }
+    render_envelope(
+        cli.output,
+        OutputEnvelope::success(
+            "remote-add-dry-run",
+            serde_json::json!({"name": name, "reachable": true}),
+        ),
+    )
+}
+
+/// Resolve a print entry for the human-driven printers. The connected
+/// server is the authority for names: when its list is reachable, an
+/// unknown name fails loud instead of mixing in the local snapshot, so
+/// two trust domains never share one namespace. The local snapshot is
+/// only consulted when the service itself is unreachable or disabled.
+/// Also returns the server-reported tunnel URL when the row came from
+/// the service, so the printers stay consistent with a customized server
+/// default port.
 async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<(RemoteHost, Option<String>)> {
     let client = management_client(cli);
     if let Some(rows) = fetch_server_backends(&client).await? {
@@ -373,6 +429,9 @@ async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<(RemoteHost, Op
                 return Ok((entry, row.url));
             }
         }
+        return Err(CliError::Configuration(format!(
+            "unknown remote host: {name}; add it (`wf remote add`) or import it (`wf remote import`)"
+        )));
     }
     let registry = load_registry()?;
     registry

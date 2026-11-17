@@ -45,6 +45,9 @@ pub enum RemoteSub {
         /// different hosts need distinct ports).
         #[arg(long, value_name = "PORT")]
         local_port: Option<u16>,
+        /// Validate only: probe the SSH endpoint and report without registering.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Update a remote host entry on the management service.
     Update {

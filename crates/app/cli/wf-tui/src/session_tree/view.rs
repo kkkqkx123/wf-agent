@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use super::{AssembledTree, RestoreScope, TreeFilter, TreeNode, TreeNodeKind};
+use super::{TreeFilter, TreeNode, TreeNodeKind};
 
 /// Session tree browser state: nodes plus view controls. The visible list is
 /// derived (filter -> search -> fold) and the selection survives view changes

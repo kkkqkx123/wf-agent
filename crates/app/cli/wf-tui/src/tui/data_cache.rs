@@ -42,7 +42,7 @@ const DETAIL_TTL: Duration = Duration::from_secs(30);
 /// Payload sent back by a background fetch.
 pub(super) enum DataResult {
     /// One screen's cached model plus its server truncation flag.
-    Screen(ScreenKind, crate::error::CliResult<(ScreenData, bool)>),
+    Screen(ScreenKind, Box<crate::error::CliResult<(ScreenData, bool)>>),
     /// Search palette results for the submitted query.
     SearchPalette {
         query: String,
@@ -117,7 +117,7 @@ impl TuiApp {
                 file_timeline_path.as_deref(),
             )
             .await;
-            let _ = tx.send(DataResult::Screen(kind, result));
+            let _ = tx.send(DataResult::Screen(kind, Box::new(result)));
         });
         self.tasks.push(handle);
     }
@@ -312,7 +312,7 @@ impl TuiApp {
             match msg {
                 DataResult::Screen(kind, result) => {
                     self.app.screen.inflight.remove(&kind);
-                    match result {
+                    match *result {
                         Ok((data, has_more)) => {
                             self.app
                                 .screen

@@ -1,15 +1,7 @@
 //! Turn nested targets: resolve, refresh and submit.
 
-use futures::StreamExt;
-
-use wf_types::events::ExecutionStreamEvent;
-
 use crate::interactive::{InteractiveController, InteractiveEvent, NestedAgentLoopTarget};
-use crate::reducer::Phase;
-use crate::stream_pacer::PacerOp;
-use crate::tool_output::DetailLevel;
-use crate::transcript::{HistoryLine, LineState, Role};
-use crate::turn::{TurnKind, TurnParams};
+use crate::transcript::HistoryLine;
 
 use super::*;
 

@@ -76,7 +76,7 @@ pub(super) enum MouseAction {
 /// Outcome of one handled mouse event: drives the frame decision at the
 /// single submit point without overloading a boolean.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum MouseOutcome {
+pub(crate) enum MouseOutcome {
     /// Wheel or button path moved content: a full frame is due.
     Scrolled,
     /// A click landed (badge, gutter, content, copy): a full frame is due.

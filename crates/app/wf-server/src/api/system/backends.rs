@@ -45,6 +45,7 @@ fn disabled() -> axum::response::Response {
 pub(crate) struct BackendListView {
     backends: Vec<BackendEntryView>,
     source: String,
+    backup_round_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
@@ -114,6 +115,7 @@ pub(crate) async fn handle_list(State(state): State<ApiState>) -> impl IntoRespo
         Ok(rows) => ok(BackendListView {
             backends: rows,
             source: "server".to_string(),
+            backup_round_error: backends.backup_round_error(),
         })
         .into_response(),
         Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
@@ -360,7 +362,7 @@ pub(crate) async fn handle_trigger_backup(
             id: name,
         })
         .into_response(),
-        Err(e) => error_response(wf_api::ApiError::Validation(e)).into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
     }
 }
 

@@ -126,14 +126,14 @@ pub(super) async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
             plugin_settings.push(field);
         }
     }
-    Ok(ScreenData::Settings(SettingsData {
+    Ok(ScreenData::Settings(Box::new(SettingsData {
         profiles: rows,
         default_profile: Some(default_id),
         theme,
         local: load_local_settings(),
         plugin_settings,
         plugin_values: std::collections::HashMap::new(),
-    }))
+    })))
 }
 
 /// Fetch the unified catalog: the four former screens load in parallel

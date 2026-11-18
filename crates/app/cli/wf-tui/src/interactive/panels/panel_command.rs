@@ -1,18 +1,8 @@
 //! Panel command dispatch: palette runs and slash lines.
 
 use super::*;
-use crate::footer::FooterRoute;
-use crate::interactive::{
-    InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload,
-};
-use crate::keymap::{CKey, Key};
-use tui_components::footer::PanelState;
-use tui_components::panels::{
-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
-    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
-};
-use tui_core::command::{self, CommandRegistry, CommandSpec, RuntimeCommand};
-use tui_core::keymap::KeyAction;
+use crate::interactive::{InteractiveAction, InteractiveController, InteractiveEvent};
+use tui_core::command::{self, CommandSpec};
 
 impl InteractiveController {
     /// Run a command selected in the palette or reached through the leader.

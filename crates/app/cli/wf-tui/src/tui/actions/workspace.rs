@@ -1,12 +1,9 @@
 //! File workspace actions: submit, merge, undo and sessions.
 
-use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
+use crate::modal::{ConfirmModal, ModalResult};
 use crate::overlay::Feedback;
-use crate::screens::{short_id, ApprovalRow, CheckpointRow, ConflictRow, ScreenData, ScreenKind};
-use wf_client::WfClient;
+use crate::screens::{short_id, ScreenData, ScreenKind};
 
-use super::*;
-use crate::tui::data_cache::DataResult;
 use crate::tui::TuiApp;
 
 impl TuiApp {

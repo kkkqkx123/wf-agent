@@ -123,7 +123,7 @@ fn main() {
 
 async fn run(args: Args, worker_threads: Option<usize>) {
     #[cfg(all(feature = "remote-node", feature = "backends"))]
-    {
+    if true {
         eprintln!("remote-node must not enable the backends management domain");
         std::process::exit(2);
     }

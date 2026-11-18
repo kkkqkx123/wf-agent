@@ -1,0 +1,31 @@
+# Server-owned backend registry and scheduled backups.
+#
+# Schema: wf_server::backends::BackendConfig.
+# Priority (high to low): environment > project `.wf/backends.toml` >
+# settings-dir `server/backends.toml` > built-in defaults.
+# A present but invalid file fails startup; secrets stay in the environment.
+
+enabled = false
+probe_interval_secs = 30
+probe_timeout_secs = 5
+default_local_port = 18080
+
+# Backup bundles and the SQLite index (`backends.db`) live here.
+# Empty value disables scheduled backups.
+backup_dir = ""
+
+# Remote sync requests send this directory as `x-wf-directory`. A registry
+# entry can override it with `backup_directory`.
+backup_directory = ""
+
+registry_path = ""
+backup_interval_secs = 3600
+backup_retention_count = 10
+backup_retention_days = 7
+
+# Environment overrides:
+# WF_BACKEND_ENABLED, WF_BACKEND_PROBE_INTERVAL_SECS,
+# WF_BACKEND_PROBE_TIMEOUT_SECS, WF_BACKEND_DEFAULT_LOCAL_PORT,
+# WF_BACKEND_BACKUP_DIR, WF_BACKEND_BACKUP_DIRECTORY,
+# WF_BACKEND_REMOTE_API_KEY, WF_BACKEND_REGISTRY_PATH.
+# WF_BACKEND_REMOTE_API_KEY is never read from this file.

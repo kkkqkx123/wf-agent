@@ -51,13 +51,12 @@ use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 use crate::animation::AnimationController;
 use crate::approval_overlay::ApprovalRemembered;
-use crate::context_sidebar::{ContextSnapshot, SidebarSnapshot, TodoLine};
+use crate::context_sidebar::TodoLine;
 use crate::footer::Footer;
 use crate::prep_cache::PreparedScrollback;
-use crate::reducer::Phase;
 use crate::reducer::SessionReducer;
 use crate::stream_pacer::SegmentedPacer;
-use crate::terminal::{DoublePressTracker, ESC_DOUBLE_PRESS_WINDOW, SIGINT_DOUBLE_PRESS_WINDOW};
+use crate::terminal::DoublePressTracker;
 use crate::transcript::HistoryLine;
 use status_dialog::PluginDialogPending;
 

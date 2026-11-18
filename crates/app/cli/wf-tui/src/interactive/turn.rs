@@ -2,15 +2,9 @@
 //! starting agent turns, pumping server events, and feeding the markdown
 //! stream / pacer into the scrollback.
 
-use futures::StreamExt;
-
 use wf_types::events::ExecutionStreamEvent;
 
-use crate::reducer::Phase;
-use crate::stream_pacer::PacerOp;
-use crate::tool_output::DetailLevel;
-use crate::transcript::{HistoryLine, LineState, Role};
-use crate::turn::{TurnKind, TurnParams};
+use crate::transcript::{HistoryLine, Role};
 
 use super::{InteractiveController, InteractiveEvent, NestedAgentLoopTarget};
 

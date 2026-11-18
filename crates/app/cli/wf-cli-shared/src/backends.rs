@@ -47,6 +47,8 @@ pub struct RemoteHost {
     pub backup_retention_days: Option<u64>,
     #[serde(default)]
     pub backup_executions: Vec<String>,
+    #[serde(default)]
+    pub backup_directory: Option<String>,
 }
 
 pub(crate) fn registry_path() -> Option<PathBuf> {
@@ -250,6 +252,10 @@ pub struct ServerBackendRow {
     pub status: Option<ServerStatus>,
     #[serde(default)]
     pub tunnel: Option<ServerTunnel>,
+    #[serde(default)]
+    pub last_backup_ms: Option<i64>,
+    #[serde(default)]
+    pub backup_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -281,6 +287,8 @@ pub struct ServerBackupRecord {
     pub created_ms: Option<i64>,
     #[serde(default)]
     pub size_bytes: Option<u64>,
+    #[serde(default)]
+    pub sha256: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
 }
@@ -569,6 +577,7 @@ mod tests {
             backup_retention_count: None,
             backup_retention_days: None,
             backup_executions: Vec::new(),
+            backup_directory: None,
         };
         let err = to_tunnel("broken", &host).unwrap_err();
         assert!(err.to_string().contains("empty host"), "{err}");
@@ -588,6 +597,7 @@ mod tests {
             backup_retention_count: None,
             backup_retention_days: None,
             backup_executions: Vec::new(),
+            backup_directory: None,
         }
     }
 

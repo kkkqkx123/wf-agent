@@ -1,13 +1,10 @@
 //! File sync actions: export, import and rebase.
 
-use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
+use crate::modal::{ConfirmModal, ModalResult};
 use crate::overlay::Feedback;
-use crate::screens::{short_id, ApprovalRow, CheckpointRow, ConflictRow, ScreenData, ScreenKind};
-use wf_client::WfClient;
+use crate::screens::{short_id, ScreenData, ScreenKind};
 
 use super::conflict::{parse_rebase_selector, sync_failure_notice};
-use super::*;
-use crate::tui::data_cache::DataResult;
 use crate::tui::TuiApp;
 
 impl TuiApp {

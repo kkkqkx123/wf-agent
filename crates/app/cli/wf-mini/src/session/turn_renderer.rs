@@ -12,8 +12,8 @@ use crate::output::{self, AppendWriter};
 use crate::render::{strip_terminal_escapes, StreamRenderer};
 
 /// A turn that ran to completion of its stream.
-pub(super) struct FinishedTurn {
-    pub(super) outcome: TurnOutcome,
+pub(crate) struct FinishedTurn {
+    pub(crate) outcome: TurnOutcome,
 }
 
 /// Shorten an execution id for the summary line. Remote turns carry a

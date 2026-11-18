@@ -135,6 +135,7 @@ mod tests {
             backup_retention_count: None,
             backup_retention_days: None,
             backup_executions: Vec::new(),
+            backup_directory: None,
         }
     }
 

@@ -36,6 +36,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             remote_dir,
             server_port,
             local_port,
+            backup_directory,
             dry_run,
         } => {
             if name.trim().is_empty() || host.trim().is_empty() || username.trim().is_empty() {
@@ -65,6 +66,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 backup_retention_count: None,
                 backup_retention_days: None,
                 backup_executions: Vec::new(),
+                backup_directory: backup_directory.clone(),
             };
             create_server_backend(&client, name, &entry).await?;
             render_envelope(
@@ -82,6 +84,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             remote_dir,
             server_port,
             local_port,
+            backup_directory,
             clear_optional,
         } => {
             if name.trim().is_empty() {
@@ -125,6 +128,9 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             }
             if let Some(local_port) = local_port {
                 merged.local_port = Some(*local_port);
+            }
+            if backup_directory.is_some() || *clear_optional {
+                merged.backup_directory = backup_directory.clone();
             }
             if merged.host.trim().is_empty() || merged.username.trim().is_empty() {
                 return Err(CliError::Arguments(
@@ -261,6 +267,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                                 "version": row.status.as_ref().and_then(|status| status.version.clone()),
                                 "api_version": row.status.as_ref().and_then(|status| status.api_version.clone()),
                                 "tunnel_running": row.tunnel.as_ref().map(|tunnel| tunnel.running).unwrap_or(false),
+                                "last_backup_ms": row.last_backup_ms,
+                                "backup_error": row.backup_error,
                             })
                         })
                         .collect::<Vec<_>>(),
@@ -301,6 +309,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                             "execution": record.execution,
                             "created_ms": record.created_ms,
                             "size_bytes": record.size_bytes,
+                            "sha256": record.sha256,
                             "path": record.path,
                         })
                     })
@@ -338,11 +347,9 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                     "/api/v1/executions/{execution}/bundle?checkpoint_synced={checkpoint_synced}"
                 ))
                 .await?;
-            let checkpoints: serde_json::Value = client
-                .execution_checkpoints_chain(execution)
-                .await
-                .map(|chain| serde_json::to_value(chain).unwrap_or(serde_json::Value::Null))
-                .unwrap_or(serde_json::Value::Null);
+            let chain = client.execution_checkpoints_chain(execution).await?;
+            let checkpoints = serde_json::to_value(chain)
+                .map_err(|e| CliError::Configuration(format!("checkpoint chain encode: {e}")))?;
             if let Some(object) = bundle.as_object_mut() {
                 object.insert("checkpoints".to_string(), checkpoints);
             }

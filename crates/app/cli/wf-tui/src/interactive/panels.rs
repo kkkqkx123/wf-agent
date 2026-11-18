@@ -12,18 +12,7 @@
 //! * the mention route is composite: the composer keeps the text and the
 //!   panel is a derived view over the mention query under the cursor.
 
-use crate::footer::FooterRoute;
-use crate::interactive::{
-    InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload,
-};
-use crate::keymap::{CKey, Key};
-use tui_components::footer::PanelState;
-use tui_components::panels::{
-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
-    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
-};
-use tui_core::command::{self, CommandRegistry, CommandSpec, RuntimeCommand};
-use tui_core::keymap::KeyAction;
+use tui_components::panels::MentionEntry;
 
 /// Entity kinds requested from the mention search endpoint. Files are not
 /// requested: the local scan already covers them.

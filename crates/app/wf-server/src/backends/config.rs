@@ -42,6 +42,8 @@ pub struct BackendConfig {
     pub probe_timeout_secs: u64,
     pub default_local_port: u16,
     pub backup_dir: Option<std::path::PathBuf>,
+    pub backup_directory: Option<String>,
+    pub remote_api_key: Option<String>,
     pub registry_path: Option<std::path::PathBuf>,
     pub backup_interval_secs: u64,
     pub backup_retention_count: usize,
@@ -56,6 +58,8 @@ impl Default for BackendConfig {
             probe_timeout_secs: DEFAULT_PROBE_TIMEOUT_SECS,
             default_local_port: DEFAULT_LOCAL_TUNNEL_PORT,
             backup_dir: None,
+            backup_directory: None,
+            remote_api_key: None,
             registry_path: None,
             backup_interval_secs: DEFAULT_BACKUP_INTERVAL_SECS,
             backup_retention_count: DEFAULT_BACKUP_RETENTION_COUNT,
@@ -102,6 +106,9 @@ impl BackendConfig {
                 self.backup_dir = Some(std::path::PathBuf::from(dir));
             }
         }
+        if let Some(directory) = file.backup_directory {
+            self.backup_directory = Some(directory).filter(|value| !value.trim().is_empty());
+        }
         if let Some(path) = file.registry_path {
             if path.trim().is_empty() {
                 self.registry_path = None;
@@ -142,6 +149,12 @@ impl BackendConfig {
             } else {
                 self.backup_dir = Some(std::path::PathBuf::from(raw));
             }
+        }
+        if let Ok(raw) = std::env::var("WF_BACKEND_BACKUP_DIRECTORY") {
+            self.backup_directory = Some(raw).filter(|value| !value.trim().is_empty());
+        }
+        if let Ok(raw) = std::env::var("WF_BACKEND_REMOTE_API_KEY") {
+            self.remote_api_key = Some(raw).filter(|value| !value.trim().is_empty());
         }
         if let Ok(raw) = std::env::var("WF_BACKEND_REGISTRY_PATH") {
             if raw.trim().is_empty() {
@@ -193,6 +206,7 @@ struct BackendFileConfig {
     probe_timeout_secs: Option<u64>,
     default_local_port: Option<u16>,
     backup_dir: Option<String>,
+    backup_directory: Option<String>,
     registry_path: Option<String>,
     backup_interval_secs: Option<u64>,
     backup_retention_count: Option<usize>,
@@ -280,17 +294,21 @@ mod tests {
 
     #[test]
     fn invalid_probe_window_fails_when_enabled() {
-        let mut config = BackendConfig::default();
-        config.enabled = true;
-        config.probe_interval_secs = 5;
-        config.probe_timeout_secs = 10;
+        let config = BackendConfig {
+            enabled: true,
+            probe_interval_secs: 5,
+            probe_timeout_secs: 10,
+            ..BackendConfig::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn disabled_skips_validation() {
-        let mut config = BackendConfig::default();
-        config.probe_interval_secs = 0;
+        let config = BackendConfig {
+            probe_interval_secs: 0,
+            ..BackendConfig::default()
+        };
         assert!(config.validate().is_ok());
     }
 
@@ -310,6 +328,21 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("probe_interval_secs"));
+    }
+
+    #[test]
+    fn backup_directory_resolves_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let server_dir = dir.path().join("server");
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\nbackup_directory = \"/workspace/alpha\"\n",
+        )
+        .unwrap();
+        let config = BackendConfig::resolve(Some(server_dir.as_path()), None).unwrap();
+        assert_eq!(config.backup_directory.as_deref(), Some("/workspace/alpha"));
+        assert_eq!(config.remote_api_key, None);
     }
 
     #[test]

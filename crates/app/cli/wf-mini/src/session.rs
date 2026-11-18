@@ -10,31 +10,22 @@
 //! assistant answers in memory. Session restore reads the server-side
 //! conversation ledger (`--session` id or the newest loop for `--resume`).
 
-use std::io::IsTerminal;
-use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use futures::StreamExt;
 
 use wf_client::{WfClient, WorkflowNestedAgentLoop};
 use wf_types::events::ExecutionStreamEvent;
 
-use wf_cli_shared::display::{parse_toggle, MarkdownMode};
 use wf_cli_shared::error::{CliError, CliResult};
-use wf_cli_shared::turn::{TurnKind, TurnParams};
 
-use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
 use crate::editor::{terminal_cols, EditorSnapshot, PromptEvent};
-use crate::input::{self, AttachArgs, History, ImageArgs, LineReader, PluginSlash, SlashCommand};
+use crate::input::{self, History, LineReader, PluginSlash};
 use crate::output::{self};
 use crate::suggest::{PluginCompletionSource, SuggestBroker, SuggestEngine};
 use crate::transcript::Transcript;
 
 mod turn_renderer;
-
-use turn_renderer::{short_execution_id, FinishedTurn, RealSink, TurnRenderer};
 
 const PROMPT: &str = "> ";
 
@@ -187,7 +178,7 @@ fn merge_by_key<T: Clone>(local: &[T], snapshot: &[T], key: impl Fn(&T) -> Strin
 }
 
 /// What a slash command asks the loop to do.
-enum CommandAction {
+pub(crate) enum CommandAction {
     Continue,
     Exit,
     /// Run this prompt as a question (used by `/rerun`).
@@ -363,7 +354,7 @@ fn map_frames(
 
 /// What one turn produced: whether it counts as memory and the full
 /// assistant text for the transcript.
-struct TurnOutcome {
+pub(crate) struct TurnOutcome {
     completed: bool,
     interrupted: bool,
     iterations: Option<u32>,
@@ -426,7 +417,7 @@ fn terminal_rows() -> u16 {
 /// One row of the `/sessions` listing: server id plus its title, status
 /// and start time for relative-age display.
 #[derive(Debug, Clone)]
-struct MiniSessionRow {
+pub(crate) struct MiniSessionRow {
     id: String,
     title: Option<String>,
     status: String,

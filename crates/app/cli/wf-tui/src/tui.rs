@@ -26,12 +26,9 @@ use std::time::{Duration, Instant};
 
 use libc;
 
-use crossterm::event::{self, Event, KeyEventKind, MouseEventKind};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
-use ratatui::widgets::Paragraph;
-use ratatui::{Frame, Terminal};
+use ratatui::layout::Rect;
+use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -40,21 +37,21 @@ use crate::error::{CliError, CliResult};
 use crate::framer::FrameRequester;
 use crate::modal::ModalStack;
 use crate::overlay::OverlayMode;
-use crate::screens::{ScreenData, ScreenKind};
+use crate::screens::ScreenKind;
 use crate::session_tabs::SessionTabs;
-use crate::size::{ResizeDebouncer, Size};
+use crate::size::ResizeDebouncer;
 use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalGuard};
 use crate::theme::{self, Theme};
 use tui_core::command::{PendingSequence, SequenceMap};
 use tui_core::keymap::Keymap;
-use tui_core::plugin::{PluginHost, Slot};
+use tui_core::plugin::PluginHost;
 use wf_client::WfClient;
 
 use data_cache::DataResult;
 use input_classify::{
     load_copy_target, load_mouse_opt_in, load_performance_tier_override, load_sidebar_opt_in,
-    load_theme_choice, map_key,
+    load_theme_choice,
 };
 use signals::{sigtstp_handler, theme_reload_signals};
 

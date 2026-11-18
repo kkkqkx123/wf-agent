@@ -2,12 +2,9 @@
 
 use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
 use crate::overlay::Feedback;
-use crate::screens::{short_id, ApprovalRow, CheckpointRow, ConflictRow, ScreenData, ScreenKind};
-use wf_client::WfClient;
+use crate::screens::{short_id, ApprovalRow, ScreenData, ScreenKind};
 
 use super::conflict::{cancel_execution, toggle_execution};
-use super::*;
-use crate::tui::data_cache::DataResult;
 use crate::tui::TuiApp;
 
 impl TuiApp {

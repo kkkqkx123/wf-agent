@@ -41,9 +41,11 @@ fn static_config(dir: &std::path::Path) -> wf_server::StaticConfig {
 }
 
 async fn serve_single(dir: &std::path::Path) -> wf_server::ServerHandle {
-    let mut config = wf_server::ServerConfig::default();
-    config.bind_addr = "127.0.0.1:0".parse().unwrap();
-    config.static_config = Some(static_config(dir));
+    let config = wf_server::ServerConfig {
+        bind_addr: "127.0.0.1:0".parse().unwrap(),
+        static_config: Some(static_config(dir)),
+        ..wf_server::ServerConfig::default()
+    };
     wf_server::serve_full_with_config(
         Arc::new(MetricsRegistry::new()),
         test_ctx(),

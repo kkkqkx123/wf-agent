@@ -25,6 +25,8 @@ pub struct BackendEntry {
     pub backup_retention_days: Option<u64>,
     #[serde(default)]
     pub backup_executions: Vec<String>,
+    #[serde(default)]
+    pub backup_directory: Option<String>,
 }
 
 impl BackendEntry {
@@ -57,11 +59,23 @@ impl BackendEntry {
     }
 }
 
+/// Whether a value is safe to use as one filesystem path component.
+pub fn is_safe_name_component(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' || byte == b'.'
+        })
+}
+
 /// Validate one registry entry: empty hostnames and illegal ports fail
 /// loud instead of producing an `ssh` call to nowhere.
 pub fn validate_backend_entry(name: &str, entry: &BackendEntry) -> Result<(), String> {
-    if name.trim().is_empty() {
-        return Err("backend name must not be empty".to_string());
+    if !is_safe_name_component(name) {
+        return Err(format!(
+            "backend '{name}' must use only letters, digits, '_', '-' and '.'"
+        ));
     }
     if entry.host.trim().is_empty() {
         return Err(format!("backend '{name}' has an empty host"));
@@ -83,6 +97,11 @@ pub fn validate_backend_entry(name: &str, entry: &BackendEntry) -> Result<(), St
             return Err(format!(
                 "backend '{name}' has an illegal backup_interval_secs: 0"
             ));
+        }
+    }
+    if let Some(directory) = entry.backup_directory.as_deref() {
+        if directory.trim().is_empty() {
+            return Err(format!("backend '{name}' has an empty backup_directory"));
         }
     }
     Ok(())
@@ -162,6 +181,7 @@ mod tests {
             backup_retention_count: None,
             backup_retention_days: None,
             backup_executions: Vec::new(),
+            backup_directory: None,
         }
     }
 
@@ -170,6 +190,12 @@ mod tests {
         let mut bad = entry();
         bad.host.clear();
         assert!(validate_backend_entry("broken", &bad).is_err());
+    }
+
+    #[test]
+    fn unsafe_name_fails_validation() {
+        assert!(validate_backend_entry("../escape", &entry()).is_err());
+        assert!(is_safe_name_component("host-1"));
     }
 
     #[test]

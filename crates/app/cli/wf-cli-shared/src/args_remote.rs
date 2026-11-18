@@ -45,6 +45,9 @@ pub enum RemoteSub {
         /// different hosts need distinct ports).
         #[arg(long, value_name = "PORT")]
         local_port: Option<u16>,
+        /// Directory scope sent to the remote server when backing up this host.
+        #[arg(long, value_name = "DIR")]
+        backup_directory: Option<String>,
         /// Validate only: probe the SSH endpoint and report without registering.
         #[arg(long)]
         dry_run: bool,
@@ -79,7 +82,10 @@ pub enum RemoteSub {
         /// different hosts need distinct ports).
         #[arg(long, value_name = "PORT")]
         local_port: Option<u16>,
-        /// Clear the jump host / remote dir / key path when set.
+        /// Directory scope sent to the remote server when backing up this host.
+        #[arg(long, value_name = "DIR")]
+        backup_directory: Option<String>,
+        /// Clear the optional jump host / remote dir / key path / backup dir.
         #[arg(long)]
         clear_optional: bool,
     },

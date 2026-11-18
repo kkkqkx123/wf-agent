@@ -1,25 +1,6 @@
 //! Interactive composer: cursor, copy text and staged removal.
 
 use super::*;
-use crate::animation::AnimationController;
-use crate::approval_overlay::ApprovalRemembered;
-use crate::context_sidebar::{ContextSnapshot, SidebarSnapshot, TodoLine};
-use crate::footer::Footer;
-use crate::pager::ReplayPager;
-use crate::prep_cache::PreparedScrollback;
-use crate::reducer::Phase;
-use crate::reducer::SessionReducer;
-use crate::stream_pacer::SegmentedPacer;
-use crate::terminal::{DoublePressTracker, ESC_DOUBLE_PRESS_WINDOW, SIGINT_DOUBLE_PRESS_WINDOW};
-use crate::transcript::HistoryLine;
-use serde_json::Value;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-use wf_client::WfClient;
-use wf_types::events::ExecutionStreamEvent;
-use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 impl InteractiveController {
     /// Move the composer cursor to a click cell. Returns whether the cursor

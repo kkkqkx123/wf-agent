@@ -4,14 +4,6 @@
 //! file-workspace submit/merge/undo/redo/gc/reindex, edit-session
 //! begin/rollback.
 
-use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
-use crate::overlay::Feedback;
-use crate::screens::{short_id, ApprovalRow, CheckpointRow, ConflictRow, ScreenData, ScreenKind};
-use wf_client::WfClient;
-
-use super::data_cache::DataResult;
-use super::TuiApp;
-
 mod checkpoint;
 mod conflict;
 mod display;

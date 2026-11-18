@@ -11,7 +11,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 
-use super::backup::{prune_backups, BackupRoundStatus};
+use super::backup::{prune_backups, BackupRequest, BackupRoundStatus};
 use super::config::BackendConfig;
 use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
@@ -40,6 +40,7 @@ pub struct BackendManager {
     store: BackendStore,
     statuses: Arc<DashMap<String, BackendStatusView>>,
     backup_statuses: Arc<DashMap<String, BackupRoundStatus>>,
+    backup_round_error: Arc<std::sync::Mutex<Option<String>>>,
     tunnels: Arc<TunnelSupervisor>,
     shutdown_token: CancellationToken,
     handles: MutexHandles,
@@ -66,6 +67,7 @@ impl BackendManager {
             store,
             statuses: Arc::new(DashMap::new()),
             backup_statuses: Arc::new(DashMap::new()),
+            backup_round_error: Arc::new(std::sync::Mutex::new(None)),
             tunnels: Arc::new(TunnelSupervisor::default()),
             shutdown_token: CancellationToken::new(),
             handles: MutexHandles::default(),
@@ -83,6 +85,37 @@ impl BackendManager {
 
     pub fn config(&self) -> &BackendConfig {
         &self.config
+    }
+
+    pub fn backup_round_error(&self) -> Option<String> {
+        self.backup_round_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn set_backup_round_error(&self, message: Option<String>) {
+        let mut guard = self
+            .backup_round_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = message;
+    }
+
+    fn backup_key(backend: &str, execution: &str) -> String {
+        format!("{backend}/{execution}")
+    }
+
+    fn backup_request<'a>(&'a self, entry: &'a BackendEntry) -> BackupRequest<'a> {
+        BackupRequest {
+            backup_root: self.config.backup_dir.as_deref(),
+            default_local_port: self.config.default_local_port,
+            api_key: self.config.remote_api_key.as_deref(),
+            directory: entry
+                .backup_directory
+                .as_deref()
+                .or(self.config.backup_directory.as_deref()),
+        }
     }
 
     fn require_enabled(&self) -> Result<(), String> {
@@ -140,6 +173,10 @@ impl BackendManager {
             self.config.backup_interval_secs.max(1),
         ));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        tokio::select! {
+            _ = shutdown.cancelled() => return,
+            _ = interval.tick() => {}
+        }
         loop {
             tokio::select! {
                 _ = shutdown.cancelled() => break,
@@ -174,13 +211,22 @@ impl BackendManager {
         }
     }
 
-    /// One scheduled backup round over entries that opt into executions.
-    /// Per-entry retention caps apply after each successful write; one
-    /// entry's failure only marks that entry. Entries not yet due by
-    /// their own interval are skipped so a long fetch cannot stall others.
+    /// One scheduled backup round over executions that opt in. Due state
+    /// is keyed by backend and execution so one success cannot hide another
+    /// execution's failure. Tasks run in small batches to bound tail latency.
     async fn backup_round(&self) {
-        let entries = self.store.list_entries().await.unwrap_or_default();
+        let entries = match self.store.list_entries().await {
+            Ok(entries) => entries,
+            Err(e) => {
+                let message = format!("cannot list backends for backup round: {e}");
+                tracing::warn!(error = %message, "backup round skipped");
+                self.set_backup_round_error(Some(message));
+                return;
+            }
+        };
+        self.set_backup_round_error(None);
         let now_ms = wf_common::epoch_ms();
+        let mut tasks = Vec::new();
         for (name, entry) in entries {
             if entry.backup_executions.is_empty() {
                 continue;
@@ -188,33 +234,41 @@ impl BackendManager {
             let interval = entry
                 .backup_interval_secs
                 .unwrap_or(self.config.backup_interval_secs);
-            if interval > 0 {
-                let due = self
-                    .backup_statuses
-                    .get(&name)
-                    .and_then(|status| status.last_backup_ms)
-                    .map(|last| {
-                        now_ms.saturating_sub(last) >= (interval as i64).saturating_mul(1000)
-                    })
-                    .unwrap_or(true);
-                if !due {
-                    continue;
+            for execution in &entry.backup_executions {
+                if interval > 0 {
+                    let key = Self::backup_key(&name, execution);
+                    let due = self
+                        .backup_statuses
+                        .get(&key)
+                        .and_then(|status| status.last_backup_ms)
+                        .map(|last| {
+                            now_ms.saturating_sub(last) >= (interval as i64).saturating_mul(1000)
+                        })
+                        .unwrap_or(true);
+                    if !due {
+                        continue;
+                    }
                 }
+                tasks.push((name.clone(), entry.clone(), execution.clone()));
             }
-            for execution in entry.backup_executions.clone() {
-                match super::backup::backup_one(
-                    &self.store,
-                    &name,
-                    &entry,
-                    &execution,
-                    self.config.backup_dir.as_deref(),
-                    self.config.default_local_port,
-                )
-                .await
-                {
+        }
+        for chunk in tasks.chunks(4) {
+            let results = futures::future::join_all(chunk.iter().map(
+                |(name, entry, execution)| async move {
+                    let request = self.backup_request(entry);
+                    let result =
+                        super::backup::backup_one(&self.store, name, entry, execution, request)
+                            .await;
+                    (name, entry, execution, result)
+                },
+            ))
+            .await;
+            for (name, entry, execution, result) in results {
+                let key = Self::backup_key(name, execution);
+                match result {
                     Ok(_) => {
                         self.backup_statuses.insert(
-                            name.clone(),
+                            key,
                             BackupRoundStatus {
                                 last_backup_ms: Some(wf_common::epoch_ms()),
                                 error: None,
@@ -226,21 +280,28 @@ impl BackendManager {
                         let days = entry
                             .backup_retention_days
                             .unwrap_or(self.config.backup_retention_days);
-                        let _ = prune_backups(&self.store, &name, count, days).await;
+                        if let Err(e) = prune_backups(&self.store, name, count, days).await {
+                            tracing::warn!(backend = %name, error = %e, "backup pruning failed");
+                        }
                     }
                     Err(e) => {
                         let previous = self
                             .backup_statuses
-                            .get(&name)
+                            .get(&key)
                             .and_then(|status| status.last_backup_ms);
                         self.backup_statuses.insert(
-                            name.clone(),
+                            key,
                             BackupRoundStatus {
                                 last_backup_ms: previous,
-                                error: Some(e),
+                                error: Some(e.clone()),
                             },
                         );
-                        break;
+                        tracing::warn!(
+                            backend = %name,
+                            execution = %execution,
+                            error = %e,
+                            "scheduled backup failed"
+                        );
                     }
                 }
             }
@@ -286,18 +347,31 @@ impl BackendManager {
                 interrupted_reason: self.tunnels.interrupted_reason(name).await,
             },
         };
-        let backup = self
-            .backup_statuses
-            .get(name)
-            .map(|row| row.value().clone());
+        let prefix = format!("{name}/");
+        let mut last_backup_ms = None;
+        let mut errors = Vec::new();
+        for row in self.backup_statuses.iter() {
+            if !row.key().starts_with(&prefix) {
+                continue;
+            }
+            if let Some(value) = row.last_backup_ms {
+                last_backup_ms =
+                    Some(last_backup_ms.map_or(value, |current: i64| current.max(value)));
+            }
+            if let Some(error) = &row.error {
+                errors.push(error.clone());
+            }
+        }
+        errors.sort();
+        errors.dedup();
         BackendEntryView {
             name: name.to_string(),
             url: entry.local_base_url(self.config.default_local_port),
             entry: entry.clone(),
             status,
             tunnel,
-            last_backup_ms: backup.as_ref().and_then(|status| status.last_backup_ms),
-            backup_error: backup.as_ref().and_then(|status| status.error.clone()),
+            last_backup_ms,
+            backup_error: (!errors.is_empty()).then(|| errors.join("; ")),
         }
     }
 
@@ -345,7 +419,16 @@ impl BackendManager {
         self.require_enabled()?;
         self.tunnels.stop(name).await;
         self.statuses.remove(name);
-        self.backup_statuses.remove(name);
+        let prefix = format!("{name}/");
+        let keys: Vec<String> = self
+            .backup_statuses
+            .iter()
+            .filter(|row| row.key().starts_with(&prefix))
+            .map(|row| row.key().clone())
+            .collect();
+        for key in keys {
+            self.backup_statuses.remove(&key);
+        }
         self.store.remove_entry(name).await
     }
 
@@ -431,25 +514,21 @@ impl BackendManager {
             .get_entry(backend)
             .await?
             .ok_or_else(|| format!("backend '{backend}' not found"))?;
-        let id = match super::backup::backup_one(
-            &self.store,
-            backend,
-            &entry,
-            execution,
-            self.config.backup_dir.as_deref(),
-            self.config.default_local_port,
-        )
-        .await
+        let key = Self::backup_key(backend, execution);
+        let previous = self
+            .backup_statuses
+            .get(&key)
+            .and_then(|status| status.last_backup_ms);
+        let request = self.backup_request(&entry);
+        let id = match super::backup::backup_one(&self.store, backend, &entry, execution, request)
+            .await
         {
             Ok(id) => id,
             Err(e) => {
                 self.backup_statuses.insert(
-                    backend.to_string(),
+                    key,
                     BackupRoundStatus {
-                        last_backup_ms: self
-                            .backup_statuses
-                            .get(backend)
-                            .and_then(|status| status.last_backup_ms),
+                        last_backup_ms: previous,
                         error: Some(e.clone()),
                     },
                 );
@@ -457,7 +536,7 @@ impl BackendManager {
             }
         };
         self.backup_statuses.insert(
-            backend.to_string(),
+            key,
             BackupRoundStatus {
                 last_backup_ms: Some(wf_common::epoch_ms()),
                 error: None,
@@ -469,7 +548,9 @@ impl BackendManager {
         let days = entry
             .backup_retention_days
             .unwrap_or(self.config.backup_retention_days);
-        let _ = prune_backups(&self.store, backend, count, days).await;
+        if let Err(e) = prune_backups(&self.store, backend, count, days).await {
+            tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
+        }
         Ok(id)
     }
 
@@ -498,6 +579,7 @@ mod tests {
             backup_retention_count: None,
             backup_retention_days: None,
             backup_executions: Vec::new(),
+            backup_directory: None,
         }
     }
 
@@ -509,6 +591,28 @@ mod tests {
             },
             BackendStore::new_memory(),
         )
+    }
+
+    #[tokio::test]
+    async fn backup_status_is_scoped_per_execution() {
+        let manager = enabled_manager();
+        manager.backup_statuses.insert(
+            BackendManager::backup_key("alpha", "one"),
+            BackupRoundStatus {
+                last_backup_ms: Some(100),
+                error: None,
+            },
+        );
+        manager.backup_statuses.insert(
+            BackendManager::backup_key("alpha", "two"),
+            BackupRoundStatus {
+                last_backup_ms: Some(200),
+                error: Some("down".to_string()),
+            },
+        );
+        let view = manager.view_for("alpha", &entry()).await;
+        assert_eq!(view.last_backup_ms, Some(200));
+        assert_eq!(view.backup_error.as_deref(), Some("down"));
     }
 
     #[tokio::test]

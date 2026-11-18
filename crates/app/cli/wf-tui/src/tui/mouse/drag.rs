@@ -1,20 +1,15 @@
 //! Mouse drag and wheel handling: transcript anchors and scrolling.
 
-use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::MouseEvent;
 
 use tui_core::panel_select::TextPos;
 
 use crate::interactive::TranscriptSelection;
-use crate::modal::{ModalMouse, ModalMouseKind};
 use crate::overlay::OverlayMode;
 use crate::screens::ScreenKind;
 
-use super::super::input_classify::{
-    classify_mouse, click_kind_for_count, mouse_bypasses_capture, mouse_is_left_button,
-    mouse_is_right_button, next_click_count, ClickKind, MouseAction, MouseOutcome,
-};
+use super::super::input_classify::mouse_is_left_button;
 use super::super::TuiApp;
-use super::*;
 
 impl TuiApp {
     /// Anchor for transcript drag selection: logical text position for a

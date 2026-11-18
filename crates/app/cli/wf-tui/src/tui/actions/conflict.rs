@@ -1,12 +1,10 @@
 //! Conflict resolution and rebase helpers.
 
-use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
+use crate::modal::ModalResult;
 use crate::overlay::Feedback;
-use crate::screens::{short_id, ApprovalRow, CheckpointRow, ConflictRow, ScreenData, ScreenKind};
+use crate::screens::{ConflictRow, ScreenData, ScreenKind};
 use wf_client::WfClient;
 
-use super::*;
-use crate::tui::data_cache::DataResult;
 use crate::tui::TuiApp;
 
 impl TuiApp {

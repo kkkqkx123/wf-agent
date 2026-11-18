@@ -1,4 +1,6 @@
 use super::*;
+use crate::footer::FooterRoute;
+use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::keymap::{CKey, Key};
 
 async fn started_controller() -> InteractiveController {

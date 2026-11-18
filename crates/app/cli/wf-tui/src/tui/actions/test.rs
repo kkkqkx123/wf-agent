@@ -1,5 +1,4 @@
 use super::conflict::{parse_rebase_selector, rebuild_conflict_content};
-use super::*;
 
 #[test]
 fn rebase_selector_parses_named_fields() {

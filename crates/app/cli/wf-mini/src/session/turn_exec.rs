@@ -3,21 +3,11 @@
 use super::turn_renderer::{short_execution_id, FinishedTurn, RealSink, TurnRenderer};
 use super::*;
 use crate::approval::MiniApprover;
-use crate::display::DisplayConfig;
-use crate::editor::{terminal_cols, EditorSnapshot, PromptEvent};
-use crate::input::{self, AttachArgs, History, ImageArgs, LineReader, PluginSlash, SlashCommand};
 use crate::output::{self};
-use crate::suggest::{PluginCompletionSource, SuggestBroker, SuggestEngine};
-use crate::transcript::Transcript;
 use futures::StreamExt;
-use std::io::IsTerminal;
-use std::io::Write;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use wf_cli_shared::display::{parse_toggle, MarkdownMode};
-use wf_cli_shared::error::{CliError, CliResult};
+use std::time::Instant;
 use wf_cli_shared::turn::{TurnKind, TurnParams};
-use wf_client::{WfClient, WorkflowNestedAgentLoop};
 use wf_types::events::ExecutionStreamEvent;
 
 impl NativeSession {

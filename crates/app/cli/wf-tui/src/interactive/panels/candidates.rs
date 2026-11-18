@@ -3,17 +3,11 @@
 use super::auth::parse_auth_row;
 use super::*;
 use crate::footer::FooterRoute;
-use crate::interactive::{
-    InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload,
-};
-use crate::keymap::{CKey, Key};
+use crate::interactive::{InteractiveController, InteractiveEvent, PanelPayload};
 use tui_components::footer::PanelState;
 use tui_components::panels::{
-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
-    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
+    AuthPanel, AuthSessionView, ModelPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
 };
-use tui_core::command::{self, CommandRegistry, CommandSpec, RuntimeCommand};
-use tui_core::keymap::KeyAction;
 
 impl InteractiveController {
     /// Apply landed candidates to the cache and to the open panel. Results

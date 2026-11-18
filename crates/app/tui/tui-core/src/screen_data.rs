@@ -676,7 +676,7 @@ pub enum ScreenData {
     Executions(Vec<ExecRow>),
     Insights(InsightsData),
     Checkpoints(Vec<CheckpointRow>),
-    Settings(SettingsData),
+    Settings(Box<SettingsData>),
     Catalog(Vec<CatalogRow>),
     Git(Vec<GitRow>),
     FileWorkspace(Vec<FileChangeRow>),

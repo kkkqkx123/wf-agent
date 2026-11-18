@@ -476,9 +476,10 @@ impl QdrantVectorStore {
         }
         filter.conditions.iter().any(condition_is_null)
             || filter.should.iter().any(condition_is_null)
-            || filter.min_should.as_ref().map_or(false, |clause| {
-                clause.conditions.iter().any(condition_is_null)
-            })
+            || filter
+                .min_should
+                .as_ref()
+                .is_some_and(|clause| clause.conditions.iter().any(condition_is_null))
     }
 
     fn validate_search_params(query: &VectorQuery) -> Result<()> {

@@ -518,17 +518,13 @@ impl InteractiveController {
                 self.move_composer_down();
             }
             CKey::Right if !key.ctrl && !key.alt => {
-                if !self.footer.composer.accept_ghost() {
-                    if !self.accept_plugin_completion() {
-                        self.footer.composer.move_right();
-                    }
+                if !self.footer.composer.accept_ghost() && !self.accept_plugin_completion() {
+                    self.footer.composer.move_right();
                 }
             }
             CKey::End if !key.ctrl && !key.alt => {
-                if !self.footer.composer.accept_ghost() {
-                    if !self.accept_plugin_completion() {
-                        self.footer.composer.end();
-                    }
+                if !self.footer.composer.accept_ghost() && !self.accept_plugin_completion() {
+                    self.footer.composer.end();
                 }
             }
             CKey::Char('r') | CKey::Char('R') if key.ctrl && !key.alt => {

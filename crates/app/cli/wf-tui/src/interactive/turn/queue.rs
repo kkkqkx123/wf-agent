@@ -4,11 +4,8 @@ use futures::StreamExt;
 
 use wf_types::events::ExecutionStreamEvent;
 
-use crate::interactive::{InteractiveController, InteractiveEvent, NestedAgentLoopTarget};
+use crate::interactive::{InteractiveController, InteractiveEvent};
 use crate::reducer::Phase;
-use crate::stream_pacer::PacerOp;
-use crate::tool_output::DetailLevel;
-use crate::transcript::{HistoryLine, LineState, Role};
 use crate::turn::{TurnKind, TurnParams};
 
 use super::*;

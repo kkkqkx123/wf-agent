@@ -381,9 +381,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn mixed_segments_chinese_and_splits_identifiers() {
-        let _guard = crate::plugin::test_registry_guard();
+    #[tokio::test]
+    async fn mixed_segments_chinese_and_splits_identifiers() {
+        let _guard = crate::plugin::test_registry_guard().await;
         clear_analyzers();
         let tokens = mixed_terms("中文分词 getUserById");
         assert!(tokens
@@ -406,9 +406,9 @@ mod tests {
         assert_eq!(position_count(&analyzed), 1);
     }
 
-    #[test]
-    fn custom_analyzer_overrides_builtin() {
-        let _guard = crate::plugin::test_registry_guard();
+    #[tokio::test]
+    async fn custom_analyzer_overrides_builtin() {
+        let _guard = crate::plugin::test_registry_guard().await;
         clear_analyzers();
         register_analyzer(
             "test-custom",

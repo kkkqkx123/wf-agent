@@ -1,18 +1,9 @@
 //! Panel plugin snapshot: commands, settings and display rules.
 
-use super::*;
-use crate::footer::FooterRoute;
-use crate::interactive::{
-    InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload,
-};
-use crate::keymap::{CKey, Key};
+use crate::interactive::{InteractiveAction, InteractiveController};
 use tui_components::footer::PanelState;
-use tui_components::panels::{
-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
-    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
-};
-use tui_core::command::{self, CommandRegistry, CommandSpec, RuntimeCommand};
-use tui_core::keymap::KeyAction;
+use tui_components::panels::QueuedPanel;
+use tui_core::command::{self, CommandRegistry, RuntimeCommand};
 
 impl InteractiveController {
     /// Run a plugin command chosen in the `/` panel or typed as slash.

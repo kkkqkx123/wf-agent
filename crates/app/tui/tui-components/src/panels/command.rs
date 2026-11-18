@@ -17,7 +17,7 @@ use tui_core::keymap::KeyAction;
 #[derive(Debug, Clone)]
 pub enum PanelCommand {
     Builtin(&'static CommandSpec),
-    Plugin(RuntimeCommand),
+    Plugin(Box<RuntimeCommand>),
 }
 
 /// The `/` command palette.
@@ -123,7 +123,7 @@ impl CommandPalette {
             groups[index].items.push(
                 GroupItem::new(
                     command.palette_label(),
-                    PanelCommand::Plugin(command.clone()),
+                    PanelCommand::Plugin(Box::new(command.clone())),
                 )
                 .described(format!("{} [{origin}]", command.description)),
             );
@@ -191,7 +191,7 @@ impl CommandPalette {
     pub fn selected_plugin(&self) -> Option<RuntimeCommand> {
         match self.list.selected() {
             Some(item) => match &item.data {
-                PanelCommand::Plugin(command) => Some(command.clone()),
+                PanelCommand::Plugin(command) => Some((**command).clone()),
                 PanelCommand::Builtin(_) => None,
             },
             None => None,

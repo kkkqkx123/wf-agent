@@ -183,7 +183,7 @@ fn synthetic_insights() -> ScreenData {
 }
 
 fn synthetic_settings() -> ScreenData {
-    ScreenData::Settings(SettingsData {
+    ScreenData::Settings(Box::new(SettingsData {
         profiles: vec![
             ProfileRow {
                 id: "default".into(),
@@ -223,7 +223,7 @@ fn synthetic_settings() -> ScreenData {
         },
         plugin_settings: Vec::new(),
         plugin_values: std::collections::HashMap::new(),
-    })
+    }))
 }
 
 fn synthetic_catalog() -> ScreenData {

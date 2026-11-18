@@ -1,18 +1,14 @@
 //! Panel open, key routing and filter selection.
 
 use super::auth::resolve_auth_option;
-use super::*;
 use crate::footer::FooterRoute;
-use crate::interactive::{
-    InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload,
-};
+use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::keymap::{CKey, Key};
 use tui_components::footer::PanelState;
 use tui_components::panels::{
-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
-    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
+    AuthPanel, CommandPalette, MentionEntry, MentionPanel, ModelPanel, QueuedPanel, SkillPanel,
+    WorkflowPanel,
 };
-use tui_core::command::{self, CommandRegistry, CommandSpec, RuntimeCommand};
 use tui_core::keymap::KeyAction;
 
 impl InteractiveController {
@@ -191,18 +187,10 @@ impl InteractiveController {
         true
     }
 
-    /// Ghost-line suggestion from merged plugin completion sources for the
-    /// current composer buffer, using the same first-hit order as mini.
-    /// Returns the full suggested line; the caller derives the suffix.
-    pub(crate) fn composer_plugin_suggestion(&self) -> Option<String> {
-        let buffer = self.footer.composer.content().to_string();
-        tui_core::command::plugin_completion_suggestion(&buffer, &self.plugin_completions)
-    }
-
     /// Plugin completion rows matching the current composer buffer, in
     /// merge order with mini-identical sorting. Surfaces `#`/`/` sources
-    /// inside the mention panel so the composer联想 panel consumes the
-    /// already-merged completion set instead of builtins only.
+    /// inside the mention panel so the composer suggestion panel consumes
+    /// the already-merged completion set instead of builtins only.
     pub(crate) fn plugin_completion_entries(&self) -> Vec<MentionEntry> {
         let buffer = self.footer.composer.content().to_string();
         if buffer.is_empty() || buffer.chars().any(char::is_whitespace) {

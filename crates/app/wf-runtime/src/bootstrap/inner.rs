@@ -8,6 +8,7 @@ use wf_core::registry::{MutableRegistry, Registry};
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::base::BaseStorageAdapter;
+#[cfg(feature = "file-checkpoint")]
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 
 use crate::error::RuntimeResult;
@@ -19,8 +20,10 @@ use crate::trigger_listener::TriggerExecutionRecorder;
 
 use super::code_context::resolve_code_context_service;
 use super::config::{adjust_log_config, resolve_infra_config, InfraSourceConfig, RuntimeConfig};
+#[cfg(feature = "file-checkpoint")]
 use super::file_checkpoint::init_file_checkpoint_stack;
 use super::llm::{create_auth_registry, create_llm_gateway, register_llm_config};
+#[cfg(feature = "mcp")]
 use super::mcp::init_mcp;
 use super::metrics::init_metrics_context;
 #[cfg(feature = "plugins")]
@@ -89,17 +92,27 @@ impl Runtime {
         if let Some(name) = keyword_selection.analyzer_name.as_deref() {
             tracing::info!(analyzer = %name, "keyword custom analyzer selected");
         }
-        let mut storage_manager = StorageManager::new(config.storage);
+        let cache = wf_storage::decorator::CacheConfig {
+            max_capacity: config.entity_cache_capacity.unwrap_or(1000),
+            ttl_seconds: config.entity_cache_ttl_secs.unwrap_or(300),
+        };
+        let mut storage_manager = StorageManager::new(config.storage).with_cache_config(cache);
         storage_manager.initialize().await?;
 
         // Keyword index singleton: embedded and file branches open on a
         // blocking thread pool while the remote branch probes health and
         // version asynchronously. An open failure fails bootstrap fast;
         // only explicit disabling yields an empty slot.
+        #[cfg(feature = "keyword")]
         let keyword_index =
             wf_api::rag::open_keyword_index_async_with(&keyword_location, &keyword_selection)
                 .await
                 .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
+        #[cfg(not(feature = "keyword"))]
+        let keyword_index = {
+            let _ = (keyword_location, keyword_selection);
+            None
+        };
 
         // Durable checkpoint store backend: reuse the checkpoint table of the
         // shared storage context so execution checkpoints survive restarts
@@ -126,17 +139,21 @@ impl Runtime {
 
         // MCP: load merged settings (global + project), register servers and
         // connect eager/keep-alive ones. Lazy servers connect on first use.
+        #[cfg(feature = "mcp")]
         let mcp_manager = init_mcp(&config.mcp).await;
+        #[cfg(feature = "mcp")]
         if let Some(manager) = &mcp_manager {
             info!(
                 "MCP manager initialized: {} servers registered",
                 manager.registry().list().len()
             );
         }
+        #[cfg(not(feature = "mcp"))]
+        let mcp_manager = None;
 
         // Shared event bus: shell event bridge depends on it, so it is
         // created before the tool registry.
-        let event_bus = Arc::new(EventBus::new(1024));
+        let event_bus = Arc::new(EventBus::new(config.event_bus_capacity.unwrap_or(1024)));
         // Shared typed signal bus: internal workflow/agent control signals
         // (stop/pause/resume/skip, async results) replace the `__`-prefixed
         // variable protocol. Created beside the event bus so trigger actions
@@ -469,6 +486,7 @@ impl Runtime {
         // timer). The manager is attached to the API context so workflow /
         // agent executions create and restore file snapshots through it and
         // script handlers capture workspace changes.
+        #[cfg(feature = "file-checkpoint")]
         let checkpoint_stack = init_file_checkpoint_stack(
             config
                 .file_checkpoint
@@ -476,10 +494,15 @@ impl Runtime {
                 .unwrap_or(&FileCheckpointConfig::default()),
             event_bus.clone(),
         )?;
+        #[cfg(feature = "file-checkpoint")]
         let file_checkpoint_manager = checkpoint_stack.manager;
+        #[cfg(feature = "file-checkpoint")]
         let checkpoint_event_bridge_handle = checkpoint_stack.event_bridge_handle;
+        #[cfg(feature = "file-checkpoint")]
         let manual_change_service = checkpoint_stack.manual_change_service;
+        #[cfg(feature = "file-checkpoint")]
         let gc_timer_handle = checkpoint_stack.gc_timer_handle;
+        #[cfg(feature = "file-checkpoint")]
         if let (Some(manager), Some(metrics)) = (file_checkpoint_manager.as_ref(), metrics.as_ref())
         {
             manager.set_checkpoint_metrics(metrics.registry().checkpoint());
@@ -487,9 +510,13 @@ impl Runtime {
         // Approval tool (policy `llm` / `manual`): an LLM node can call
         // `approve_changes` to resolve a pending agent approval in-workflow.
         // Registered only when a file checkpoint manager is attached.
+        #[cfg(feature = "file-checkpoint")]
         if let Some(manager) = &file_checkpoint_manager {
             crate::approval_tool::register_approval_tools(&tool_registry, manager.clone());
         }
+        #[cfg(not(feature = "file-checkpoint"))]
+        let (file_checkpoint_manager, checkpoint_event_bridge_handle, manual_change_service, gc_timer_handle) =
+            (None, None, None, None);
 
         info!("Runtime bootstrap complete");
 

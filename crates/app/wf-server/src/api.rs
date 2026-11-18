@@ -4,11 +4,15 @@ pub mod checkpoint;
 pub mod cli;
 pub mod definition;
 pub mod entity;
+#[cfg(feature = "git-fs")]
 pub mod fs;
+#[cfg(feature = "git-fs")]
 pub mod git;
 pub mod llm;
 pub mod observation;
+#[cfg(feature = "pty")]
 pub mod pty;
+#[cfg(feature = "rag-vector")]
 pub mod rag;
 pub mod recap;
 pub mod system;

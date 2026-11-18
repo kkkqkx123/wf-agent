@@ -417,6 +417,7 @@ where
 /// Layer HTTP request metrics onto `router`. Must be applied as a route
 /// layer (inside routing) so the templated path is visible; raw paths with
 /// identifiers are never recorded.
+#[cfg(feature = "metrics")]
 pub(crate) fn with_request_metrics<S>(
     router: Router<S>,
     http: Option<Arc<wf_metrics::HttpMetricsCollector>>,
@@ -432,6 +433,7 @@ where
     }))
 }
 
+#[cfg(feature = "metrics")]
 async fn request_metrics(
     http: Arc<wf_metrics::HttpMetricsCollector>,
     req: Request<Body>,

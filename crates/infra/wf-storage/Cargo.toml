@@ -23,6 +23,11 @@ flate2.workspace = true
 url.workspace = true
 tokio-util.workspace = true
 
+[features]
+default = []
+sqlite = []
+postgres = []
+
 [dev-dependencies]
 sqlx = { workspace = true }
 tokio = { workspace = true }

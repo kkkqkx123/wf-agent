@@ -28,6 +28,10 @@ checkpoint-state = { path = "../checkpoint-state" }
 checkpoint-file = { path = "../checkpoint-file" }
 notify = { workspace = true }
 
+[features]
+default = []
+file-checkpoint = []
+
 [dev-dependencies]
 tempfile.workspace = true
 sqlx = { workspace = true }

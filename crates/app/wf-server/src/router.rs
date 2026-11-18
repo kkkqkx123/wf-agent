@@ -19,10 +19,12 @@ use wf_api::ApiContext;
 
 use crate::directory::{directory_middleware, execution_existence_middleware, DirectoryContext};
 use crate::middleware::{self, ServerMiddlewareConfig};
-use crate::server::{serve_with_router_and_backends, ServeError, ServerHandle};
+use crate::server::{serve_with_router_and_backends, BackendHandle, ServeError, ServerHandle};
 use crate::server_config::{ServerConfig, StaticConfig};
 use crate::static_files::{serve_static, StaticHosting};
-use crate::{api, metrics, ws};
+#[cfg(feature = "metrics")]
+use crate::metrics;
+use crate::{api, ws};
 
 #[derive(Clone)]
 pub(crate) struct ApiState {
@@ -30,7 +32,8 @@ pub(crate) struct ApiState {
     pub(crate) config: Arc<ServerMiddlewareConfig>,
     pub(crate) dirs: Arc<DirectoryContext>,
     pub(crate) locks: api::workflow::locks::DefinitionLocks,
-    pub(crate) backends: Option<Arc<crate::backends::BackendManager>>,
+    #[cfg(feature = "backends")]
+    pub(crate) backends: BackendHandle,
 }
 
 /// Public API version served under `/api/{API_VERSION}` and reported by
@@ -82,7 +85,7 @@ pub fn api_router_with_dirs_and_backends(
     ctx: Arc<ApiContext>,
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
-    backends: Option<Arc<crate::backends::BackendManager>>,
+    backends: BackendHandle,
     static_enabled: bool,
 ) -> Router {
     let domain: Router<ApiState> = Router::new()
@@ -115,15 +118,25 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::recap::routes())
         .merge(api::title::routes())
         // shared checkpoint domain (execution records + file workspace)
-        .merge(api::checkpoint::checkpoints::routes())
+        .merge(api::checkpoint::checkpoints::routes());
+
+    #[cfg(feature = "file-checkpoint")]
+    let domain = domain
         .merge(api::checkpoint::file_provenance::routes())
         .merge(api::checkpoint::file_approvals::routes())
-        .merge(api::checkpoint::file_sync::routes())
-        // user git domain (read-only queries + unified action)
+        .merge(api::checkpoint::file_sync::routes());
+
+    // user git domain (read-only queries + unified action)
+    #[cfg(feature = "git-fs")]
+    let domain = domain
         .merge(api::git::readonly::routes())
         .merge(api::git::actions::routes())
-        .merge(api::fs::routes())
-        .merge(api::pty::routes())
+        .merge(api::fs::routes());
+
+    #[cfg(feature = "pty")]
+    let domain = domain.merge(api::pty::routes());
+
+    let domain = domain
         // trigger domain (ledger + template activation gateway)
         .merge(api::trigger::executions::routes())
         .merge(api::trigger::hooks::routes())
@@ -134,9 +147,13 @@ pub fn api_router_with_dirs_and_backends(
         // llm domain (generation + profiles + providers + scripts + tools)
         .merge(api::llm::routes())
         .merge(api::llm::scripts::routes())
-        .merge(api::llm::tools::routes())
-        // retrieval management (stats + preview + diagnose)
-        .merge(api::rag::routes())
+        .merge(api::llm::tools::routes());
+
+    // retrieval management (stats + preview + diagnose)
+    #[cfg(feature = "rag-vector")]
+    let domain = domain.merge(api::rag::routes());
+
+    let domain = domain
         // template domain
         .merge(api::template::templates::routes())
         .merge(api::template::node_drafts::routes())
@@ -168,9 +185,12 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::system::dependencies::routes())
         .merge(api::system::code_context::routes())
         .merge(api::system::directories::routes())
-        .merge(api::system::backends::routes())
-        .merge(api::system::server::routes())
-        .merge(ws::routes());
+        .merge(api::system::server::routes());
+
+    #[cfg(feature = "backends")]
+    let domain = domain.merge(api::system::backends::routes());
+
+    let domain = domain.merge(ws::routes());
     // Static hosting owns the `/` root for the app shell; the JSON root
     // answer steps aside and discovery stays on `/api/v1/info`. Named
     // routes (`/health`, `/metrics`, `/system/*`) keep API precedence.
@@ -197,6 +217,7 @@ pub fn api_router_with_dirs_and_backends(
         config,
         dirs,
         locks: api::workflow::locks::DefinitionLocks::default(),
+        #[cfg(feature = "backends")]
         backends,
     });
     mount_openapi_docs(app)
@@ -207,7 +228,15 @@ pub fn api_router_with_dirs_and_backends(
 /// `/api-docs/*` routes. Mounted after state erasure so the plain `Router`
 /// is used. The offline snapshot under `apps/web-app` is the codegen source;
 /// this route only serves a live server for debugging.
-#[cfg(any(debug_assertions, feature = "openapi-docs"))]
+#[cfg(all(
+    any(debug_assertions, feature = "openapi-docs"),
+    feature = "file-checkpoint",
+    feature = "git-fs",
+    feature = "pty",
+    feature = "rag-vector",
+    feature = "backends",
+    feature = "metrics"
+))]
 fn mount_openapi_docs(router: Router) -> Router {
     use axum::routing::get;
     router.route(
@@ -217,7 +246,15 @@ fn mount_openapi_docs(router: Router) -> Router {
 }
 
 /// Release builds without the feature expose no docs routes.
-#[cfg(not(any(debug_assertions, feature = "openapi-docs")))]
+#[cfg(not(all(
+    any(debug_assertions, feature = "openapi-docs"),
+    feature = "file-checkpoint",
+    feature = "git-fs",
+    feature = "pty",
+    feature = "rag-vector",
+    feature = "backends",
+    feature = "metrics"
+)))]
 fn mount_openapi_docs(router: Router) -> Router {
     router
 }
@@ -242,18 +279,22 @@ pub fn full_router_with_middleware_and_backends(
     ctx: Arc<ApiContext>,
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
-    backends: Option<Arc<crate::backends::BackendManager>>,
+    backends: BackendHandle,
     static_enabled: bool,
 ) -> Router {
-    let http = registry.http();
-    let router = metrics::router(registry).merge(api_router_with_dirs_and_backends(
-        ctx,
-        config,
-        dirs,
-        backends,
-        static_enabled,
-    ));
-    middleware::with_request_metrics(router, Some(http))
+    let api = api_router_with_dirs_and_backends(ctx, config, dirs, backends, static_enabled);
+    #[cfg(feature = "metrics")]
+    let router = {
+        let http = registry.http();
+        let router = metrics::router(registry).merge(api);
+        middleware::with_request_metrics(router, Some(http))
+    };
+    #[cfg(not(feature = "metrics"))]
+    let router = {
+        let _ = registry;
+        api
+    };
+    router
 }
 
 /// Serve the `wf-api` surface on the address owned by `config`, applying the
@@ -264,9 +305,12 @@ pub async fn serve_api_with_config(
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
     let backends = backend_manager_for_config(&config.backends).await;
+    #[cfg(feature = "backends")]
     if let Some(manager) = backends.as_ref() {
         manager.start_background();
     }
+    #[cfg(not(feature = "backends"))]
+    let _ = &backends;
     let router = api_router_with_dirs_and_backends(
         ctx,
         Arc::new(config.middleware.clone()),
@@ -278,9 +322,10 @@ pub async fn serve_api_with_config(
     serve_with_router_and_backends(router, config.bind_addr, backends).await
 }
 
+#[cfg(feature = "backends")]
 async fn backend_manager_for_config(
     config: &crate::backends::BackendConfig,
-) -> Option<Arc<crate::backends::BackendManager>> {
+) -> BackendHandle {
     use crate::backends::{BackendManager, BackendStore};
     if !config.enabled {
         return None;
@@ -310,6 +355,11 @@ async fn backend_manager_for_config(
     Some(BackendManager::new(config.clone(), store))
 }
 
+#[cfg(not(feature = "backends"))]
+async fn backend_manager_for_config(_config: &crate::backends::BackendConfig) -> BackendHandle {
+    None
+}
+
 /// Serve metrics + API on the address owned by `config`, applying the
 /// middleware owned by `config` (file layer plus environment).
 pub async fn serve_full_with_config(
@@ -319,9 +369,12 @@ pub async fn serve_full_with_config(
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
     let backends = backend_manager_for_config(&config.backends).await;
+    #[cfg(feature = "backends")]
     if let Some(manager) = backends.as_ref() {
         manager.start_background();
     }
+    #[cfg(not(feature = "backends"))]
+    let _ = &backends;
     let router = full_router_with_middleware_and_backends(
         registry,
         ctx,

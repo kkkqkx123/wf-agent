@@ -1211,6 +1211,7 @@ mod tests {
             exact_count: true,
             tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
             analyzer_name: None,
+            version_policy: wf_types::config::keyword::ElasticVersionPolicy::default(),
         });
         assert!(open_keyword_index(&location).is_err());
     }
@@ -1285,6 +1286,8 @@ mod tests {
         let selection = KeywordTokenizerSelection {
             tokenizer: KeywordTokenizer::Mixed,
             analyzer_name: None,
+            format_policy: wf_types::config::keyword::KeywordFormatPolicy::default(),
+            writer_heap_bytes: None,
         };
         let opened =
             open_keyword_index_with(&KeywordIndexLocation::Memory, &selection).expect("open");
@@ -1302,6 +1305,7 @@ mod tests {
             exact_count: true,
             tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
             analyzer_name: None,
+            version_policy: wf_types::config::keyword::ElasticVersionPolicy::default(),
         });
         assert!(open_keyword_index_async(&location).await.is_err());
     }

@@ -168,6 +168,15 @@ pub struct RuntimeConfig {
     /// derives from the storage configuration unless set explicitly.
     /// Environment overrides apply at open time (see `wf_api::rag`).
     pub keyword: KeywordIndexConfig,
+    /// Fixed Tokio worker count. `None` keeps the runtime's core-derived
+    /// default; embedded hosts pin a small value.
+    pub worker_threads: Option<usize>,
+    /// Capacity of the shared execution event bus.
+    pub event_bus_capacity: Option<usize>,
+    /// Per-store entity cache capacity for durable storage backends.
+    pub entity_cache_capacity: Option<u64>,
+    /// Per-store entity cache TTL in seconds.
+    pub entity_cache_ttl_secs: Option<u64>,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,
 }

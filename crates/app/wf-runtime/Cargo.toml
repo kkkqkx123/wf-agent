@@ -50,8 +50,19 @@ tempfile.workspace = true
 # `lua`/`native`/`wasm` each imply `plugins`: they forward
 # `wf-plugin/<backend>`, which enables the optional dependency.
 # `native` is compiled in by default but stays disabled at runtime.
-default = ["plugins", "lua", "native", "wasm"]
+default = [
+    "plugins", "lua", "native", "wasm",
+    "file-checkpoint", "keyword", "rag-vector", "mcp", "metrics",
+    "storage-sqlite", "storage-postgres",
+]
 plugins = ["dep:wf-plugin"]
+file-checkpoint = ["wf-checkpoint/file-checkpoint", "wf-api/file-checkpoint"]
+keyword = ["wf-api/keyword"]
+rag-vector = ["wf-api/rag-vector"]
+mcp = ["wf-tools/mcp"]
+metrics = ["wf-metrics/metrics"]
+storage-sqlite = ["wf-storage/sqlite"]
+storage-postgres = ["wf-storage/postgres"]
 lua = ["wf-sandbox/lua", "wf-plugin/lua"]
 native = ["wf-plugin/native"]
 wasm = ["wf-plugin/wasm"]

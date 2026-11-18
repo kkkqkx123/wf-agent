@@ -24,6 +24,8 @@ reqwest = { workspace = true, optional = true }
 
 [features]
 default = []
+keyword-sqlite = []
+vector = []
 tantivy = ["dep:tantivy"]
 elastic = ["dep:reqwest"]
 

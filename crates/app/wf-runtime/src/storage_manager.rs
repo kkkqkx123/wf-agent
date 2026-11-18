@@ -29,6 +29,7 @@ impl From<wf_types::config::storage::StorageType> for StorageBackendType {
 
 pub struct StorageManager {
     config: StorageConfig,
+    cache: CacheConfig,
     initialized: bool,
     context: Option<Arc<StorageContext>>,
     /// Single-instance guard for sqlite: the lock file stays open while
@@ -50,10 +51,17 @@ impl StorageManager {
     pub fn new(config: StorageConfig) -> Self {
         Self {
             config,
+            cache: CacheConfig::default(),
             initialized: false,
             context: None,
             _lock_file: None,
         }
+    }
+
+    /// Override the per-store entity cache used by durable backends.
+    pub fn with_cache_config(mut self, cache: CacheConfig) -> Self {
+        self.cache = cache;
+        self
     }
 
     pub fn is_initialized(&self) -> bool {
@@ -94,7 +102,7 @@ impl StorageManager {
                 }
                 let path_str = db_path.to_string_lossy();
                 info!("Initializing Sqlite storage at {:?}", db_path);
-                StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?
+                StorageContext::new_sqlite(&path_str, self.cache).await?
             }
             StorageBackendType::Postgres => {
                 let pg_config = self.config.postgres.as_ref().ok_or_else(|| {
@@ -102,7 +110,7 @@ impl StorageManager {
                 })?;
                 info!("Initializing PostgreSQL storage");
                 let conn = crate::bootstrap::postgres_connection_string(pg_config);
-                StorageContext::new_postgres(&conn, CacheConfig::default()).await?
+                StorageContext::new_postgres(&conn, self.cache).await?
             }
         };
 

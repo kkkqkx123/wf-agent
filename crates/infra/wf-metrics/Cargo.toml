@@ -14,6 +14,10 @@ thiserror.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 
+[features]
+default = []
+metrics = []
+
 [dev-dependencies]
 tokio.workspace = true
 criterion.workspace = true

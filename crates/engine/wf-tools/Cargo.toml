@@ -45,6 +45,7 @@ default = ["sqlite"]
 # Without this feature session notes fall back to an in-memory store.
 sqlite = ["dep:rusqlite"]
 lua = ["wf-sandbox/lua"]
+mcp = []
 # Fixture-driven example harness. Not part of the default build; enables
 # `examples/tool_showcase.rs` and the golden-output integration test.
 harness = []

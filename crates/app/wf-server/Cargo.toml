@@ -28,8 +28,8 @@ base64.workspace = true
 sha2.workspace = true
 blake3.workspace = true
 hex.workspace = true
-reqwest.workspace = true
-sqlx.workspace = true
+reqwest = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
 tokio-util.workspace = true
 
 [features]
@@ -38,11 +38,25 @@ tokio-util.workspace = true
 # removes a backend instead of being re-added downstream.
 # `lua`/`native`/`wasm` each imply `plugins` through the runtime.
 # `native` is compiled in by default but stays disabled at runtime.
-default = ["plugins", "lua", "native", "wasm"]
+default = [
+    "plugins", "lua", "native", "wasm",
+    "file-checkpoint", "keyword", "rag-vector", "pty", "mcp", "git-fs",
+    "backends", "metrics", "storage-sqlite", "storage-postgres",
+]
 plugins = ["wf-runtime/plugins"]
 lua = ["wf-runtime/lua"]
 native = ["wf-runtime/native"]
 wasm = ["wf-runtime/wasm"]
+file-checkpoint = ["wf-runtime/file-checkpoint"]
+keyword = ["wf-runtime/keyword"]
+rag-vector = ["wf-runtime/rag-vector"]
+pty = ["wf-api/pty"]
+mcp = ["wf-runtime/mcp"]
+git-fs = []
+backends = ["dep:reqwest", "dep:sqlx", "sqlx/sqlite"]
+metrics = ["wf-runtime/metrics"]
+storage-sqlite = ["wf-runtime/storage-sqlite"]
+storage-postgres = ["wf-runtime/storage-postgres"]
 openapi-docs = []
 
 [[bin]]

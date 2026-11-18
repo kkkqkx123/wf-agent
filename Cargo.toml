@@ -205,6 +205,11 @@ tempfile = "3"
 criterion = "0.5"
 insta = "1"
 
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
+
 [profile.dev.package.tui-style]
 opt-level = 3
 

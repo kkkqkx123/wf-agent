@@ -45,3 +45,7 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 [features]
 default = []
 lua = ["wf-sandbox/lua"]
+file-checkpoint = []
+keyword = ["rag-core/keyword-sqlite"]
+rag-vector = ["rag-core/vector"]
+pty = []

@@ -4,8 +4,18 @@ pub mod backends;
 pub mod directory;
 pub mod envelope;
 pub mod extract;
-pub mod metrics;
 pub mod middleware;
+#[cfg(feature = "metrics")]
+pub mod metrics;
+#[cfg(all(
+    any(debug_assertions, feature = "openapi-docs"),
+    feature = "file-checkpoint",
+    feature = "git-fs",
+    feature = "pty",
+    feature = "rag-vector",
+    feature = "backends",
+    feature = "metrics"
+))]
 pub mod openapi;
 pub mod paged;
 pub mod pairing;
@@ -18,6 +28,7 @@ pub mod ws;
 
 pub use api::system::health::HealthView;
 pub use api::workflow::executions::{ExecuteBody, ExecuteView};
+#[cfg(feature = "metrics")]
 pub use metrics::{router, serve};
 pub use router::{
     api_router_with_config, api_router_with_dirs, api_router_with_dirs_and_backends,

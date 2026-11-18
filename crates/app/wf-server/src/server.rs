@@ -9,6 +9,11 @@ use axum::Router;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+#[cfg(feature = "backends")]
+pub(crate) type BackendHandle = Option<std::sync::Arc<crate::backends::BackendManager>>;
+#[cfg(not(feature = "backends"))]
+pub(crate) type BackendHandle = Option<()>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ServeError {
     #[error("bind failed: {0}")]
@@ -24,7 +29,7 @@ pub struct ServerHandle {
     pub(crate) addr: SocketAddr,
     pub(crate) shutdown: oneshot::Sender<()>,
     pub(crate) task: JoinHandle<()>,
-    pub(crate) backends: Option<std::sync::Arc<crate::backends::BackendManager>>,
+    pub(crate) backends: BackendHandle,
 }
 
 impl ServerHandle {
@@ -39,9 +44,12 @@ impl ServerHandle {
     /// shut down first so no `ssh -N` outlives the management service.
     pub async fn shutdown(self) {
         crate::api::system::server::mark_server_stopping();
+        #[cfg(feature = "backends")]
         if let Some(backends) = self.backends {
             backends.shutdown().await;
         }
+        #[cfg(not(feature = "backends"))]
+        let _ = self.backends;
         let _ = self.shutdown.send(());
         let _ = self.task.await;
     }
@@ -51,6 +59,7 @@ impl ServerHandle {
 /// and returns a `ServerHandle`; a bind failure surfaces as
 /// `Err(ServeError::Bind)` for the caller to decide (e.g. degrade when
 /// metrics are an optional service).
+#[cfg(any(feature = "metrics", test))]
 pub(crate) async fn serve_with_router(
     router: Router,
     addr: SocketAddr,
@@ -86,7 +95,7 @@ pub(crate) async fn serve_with_router(
 pub(crate) async fn serve_with_router_and_backends(
     router: Router,
     addr: SocketAddr,
-    backends: Option<std::sync::Arc<crate::backends::BackendManager>>,
+    backends: BackendHandle,
 ) -> Result<ServerHandle, ServeError> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await

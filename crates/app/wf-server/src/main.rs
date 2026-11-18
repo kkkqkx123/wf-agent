@@ -49,6 +49,14 @@ struct Args {
     /// Log level: trace|debug|info|warn|error
     #[arg(long)]
     log_level: Option<String>,
+
+    /// Fixed Tokio worker count. Overrides `WF_SERVER_WORKER_THREADS`.
+    #[arg(long)]
+    worker_threads: Option<usize>,
+}
+
+fn env_usize(name: &str) -> Option<usize> {
+    std::env::var(name).ok()?.parse().ok()
 }
 
 fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig>) {
@@ -97,9 +105,20 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
     (config, source)
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = Args::parse();
+    let worker_threads = args
+        .worker_threads
+        .or_else(|| env_usize("WF_SERVER_WORKER_THREADS"));
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    if let Some(count) = worker_threads {
+        builder.worker_threads(count);
+    }
+    let runtime = builder.enable_all().build().expect("tokio runtime setup failed");
+    runtime.block_on(run(args, worker_threads));
+}
+
+async fn run(args: Args, worker_threads: Option<usize>) {
 
     if let Some(spec) = args.storage.as_deref() {
         if let Err(e) = wf_config::storage_spec::parse_storage_spec_result(spec) {
@@ -118,7 +137,19 @@ async fn main() {
         }
     }
 
-    let (runtime_config, infra_source) = build_runtime_config(&args);
+    let (mut runtime_config, infra_source) = build_runtime_config(&args);
+    if worker_threads.is_some() {
+        runtime_config.worker_threads = worker_threads;
+    }
+    if let Some(capacity) = env_usize("WF_SERVER_EVENT_BUS_CAPACITY") {
+        runtime_config.event_bus_capacity = Some(capacity);
+    }
+    if let Some(capacity) = env_usize("WF_SERVER_ENTITY_CACHE_CAPACITY") {
+        runtime_config.entity_cache_capacity = Some(capacity as u64);
+    }
+    if let Some(ttl) = env_usize("WF_SERVER_ENTITY_CACHE_TTL_SECS") {
+        runtime_config.entity_cache_ttl_secs = Some(ttl as u64);
+    }
     // The server owns its listen address: CLI flag wins over
     // `WF_SERVER_BIND_ADDR` env and the `server.toml` file layer. A present
     // but invalid file fails startup instead of silently binding elsewhere.

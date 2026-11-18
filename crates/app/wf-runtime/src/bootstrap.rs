@@ -1,9 +1,11 @@
 mod api_context;
 mod code_context;
 mod config;
+#[cfg(feature = "file-checkpoint")]
 mod file_checkpoint;
 mod inner;
 mod llm;
+#[cfg(feature = "mcp")]
 mod mcp;
 mod metrics;
 mod plugin;
@@ -20,11 +22,13 @@ pub use code_context::resolve_code_context_service;
 pub use config::PluginConfig;
 pub use config::{adjust_log_config, resolve_infra_config};
 pub use config::{InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, RuntimeConfig};
+#[cfg(feature = "file-checkpoint")]
 pub use file_checkpoint::{
     init_file_checkpoint_manager, init_file_checkpoint_stack, init_gc_timer,
     init_manual_change_service, FileCheckpointStack,
 };
 pub use llm::{create_auth_registry, create_llm_gateway, init_llm_gateway, register_llm_config};
+#[cfg(feature = "mcp")]
 pub use mcp::init_mcp;
 pub use metrics::init_metrics_context;
 #[cfg(feature = "plugins")]

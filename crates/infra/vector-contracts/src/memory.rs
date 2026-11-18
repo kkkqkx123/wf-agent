@@ -87,7 +87,10 @@ fn validate_search_quantization(query: &VectorQuery) -> Result<()> {
         ));
     }
     if let Some(params) = &query.quantization {
-        if params.oversampling.is_some_and(|v| !v.is_finite() || v < 1.0) {
+        if params
+            .oversampling
+            .is_some_and(|v| !v.is_finite() || v < 1.0)
+        {
             return Err(VectorError::InvalidInput(format!(
                 "quantization oversampling {} must be >= 1.0",
                 params.oversampling.unwrap_or(0.0)
@@ -204,9 +207,7 @@ impl VectorStorage for InMemoryVectorStore {
                     spec.name
                 )));
             }
-            if spec.on_disk_payload.is_some()
-                && existing.on_disk_payload != spec.on_disk_payload
-            {
+            if spec.on_disk_payload.is_some() && existing.on_disk_payload != spec.on_disk_payload {
                 return Err(VectorError::InvalidInput(format!(
                     "collection '{}' uses different on_disk_payload, recreate it",
                     spec.name

@@ -207,9 +207,11 @@ impl ServerConfig {
         project_layer: Option<&Path>,
     ) -> ConfigResult<DirectoryConfig> {
         let file = load_merged_server_file(settings_layer, project_layer)?;
-        Ok(DirectoryConfig::resolve(
-            file.and_then(|file| file.allowed_roots),
-        ))
+        let (allowed, trusted) = match file {
+            Some(file) => (file.allowed_roots, file.trusted_roots),
+            None => (None, None),
+        };
+        Ok(DirectoryConfig::resolve(allowed, trusted))
     }
 }
 
@@ -308,6 +310,7 @@ struct ServerFileConfig {
     static_fallback: Option<bool>,
     static_immutable_max_age_secs: Option<u64>,
     allowed_roots: Option<Vec<String>>,
+    trusted_roots: Option<Vec<String>>,
 }
 
 /// Load and merge `server.toml` from the settings layer (low) and the

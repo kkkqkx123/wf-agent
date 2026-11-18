@@ -4,9 +4,9 @@ pub mod backends;
 pub mod directory;
 pub mod envelope;
 pub mod extract;
-pub mod middleware;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod middleware;
 #[cfg(all(
     any(debug_assertions, feature = "openapi-docs"),
     feature = "file-checkpoint",

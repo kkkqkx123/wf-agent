@@ -16,7 +16,12 @@ use crate::extract::IdPath;
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
-    Router::new().route("/executions/{id}/bundle", get(handle_execution_bundle))
+    Router::new()
+        .route("/executions/{id}/bundle", get(handle_execution_bundle))
+        .route(
+            "/remote-sync/executions/{id}/bundle",
+            get(handle_remote_sync_bundle),
+        )
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -55,6 +60,39 @@ pub(crate) async fn handle_execution_bundle(
         Ok(bundle) => ok(bundle).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+/// One-response sync payload for the local management service. The
+/// execution bundle and its checkpoint chain share one owner check so a
+/// backup never mixes data from different executions.
+#[derive(serde::Serialize)]
+struct RemoteSyncBundle<B: serde::Serialize, C: serde::Serialize> {
+    bundle: B,
+    checkpoints: C,
+}
+
+pub(crate) async fn handle_remote_sync_bundle(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return error_response(e);
+    }
+    let bundle = match wf_api::execution_bundle::export_bundle(&state.ctx, &path.id, false).await {
+        Ok(bundle) => bundle,
+        Err(e) => return error_response(e),
+    };
+    let checkpoints =
+        match wf_api::checkpoint::record::chain_for_execution(&state.ctx, &path.id, None).await {
+            Ok(chain) => chain,
+            Err(e) => return error_response(e),
+        };
+    ok(RemoteSyncBundle {
+        bundle,
+        checkpoints,
+    })
+    .into_response()
 }
 
 #[cfg(test)]

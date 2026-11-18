@@ -46,10 +46,7 @@ impl KeywordFormat {
             .filter(|name| !name.trim().is_empty())
             .map(|name| format!("analyzer:{name}"))
             .unwrap_or_else(|| "builtin".to_string());
-        format!(
-            "v1/{:?}/{analyzer}",
-            self.tokenizer
-        )
+        format!("v1/{:?}/{analyzer}", self.tokenizer)
     }
 
     /// Error reported when an existing index carries a different stamp.

@@ -45,9 +45,7 @@ impl SimvecVectorStore {
         }
     }
 
-    fn map_compression(
-        compression: crate::types::CompressionRatio,
-    ) -> simvec::CompressionRatio {
+    fn map_compression(compression: crate::types::CompressionRatio) -> simvec::CompressionRatio {
         match compression {
             crate::types::CompressionRatio::X4 => simvec::CompressionRatio::X4,
             crate::types::CompressionRatio::X8 => simvec::CompressionRatio::X8,
@@ -98,7 +96,10 @@ impl SimvecVectorStore {
             ));
         }
         if let Some(params) = &query.quantization {
-            if params.oversampling.is_some_and(|v| !v.is_finite() || v < 1.0) {
+            if params
+                .oversampling
+                .is_some_and(|v| !v.is_finite() || v < 1.0)
+            {
                 return Err(VectorError::InvalidInput(format!(
                     "quantization oversampling {} must be >= 1.0",
                     params.oversampling.unwrap_or(0.0)

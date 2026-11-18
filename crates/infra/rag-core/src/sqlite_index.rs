@@ -124,12 +124,8 @@ impl SqliteKeywordIndex {
             .conn
             .lock()
             .map_err(|err| RagError::Keyword(err.to_string()))?;
-        guard
-            .execute_batch(SCHEMA)
-            .map_err(schema_error)?;
-        guard
-            .execute_batch(META_SCHEMA)
-            .map_err(schema_error)?;
+        guard.execute_batch(SCHEMA).map_err(schema_error)?;
+        guard.execute_batch(META_SCHEMA).map_err(schema_error)?;
         Ok(())
     }
 
@@ -152,25 +148,23 @@ impl SqliteKeywordIndex {
             .filter(|value| !value.is_empty());
         drop(guard);
         let current = format.id();
-        let legacy_compatible =
-            format.tokenizer == wf_types::config::keyword::KeywordTokenizer::English
-                && format.analyzer_name.is_none();
+        let legacy_compatible = format.tokenizer
+            == wf_types::config::keyword::KeywordTokenizer::English
+            && format.analyzer_name.is_none();
         match existing {
             None if legacy_compatible => {
                 self.write_format_stamp()?;
             }
             Some(existing) if existing == current => {}
             existing => {
-                let existing = existing
-                    .unwrap_or_else(|| "legacy-unstamped".to_string());
+                let existing = existing.unwrap_or_else(|| "legacy-unstamped".to_string());
                 if format.policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
                     self.readonly
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                     return Ok(());
                 }
                 return Err(crate::keyword_index::KeywordFormat::mismatch_error(
-                    &existing,
-                    &current,
+                    &existing, &current,
                 ));
             }
         }
@@ -178,11 +172,9 @@ impl SqliteKeywordIndex {
     }
 
     fn write_format_stamp(&self) -> Result<()> {
-        let stamp = crate::keyword_index::KeywordFormat::new(
-            self.tokenizer,
-            self.analyzer_name.clone(),
-        )
-        .id();
+        let stamp =
+            crate::keyword_index::KeywordFormat::new(self.tokenizer, self.analyzer_name.clone())
+                .id();
         let guard = self
             .conn
             .lock()

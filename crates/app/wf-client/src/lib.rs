@@ -23,8 +23,8 @@ pub mod remote;
 pub mod sse;
 
 pub use client::{
-    with_directory_query, ClientConfig, WfClient, WorkflowNestedAgentLoop, DEFAULT_BASE_URL,
-    DIRECTORY_HEADER, DIRECTORY_QUERY_PARAM,
+    api_version_compatible, with_directory_query, ClientConfig, WfClient, WorkflowNestedAgentLoop,
+    DEFAULT_BASE_URL, DIRECTORY_HEADER, DIRECTORY_QUERY_PARAM,
 };
 pub use error::{ClientError, ClientResult};
 pub use remote::{

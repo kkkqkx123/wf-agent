@@ -18,12 +18,12 @@ use axum::Router;
 use wf_api::ApiContext;
 
 use crate::directory::{directory_middleware, execution_existence_middleware, DirectoryContext};
+#[cfg(feature = "metrics")]
+use crate::metrics;
 use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router_and_backends, BackendHandle, ServeError, ServerHandle};
 use crate::server_config::{ServerConfig, StaticConfig};
 use crate::static_files::{serve_static, StaticHosting};
-#[cfg(feature = "metrics")]
-use crate::metrics;
 use crate::{api, ws};
 
 #[derive(Clone)]
@@ -36,10 +36,9 @@ pub(crate) struct ApiState {
     pub(crate) backends: BackendHandle,
 }
 
-/// Public API version served under `/api/{API_VERSION}` and reported by
-/// `/api/v1/info`. Single source for runtime responses; the OpenAPI macro
-/// keeps its own literal and is pinned to this value by a test.
-pub const API_VERSION: &str = "v1";
+/// Public API version reported by `/api/v1/info`. The constant lives in
+/// `wf-types` so the server response and client expectation cannot drift.
+pub use wf_types::API_VERSION;
 
 /// Test-only API router with deterministic default middleware (no environment
 /// reads, so one process env cannot flake another test). Production and
@@ -88,6 +87,8 @@ pub fn api_router_with_dirs_and_backends(
     backends: BackendHandle,
     static_enabled: bool,
 ) -> Router {
+    #[cfg(not(feature = "backends"))]
+    let _ = &backends;
     let domain: Router<ApiState> = Router::new()
         // workflow definition + execution + graph analysis
         .merge(api::workflow::workflows::routes())
@@ -323,9 +324,7 @@ pub async fn serve_api_with_config(
 }
 
 #[cfg(feature = "backends")]
-async fn backend_manager_for_config(
-    config: &crate::backends::BackendConfig,
-) -> BackendHandle {
+async fn backend_manager_for_config(config: &crate::backends::BackendConfig) -> BackendHandle {
     use crate::backends::{BackendManager, BackendStore};
     if !config.enabled {
         return None;

@@ -1,3 +1,6 @@
+/// Public API version shared by the server response and client expectation.
+pub const API_VERSION: &str = "v1";
+
 pub mod common;
 pub mod condition;
 pub mod decision_profile;

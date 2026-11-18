@@ -49,6 +49,7 @@ fn test_scope() -> Option<crate::directory::DirectoryScope> {
         project_id: wf_common::workspace::project_id_for(&project),
         project,
         directory,
+        trusted: true,
     })
 }
 

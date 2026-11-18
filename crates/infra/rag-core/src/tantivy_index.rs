@@ -247,11 +247,9 @@ impl TantivyKeywordIndex {
                 if format.policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
                     readonly = true;
                 } else {
-                    let existing =
-                        existing.unwrap_or_else(|| "legacy-unstamped".to_string());
+                    let existing = existing.unwrap_or_else(|| "legacy-unstamped".to_string());
                     return Err(crate::keyword_index::KeywordFormat::mismatch_error(
-                        &existing,
-                        &current,
+                        &existing, &current,
                     ));
                 }
             }
@@ -261,8 +259,13 @@ impl TantivyKeywordIndex {
         let index = Index::open_or_create(dir, schema).map_err(keyword_error)?;
         // Existing directories keep the stored schema; registering the
         // mixed tokenizer stays harmless when the field uses it.
-        let index =
-            Self::from_index(index, fields, format.tokenizer, format.analyzer_name.clone(), writer_heap_bytes.unwrap_or(WRITER_HEAP_BYTES))?;
+        let index = Self::from_index(
+            index,
+            fields,
+            format.tokenizer,
+            format.analyzer_name.clone(),
+            writer_heap_bytes.unwrap_or(WRITER_HEAP_BYTES),
+        )?;
         if !readonly {
             std::fs::write(&stamp_path, &current)
                 .map_err(|err| RagError::Keyword(format!("write tantivy format stamp: {err}")))?;

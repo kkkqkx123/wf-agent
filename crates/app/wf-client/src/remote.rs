@@ -46,6 +46,14 @@ impl SshTunnelConfig {
         })
     }
 
+    /// Shared ControlMaster socket. The supervised forward creates the
+    /// master; printed launch and stop commands attach as slaves.
+    pub fn control_path(&self) -> String {
+        wf_types::script::schema::tunnel_control_socket(&self.host, self.local_port)
+            .to_string_lossy()
+            .into_owned()
+    }
+
     pub fn ssh_target(&self) -> String {
         if self.username.trim().is_empty() {
             self.host.clone()
@@ -74,6 +82,12 @@ impl SshTunnelConfig {
             self.port.to_string(),
             "-L".to_string(),
             self.forward_spec(),
+            "-o".to_string(),
+            "ControlMaster=yes".to_string(),
+            "-o".to_string(),
+            format!("ControlPath={}", self.control_path()),
+            "-o".to_string(),
+            "ControlPersist=no".to_string(),
         ];
         if let Some(key) = self.key_path.as_deref().filter(|s| !s.trim().is_empty()) {
             argv.push("-i".to_string());
@@ -108,6 +122,10 @@ impl SshTunnelConfig {
             "BatchMode=yes".to_string(),
             "-p".to_string(),
             self.port.to_string(),
+            "-o".to_string(),
+            "ControlMaster=no".to_string(),
+            "-o".to_string(),
+            format!("ControlPath={}", self.control_path()),
         ];
         if let Some(key) = self.key_path.as_deref().filter(|s| !s.trim().is_empty()) {
             argv.push("-i".to_string());
@@ -134,6 +152,10 @@ impl SshTunnelConfig {
             "BatchMode=yes".to_string(),
             "-p".to_string(),
             self.port.to_string(),
+            "-o".to_string(),
+            "ControlMaster=no".to_string(),
+            "-o".to_string(),
+            format!("ControlPath={}", self.control_path()),
         ];
         if let Some(key) = self.key_path.as_deref().filter(|s| !s.trim().is_empty()) {
             argv.push("-i".to_string());
@@ -231,6 +253,8 @@ mod tests {
         assert_eq!(tunnel.ssh_target(), "dev@example");
         let argv = tunnel.tunnel_argv();
         assert!(argv.contains(&"18080:127.0.0.1:3000".to_string()));
+        assert!(argv.contains(&"ControlMaster=yes".to_string()));
+        assert!(argv.iter().any(|part| part.starts_with("ControlPath=")));
         assert_eq!(tunnel.local_base_url(), "http://127.0.0.1:18080");
     }
 
@@ -261,6 +285,8 @@ mod tests {
         let launch = argv.last().expect("launch command");
         assert!(launch.contains("wf-server --addr 127.0.0.1:3000"));
         assert!(!launch.contains("--bind"));
+        assert!(argv.contains(&"ControlMaster=no".to_string()));
+        assert!(argv.contains(&format!("ControlPath={}", tunnel.control_path())));
     }
 
     #[test]
@@ -273,6 +299,21 @@ mod tests {
             "pkill -f 'wf-server --addr 127.0.0.1:3000'"
         );
         assert!(argv.contains(&"dev@example".to_string()));
+        assert!(argv.contains(&"ControlMaster=no".to_string()));
+    }
+
+    #[test]
+    fn control_path_depends_on_host_and_local_port() {
+        let base = schema();
+        let first = SshTunnelConfig::from_schema(&base, 18080).expect("tunnel");
+        let other_port = SshTunnelConfig::from_schema(&base, 18081).expect("tunnel");
+        let other_host_schema = wf_types::script::schema::SshConfigSchema {
+            host: "other".to_string(),
+            ..base
+        };
+        let other_host = SshTunnelConfig::from_schema(&other_host_schema, 18080).expect("tunnel");
+        assert_ne!(first.control_path(), other_port.control_path());
+        assert_ne!(first.control_path(), other_host.control_path());
     }
 
     #[test]

@@ -186,7 +186,8 @@ impl ElasticKeywordIndex {
                     .put(self.url(&format!("/{index}")))
                     .json(&mapping),
             )
-            .await?;        let status = response.status();
+            .await?;
+        let status = response.status();
         let body = response.text().await.unwrap_or_default();
         if status.is_success() {
             return Ok(());
@@ -253,9 +254,7 @@ impl ElasticKeywordIndex {
         if !mismatch {
             return Ok(());
         }
-        if self.config.format_policy
-            == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly
-        {
+        if self.config.format_policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
             return Ok(());
         }
         Err(crate::keyword_index::KeywordFormat::mismatch_error(

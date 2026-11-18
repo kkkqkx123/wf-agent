@@ -83,6 +83,7 @@ impl ClientHandle {
             directory: Some(directory),
         };
         handle.check_reachable().await?;
+        handle.check_api_version().await?;
         handle.check_affinity(cli).await?;
         Ok(handle)
     }
@@ -151,6 +152,28 @@ impl ClientHandle {
         }
     }
 
+    /// Refuse a connection whose API version differs from the one this
+    /// client was built against. The server exposes the same constant on
+    /// `/api/v1/info`, so a mismatch means an incompatible wire contract.
+    async fn check_api_version(&self) -> CliResult<()> {
+        let info = self.client.info_typed().await.map_err(|e| {
+            CliError::Configuration(format!(
+                "cannot read API version from {}: {e}; check the server version",
+                self.client.base_url()
+            ))
+        })?;
+        if !wf_client::api_version_compatible(&info.api_version) {
+            return Err(CliError::Configuration(format!(
+                "API version mismatch with {}: client expects {}, server reports {}; \
+                 upgrade the client or the server",
+                self.client.base_url(),
+                wf_types::API_VERSION,
+                info.api_version
+            )));
+        }
+        Ok(())
+    }
+
     async fn check_reachable(&self) -> CliResult<()> {
         self.client
             .health_typed()
@@ -186,6 +209,13 @@ mod tests {
             git_head: Some("abc".to_string()),
             marker_id: marker.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn api_version_matches_only_the_shared_constant() {
+        assert!(wf_client::api_version_compatible(wf_types::API_VERSION));
+        assert!(!wf_client::api_version_compatible("v0"));
+        assert!(!wf_client::api_version_compatible(""));
     }
 
     #[test]

@@ -263,11 +263,8 @@ pub fn open_tantivy_dir_keyword_format(
     format: keyword_index::KeywordFormat,
     writer_heap_bytes: Option<usize>,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = tantivy_index::TantivyKeywordIndex::open_with_format(
-        path,
-        format,
-        writer_heap_bytes,
-    )?;
+    let index =
+        tantivy_index::TantivyKeywordIndex::open_with_format(path, format, writer_heap_bytes)?;
     Ok(std::sync::Arc::new(index))
 }
 

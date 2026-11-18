@@ -100,30 +100,23 @@ async fn fetch_bundle(
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| format!("cannot build backup client: {e}"))?;
-    let bundle: serde_json::Value = client
-        .get(format!("{base_url}/api/v1/executions/{execution}/bundle"))
-        .send()
-        .await
-        .map_err(|e| format!("bundle request failed: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("bundle decode failed: {e}"))?;
-    let bundle = bundle
-        .get("data")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let checkpoints: serde_json::Value = client
+    let response: serde_json::Value = client
         .get(format!(
-            "{base_url}/api/v1/executions/{execution}/checkpoints/chain"
+            "{base_url}/api/v1/remote-sync/executions/{execution}/bundle"
         ))
         .send()
         .await
-        .map_err(|e| format!("checkpoint chain request failed: {e}"))?
+        .map_err(|e| format!("sync request failed: {e}"))?
         .json()
         .await
-        .map_err(|e| format!("checkpoint chain decode failed: {e}"))?;
-    let checkpoints = checkpoints
-        .get("data")
+        .map_err(|e| format!("sync decode failed: {e}"))?;
+    let data = response.get("data").unwrap_or(&serde_json::Value::Null);
+    let bundle = data
+        .get("bundle")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let checkpoints = data
+        .get("checkpoints")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
     Ok((bundle, checkpoints))

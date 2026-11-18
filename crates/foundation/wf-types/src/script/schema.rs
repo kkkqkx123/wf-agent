@@ -142,6 +142,26 @@ pub struct DockerConfigSchema {
 /// different hosts need distinct ports.
 pub const DEFAULT_LOCAL_TUNNEL_PORT: u16 = 18080;
 
+/// ControlMaster socket for one tunnel, derived from the host and local
+/// port so the supervised forward and the printed commands share it.
+/// Unsafe host characters are replaced and the stem is capped to keep the
+/// path inside the Unix socket address limit.
+pub fn tunnel_control_socket(host: &str, local_port: u16) -> std::path::PathBuf {
+    let stem: String = host
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .take(48)
+        .collect();
+    let stem = if stem.is_empty() { "host" } else { &stem };
+    std::env::temp_dir().join(format!("wf-ssh-{stem}-{local_port}.sock"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SshConfigSchema {
     pub host: String,

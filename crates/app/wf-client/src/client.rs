@@ -22,6 +22,11 @@ use crate::generated;
 /// Default local server address when neither `--remote` nor `WF_REMOTE` is set.
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:3000";
 
+/// Whether a server-reported API version matches this client's contract.
+pub fn api_version_compatible(server_version: &str) -> bool {
+    server_version == wf_types::API_VERSION
+}
+
 /// Request header carrying the business directory. Wins over the query
 /// parameter on the server; mirrors `wf-server`'s directory middleware.
 /// Every request built on the shared HTTP client carries this header, so

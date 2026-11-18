@@ -114,12 +114,19 @@ fn main() {
     if let Some(count) = worker_threads {
         builder.worker_threads(count);
     }
-    let runtime = builder.enable_all().build().expect("tokio runtime setup failed");
+    let runtime = builder
+        .enable_all()
+        .build()
+        .expect("tokio runtime setup failed");
     runtime.block_on(run(args, worker_threads));
 }
 
 async fn run(args: Args, worker_threads: Option<usize>) {
-
+    #[cfg(all(feature = "remote-node", feature = "backends"))]
+    {
+        eprintln!("remote-node must not enable the backends management domain");
+        std::process::exit(2);
+    }
     if let Some(spec) = args.storage.as_deref() {
         if let Err(e) = wf_config::storage_spec::parse_storage_spec_result(spec) {
             eprintln!("{e}");

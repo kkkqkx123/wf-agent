@@ -3,10 +3,9 @@
 //! Sibling local services are never enumerated; callers discover the
 //! remotes of the server they connected to, and nothing else.
 
-pub mod config;
-pub mod types;
 #[cfg(feature = "backends")]
 pub mod backup;
+pub mod config;
 #[cfg(feature = "backends")]
 pub mod manager;
 #[cfg(feature = "backends")]
@@ -15,6 +14,7 @@ pub mod probe;
 pub mod store;
 #[cfg(feature = "backends")]
 pub mod tunnel;
+pub mod types;
 
 pub use config::{BackendConfig, BACKEND_CONFIG_FILE, DEFAULT_LOCAL_TUNNEL_PORT};
 #[cfg(feature = "backends")]

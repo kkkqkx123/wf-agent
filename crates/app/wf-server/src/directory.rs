@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, Request};
+use axum::http::{HeaderMap, Method, Request};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -47,6 +47,11 @@ pub const DIRECTORY_QUERY_PARAM: &str = "directory";
 /// (comma-separated absolute paths). Wins over the file layer; empty means
 /// only the default project root is served.
 pub const DIRECTORY_ROOTS_ENV_VAR: &str = "WF_DIRECTORY_ROOTS";
+
+/// Environment variable pinning the roots whose workspaces may execute
+/// code or mutate files (comma-separated absolute paths). Empty means every
+/// allowed root stays trusted.
+pub const TRUSTED_ROOTS_ENV_VAR: &str = "WF_TRUSTED_DIRECTORY_ROOTS";
 
 /// Idle time after which a cached directory entry is evicted on the next
 /// resolve. Live executions never depend on the cache, so eviction only
@@ -67,6 +72,8 @@ pub struct DirectoryScope {
     pub project: PathBuf,
     /// Stable id derived from the canonical project path.
     pub project_id: String,
+    /// Whether this workspace may execute code and mutate files.
+    pub trusted: bool,
 }
 
 /// Directory allowlist configuration. Empty permits every validated
@@ -74,43 +81,59 @@ pub struct DirectoryScope {
 #[derive(Debug, Clone, Default)]
 pub struct DirectoryConfig {
     pub allowed_roots: Vec<PathBuf>,
+    /// Roots granted execution and write capability. Empty keeps every
+    /// allowed root trusted; a non-empty list restricts those capabilities.
+    pub trusted_roots: Vec<PathBuf>,
 }
 
-impl DirectoryConfig {
-    /// Resolve the effective allowlist: a non-empty environment value wins
-    /// over the file layer, otherwise the file value applies.
-    pub fn resolve(file_roots: Option<Vec<String>>) -> Self {
-        if let Ok(raw) = std::env::var(DIRECTORY_ROOTS_ENV_VAR) {
-            if !raw.trim().is_empty() {
-                let mut roots = Vec::new();
-                match env_parse_list(&raw) {
-                    Ok(EnvValue::List(list)) => {
-                        for item in list {
-                            if !item.is_empty() {
-                                roots.push(PathBuf::from(item));
-                            }
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::warn!(error = %e, var = DIRECTORY_ROOTS_ENV_VAR, "invalid directory roots; keeping file value");
+fn resolve_root_list(var: &str, file: Option<Vec<String>>) -> Vec<PathBuf> {
+    if let Ok(raw) = std::env::var(var) {
+        if !raw.trim().is_empty() {
+            match env_parse_list(&raw) {
+                Ok(EnvValue::List(list)) => {
+                    let roots: Vec<PathBuf> = list
+                        .into_iter()
+                        .filter(|item| !item.is_empty())
+                        .map(PathBuf::from)
+                        .collect();
+                    if !roots.is_empty() {
+                        return roots;
                     }
                 }
-                if !roots.is_empty() {
-                    return Self {
-                        allowed_roots: roots,
-                    };
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, var = var, "invalid directory roots; keeping file value");
                 }
             }
         }
+    }
+    file.unwrap_or_default()
+        .into_iter()
+        .filter(|root| !root.trim().is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+impl DirectoryConfig {
+    /// Resolve allowlist and trusted roots: a non-empty environment value
+    /// wins over the file layer for each list independently.
+    pub fn resolve(file_roots: Option<Vec<String>>, file_trusted: Option<Vec<String>>) -> Self {
         Self {
-            allowed_roots: file_roots
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|root| !root.trim().is_empty())
-                .map(PathBuf::from)
-                .collect(),
+            allowed_roots: resolve_root_list(DIRECTORY_ROOTS_ENV_VAR, file_roots),
+            trusted_roots: resolve_root_list(TRUSTED_ROOTS_ENV_VAR, file_trusted),
         }
+    }
+
+    /// Whether the directory may execute code and mutate files. Without an
+    /// explicit trust list every allowed root keeps its existing capability.
+    pub fn is_trusted(&self, directory: &Path) -> bool {
+        if self.trusted_roots.is_empty() {
+            return true;
+        }
+        self.trusted_roots.iter().any(|root| {
+            let anchor = canonicalize_if_exists(root);
+            directory == anchor || directory.starts_with(&anchor)
+        })
     }
 
     /// Whether the canonical directory may be served. An empty allowlist
@@ -274,6 +297,7 @@ pub fn resolve_scope(
     let project = discover_project_root(&directory);
     let project_id = project_id_for(&project);
     Ok(Some(DirectoryScope {
+        trusted: config.is_trusted(&directory),
         directory,
         project,
         project_id,
@@ -323,6 +347,7 @@ impl DirectoryContext {
         }
         let project = discover_project_root(&canonical);
         let project_id = project_id_for(&project);
+        let trusted = config.is_trusted(&canonical);
         Ok(Self {
             config,
             entries: dashmap::DashMap::new(),
@@ -331,6 +356,7 @@ impl DirectoryContext {
                 directory: canonical,
                 project,
                 project_id,
+                trusted,
             }),
         })
     }
@@ -388,6 +414,7 @@ impl DirectoryContext {
         let project = discover_project_root(&directory);
         let project_id = project_id_for(&project);
         let scope = DirectoryScope {
+            trusted: self.config.is_trusted(&directory),
             directory,
             project,
             project_id,
@@ -484,6 +511,36 @@ pub(crate) fn ensure_path_owned(
     ))
 }
 
+/// Routes that execute work or mutate workspace state. An untrusted
+/// workspace keeps read access to every other surface.
+const RESTRICTED_PATH_PREFIXES: &[&str] = &[
+    "/api/v1/agent-loops/",
+    "/api/v1/checkpoints/",
+    "/api/v1/entity/",
+    "/api/v1/executions/",
+    "/api/v1/fs/",
+    "/api/v1/git/",
+    "/api/v1/llm/",
+    "/api/v1/plugins/",
+    "/api/v1/pty/",
+    "/api/v1/scripts/",
+    "/api/v1/templates/",
+    "/api/v1/tools/",
+    "/api/v1/triggers/",
+    "/api/v1/workflows/",
+];
+
+fn restricted_request(req: &Request<Body>) -> bool {
+    let method = req.method();
+    if method == Method::GET || method == Method::HEAD || method == Method::OPTIONS {
+        return false;
+    }
+    let path = req.uri().path();
+    RESTRICTED_PATH_PREFIXES
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+}
+
 pub(crate) async fn directory_middleware(
     State(ctx): State<Arc<DirectoryContext>>,
     req: Request<Body>,
@@ -506,6 +563,9 @@ pub(crate) async fn directory_middleware(
         }
         Err(err) => return crate::envelope::error_response(err.into()).into_response(),
     };
+    if scope.as_ref().is_some_and(|scope| !scope.trusted) && restricted_request(&req) {
+        return crate::envelope::forbidden("workspace is not trusted for execution or writes");
+    }
     let mut req = req;
     req.extensions_mut().insert(scope);
     next.run(req).await
@@ -748,7 +808,43 @@ mod tests {
     fn config_with(roots: &[PathBuf]) -> DirectoryConfig {
         DirectoryConfig {
             allowed_roots: roots.to_vec(),
+            trusted_roots: Vec::new(),
         }
+    }
+
+    #[test]
+    fn trust_list_grants_only_listed_roots() {
+        let trusted = temp_dir("wf-dir-trusted");
+        let other = temp_dir("wf-dir-other");
+        let config = DirectoryConfig {
+            allowed_roots: vec![trusted.path().to_path_buf(), other.path().to_path_buf()],
+            trusted_roots: vec![trusted.path().to_path_buf()],
+        };
+        assert!(config.is_trusted(trusted.path()));
+        assert!(!config.is_trusted(other.path()));
+        assert!(DirectoryConfig::default().is_trusted(other.path()));
+    }
+
+    #[test]
+    fn restricted_paths_cover_execution_and_writes() {
+        fn request(method: Method, path: &str) -> Request<Body> {
+            let mut req = Request::new(Body::empty());
+            *req.method_mut() = method;
+            *req.uri_mut() = path.parse().expect("test path parses");
+            req
+        }
+        assert!(restricted_request(&request(
+            Method::POST,
+            "/api/v1/workflows/definitions"
+        )));
+        assert!(restricted_request(&request(
+            Method::POST,
+            "/api/v1/llm/generate"
+        )));
+        assert!(!restricted_request(&request(
+            Method::GET,
+            "/api/v1/workflows/definitions"
+        )));
     }
 
     #[test]

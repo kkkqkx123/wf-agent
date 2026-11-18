@@ -316,7 +316,8 @@ impl QdrantVectorStore {
                 .map(|n| n.to_string())
                 .unwrap_or_default();
             if canonical == text {
-                variants.push(json!({"key": key, "range": {"gte": float_value, "lte": float_value}}));
+                variants
+                    .push(json!({"key": key, "range": {"gte": float_value, "lte": float_value}}));
             }
         }
         if text == "true" || text == "false" {
@@ -340,7 +341,10 @@ impl QdrantVectorStore {
             }
             (Equal, crate::filter::FilterValue::Number(number)) => {
                 if number.fract() == 0.0 {
-                    Ok((json!({"key": key, "match": {"value": *number as i64}}), false))
+                    Ok((
+                        json!({"key": key, "match": {"value": *number as i64}}),
+                        false,
+                    ))
                 } else {
                     Ok((
                         json!({"key": key, "range": {"gte": number, "lte": number}}),
@@ -356,7 +360,10 @@ impl QdrantVectorStore {
             }
             (NotEqual, crate::filter::FilterValue::Number(number)) => {
                 if number.fract() == 0.0 {
-                    Ok((json!({"key": key, "match": {"value": *number as i64}}), true))
+                    Ok((
+                        json!({"key": key, "match": {"value": *number as i64}}),
+                        true,
+                    ))
                 } else {
                     Ok((
                         json!({"key": key, "range": {"gte": number, "lte": number}}),
@@ -392,11 +399,11 @@ impl QdrantVectorStore {
                         {"must": [{"is_empty": {"key": key}}], "must_not": [{"is_null": {"key": key}}]}
                     ]
                 }),
-                false
+                false,
             )),
             (IsNull, _) => Ok((
                 json!({"should": [{"is_null": {"key": key}}, {"is_empty": {"key": key}}]}),
-                false
+                false,
             )),
             (ValuesEqual, crate::filter::FilterValue::Number(bound)) => {
                 let count = Self::count_bound(*bound)?;
@@ -469,10 +476,9 @@ impl QdrantVectorStore {
         }
         filter.conditions.iter().any(condition_is_null)
             || filter.should.iter().any(condition_is_null)
-            || filter
-                .min_should
-                .as_ref()
-                .map_or(false, |clause| clause.conditions.iter().any(condition_is_null))
+            || filter.min_should.as_ref().map_or(false, |clause| {
+                clause.conditions.iter().any(condition_is_null)
+            })
     }
 
     fn validate_search_params(query: &VectorQuery) -> Result<()> {
@@ -482,7 +488,10 @@ impl QdrantVectorStore {
             ));
         }
         if let Some(params) = &query.quantization {
-            if params.oversampling.is_some_and(|v| !v.is_finite() || v < 1.0) {
+            if params
+                .oversampling
+                .is_some_and(|v| !v.is_finite() || v < 1.0)
+            {
                 return Err(VectorError::InvalidInput(format!(
                     "quantization oversampling {} must be >= 1.0",
                     params.oversampling.unwrap_or(0.0)
@@ -1109,11 +1118,7 @@ impl VectorStorage for QdrantVectorStore {
         let response = self
             .send(
                 self.client
-                    .put(self.url(&format!(
-                        "/collections/{}{}",
-                        spec.name,
-                        self.wait_suffix()
-                    )))
+                    .put(self.url(&format!("/collections/{}{}", spec.name, self.wait_suffix())))
                     .json(&Self::collection_create_body(spec)),
             )
             .await?;
@@ -2158,7 +2163,15 @@ mod tests {
             .await
             .expect("ensure");
 
-        let mk = |id: &str, ns: &str, source: &str, lang: &str, page: i64, tags: Vec<&str>, nick: &str, meta: serde_json::Value, gone: Option<serde_json::Value>| {
+        let mk = |id: &str,
+                  ns: &str,
+                  source: &str,
+                  lang: &str,
+                  page: i64,
+                  tags: Vec<&str>,
+                  nick: &str,
+                  meta: serde_json::Value,
+                  gone: Option<serde_json::Value>| {
             let mut payload = HashMap::from([
                 (NAMESPACE_KEY.to_string(), serde_json::json!(ns)),
                 (SOURCE_KEY.to_string(), serde_json::json!(source)),
@@ -2173,7 +2186,13 @@ mod tests {
             }
             VectorPoint {
                 id: id.to_string(),
-                vector: if id == "a" { vec![1.0, 0.0] } else if id == "b" { vec![0.0, 1.0] } else { vec![1.0, 1.0] },
+                vector: if id == "a" {
+                    vec![1.0, 0.0]
+                } else if id == "b" {
+                    vec![0.0, 1.0]
+                } else {
+                    vec![1.0, 1.0]
+                },
                 payload,
             }
         };
@@ -2181,9 +2200,39 @@ mod tests {
             .upsert(
                 &collection,
                 &[
-                    mk("a", "kb", "doc-a.md", "en", 3, vec!["hot", "new"], "", serde_json::json!({}), Some(serde_json::Value::Null)),
-                    mk("b", "kb", "doc-b.md", "zh", 5, vec!["cold"], "bob", serde_json::json!({"k": 1}), Some(serde_json::json!("x"))),
-                    mk("c", "other", "doc-a.md", "en", 1, vec![], "", serde_json::json!({}), None),
+                    mk(
+                        "a",
+                        "kb",
+                        "doc-a.md",
+                        "en",
+                        3,
+                        vec!["hot", "new"],
+                        "",
+                        serde_json::json!({}),
+                        Some(serde_json::Value::Null),
+                    ),
+                    mk(
+                        "b",
+                        "kb",
+                        "doc-b.md",
+                        "zh",
+                        5,
+                        vec!["cold"],
+                        "bob",
+                        serde_json::json!({"k": 1}),
+                        Some(serde_json::json!("x")),
+                    ),
+                    mk(
+                        "c",
+                        "other",
+                        "doc-a.md",
+                        "en",
+                        1,
+                        vec![],
+                        "",
+                        serde_json::json!({}),
+                        None,
+                    ),
                 ],
             )
             .await
@@ -2199,47 +2248,102 @@ mod tests {
         assert_eq!(count(SearchFilter::new().with_source("doc-a.md")).await, 2);
         assert_eq!(count(SearchFilter::new().with_field("lang", "en")).await, 2);
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::GreaterEqual, 3.0))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "page",
+                FilterOperator::GreaterEqual,
+                3.0
+            )))
+            .await,
             2
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::GreaterThan, 3.0))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "page",
+                FilterOperator::GreaterThan,
+                3.0
+            )))
+            .await,
             1
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::LessThan, 3.0))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "page",
+                FilterOperator::LessThan,
+                3.0
+            )))
+            .await,
             1
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("page", FilterOperator::LessEqual, 3.0))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "page",
+                FilterOperator::LessEqual,
+                3.0
+            )))
+            .await,
             2
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("lang", FilterOperator::NotEqual, "zh"))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "lang",
+                FilterOperator::NotEqual,
+                "zh"
+            )))
+            .await,
             2
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("source", FilterOperator::Prefix, "doc"))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "source",
+                FilterOperator::Prefix,
+                "doc"
+            )))
+            .await,
             3
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("source", FilterOperator::Contains, ".md"))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "source",
+                FilterOperator::Contains,
+                ".md"
+            )))
+            .await,
             3
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("nick", FilterOperator::IsEmpty, true))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "nick",
+                FilterOperator::IsEmpty,
+                true
+            )))
+            .await,
             2
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("gone", FilterOperator::IsNull, true))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "gone",
+                FilterOperator::IsNull,
+                true
+            )))
+            .await,
             2
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("tags", FilterOperator::ValuesEqual, 2.0))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "tags",
+                FilterOperator::ValuesEqual,
+                2.0
+            )))
+            .await,
             1
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("tags", FilterOperator::ValuesGreaterThan, 1.0))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "tags",
+                FilterOperator::ValuesGreaterThan,
+                1.0
+            )))
+            .await,
             1
         );
         assert_eq!(
@@ -2265,30 +2369,58 @@ mod tests {
             1
         );
         assert_eq!(
-            count(SearchFilter::new().with_condition(FieldFilter::new("missing", FilterOperator::NotEqual, "x"))).await,
+            count(SearchFilter::new().with_condition(FieldFilter::new(
+                "missing",
+                FilterOperator::NotEqual,
+                "x"
+            )))
+            .await,
             3
         );
 
         // payload ops parity
         store
-            .overwrite_payload(&collection, "a", HashMap::from([("lang".to_string(), serde_json::json!("fr"))]))
+            .overwrite_payload(
+                &collection,
+                "a",
+                HashMap::from([("lang".to_string(), serde_json::json!("fr"))]),
+            )
             .await
             .expect("overwrite");
-        let fetched = store.fetch(&collection, &["a".to_string()]).await.expect("fetch");
-        assert_eq!(fetched[0].payload.get("lang"), Some(&serde_json::json!("fr")));
+        let fetched = store
+            .fetch(&collection, &["a".to_string()])
+            .await
+            .expect("fetch");
+        assert_eq!(
+            fetched[0].payload.get("lang"),
+            Some(&serde_json::json!("fr"))
+        );
         assert!(!fetched[0].payload.contains_key("namespace"));
         store
-            .merge_payload(&collection, "a", HashMap::from([("page".to_string(), serde_json::json!(9))]))
+            .merge_payload(
+                &collection,
+                "a",
+                HashMap::from([("page".to_string(), serde_json::json!(9))]),
+            )
             .await
             .expect("merge");
-        let fetched = store.fetch(&collection, &["a".to_string()]).await.expect("fetch");
+        let fetched = store
+            .fetch(&collection, &["a".to_string()])
+            .await
+            .expect("fetch");
         assert_eq!(fetched[0].payload.get("page"), Some(&serde_json::json!(9)));
-        assert_eq!(fetched[0].payload.get("lang"), Some(&serde_json::json!("fr")));
+        assert_eq!(
+            fetched[0].payload.get("lang"),
+            Some(&serde_json::json!("fr"))
+        );
         store
             .delete_payload_keys(&collection, "a", &["lang".to_string()])
             .await
             .expect("delete keys");
-        let fetched = store.fetch(&collection, &["a".to_string()]).await.expect("fetch");
+        let fetched = store
+            .fetch(&collection, &["a".to_string()])
+            .await
+            .expect("fetch");
         assert!(!fetched[0].payload.contains_key("lang"));
 
         store.delete_collection(&collection).await.expect("cleanup");

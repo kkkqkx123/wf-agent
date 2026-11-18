@@ -515,8 +515,12 @@ impl Runtime {
             crate::approval_tool::register_approval_tools(&tool_registry, manager.clone());
         }
         #[cfg(not(feature = "file-checkpoint"))]
-        let (file_checkpoint_manager, checkpoint_event_bridge_handle, manual_change_service, gc_timer_handle) =
-            (None, None, None, None);
+        let (
+            file_checkpoint_manager,
+            checkpoint_event_bridge_handle,
+            manual_change_service,
+            gc_timer_handle,
+        ) = (None, None, None, None);
 
         info!("Runtime bootstrap complete");
 

@@ -47,17 +47,18 @@ async fn probe_inner(
     let port = entry.effective_local_port(default_local_port);
     let base_url = entry.local_base_url(default_local_port);
     tcp_connect(port).await.ok()?;
-    let client = reqwest::Client::builder()
-        .timeout(timeout)
-        .build()
-        .ok()?;
+    let client = reqwest::Client::builder().timeout(timeout).build().ok()?;
     client
         .get(format!("{base_url}/health"))
         .send()
         .await
         .ok()
         .filter(|response| response.status().is_success())?;
-    fetch_info(&client, &base_url).await
+    let info = fetch_info(&client, &base_url).await?;
+    if info.api_version.as_deref() != Some(wf_types::API_VERSION) {
+        return None;
+    }
+    Some(info)
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -100,7 +101,7 @@ async fn fetch_info(client: &reqwest::Client, base_url: &str) -> Option<InfoView
         .and_then(|value| value.as_str())
         .map(str::to_string);
     let api_version = data
-        .get("api_version")
+        .get("apiVersion")
         .and_then(|value| value.as_str())
         .map(str::to_string);
     if version.is_none() && api_version.is_none() {
@@ -166,10 +167,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("loopback binds");
-        let port = listener
-            .local_addr()
-            .expect("bound addr reports")
-            .port();
+        let port = listener.local_addr().expect("bound addr reports").port();
         tokio::spawn(async move {
             if let Ok((socket, _)) = listener.accept().await {
                 let _held = socket;
@@ -195,10 +193,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("loopback binds");
-        let port = listener
-            .local_addr()
-            .expect("bound addr reports")
-            .port();
+        let port = listener.local_addr().expect("bound addr reports").port();
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });

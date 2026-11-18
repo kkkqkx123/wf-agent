@@ -58,6 +58,14 @@ metrics = ["wf-runtime/metrics"]
 storage-sqlite = ["wf-runtime/storage-sqlite"]
 storage-postgres = ["wf-runtime/storage-postgres"]
 openapi-docs = []
+# Dedicated remote execution node: every domain that needs the remote
+# workspace or its runtime, without the local-only management and UI
+# surfaces. Incompatible with `backends`, which belongs to the local side.
+remote-node = [
+    "plugins", "lua", "wasm",
+    "file-checkpoint", "keyword", "rag-vector", "pty", "mcp", "git-fs",
+    "storage-sqlite",
+]
 
 [[bin]]
 name = "wf-server"

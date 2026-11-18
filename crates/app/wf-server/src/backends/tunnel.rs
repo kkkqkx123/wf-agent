@@ -49,6 +49,15 @@ impl TunnelSupervisor {
             ssh_port.to_string(),
             "-L".to_string(),
             format!("{local_port}:127.0.0.1:{remote_port}"),
+            "-o".to_string(),
+            "ControlMaster=yes".to_string(),
+            "-o".to_string(),
+            format!(
+                "ControlPath={}",
+                wf_types::script::schema::tunnel_control_socket(&entry.host, local_port).display()
+            ),
+            "-o".to_string(),
+            "ControlPersist=no".to_string(),
         ];
         if let Some(key) = entry.key_path.as_deref().filter(|s| !s.trim().is_empty()) {
             argv.push("-i".to_string());
@@ -234,6 +243,8 @@ mod tests {
         let argv = TunnelSupervisor::tunnel_argv(&entry(), 18080);
         assert_eq!(argv.first().expect("ssh").as_str(), "ssh");
         assert!(argv.contains(&"18080:127.0.0.1:3000".to_string()));
+        assert!(argv.contains(&"ControlMaster=yes".to_string()));
+        assert!(argv.iter().any(|part| part.starts_with("ControlPath=")));
         assert!(argv.contains(&"-i".to_string()));
         assert!(argv.contains(&"dev@example".to_string()));
     }

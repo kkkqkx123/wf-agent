@@ -79,12 +79,8 @@ pub async fn rebuild_embedded(
     cancel: Arc<AtomicBool>,
 ) -> Result<RebuildOutcome> {
     match slot {
-        EmbeddedSlot::Sqlite(path) => {
-            rebuild_sqlite(path, format, params, batches, cancel).await
-        }
-        EmbeddedSlot::Tantivy(dir) => {
-            rebuild_tantivy(dir, format, params, batches, cancel).await
-        }
+        EmbeddedSlot::Sqlite(path) => rebuild_sqlite(path, format, params, batches, cancel).await,
+        EmbeddedSlot::Tantivy(dir) => rebuild_tantivy(dir, format, params, batches, cancel).await,
     }
 }
 
@@ -129,8 +125,8 @@ fn count_file_sqlite(path: &str) -> Result<u64> {
     if !std::path::Path::new(path).exists() {
         return Ok(0);
     }
-    let conn = rusqlite::Connection::open(path)
-        .map_err(|err| RagError::Keyword(err.to_string()))?;
+    let conn =
+        rusqlite::Connection::open(path).map_err(|err| RagError::Keyword(err.to_string()))?;
     let exists: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'keyword_fts'",

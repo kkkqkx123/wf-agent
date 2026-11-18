@@ -35,6 +35,7 @@ pub mod metrics;
 pub mod pipeline;
 pub mod plugin;
 pub mod postprocess;
+pub mod rebuild;
 pub mod rerank_adapter;
 pub mod retriever;
 pub mod rewrite;
@@ -148,6 +149,8 @@ pub struct ElasticKeywordConfig {
     pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
     /// Plugin analyzer name replacing built-in segmentation.
     pub analyzer_name: Option<String>,
+    /// Behavior on an existing index with a different format stamp.
+    pub format_policy: wf_types::config::keyword::KeywordFormatPolicy,
 }
 
 impl ElasticKeywordConfig {
@@ -162,6 +165,7 @@ impl ElasticKeywordConfig {
             exact_count: true,
             tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
             analyzer_name: None,
+            format_policy: wf_types::config::keyword::KeywordFormatPolicy::default(),
         }
     }
 }
@@ -239,6 +243,45 @@ pub fn open_sqlite_file_keyword_with(
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
     Ok(std::sync::Arc::new(index))
+}
+
+/// Opens a file SQLite keyword index with an explicit format stamp,
+/// enabling the format-mismatch reject or read-only degrade policies.
+pub fn open_sqlite_file_keyword_format(
+    path: &str,
+    format: keyword_index::KeywordFormat,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    let index = sqlite_index::SqliteKeywordIndex::open_with_format(path, format)?;
+    Ok(std::sync::Arc::new(index))
+}
+
+/// Opens a file tantivy keyword index with an explicit format stamp and
+/// optional writer heap budget.
+#[cfg(feature = "tantivy")]
+pub fn open_tantivy_dir_keyword_format(
+    path: &str,
+    format: keyword_index::KeywordFormat,
+    writer_heap_bytes: Option<usize>,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    let index = tantivy_index::TantivyKeywordIndex::open_with_format(
+        path,
+        format,
+        writer_heap_bytes,
+    )?;
+    Ok(std::sync::Arc::new(index))
+}
+
+/// Feature-gated stub mirroring the tantivy opener for builds without it.
+#[cfg(not(feature = "tantivy"))]
+pub fn open_tantivy_dir_keyword_format(
+    path: &str,
+    format: keyword_index::KeywordFormat,
+    writer_heap_bytes: Option<usize>,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    let _ = (path, format, writer_heap_bytes);
+    Err(RagError::Keyword(
+        "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+    ))
 }
 
 /// Opens a remote Elasticsearch keyword index. The config travels as plain

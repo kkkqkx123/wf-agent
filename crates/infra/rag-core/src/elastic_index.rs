@@ -162,6 +162,7 @@ impl ElasticKeywordIndex {
             .send_read(|| self.client.get(self.url(&format!("/{index}"))))
             .await?;
         if probe.status().is_success() {
+            self.check_format(&index).await?;
             return self.check_mapping(&index).await;
         }
         if probe.status() != reqwest::StatusCode::NOT_FOUND {
@@ -177,14 +178,15 @@ impl ElasticKeywordIndex {
                 "elastic index probe failed (status {status}): {body}"
             )));
         }
+        let mut mapping = Self::index_mapping_with(self.config.tokenizer);
+        mapping["settings"]["index"]["keyword_format"] = json!(self.format_id());
         let response = self
             .send(
                 self.client
                     .put(self.url(&format!("/{index}")))
-                    .json(&Self::index_mapping_with(self.config.tokenizer)),
+                    .json(&mapping),
             )
-            .await?;
-        let status = response.status();
+            .await?;        let status = response.status();
         let body = response.text().await.unwrap_or_default();
         if status.is_success() {
             return Ok(());
@@ -203,6 +205,63 @@ impl ElasticKeywordIndex {
         Err(RagError::Keyword(format!(
             "elastic index create failed (status {status}): {body}"
         )))
+    }
+
+    fn format_id(&self) -> String {
+        crate::keyword_index::KeywordFormat::new(
+            self.config.tokenizer,
+            self.config.analyzer_name.clone(),
+        )
+        .id()
+    }
+
+    /// Reads the persisted format stamp from index settings and compares
+    /// it with the resolved format. A missing stamp is treated as legacy
+    /// adoption when the configuration resolves to the built-in English
+    /// path; any other drift fails or degrades per the policy.
+    async fn check_format(&self, index: &str) -> Result<()> {
+        let response = self
+            .send_read(|| self.client.get(self.url(&format!("/{index}/_settings"))))
+            .await?;
+        if !response.status().is_success() {
+            return Ok(());
+        }
+        let text = response.text().await.unwrap_or_default();
+        let parsed: serde_json::Value = serde_json::from_str(&text).map_err(Self::decode_error)?;
+        let stamp = parsed
+            .pointer(&format!("/{index}/settings/index.keyword_format"))
+            .or_else(|| {
+                parsed
+                    .as_object()
+                    .and_then(|obj| obj.values().next())
+                    .and_then(|idx| idx.pointer("/settings/index.keyword_format"))
+            })
+            .and_then(|value| value.as_str().map(String::from));
+        let current = self.format_id();
+        let legacy_compatible = self.config.tokenizer
+            == wf_types::config::keyword::KeywordTokenizer::English
+            && self
+                .config
+                .analyzer_name
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())
+                .is_none();
+        let mismatch = match stamp.as_deref() {
+            Some(existing) => existing != current,
+            None => !legacy_compatible,
+        };
+        if !mismatch {
+            return Ok(());
+        }
+        if self.config.format_policy
+            == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly
+        {
+            return Ok(());
+        }
+        Err(crate::keyword_index::KeywordFormat::mismatch_error(
+            stamp.as_deref().unwrap_or("legacy-unstamped"),
+            &current,
+        ))
     }
 
     fn index_mapping_with(
@@ -815,6 +874,7 @@ mod tests {
             exact_count: true,
             tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
             analyzer_name: None,
+            format_policy: Default::default(),
         }
     }
 

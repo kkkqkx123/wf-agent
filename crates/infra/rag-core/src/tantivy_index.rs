@@ -22,6 +22,9 @@ use crate::retriever::{chunk_from_hit, RetrievedChunk};
 
 /// Heap budget for the index writer (50 MiB, single embedded knowledge base).
 const WRITER_HEAP_BYTES: usize = 50_000_000;
+
+/// Sidecar file inside the index directory carrying the format stamp.
+const FORMAT_SIDECAR: &str = "keyword-format.stamp";
 /// Upper bound on query terms; longer queries truncate to this prefix.
 const MAX_QUERY_TERMS: usize = 32;
 /// Documents per commit; one batch is one commit so huge ingests do not
@@ -152,6 +155,9 @@ pub struct TantivyKeywordIndex {
     fields: Fields,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    /// Set when the index opened under the read-only degrade policy after
+    /// a format mismatch; every write path fails with this flag set.
+    readonly: std::sync::atomic::AtomicBool,
 }
 
 impl TantivyKeywordIndex {
@@ -160,11 +166,12 @@ impl TantivyKeywordIndex {
         fields: Fields,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
+        writer_heap_bytes: usize,
     ) -> Result<Self> {
         if tokenizer == wf_types::config::keyword::KeywordTokenizer::Mixed {
             index.tokenizers().register("mixed", MixedTokenizer);
         }
-        let writer = index.writer(WRITER_HEAP_BYTES).map_err(keyword_error)?;
+        let writer = index.writer(writer_heap_bytes).map_err(keyword_error)?;
         let reader = index.reader().map_err(keyword_error)?;
         Ok(Self {
             writer: Mutex::new(writer),
@@ -172,6 +179,7 @@ impl TantivyKeywordIndex {
             fields,
             tokenizer,
             analyzer_name,
+            readonly: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -187,7 +195,7 @@ impl TantivyKeywordIndex {
     ) -> Result<Self> {
         let (schema, fields) = build_schema_with(tokenizer);
         let index = Index::create_in_ram(schema);
-        Self::from_index(index, fields, tokenizer, analyzer_name)
+        Self::from_index(index, fields, tokenizer, analyzer_name, WRITER_HEAP_BYTES)
     }
 
     /// Opens or creates a file database rooted at the directory.
@@ -205,6 +213,20 @@ impl TantivyKeywordIndex {
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
     ) -> Result<Self> {
+        let format = crate::keyword_index::KeywordFormat::new(tokenizer, analyzer_name);
+        Self::open_with_format(path, format, None)
+    }
+
+    /// Opens or creates a file database with an explicit format stamp and
+    /// writer heap budget. An existing directory whose stamp differs from
+    /// the resolved format fails under the reject policy or opens
+    /// read-only under the degrade policy, so mixed tokenization never
+    /// coexists inside one index.
+    pub fn open_with_format(
+        path: &str,
+        format: crate::keyword_index::KeywordFormat,
+        writer_heap_bytes: Option<usize>,
+    ) -> Result<Self> {
         if path.trim().is_empty() {
             return Err(RagError::InvalidInput(
                 "tantivy keyword path must not be empty".to_string(),
@@ -212,12 +234,54 @@ impl TantivyKeywordIndex {
         }
         std::fs::create_dir_all(path)
             .map_err(|err| RagError::Keyword(format!("create tantivy dir '{path}': {err}")))?;
+        let stamp_path = std::path::Path::new(path).join(FORMAT_SIDECAR);
+        let existing = std::fs::read_to_string(&stamp_path)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let current = format.id();
+        let mut readonly = false;
+        match existing {
+            Some(existing) if existing == current => {}
+            existing => {
+                if format.policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
+                    readonly = true;
+                } else {
+                    let existing =
+                        existing.unwrap_or_else(|| "legacy-unstamped".to_string());
+                    return Err(crate::keyword_index::KeywordFormat::mismatch_error(
+                        &existing,
+                        &current,
+                    ));
+                }
+            }
+        }
         let dir = MmapDirectory::open(path).map_err(keyword_error)?;
-        let (schema, fields) = build_schema_with(tokenizer);
+        let (schema, fields) = build_schema_with(format.tokenizer);
         let index = Index::open_or_create(dir, schema).map_err(keyword_error)?;
         // Existing directories keep the stored schema; registering the
         // mixed tokenizer stays harmless when the field uses it.
-        Self::from_index(index, fields, tokenizer, analyzer_name)
+        let index =
+            Self::from_index(index, fields, format.tokenizer, format.analyzer_name.clone(), writer_heap_bytes.unwrap_or(WRITER_HEAP_BYTES))?;
+        if !readonly {
+            std::fs::write(&stamp_path, &current)
+                .map_err(|err| RagError::Keyword(format!("write tantivy format stamp: {err}")))?;
+        } else {
+            index
+                .readonly
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(index)
+    }
+
+    fn ensure_writable(&self) -> Result<()> {
+        if self.readonly.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(RagError::Keyword(
+                "tantivy keyword index opened read-only after a format mismatch; rebuild before writing"
+                    .to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn lock_writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {
@@ -321,6 +385,7 @@ impl KeywordIndex for TantivyKeywordIndex {
         {
             crate::tokenizer::ensure_analyzer_registered(name).map_err(RagError::InvalidInput)?;
         }
+        self.ensure_writable()?;
         for batch in points.chunks(UPSERT_BATCH_SIZE.max(1)) {
             let mut writer = self.lock_writer()?;
             for point in batch {
@@ -458,6 +523,7 @@ impl KeywordIndex for TantivyKeywordIndex {
             found
         };
         let mut writer = self.lock_writer()?;
+        self.ensure_writable()?;
         let mut removed = 0_u64;
         for (id, present) in ids.iter().zip(found) {
             let term = Term::from_field_text(self.fields.uid, &uid_for(collection, id));
@@ -478,6 +544,7 @@ impl KeywordIndex for TantivyKeywordIndex {
         namespace: Option<&str>,
         source: &str,
     ) -> Result<u64> {
+        self.ensure_writable()?;
         let filter = SearchFilter::new().with_source(source);
         let filter = match namespace {
             Some(namespace) => filter.with_namespace(namespace),

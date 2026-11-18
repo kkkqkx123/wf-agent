@@ -29,6 +29,33 @@ pub enum KeywordBackend {
     Elastic,
 }
 
+/// Behavior when an existing index carries a different format stamp than
+/// the current configuration. `Reject` is the default and keeps mixed
+/// semantics out of one index; `ReadOnly` opens the old data for querying
+/// while refusing writes, for recovery-style inspection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KeywordFormatPolicy {
+    /// Fail the open with a readable error pointing at the rebuild flow.
+    #[default]
+    Reject,
+    /// Open read-only: queries work, writes fail explicitly.
+    ReadOnly,
+}
+
+/// Remote Elasticsearch version drift behavior. `Warn` keeps the legacy
+/// startup-continues behavior; `Strict` fails bootstrap on a major
+/// version mismatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ElasticVersionPolicy {
+    /// Report the drift and continue.
+    #[default]
+    Warn,
+    /// Fail startup on a major version mismatch.
+    Strict,
+}
+
 /// Keyword index configuration. The index is enabled by default and
 /// resolves its placement from the storage configuration; an explicit
 /// setting wins, and disabling keeps hybrid retrieval off while dense
@@ -81,6 +108,22 @@ pub struct KeywordIndexConfig {
     /// analyzer to be registered by the host before first use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analyzer_name: Option<String>,
+    /// Behavior when an existing index format differs from the current
+    /// configuration. Defaults to rejecting the open with guidance.
+    #[serde(default)]
+    pub format_policy: KeywordFormatPolicy,
+    /// Tantivy writer heap budget in bytes. `None` keeps the built-in
+    /// default; only the tantivy backend reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tantivy_writer_heap_bytes: Option<usize>,
+    /// Source documents per commit while bulk reingesting into a shadow
+    /// index. `None` keeps per-write commits; only the rebuild path reads
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tantivy_commit_interval: Option<usize>,
+    /// Remote Elasticsearch version drift behavior. Defaults to warning.
+    #[serde(default)]
+    pub elastic_version_policy: ElasticVersionPolicy,
 }
 
 fn default_enabled() -> bool {
@@ -122,6 +165,10 @@ impl Default for KeywordIndexConfig {
             elastic_exact_count: default_elastic_exact_count(),
             tokenizer: KeywordTokenizer::default(),
             analyzer_name: None,
+            format_policy: KeywordFormatPolicy::default(),
+            tantivy_writer_heap_bytes: None,
+            tantivy_commit_interval: None,
+            elastic_version_policy: ElasticVersionPolicy::default(),
         }
     }
 }

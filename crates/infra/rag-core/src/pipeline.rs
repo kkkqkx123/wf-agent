@@ -1273,6 +1273,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_advisor_name_fails() {
+        let _guard = crate::plugin::test_registry_guard();
         let store = InMemoryVectorStore::new();
         let embedder = UnitEmbedder { dimension: 8 };
         crate::plugin::clear_retrieval_advisors();
@@ -1289,6 +1290,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_chunking_names_are_validated() {
+        let _guard = crate::plugin::test_registry_guard();
         let store = InMemoryVectorStore::new();
         let embedder = UnitEmbedder { dimension: 8 };
         crate::plugin::clear_metadata_extractors();
@@ -1337,6 +1339,7 @@ mod tests {
 
     #[tokio::test]
     async fn extractor_merges_and_splitter_replaces() {
+        let _guard = crate::plugin::test_registry_guard();
         let store = InMemoryVectorStore::new();
         let embedder = UnitEmbedder { dimension: 8 };
         crate::plugin::clear_metadata_extractors();
@@ -1393,6 +1396,7 @@ mod tests {
 
     #[tokio::test]
     async fn failing_splitter_falls_back_to_builtin() {
+        let _guard = crate::plugin::test_registry_guard();
         let store = InMemoryVectorStore::new();
         let embedder = UnitEmbedder { dimension: 8 };
         crate::plugin::clear_chunk_splitters();
@@ -1415,6 +1419,7 @@ mod tests {
 
     #[tokio::test]
     async fn postprocessor_shapes_hits_and_unknown_fails() {
+        let _guard = crate::plugin::test_registry_guard();
         let store = InMemoryVectorStore::new();
         let embedder = UnitEmbedder { dimension: 8 };
         crate::plugin::clear_postprocessors();

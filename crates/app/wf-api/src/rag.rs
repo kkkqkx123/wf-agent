@@ -93,6 +93,8 @@ pub struct ElasticLocation {
     pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
     /// Plugin analyzer name replacing built-in segmentation.
     pub analyzer_name: Option<String>,
+    /// Version drift behavior on the remote server.
+    pub version_policy: wf_types::config::keyword::ElasticVersionPolicy,
 }
 
 /// Tokenizer selection carried alongside the index location. English is
@@ -105,6 +107,10 @@ pub struct KeywordTokenizerSelection {
     pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
     /// Plugin analyzer override.
     pub analyzer_name: Option<String>,
+    /// Behavior on an existing index with a different format stamp.
+    pub format_policy: wf_types::config::keyword::KeywordFormatPolicy,
+    /// Tantivy writer heap budget in bytes; `None` keeps the built-in.
+    pub writer_heap_bytes: Option<usize>,
 }
 
 impl Default for KeywordTokenizerSelection {
@@ -112,6 +118,8 @@ impl Default for KeywordTokenizerSelection {
         Self {
             tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
             analyzer_name: None,
+            format_policy: wf_types::config::keyword::KeywordFormatPolicy::default(),
+            writer_heap_bytes: None,
         }
     }
 }
@@ -148,6 +156,12 @@ pub const KEYWORD_TOKENIZER_ENV: &str = "WF_KEYWORD_TOKENIZER";
 /// Environment variable selecting a host-registered plugin analyzer.
 /// Empty means the built-in segmentation.
 pub const KEYWORD_ANALYZER_ENV: &str = "WF_KEYWORD_ANALYZER";
+/// Environment variable selecting the format-mismatch behavior
+/// (`reject`/`readonly`, case-insensitive).
+pub const KEYWORD_FORMAT_POLICY_ENV: &str = "WF_KEYWORD_FORMAT_POLICY";
+/// Environment variable selecting the Elasticsearch version drift
+/// behavior (`warn`/`strict`, case-insensitive).
+pub const KEYWORD_ES_VERSION_POLICY_ENV: &str = "WF_KEYWORD_ES_VERSION_POLICY";
 
 /// Resolves the tokenizer selection. Environment overrides win over the
 /// programmatic config; the default keeps English-only behavior.
@@ -167,9 +181,22 @@ pub fn resolve_keyword_tokenizer(config: &KeywordIndexConfig) -> KeywordTokenize
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .or_else(|| config.analyzer_name.clone());
+    let format_policy = std::env::var(KEYWORD_FORMAT_POLICY_ENV)
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .and_then(|value| match value.as_str() {
+            "reject" => Some(wf_types::config::keyword::KeywordFormatPolicy::Reject),
+            "readonly" | "read_only" => {
+                Some(wf_types::config::keyword::KeywordFormatPolicy::ReadOnly)
+            }
+            _ => None,
+        })
+        .unwrap_or(config.format_policy);
     KeywordTokenizerSelection {
         tokenizer,
         analyzer_name,
+        format_policy,
+        writer_heap_bytes: config.tantivy_writer_heap_bytes,
     }
 }
 
@@ -256,6 +283,15 @@ fn resolve_elastic_location(config: &KeywordIndexConfig) -> KeywordIndexLocation
     let batch_size = env_usize(KEYWORD_ES_BATCH_ENV).unwrap_or(config.elastic_batch_size);
     let exact_count = env_bool(KEYWORD_ES_EXACT_COUNT_ENV).unwrap_or(config.elastic_exact_count);
     let selection = resolve_keyword_tokenizer(config);
+    let version_policy = std::env::var(KEYWORD_ES_VERSION_POLICY_ENV)
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .and_then(|value| match value.as_str() {
+            "warn" | "warning" => Some(wf_types::config::keyword::ElasticVersionPolicy::Warn),
+            "strict" => Some(wf_types::config::keyword::ElasticVersionPolicy::Strict),
+            _ => None,
+        })
+        .unwrap_or(config.elastic_version_policy);
     KeywordIndexLocation::Elastic(ElasticLocation {
         base_url,
         api_key,
@@ -265,6 +301,7 @@ fn resolve_elastic_location(config: &KeywordIndexConfig) -> KeywordIndexLocation
         exact_count,
         tokenizer: selection.tokenizer,
         analyzer_name: selection.analyzer_name,
+        version_policy,
     })
 }
 
@@ -449,12 +486,12 @@ pub fn open_keyword_index_with(
                 }
             }
             let raw = path.to_string_lossy().into_owned();
-            let index = rag_core::open_sqlite_file_keyword_with(
-                &raw,
-                selection.tokenizer,
-                selection.analyzer_name.clone(),
-            )
-            .map_err(|err| {
+            let format = rag_core::keyword_index::KeywordFormat {
+                tokenizer: selection.tokenizer,
+                analyzer_name: selection.analyzer_name.clone(),
+                policy: selection.format_policy,
+            };
+            let index = rag_core::open_sqlite_file_keyword_format(&raw, format).map_err(|err| {
                 ApiError::execution(format!(
                     "Failed to open keyword index at '{}': {err}",
                     path.display()
@@ -480,10 +517,15 @@ pub fn open_keyword_index_with(
                 })?,
                 Some(dir) => {
                     let raw = dir.to_string_lossy().into_owned();
-                    rag_core::open_tantivy_dir_keyword_with(
+                    let format = rag_core::keyword_index::KeywordFormat {
+                        tokenizer: selection.tokenizer,
+                        analyzer_name: selection.analyzer_name.clone(),
+                        policy: selection.format_policy,
+                    };
+                    rag_core::open_tantivy_dir_keyword_format(
                         &raw,
-                        selection.tokenizer,
-                        selection.analyzer_name.clone(),
+                        format,
+                        selection.writer_heap_bytes,
                     )
                     .map_err(|err| {
                         ApiError::execution(format!(
@@ -574,14 +616,21 @@ pub async fn open_keyword_index_async_with(
                         resolved.base_url
                     ))
                 })?;
-            // Version drift only warns: major mismatch is reported, minors
-            // drift by at most one without blocking startup.
-            if version
+            // Version drift policy: warn keeps the legacy startup-continues
+            // behavior; strict fails bootstrap on a major mismatch.
+            let major_matches = version
                 .split('.')
                 .next()
                 .and_then(|major| major.parse::<u64>().ok())
-                != Some(8)
-            {
+                == Some(8);
+            if !major_matches {
+                if resolved.version_policy
+                    == wf_types::config::keyword::ElasticVersionPolicy::Strict
+                {
+                    return Err(ApiError::execution(format!(
+                        "elastic keyword version drift: server reports '{version}' but major 8 is required (strict policy)"
+                    )));
+                }
                 tracing::warn!(version = %version, "elastic version drift; expected major 8");
             } else {
                 info!(version = %version, index = %resolved.index, "elastic keyword version probed");

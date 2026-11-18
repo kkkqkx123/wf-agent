@@ -85,6 +85,17 @@ pub fn unregister_plugin_analyzer(name: &str) {
     crate::tokenizer::unregister_analyzer(name);
 }
 
+/// Serializes tests that mutate the process-wide plugin registries. A
+/// parallel test's `clear_*` otherwise races another test's `register_*`
+/// plus in-flight use and flakes the suite.
+#[cfg(test)]
+pub(crate) fn test_registry_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(std::sync::Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Registers retrieval shaping advice under `name`, replacing any prior entry.
 pub fn register_retrieval_advisor(name: &str, advisor: Arc<dyn PluginRetrievalAdvisor>) {
     let trimmed = name.trim();
@@ -890,6 +901,7 @@ mod tests {
 
     #[test]
     fn plugin_analyzer_bridges_into_tokenizer_registry() {
+        let _guard = test_registry_guard();
         crate::tokenizer::clear_analyzers();
         register_plugin_analyzer(Arc::new(FixedAnalyzer));
         let terms = crate::tokenizer::terms(
@@ -905,6 +917,7 @@ mod tests {
 
     #[test]
     fn failing_analyzer_matches_nothing() {
+        let _guard = test_registry_guard();
         crate::tokenizer::clear_analyzers();
         register_plugin_analyzer(Arc::new(FailingAnalyzer));
         let terms = crate::tokenizer::terms(
@@ -943,6 +956,7 @@ mod tests {
 
     #[test]
     fn registered_tables_roundtrip() {
+        let _guard = test_registry_guard();
         clear_retrieval_advisors();
         clear_vector_encodings();
         clear_snapshot_policies();
@@ -1100,6 +1114,7 @@ mod tests {
 
     #[test]
     fn retrieval_extension_registries_roundtrip() {
+        let _guard = test_registry_guard();
         clear_metadata_extractors();
         clear_chunk_splitters();
         clear_route_selectors();

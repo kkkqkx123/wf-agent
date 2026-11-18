@@ -17,11 +17,32 @@ use crate::retriever::{chunk_from_hit, RetrievedChunk};
 
 const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts USING fts5(collection UNINDEXED, chunk_id UNINDEXED, namespace UNINDEXED, source UNINDEXED, content, payload UNINDEXED, tokenize='unicode61')";
 
+/// Metadata row key carrying the persisted format stamp.
+const FORMAT_KEY: &str = "format";
+
+/// Schema for the side tables besides the FTS index itself.
+const META_SCHEMA: &str =
+    "CREATE TABLE IF NOT EXISTS keyword_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)";
+
+/// Maps a schema error to a readable message when FTS5 is missing.
+fn schema_error(err: rusqlite::Error) -> RagError {
+    let text = err.to_string();
+    if text.contains("no such module") {
+        return RagError::Keyword(format!(
+            "SQLite lacks the FTS5 module; rebuild rusqlite with the fts5 feature: {text}"
+        ));
+    }
+    RagError::Keyword(text)
+}
+
 /// Built-in keyword backend powered by SQLite FTS5.
 pub struct SqliteKeywordIndex {
     conn: Mutex<rusqlite::Connection>,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    /// Set when the index opened under the read-only degrade policy after
+    /// a format mismatch; every write path fails with this flag set.
+    readonly: std::sync::atomic::AtomicBool,
 }
 
 impl SqliteKeywordIndex {
@@ -41,8 +62,10 @@ impl SqliteKeywordIndex {
             conn: Mutex::new(conn),
             tokenizer,
             analyzer_name,
+            readonly: std::sync::atomic::AtomicBool::new(false),
         };
         index.ensure_schema()?;
+        index.write_format_stamp()?;
         Ok(index)
     }
 
@@ -61,6 +84,18 @@ impl SqliteKeywordIndex {
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
     ) -> Result<Self> {
+        let format = crate::keyword_index::KeywordFormat::new(tokenizer, analyzer_name);
+        Self::open_with_format(path, format)
+    }
+
+    /// Opens or creates a file database with an explicit format stamp.
+    /// An existing database whose stamp differs from the resolved format
+    /// fails under the reject policy or opens read-only under the degrade
+    /// policy, so mixed tokenization never coexists inside one database.
+    pub fn open_with_format(
+        path: &str,
+        format: crate::keyword_index::KeywordFormat,
+    ) -> Result<Self> {
         if path.trim().is_empty() {
             return Err(RagError::InvalidInput(
                 "keyword database path must not be empty".to_string(),
@@ -75,10 +110,12 @@ impl SqliteKeywordIndex {
             .map_err(|err| RagError::Keyword(err.to_string()));
         let index = Self {
             conn: Mutex::new(conn),
-            tokenizer,
-            analyzer_name,
+            tokenizer: format.tokenizer,
+            analyzer_name: format.analyzer_name.clone(),
+            readonly: std::sync::atomic::AtomicBool::new(false),
         };
         index.ensure_schema()?;
+        index.check_format_stamp(&format)?;
         Ok(index)
     }
 
@@ -89,7 +126,84 @@ impl SqliteKeywordIndex {
             .map_err(|err| RagError::Keyword(err.to_string()))?;
         guard
             .execute_batch(SCHEMA)
+            .map_err(schema_error)?;
+        guard
+            .execute_batch(META_SCHEMA)
+            .map_err(schema_error)?;
+        Ok(())
+    }
+
+    /// Reads the persisted stamp, falling back to legacy adoption: a
+    /// database created before stamping existed and indexed with the
+    /// built-in English path is claimed by an equivalent configuration,
+    /// while any other resolution is a mismatch.
+    fn check_format_stamp(&self, format: &crate::keyword_index::KeywordFormat) -> Result<()> {
+        let guard = self
+            .conn
+            .lock()
             .map_err(|err| RagError::Keyword(err.to_string()))?;
+        let existing = guard
+            .query_row(
+                "SELECT value FROM keyword_meta WHERE key = ?1",
+                [FORMAT_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .filter(|value| !value.is_empty());
+        drop(guard);
+        let current = format.id();
+        let legacy_compatible =
+            format.tokenizer == wf_types::config::keyword::KeywordTokenizer::English
+                && format.analyzer_name.is_none();
+        match existing {
+            None if legacy_compatible => {
+                self.write_format_stamp()?;
+            }
+            Some(existing) if existing == current => {}
+            existing => {
+                let existing = existing
+                    .unwrap_or_else(|| "legacy-unstamped".to_string());
+                if format.policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
+                    self.readonly
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    return Ok(());
+                }
+                return Err(crate::keyword_index::KeywordFormat::mismatch_error(
+                    &existing,
+                    &current,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn write_format_stamp(&self) -> Result<()> {
+        let stamp = crate::keyword_index::KeywordFormat::new(
+            self.tokenizer,
+            self.analyzer_name.clone(),
+        )
+        .id();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|err| RagError::Keyword(err.to_string()))?;
+        guard
+            .execute(
+                "INSERT INTO keyword_meta (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [FORMAT_KEY, stamp.as_str()],
+            )
+            .map_err(schema_error)?;
+        Ok(())
+    }
+
+    fn ensure_writable(&self) -> Result<()> {
+        if self.readonly.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(RagError::Keyword(
+                "keyword index opened read-only after a format mismatch; rebuild before writing"
+                    .to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -150,6 +264,7 @@ impl KeywordIndex for SqliteKeywordIndex {
             ));
         }
         check_analyzer(self.analyzer_name.as_deref())?;
+        self.ensure_writable()?;
         let mut guard = self.lock()?;
         let tx = guard
             .transaction()
@@ -342,6 +457,7 @@ impl KeywordIndex for SqliteKeywordIndex {
         if ids.is_empty() {
             return Ok(0);
         }
+        self.ensure_writable()?;
         let guard = self.lock()?;
         let mut removed = 0;
         for id in ids {
@@ -362,6 +478,7 @@ impl KeywordIndex for SqliteKeywordIndex {
         namespace: Option<&str>,
         source: &str,
     ) -> Result<u64> {
+        self.ensure_writable()?;
         let guard = self.lock()?;
         let removed = if let Some(namespace) = namespace {
             guard

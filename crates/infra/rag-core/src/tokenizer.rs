@@ -383,6 +383,7 @@ mod tests {
 
     #[test]
     fn mixed_segments_chinese_and_splits_identifiers() {
+        let _guard = crate::plugin::test_registry_guard();
         clear_analyzers();
         let tokens = mixed_terms("中文分词 getUserById");
         assert!(tokens
@@ -407,6 +408,7 @@ mod tests {
 
     #[test]
     fn custom_analyzer_overrides_builtin() {
+        let _guard = crate::plugin::test_registry_guard();
         clear_analyzers();
         register_analyzer(
             "test-custom",

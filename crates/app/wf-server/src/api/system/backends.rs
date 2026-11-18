@@ -9,8 +9,11 @@ use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 
-use crate::backends::types::{BackendEntry, BackendEntryView, BackupRecordView};
+use crate::backends::types::{
+    BackendEntry, BackendEntryView, BackupExportView, BackupRecordView, BackupVerificationView,
+};
 use crate::envelope::{error_response, ok, service_unavailable};
+use crate::extract::IdPath;
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -18,6 +21,8 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/system/backends", get(handle_list).post(handle_create))
         .route("/system/backends/import", post(handle_import))
         .route("/system/backups", get(handle_list_all_backups))
+        .route("/system/backups/{id}/verify", get(handle_verify_backup))
+        .route("/system/backups/{id}/export", get(handle_export_backup))
         .route(
             "/system/backends/{name}",
             get(handle_get).put(handle_update).delete(handle_remove),
@@ -328,6 +333,50 @@ pub(crate) async fn handle_list_all_backups(State(state): State<ApiState>) -> im
     }
     match backends.list_backups(None).await {
         Ok(backups) => ok(BackupListView { backups }).into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/system/backups/{id}/verify", operation_id = "verify_system_backup", tag = "system", params(IdPath), responses((status = 200, description = "Backup re-read and compared with its index row", body = crate::envelope::ApiEnvelope<BackupVerificationView>), (status = 404, description = "Backup not found", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_verify_backup(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.verify_backup(&path.id).await {
+        Ok(report) => ok(report).into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backup".to_string(),
+            id: path.id,
+        })
+        .into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/system/backups/{id}/export", operation_id = "export_system_backup", tag = "system", params(IdPath), responses((status = 200, description = "Verified backup payload for local inspection", body = crate::envelope::ApiEnvelope<BackupExportView>), (status = 404, description = "Backup not found", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_export_backup(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.export_backup(&path.id).await {
+        Ok(view) => ok(view).into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backup".to_string(),
+            id: path.id,
+        })
+        .into_response(),
         Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
     }
 }

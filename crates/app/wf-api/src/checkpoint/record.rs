@@ -199,6 +199,12 @@ pub struct CheckpointChainAnalysisView {
     pub total_elapsed: i64,
     pub checkpoint_count: usize,
     pub time_range: CheckpointTimeRangeView,
+    /// Number of checkpoints that existed before an upper bound was applied.
+    #[serde(default)]
+    pub total_count: usize,
+    /// True when `checkpoints` holds only the most recent slice of the chain.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// Empty chain view for executions with no checkpoints. Read surfaces use
@@ -208,10 +214,30 @@ pub fn empty_chain(execution_id: &str) -> CheckpointChainAnalysisView {
     build_chain(execution_id, Vec::new())
 }
 
-fn build_chain(execution_id: &str, mut sorted: Vec<Checkpoint>) -> CheckpointChainAnalysisView {
+fn build_chain(execution_id: &str, sorted: Vec<Checkpoint>) -> CheckpointChainAnalysisView {
+    build_chain_limited(execution_id, sorted, None)
+}
+
+/// Build a chain with an optional cap on how many checkpoints are retained.
+/// The cap keeps the most recent entries and records the pre-trim count so a
+/// reader can tell the chain was narrowed.
+pub fn build_chain_limited(
+    execution_id: &str,
+    mut sorted: Vec<Checkpoint>,
+    limit: Option<usize>,
+) -> CheckpointChainAnalysisView {
     // Deterministic order: timestamp alone is not unique, so equal
     // timestamps fall back to id order instead of storage order.
     sorted.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
+    let total_count = sorted.len();
+    let truncated = match limit {
+        Some(max) if sorted.len() > max => {
+            let keep_from = sorted.len() - max;
+            sorted.drain(..keep_from);
+            true
+        }
+        _ => false,
+    };
 
     let mut transitions = Vec::new();
     for window in sorted.windows(2) {
@@ -246,6 +272,8 @@ fn build_chain(execution_id: &str, mut sorted: Vec<Checkpoint>) -> CheckpointCha
             start: first.map(|c| c.timestamp).unwrap_or(0),
             end: last.map(|c| c.timestamp).unwrap_or(0),
         },
+        total_count,
+        truncated,
     }
 }
 
@@ -370,8 +398,20 @@ pub async fn chain_for_execution(
     execution_id: &str,
     domain_override: Option<crate::entity::execution::ExecutionDomain>,
 ) -> crate::ApiResult<CheckpointChainAnalysisView> {
+    chain_for_execution_limited(ctx, execution_id, domain_override, None).await
+}
+
+/// Same as `chain_for_execution` but caps the number of checkpoints in the
+/// result. The cap applies after sorting, keeping the most recent entries;
+/// the returned view reports the original count and whether it was trimmed.
+pub async fn chain_for_execution_limited(
+    ctx: &crate::infra::context::ApiContext,
+    execution_id: &str,
+    domain_override: Option<crate::entity::execution::ExecutionDomain>,
+    limit: Option<usize>,
+) -> crate::ApiResult<CheckpointChainAnalysisView> {
     let sorted = list_for_execution(ctx, execution_id, domain_override).await?;
-    Ok(build_chain(execution_id, sorted))
+    Ok(build_chain_limited(execution_id, sorted, limit))
 }
 
 /// Delete all checkpoints of an execution with the `entity_type` resolved
@@ -476,6 +516,26 @@ mod tests {
             tags: None,
             custom_fields: None,
         }
+    }
+
+    #[test]
+    fn chain_limit_keeps_recent_and_reports_truncation() {
+        let all = vec![
+            make_checkpoint("cp-1", "ex-1", 100),
+            make_checkpoint("cp-2", "ex-1", 200),
+            make_checkpoint("cp-3", "ex-1", 300),
+        ];
+        let full = build_chain_limited("ex-1", all.clone(), None);
+        assert!(!full.truncated);
+        assert_eq!(full.total_count, 3);
+        assert_eq!(full.checkpoint_count, 3);
+
+        let capped = build_chain_limited("ex-1", all, Some(2));
+        assert!(capped.truncated);
+        assert_eq!(capped.total_count, 3);
+        assert_eq!(capped.checkpoint_count, 2);
+        assert_eq!(capped.checkpoints[0].id, "cp-2");
+        assert_eq!(capped.checkpoints[1].id, "cp-3");
     }
 
     #[tokio::test]

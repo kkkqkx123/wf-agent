@@ -14,11 +14,20 @@ use sha2::{Digest, Sha256};
 use super::store::BackendStore;
 use super::types::{is_safe_name_component, BackendEntry, BackupRecordView};
 
+/// Format version of the merged payload (execution bundle plus checkpoint
+/// chain). Bump only with a reader that understands the older shape.
+pub const BACKUP_BUNDLE_VERSION: u32 = 1;
+
 /// Per-entry backup outcome of the last round, for status views.
 #[derive(Debug, Clone, Default)]
 pub struct BackupRoundStatus {
     pub last_backup_ms: Option<i64>,
     pub error: Option<String>,
+    /// Consecutive failed rounds of this target, used to widen the retry gap.
+    pub failures: u32,
+    /// Last attempt, including failures. Targets that never succeeded still
+    /// need a baseline for the retry gap.
+    pub last_attempt_ms: Option<i64>,
 }
 
 /// Immutable inputs shared by one backup task.
@@ -28,6 +37,52 @@ pub struct BackupRequest<'a> {
     pub default_local_port: u16,
     pub api_key: Option<&'a str>,
     pub directory: Option<&'a str>,
+    pub timeout_secs: u64,
+    pub max_response_bytes: u64,
+    pub checkpoint_limit: usize,
+}
+
+/// Store a path relative to the backup root so a moved root does not leave
+/// index rows pointing at the old location. A path outside the root cannot
+/// be made relative and is kept absolute.
+pub fn relative_backup_path(root: &Path, path: &Path) -> String {
+    match path.strip_prefix(root) {
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_string_lossy().into_owned(),
+        _ => path.to_string_lossy().into_owned(),
+    }
+}
+
+/// Resolve an indexed path against the current backup root. Older indexes
+/// hold absolute paths; those stay valid, while newer relative rows follow
+/// the configured root. A path that escapes the root is rejected so a
+/// tampered index cannot delete files elsewhere.
+pub fn resolve_backup_path(root: &Path, stored: &str) -> Result<std::path::PathBuf, String> {
+    let path = std::path::Path::new(stored);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let normalized = normalize_path(&resolved);
+    let root_normalized = normalize_path(root);
+    if !normalized.starts_with(&root_normalized) {
+        return Err(format!("backup path escapes root: '{stored}'"));
+    }
+    Ok(resolved)
+}
+
+fn normalize_path(path: &Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,7 +128,7 @@ async fn backup_one_with_fetch<F, Fut>(
     fetch: F,
 ) -> Result<String, String>
 where
-    F: Fn(BackendEntry, String, u16, Option<String>, Option<String>) -> Fut,
+    F: Fn(BackendEntry, String, u16, Option<String>, Option<String>, u64, u64, usize) -> Fut,
     Fut: std::future::Future<Output = Result<(serde_json::Value, serde_json::Value), String>>,
 {
     let Some(root) = request.backup_root else {
@@ -90,11 +145,21 @@ where
         request.default_local_port,
         request.api_key.map(str::to_string),
         request.directory.map(str::to_string),
+        request.timeout_secs,
+        request.max_response_bytes,
+        request.checkpoint_limit,
     )
     .await
     .map_err(|e| format!("backup fetch failed for '{backend}/{execution}': {e}"))?;
     let mut merged = bundle;
-    if let Some(object) = merged.as_object_mut() {
+    {
+        let Some(object) = merged.as_object_mut() else {
+            return Err("bundle payload is not an object".to_string());
+        };
+        object.insert(
+            "backup_version".to_string(),
+            serde_json::Value::from(BACKUP_BUNDLE_VERSION),
+        );
         object.insert("checkpoints".to_string(), checkpoints);
     }
     let created_ms = wf_common::epoch_ms();
@@ -104,14 +169,17 @@ where
     }
     let id = format!("{backend}-{execution}-{created_ms}-{suffix}");
     let dir = root.join(backend);
-    std::fs::create_dir_all(&dir)
+    tokio::fs::create_dir_all(&dir)
+        .await
         .map_err(|e| format!("cannot create backup dir {}: {e}", dir.display()))?;
+    restrict_dir_mode(&dir);
     let file_stem = format!("{execution}-{created_ms}-{suffix}");
     let path = dir.join(format!("{file_stem}.json"));
     let temp_path = dir.join(format!("{file_stem}.tmp"));
-    let text = serde_json::to_string_pretty(&merged)
-        .map_err(|e| format!("cannot encode backup '{id}': {e}"))?;
-    let (size_bytes, sha256) = write_backup_file(&path, &temp_path, &text)?;
+    let text =
+        serde_json::to_string(&merged).map_err(|e| format!("cannot encode backup '{id}': {e}"))?;
+    let (size_bytes, sha256) =
+        write_in_blocking_task(path.clone(), temp_path.clone(), text).await?;
     let record = BackupRecordView {
         id: id.clone(),
         backend: backend.to_string(),
@@ -119,33 +187,55 @@ where
         created_ms,
         size_bytes,
         sha256,
-        path: path.to_string_lossy().into_owned(),
+        path: relative_backup_path(root, &path),
     };
     if let Err(e) = store.record_backup(&record).await {
-        let _ = std::fs::remove_file(&path);
+        let _ = tokio::fs::remove_file(&path).await;
         return Err(e);
     }
     Ok(id)
 }
 
-/// Write through a temporary file and hash the bytes actually landed on
-/// disk. A failed step never leaves a half-written bundle behind.
+/// Run the durable write off the async runtime: large bundles would
+/// otherwise occupy a worker thread for the whole write and sync.
+async fn write_in_blocking_task(
+    path: std::path::PathBuf,
+    temp_path: std::path::PathBuf,
+    text: String,
+) -> Result<(u64, String), String> {
+    let join = tokio::task::spawn_blocking(move || write_backup_file(&path, &temp_path, &text))
+        .await
+        .map_err(|e| format!("backup writer task failed: {e}"))?;
+    join
+}
+
+/// Write through a temporary file, sync the bytes and the directory entry,
+/// then publish by rename. The digest therefore describes exactly the bytes
+/// that survive a crash. A failed step never leaves a half-written bundle
+/// behind.
 fn write_backup_file(path: &Path, temp_path: &Path, text: &str) -> Result<(u64, String), String> {
     let cleanup = || {
         let _ = std::fs::remove_file(temp_path);
     };
-    if let Err(e) = std::fs::write(temp_path, text) {
+    let mut file = match create_private_file(temp_path) {
+        Ok(file) => file,
+        Err(e) => {
+            cleanup();
+            return Err(format!("cannot create backup {}: {e}", temp_path.display()));
+        }
+    };
+    let bytes = text.as_bytes();
+    if let Err(e) = std::io::Write::write_all(&mut file, bytes) {
         cleanup();
         return Err(format!("cannot write backup {}: {e}", temp_path.display()));
     }
-    let bytes = match std::fs::read(temp_path) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            cleanup();
-            return Err(format!("cannot verify backup {}: {e}", temp_path.display()));
-        }
-    };
-    let sha256 = hex::encode(Sha256::digest(&bytes));
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    if let Err(e) = file.sync_all() {
+        cleanup();
+        return Err(format!("cannot flush backup {}: {e}", temp_path.display()));
+    }
+    drop(file);
     if let Err(e) = std::fs::rename(temp_path, path) {
         cleanup();
         return Err(format!(
@@ -154,7 +244,53 @@ fn write_backup_file(path: &Path, temp_path: &Path, text: &str) -> Result<(u64, 
             temp_path.display()
         ));
     }
-    Ok((bytes.len() as u64, sha256))
+    sync_parent_dir(path);
+    Ok((bytes.len() as u64, hex::encode(hasher.finalize())))
+}
+
+/// Backup payloads carry prompts and artifact previews, so the file is
+/// created readable by its owner only.
+#[allow(unused_mut)]
+fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+/// Tighten the per-backend backup directory to owner-only access.
+fn restrict_dir_mode(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)) {
+            tracing::warn!(dir = %dir.display(), error = %e, "cannot tighten backup dir permissions");
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+}
+
+/// Sync the directory entry created by the rename. A directory that cannot
+/// be synced only shortens the crash window, so it stays a warning.
+fn sync_parent_dir(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    match std::fs::File::open(parent) {
+        Ok(dir) => {
+            if let Err(e) = dir.sync_all() {
+                tracing::warn!(dir = %parent.display(), error = %e, "backup dir sync failed");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(dir = %parent.display(), error = %e, "cannot open backup dir for sync");
+        }
+    }
 }
 
 /// Validate the sync response before any data reaches the backup directory.
@@ -201,14 +337,17 @@ async fn fetch_bundle(
     default_local_port: u16,
     api_key: Option<String>,
     directory: Option<String>,
+    timeout_secs: u64,
+    max_response_bytes: u64,
+    _checkpoint_limit: usize,
 ) -> Result<(serde_json::Value, serde_json::Value), String> {
     let base_url = entry.local_base_url(default_local_port);
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("cannot build backup client: {e}"))?;
     let mut request = client.get(format!(
-        "{base_url}/api/v1/remote-sync/executions/{execution}/bundle"
+        "{base_url}/api/v1/remote-sync/executions/{execution}/bundle?checkpoint_limit={_checkpoint_limit}"
     ));
     if let Some(key) = api_key {
         request = request.header("x-api-key", key);
@@ -221,23 +360,103 @@ async fn fetch_bundle(
         .await
         .map_err(|e| format!("sync request failed: {e}"))?;
     let status = response.status();
-    let envelope: SyncEnvelope = response
-        .json()
+    let bytes = response
+        .bytes()
         .await
-        .map_err(|e| format!("sync decode failed: {e}"))?;
+        .map_err(|e| format!("sync body read failed: {e}"))?;
+    if bytes.len() as u64 > max_response_bytes {
+        return Err(format!(
+            "sync response too large: {} bytes exceeds {max_response_bytes}",
+            bytes.len()
+        ));
+    }
+    let envelope: SyncEnvelope =
+        serde_json::from_slice(&bytes).map_err(|e| format!("sync decode failed: {e}"))?;
     decode_sync_response(status, envelope, &execution)
 }
 
-/// Prune one backend's backups to the count cap and the age cap,
-/// whichever hits first. Index rows go first so a stale row never points
-/// at a missing file; file failures stay as warnings.
+/// Startup reconciliation: leftovers from a crash or from a failed file
+/// removal, plus index rows whose file is gone. Reported, never deleted:
+/// discarding a bundle to tidy a listing is the worse failure.
+#[derive(Debug, Clone, Default)]
+pub struct ReconcileReport {
+    pub orphan_files: usize,
+    pub missing_files: usize,
+    pub temp_files_removed: usize,
+}
+
+pub async fn reconcile_backups(
+    store: &BackendStore,
+    root: &Path,
+) -> Result<ReconcileReport, String> {
+    let records = store.list_backups(None).await?;
+    let root = root.to_path_buf();
+    let join = tokio::task::spawn_blocking(move || reconcile_blocking(&records, &root))
+        .await
+        .map_err(|e| format!("backup reconcile task failed: {e}"))?;
+    Ok(join)
+}
+
+fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileReport {
+    let indexed: std::collections::HashSet<std::path::PathBuf> = records
+        .iter()
+        .filter_map(|record| resolve_backup_path(root, &record.path).ok())
+        .map(|path| normalize_path(&path))
+        .collect();
+    let mut report = ReconcileReport::default();
+    let Ok(backends) = std::fs::read_dir(root) else {
+        return report;
+    };
+    for backend in backends.flatten() {
+        let Ok(files) = std::fs::read_dir(backend.path()) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if name.ends_with(".tmp") {
+                // A temp file only proves a write never published.
+                if std::fs::remove_file(&path).is_ok() {
+                    report.temp_files_removed += 1;
+                }
+                continue;
+            }
+            if !name.ends_with(".json") {
+                continue;
+            }
+            if !indexed.contains(&normalize_path(&path)) {
+                report.orphan_files += 1;
+            }
+        }
+    }
+    // A row that resolves outside the root is counted missing: it cannot
+    // name a file we are willing to touch.
+    report.missing_files = records
+        .iter()
+        .filter(|record| match resolve_backup_path(root, &record.path) {
+            Ok(path) => !path.exists(),
+            Err(_) => true,
+        })
+        .count();
+    report
+}
+
+/// Prune one backup target to the count cap and the age cap, whichever
+/// hits first. Retention is per target, so a sibling execution's history
+/// never consumes this target's budget. Index rows go first so a stale row
+/// never points at a missing file; file failures stay as warnings.
 pub async fn prune_backups(
     store: &BackendStore,
+    root: &Path,
     backend: &str,
+    execution: &str,
     retention_count: usize,
     retention_days: u64,
 ) -> Result<usize, String> {
-    let mut records = store.list_backups(Some(backend)).await?;
+    let mut records = store.list_backups_for(backend, execution).await?;
     records.sort_by_key(|record| std::cmp::Reverse(record.created_ms));
     let now_ms = wf_common::epoch_ms();
     let max_age_ms = (retention_days as i64).saturating_mul(24 * 60 * 60 * 1000);
@@ -254,11 +473,18 @@ pub async fn prune_backups(
         match store.remove_backup(&record.id).await {
             Ok(true) => {
                 removed += 1;
-                match std::fs::remove_file(&record.path) {
+                let path = match resolve_backup_path(root, &record.path) {
+                    Ok(path) => path,
+                    Err(e) => {
+                        tracing::warn!(id = %record.id, error = %e, "skipping out-of-root backup removal");
+                        continue;
+                    }
+                };
+                match tokio::fs::remove_file(&path).await {
                     Ok(()) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                     Err(e) => tracing::warn!(
-                        path = %record.path,
+                        path = %path.display(),
                         error = %e,
                         "backup file removal failed after index cleanup"
                     ),
@@ -348,8 +574,13 @@ mod tests {
     #[tokio::test]
     async fn count_and_age_caps_apply_first_wins() {
         let store = BackendStore::new_memory();
+        let dir = tempfile::tempdir().unwrap();
         let now = wf_common::epoch_ms();
         for index in 0..5 {
+            let relative = format!("alpha/backup-{index}.json");
+            let absolute = dir.path().join(&relative);
+            std::fs::create_dir_all(absolute.parent().unwrap()).unwrap();
+            std::fs::write(&absolute, b"x").unwrap();
             store
                 .record_backup(&BackupRecordView {
                     id: format!("backup-{index}"),
@@ -358,15 +589,69 @@ mod tests {
                     created_ms: now - (index as i64) * 24 * 60 * 60 * 1000,
                     size_bytes: 10,
                     sha256: "abc".to_string(),
-                    path: format!("/tmp/backup-{index}.json"),
+                    path: relative,
                 })
                 .await
                 .unwrap();
         }
-        let removed = prune_backups(&store, "alpha", 2, 3650).await.unwrap();
+        let removed = prune_backups(&store, dir.path(), "alpha", "exec", 2, 3650)
+            .await
+            .unwrap();
         assert_eq!(removed, 3);
         let remaining = store.list_backups(Some("alpha")).await.unwrap();
         assert_eq!(remaining.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn retention_is_scoped_to_one_execution() {
+        let store = BackendStore::new_memory();
+        let dir = tempfile::tempdir().unwrap();
+        let now = wf_common::epoch_ms();
+        for execution in ["one", "two"] {
+            for index in 0..4 {
+                let relative = format!("alpha/{execution}-{index}.json");
+                let absolute = dir.path().join(&relative);
+                std::fs::create_dir_all(absolute.parent().unwrap()).unwrap();
+                std::fs::write(&absolute, b"x").unwrap();
+                store
+                    .record_backup(&BackupRecordView {
+                        id: format!("{execution}-{index}"),
+                        backend: "alpha".to_string(),
+                        execution: execution.to_string(),
+                        created_ms: now - (index as i64) * 1000,
+                        size_bytes: 10,
+                        sha256: "abc".to_string(),
+                        path: relative,
+                    })
+                    .await
+                    .unwrap();
+            }
+        }
+        let removed = prune_backups(&store, dir.path(), "alpha", "one", 2, 3650)
+            .await
+            .unwrap();
+        assert_eq!(removed, 2);
+        let one = store.list_backups_for("alpha", "one").await.unwrap();
+        let two = store.list_backups_for("alpha", "two").await.unwrap();
+        assert_eq!(one.len(), 2, "pruned target keeps its own cap");
+        assert_eq!(two.len(), 4, "sibling execution keeps every backup");
+    }
+
+    #[test]
+    fn relative_paths_follow_root_and_reject_escape() {
+        let root = std::path::Path::new("/data/backups");
+        let file = root.join("alpha/exec-1.json");
+        assert_eq!(
+            relative_backup_path(root, &file),
+            "alpha/exec-1.json".to_string()
+        );
+        assert_eq!(
+            resolve_backup_path(root, "alpha/exec-1.json").unwrap(),
+            file
+        );
+        assert!(resolve_backup_path(root, "/data/backups/alpha/exec-1.json").is_ok());
+        assert!(resolve_backup_path(root, "../../etc/passwd").is_err());
+        assert!(resolve_backup_path(root, "/tmp/elsewhere.json").is_err());
     }
 
     #[tokio::test]
@@ -384,8 +669,18 @@ mod tests {
                 default_local_port: 18080,
                 api_key: None,
                 directory: None,
+                timeout_secs: 15,
+                max_response_bytes: 64 * 1024 * 1024,
+                checkpoint_limit: 500,
             },
-            |_: BackendEntry, _: String, _: u16, _: Option<String>, _: Option<String>| async {
+            |_: BackendEntry,
+             _: String,
+             _: u16,
+             _: Option<String>,
+             _: Option<String>,
+             _: u64,
+             _: u64,
+             _: usize| async {
                 Err::<(serde_json::Value, serde_json::Value), String>("down".to_string())
             },
         )
@@ -409,12 +704,18 @@ mod tests {
                 default_local_port: 18080,
                 api_key: Some("key"),
                 directory: Some("/workspace/alpha"),
+                timeout_secs: 15,
+                max_response_bytes: 64 * 1024 * 1024,
+                checkpoint_limit: 500,
             },
             |_: BackendEntry,
              execution: String,
              _: u16,
              api_key: Option<String>,
-             directory: Option<String>| async move {
+             directory: Option<String>,
+             _: u64,
+             _: u64,
+             _: usize| async move {
                 assert_eq!(api_key.as_deref(), Some("key"));
                 assert_eq!(directory.as_deref(), Some("/workspace/alpha"));
                 let envelope = ok_envelope(&execution);
@@ -428,7 +729,13 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, id);
         assert_eq!(records[0].sha256.len(), 64);
-        let text = std::fs::read_to_string(&records[0].path).unwrap();
+        assert!(
+            records[0].path.starts_with("alpha/") && records[0].path.ends_with(".json"),
+            "path should be relative to root: {}",
+            records[0].path
+        );
+        let saved_path = resolve_backup_path(dir.path(), &records[0].path).unwrap();
+        let text = std::fs::read_to_string(&saved_path).unwrap();
         let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(saved["checkpoints"]["execution_id"], "exec-1");
         assert_eq!(
@@ -451,8 +758,18 @@ mod tests {
                 default_local_port: 18080,
                 api_key: None,
                 directory: None,
+                timeout_secs: 15,
+                max_response_bytes: 64 * 1024 * 1024,
+                checkpoint_limit: 500,
             },
-            |_: BackendEntry, _: String, _: u16, _: Option<String>, _: Option<String>| async {
+            |_: BackendEntry,
+             _: String,
+             _: u16,
+             _: Option<String>,
+             _: Option<String>,
+             _: u64,
+             _: u64,
+             _: usize| async {
                 Err::<(serde_json::Value, serde_json::Value), String>(
                     "fetch must not run".to_string(),
                 )

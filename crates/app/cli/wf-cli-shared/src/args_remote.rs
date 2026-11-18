@@ -169,6 +169,38 @@ pub enum RemoteSub {
         #[arg(long, value_name = "ID")]
         execution: String,
     },
+    /// Re-read one backup file on the management server and compare it with
+    /// its index row. Reports `ok`, `missing_file` or `digest_mismatch`.
+    #[command(name = "backup-verify")]
+    BackupVerify {
+        /// Backup id from `remote backups`.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Export a verified backup bundle to a local file for inspection. The
+    /// server re-hashes the file before export; the local copy is written
+    /// atomically.
+    #[command(name = "backup-export")]
+    BackupExport {
+        /// Backup id from `remote backups`.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Destination file for the exported bundle.
+        #[arg(value_name = "DEST")]
+        dest: String,
+    },
+    /// Inspect a locally exported backup file without a server: validate its
+    /// structure, format version, execution id and checkpoint section, and
+    /// optionally re-check a known SHA-256.
+    #[command(name = "backup-check")]
+    BackupCheck {
+        /// Local exported bundle file.
+        #[arg(value_name = "FILE")]
+        file: String,
+        /// Expected SHA-256 to compare the file against.
+        #[arg(long, value_name = "SHA256")]
+        expect_sha256: Option<String>,
+    },
     /// Pull an execution bundle from the currently resolved server
     /// (same `--remote` resolution as every other command, not the
     /// registry host directly) to a local file.

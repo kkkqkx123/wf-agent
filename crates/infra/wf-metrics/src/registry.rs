@@ -5,11 +5,12 @@ use wf_types::config::metrics::MetricsConfig;
 
 use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::collectors::{
-    AgentLoopMetricsCollector, AgentMetricsCollector, CheckpointMetricsCollector,
-    CompactionMetricsCollector, ConfigMetricsCollector, ErrorMetricsCollector,
-    EventMetricsCollector, HttpMetricsCollector, NodeMetricsCollector, ResourceMetricsCollector,
-    RetryBudgetMetricsCollector, SubgraphMetricsCollector, TemplateMetricsCollector,
-    TimeoutMetricsCollector, TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
+    AgentLoopMetricsCollector, AgentMetricsCollector, BackupMetricsCollector,
+    CheckpointMetricsCollector, CompactionMetricsCollector, ConfigMetricsCollector,
+    ErrorMetricsCollector, EventMetricsCollector, HttpMetricsCollector, NodeMetricsCollector,
+    ResourceMetricsCollector, RetryBudgetMetricsCollector, SubgraphMetricsCollector,
+    TemplateMetricsCollector, TimeoutMetricsCollector, TokenMetricsCollector, ToolMetricsCollector,
+    WorkflowMetricsCollector,
 };
 use crate::constants::{
     agent_loop_metrics, agent_metrics, checkpoint_metrics, config_metrics, node_metrics,
@@ -66,6 +67,7 @@ pub struct MetricsRegistry {
     checkpoint: Arc<CheckpointMetricsCollector>,
     compaction: Arc<CompactionMetricsCollector>,
     http: Arc<HttpMetricsCollector>,
+    backup: Arc<BackupMetricsCollector>,
     subscribers: Mutex<Vec<(usize, ReportCallback)>>,
     next_subscription_id: AtomicUsize,
     anomaly_thresholds: AnomalyThresholds,
@@ -88,6 +90,8 @@ impl MetricsRegistry {
     /// per-collector retention falls back to the global window.
     pub fn with_config(config: &MetricsConfig) -> Self {
         let global_retention = config.retention_ms.unwrap_or(3_600_000);
+        let mut backup_config = CollectorConfig::default();
+        backup_config.retention_ms = global_retention;
         let resolve = |section: Option<&wf_types::config::metrics::MetricCollectorConfig>| {
             let mut resolved = section.map(CollectorConfig::from).unwrap_or_default();
             if section.is_none_or(|c| c.retention_ms.is_none()) {
@@ -147,6 +151,7 @@ impl MetricsRegistry {
             http: Arc::new(HttpMetricsCollector::new(resolve(
                 config.http_metrics.as_ref(),
             ))),
+            backup: Arc::new(BackupMetricsCollector::new(backup_config)),
             subscribers: Mutex::new(Vec::new()),
             next_subscription_id: AtomicUsize::new(1),
             anomaly_thresholds: AnomalyThresholds {
@@ -247,6 +252,10 @@ impl MetricsRegistry {
         self.http.clone()
     }
 
+    pub fn backup(&self) -> Arc<BackupMetricsCollector> {
+        self.backup.clone()
+    }
+
     /// Collector names aligned with [`MetricsRegistry::collectors`] order,
     /// used to label self-monitoring series.
     pub fn collector_names() -> Vec<&'static str> {
@@ -268,6 +277,7 @@ impl MetricsRegistry {
             "checkpoint",
             "compaction",
             "http",
+            "backup",
         ]
     }
 
@@ -300,6 +310,7 @@ impl MetricsRegistry {
             self.checkpoint.collector(),
             self.compaction.collector(),
             self.http.collector(),
+            self.backup.collector(),
         ]
     }
 
@@ -554,7 +565,12 @@ mod tests {
     #[test]
     fn registry_provides_all_collectors() {
         let registry = MetricsRegistry::new();
-        assert_eq!(registry.collectors().len(), 17);
+        assert_eq!(registry.collectors().len(), 18);
+        assert_eq!(
+            MetricsRegistry::collector_names().len(),
+            registry.collectors().len()
+        );
+        registry.backup().record_success("alpha", 10.0, 128);
         registry.workflow().record_execution_start("wf-1");
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);

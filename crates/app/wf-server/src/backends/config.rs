@@ -28,6 +28,12 @@ const DEFAULT_BACKUP_INTERVAL_SECS: u64 = 3600;
 const DEFAULT_BACKUP_RETENTION_COUNT: usize = 10;
 /// Default backup retention window in days (7 days).
 const DEFAULT_BACKUP_RETENTION_DAYS: u64 = 7;
+/// Default timeout for one remote bundle fetch.
+const DEFAULT_BACKUP_TIMEOUT_SECS: u64 = 15;
+/// Default upper bound on one decoded sync response, in bytes (64 MiB).
+const DEFAULT_BACKUP_MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
+/// Default upper bound on checkpoints carried into one backup (500).
+const DEFAULT_BACKUP_CHECKPOINT_LIMIT: usize = 500;
 
 /// Server-owned backend configuration. `enabled == false` keeps every new
 /// backend endpoint at 503 and spawns no background tasks.
@@ -48,6 +54,9 @@ pub struct BackendConfig {
     pub backup_interval_secs: u64,
     pub backup_retention_count: usize,
     pub backup_retention_days: u64,
+    pub backup_timeout_secs: u64,
+    pub backup_max_response_bytes: u64,
+    pub backup_checkpoint_limit: usize,
 }
 
 impl Default for BackendConfig {
@@ -64,6 +73,9 @@ impl Default for BackendConfig {
             backup_interval_secs: DEFAULT_BACKUP_INTERVAL_SECS,
             backup_retention_count: DEFAULT_BACKUP_RETENTION_COUNT,
             backup_retention_days: DEFAULT_BACKUP_RETENTION_DAYS,
+            backup_timeout_secs: DEFAULT_BACKUP_TIMEOUT_SECS,
+            backup_max_response_bytes: DEFAULT_BACKUP_MAX_RESPONSE_BYTES,
+            backup_checkpoint_limit: DEFAULT_BACKUP_CHECKPOINT_LIMIT,
         }
     }
 }
@@ -125,6 +137,15 @@ impl BackendConfig {
         if let Some(days) = file.backup_retention_days {
             self.backup_retention_days = days;
         }
+        if let Some(timeout) = file.backup_timeout_secs {
+            self.backup_timeout_secs = timeout;
+        }
+        if let Some(max_bytes) = file.backup_max_response_bytes {
+            self.backup_max_response_bytes = max_bytes;
+        }
+        if let Some(limit) = file.backup_checkpoint_limit {
+            self.backup_checkpoint_limit = limit;
+        }
         Ok(())
     }
 
@@ -163,6 +184,15 @@ impl BackendConfig {
                 self.registry_path = Some(std::path::PathBuf::from(raw));
             }
         }
+        if let Some(timeout) = read_env_u64("WF_BACKEND_BACKUP_TIMEOUT_SECS") {
+            self.backup_timeout_secs = timeout;
+        }
+        if let Some(max_bytes) = read_env_u64("WF_BACKEND_BACKUP_MAX_RESPONSE_BYTES") {
+            self.backup_max_response_bytes = max_bytes;
+        }
+        if let Some(limit) = read_env_u64("WF_BACKEND_BACKUP_CHECKPOINT_LIMIT") {
+            self.backup_checkpoint_limit = limit as usize;
+        }
     }
 
     fn validate(&self) -> ConfigResult<()> {
@@ -195,6 +225,33 @@ impl BackendConfig {
                 "invalid backend config: backup_interval_secs must be > 0".to_string(),
             ));
         }
+        // A zero cap would delete every backup of a target, including the one
+        // just written, so both caps must keep at least one.
+        if self.backup_retention_count == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: backup_retention_count must be > 0".to_string(),
+            ));
+        }
+        if self.backup_retention_days == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: backup_retention_days must be > 0".to_string(),
+            ));
+        }
+        if self.backup_timeout_secs == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: backup_timeout_secs must be > 0".to_string(),
+            ));
+        }
+        if self.backup_max_response_bytes == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: backup_max_response_bytes must be > 0".to_string(),
+            ));
+        }
+        if self.backup_checkpoint_limit == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: backup_checkpoint_limit must be > 0".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -211,6 +268,9 @@ struct BackendFileConfig {
     backup_interval_secs: Option<u64>,
     backup_retention_count: Option<usize>,
     backup_retention_days: Option<u64>,
+    backup_timeout_secs: Option<u64>,
+    backup_max_response_bytes: Option<u64>,
+    backup_checkpoint_limit: Option<usize>,
 }
 
 fn load_merged_backend_file(

@@ -15,9 +15,10 @@ use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
     apply_server_default_port, collect_backend_candidates, create_server_backend,
-    fetch_server_backends, fetch_server_backups, import_server_backends, load_registry,
-    management_client, probe_backends, remove_server_backend, start_server_tunnel,
-    stop_server_tunnel, trigger_server_backup, update_server_backend, RemoteHost,
+    export_server_backup, fetch_server_backends, fetch_server_backups, import_server_backends,
+    load_registry, management_client, probe_backends, remove_server_backend, start_server_tunnel,
+    stop_server_tunnel, trigger_server_backup, update_server_backend, verify_server_backup,
+    RemoteHost,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -247,7 +248,9 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             let client = management_client(cli);
             let current = wf_client::ClientConfig::resolve(cli.remote.clone(), cli.api_key.clone());
             if let Some(rows) = fetch_server_backends(&client).await? {
+                let backup_round_error = rows.iter().find_map(|row| row.backup_round_error.clone());
                 let data = serde_json::json!({
+                    "backup_round_error": backup_round_error,
                     "backends": rows
                         .iter()
                         .map(|row| {
@@ -269,6 +272,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                                 "tunnel_running": row.tunnel.as_ref().map(|tunnel| tunnel.running).unwrap_or(false),
                                 "last_backup_ms": row.last_backup_ms,
                                 "backup_error": row.backup_error,
+                                "backup_round_error": row.backup_round_error,
                             })
                         })
                         .collect::<Vec<_>>(),
@@ -333,6 +337,119 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("remote-backup-now", data),
+            )
+        }
+        RemoteSub::BackupVerify { id } => {
+            if id.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote backup-verify requires a backup id".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let report = verify_server_backup(&client, &id).await?;
+            let verified = report
+                .get("verified")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let data = serde_json::json!({
+                "id": id,
+                "verified": verified,
+                "status": report.get("status").and_then(|value| value.as_str()).unwrap_or("unknown"),
+                "path": report.get("path").and_then(|value| value.as_str()),
+                "recorded_bytes": report.get("recorded_bytes"),
+                "recorded_sha256": report.get("recorded_sha256"),
+                "actual_bytes": report.get("actual_bytes"),
+                "actual_sha256": report.get("actual_sha256"),
+            });
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-backup-verify", data),
+            )
+        }
+        RemoteSub::BackupExport { id, dest } => {
+            if id.trim().is_empty() || dest.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote backup-export requires an id and a destination".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let view = export_server_backup(&client, &id).await?;
+            let payload = view.get("payload").cloned().ok_or_else(|| {
+                CliError::Configuration("export response has no payload".to_string())
+            })?;
+            let path = std::path::Path::new(&dest);
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+            let text = serde_json::to_string_pretty(&payload)
+                .map_err(|e| CliError::Configuration(format!("export encode: {e}")))?;
+            let temp = std::path::PathBuf::from(format!("{dest}.tmp"));
+            std::fs::write(&temp, text)?;
+            std::fs::rename(&temp, path)?;
+            let data = serde_json::json!({
+                "id": id,
+                "dest": dest,
+                "backup_version": view.get("backup_version"),
+                "sha256": view.get("sha256"),
+                "size_bytes": view.get("size_bytes"),
+            });
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-backup-export", data),
+            )
+        }
+        RemoteSub::BackupCheck {
+            file,
+            expect_sha256,
+        } => {
+            let path = std::path::Path::new(&file);
+            let bytes = std::fs::read(path)
+                .map_err(|e| CliError::Configuration(format!("cannot read backup file: {e}")))?;
+            let payload: serde_json::Value = serde_json::from_slice(&bytes)
+                .map_err(|e| CliError::Configuration(format!("backup file is not JSON: {e}")))?;
+            let object = payload.as_object().ok_or_else(|| {
+                CliError::Configuration("backup payload is not an object".to_string())
+            })?;
+            let backup_version = object
+                .get("backup_version")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            let execution_id = object
+                .get("execution_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let checkpoints = object.get("checkpoints");
+            let checkpoints_are_object =
+                checkpoints.map(|value| value.is_object()).unwrap_or(false);
+            let chain_id = checkpoints
+                .and_then(|value| value.get("execution_id"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let digest = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
+            let digest_match = expect_sha256
+                .as_deref()
+                .map(|expected| expected.eq_ignore_ascii_case(&digest));
+            let valid = backup_version >= 1
+                && !execution_id.is_empty()
+                && checkpoints_are_object
+                && chain_id == execution_id
+                && digest_match.unwrap_or(true);
+            let data = serde_json::json!({
+                "file": file,
+                "valid": valid,
+                "backup_version": backup_version,
+                "execution_id": execution_id,
+                "checkpoints_are_object": checkpoints_are_object,
+                "chain_execution_matches": chain_id == execution_id,
+                "size_bytes": bytes.len(),
+                "sha256": digest,
+                "digest_matches_expected": digest_match,
+            });
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-backup-check", data),
             )
         }
         RemoteSub::Pull {

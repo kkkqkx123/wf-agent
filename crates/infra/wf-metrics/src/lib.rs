@@ -17,14 +17,15 @@ pub use collector::{
     DEFAULT_PERCENTILE_TARGETS, DEFAULT_SUMMARY_WINDOW_SIZE,
 };
 pub use collectors::{
-    AgentLoopMetricsCollector, AgentMetricsCollector, CheckpointMetricsCollector,
-    CheckpointUsageStats, ConfigMetricsCollector, ConfigStats, ErrorMetricsCollector, ErrorStats,
-    EventMetricsCollector, EventStats, ExecutionTokenUsage, HttpMetricsCollector, HttpUsageStats,
-    NodeMetricsCollector, NodeUsageStats, ResourceMetricsCollector, ResourceSample,
-    RetryBudgetMetricsCollector, StreamStatsRecord, SubgraphMetricsCollector,
-    TemplateMetricsCollector, TemplateUsageStats, TimeoutMetricsCollector, TimeoutStats,
-    TokenCallLabels, TokenMetricsCollector, TokenUsageRecord, TokenUsageStats,
-    ToolMetricsCollector, WorkflowMetricsCollector, WorkflowUsageStats,
+    AgentLoopMetricsCollector, AgentMetricsCollector, BackupMetricsCollector, BackupStats,
+    CheckpointMetricsCollector, CheckpointUsageStats, ConfigMetricsCollector, ConfigStats,
+    ErrorMetricsCollector, ErrorStats, EventMetricsCollector, EventStats, ExecutionTokenUsage,
+    HttpMetricsCollector, HttpUsageStats, NodeMetricsCollector, NodeUsageStats,
+    ResourceMetricsCollector, ResourceSample, RetryBudgetMetricsCollector, StreamStatsRecord,
+    SubgraphMetricsCollector, TemplateMetricsCollector, TemplateUsageStats,
+    TimeoutMetricsCollector, TimeoutStats, TokenCallLabels, TokenMetricsCollector,
+    TokenUsageRecord, TokenUsageStats, ToolMetricsCollector, WorkflowMetricsCollector,
+    WorkflowUsageStats,
 };
 pub use constants::*;
 pub use descriptions::metric_description;

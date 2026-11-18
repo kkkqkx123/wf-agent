@@ -31,6 +31,13 @@ pub(crate) struct ExecutionBundleQuery {
     checkpoint_synced: Option<bool>,
 }
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct RemoteSyncQuery {
+    /// Upper bound on the number of checkpoints carried in the response.
+    checkpoint_limit: Option<usize>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/executions/{id}/bundle",
@@ -75,6 +82,7 @@ pub(crate) async fn handle_remote_sync_bundle(
     State(state): State<ApiState>,
     Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
+    Query(query): Query<RemoteSyncQuery>,
 ) -> impl IntoResponse {
     if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
@@ -83,11 +91,17 @@ pub(crate) async fn handle_remote_sync_bundle(
         Ok(bundle) => bundle,
         Err(e) => return error_response(e),
     };
-    let checkpoints =
-        match wf_api::checkpoint::record::chain_for_execution(&state.ctx, &path.id, None).await {
-            Ok(chain) => chain,
-            Err(e) => return error_response(e),
-        };
+    let checkpoints = match wf_api::checkpoint::record::chain_for_execution_limited(
+        &state.ctx,
+        &path.id,
+        None,
+        query.checkpoint_limit,
+    )
+    .await
+    {
+        Ok(chain) => chain,
+        Err(e) => return error_response(e),
+    };
     ok(RemoteSyncBundle {
         bundle,
         checkpoints,

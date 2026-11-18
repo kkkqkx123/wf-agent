@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use sha2::Digest;
 use tokio_util::sync::CancellationToken;
 
 use super::backup::{prune_backups, BackupRequest, BackupRoundStatus};
@@ -16,8 +17,8 @@ use super::config::BackendConfig;
 use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
 use super::types::{
-    validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupRecordView,
-    TunnelStateView,
+    validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupExportView,
+    BackupRecordView, BackupVerificationView, TunnelStateView,
 };
 
 /// Import report: per-row acceptance plus the skipped dirty rows.
@@ -40,10 +41,12 @@ pub struct BackendManager {
     store: BackendStore,
     statuses: Arc<DashMap<String, BackendStatusView>>,
     backup_statuses: Arc<DashMap<String, BackupRoundStatus>>,
+    backup_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     backup_round_error: Arc<std::sync::Mutex<Option<String>>>,
     tunnels: Arc<TunnelSupervisor>,
     shutdown_token: CancellationToken,
     handles: MutexHandles,
+    metrics: Option<Arc<wf_metrics::MetricsRegistry>>,
 }
 
 #[derive(Default)]
@@ -62,15 +65,25 @@ impl std::fmt::Debug for BackendManager {
 
 impl BackendManager {
     pub fn new(config: BackendConfig, store: BackendStore) -> Arc<Self> {
+        Self::new_with_metrics(config, store, None)
+    }
+
+    pub fn new_with_metrics(
+        config: BackendConfig,
+        store: BackendStore,
+        metrics: Option<Arc<wf_metrics::MetricsRegistry>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             config,
             store,
             statuses: Arc::new(DashMap::new()),
             backup_statuses: Arc::new(DashMap::new()),
+            backup_locks: Arc::new(DashMap::new()),
             backup_round_error: Arc::new(std::sync::Mutex::new(None)),
             tunnels: Arc::new(TunnelSupervisor::default()),
             shutdown_token: CancellationToken::new(),
             handles: MutexHandles::default(),
+            metrics,
         })
     }
 
@@ -106,6 +119,38 @@ impl BackendManager {
         format!("{backend}/{execution}")
     }
 
+    async fn record_backup_success(&self, backend: &str, id: &str, duration_ms: f64) {
+        let Some(metrics) = self.metrics.as_ref() else {
+            return;
+        };
+        let bytes = self
+            .store
+            .get_backup(id)
+            .await
+            .ok()
+            .flatten()
+            .map(|record| record.size_bytes)
+            .unwrap_or(0);
+        metrics.backup().record_success(backend, duration_ms, bytes);
+    }
+
+    fn record_backup_failure(&self, backend: &str, error: &str) {
+        let Some(metrics) = self.metrics.as_ref() else {
+            return;
+        };
+        let lower = error.to_ascii_lowercase();
+        let reason = if lower.contains("timeout") {
+            "timeout"
+        } else if lower.contains("too large") {
+            "oversize"
+        } else if lower.contains("fetch") || lower.contains("sync") {
+            "fetch"
+        } else {
+            "other"
+        };
+        metrics.backup().record_failure(backend, reason);
+    }
+
     fn backup_request<'a>(&'a self, entry: &'a BackendEntry) -> BackupRequest<'a> {
         BackupRequest {
             backup_root: self.config.backup_dir.as_deref(),
@@ -115,6 +160,9 @@ impl BackendManager {
                 .backup_directory
                 .as_deref()
                 .or(self.config.backup_directory.as_deref()),
+            timeout_secs: self.config.backup_timeout_secs,
+            max_response_bytes: self.config.backup_max_response_bytes,
+            checkpoint_limit: self.config.backup_checkpoint_limit,
         }
     }
 
@@ -144,6 +192,10 @@ impl BackendManager {
                 backup_manager.run_backup_loop(backup_token).await;
             });
             *self.handles.backup.lock().unwrap() = Some(backup_handle);
+            let reconcile_manager = Arc::clone(self);
+            tokio::spawn(async move {
+                reconcile_manager.reconcile_storage().await;
+            });
         }
     }
 
@@ -151,6 +203,37 @@ impl BackendManager {
     pub async fn shutdown(&self) {
         self.shutdown_token.cancel();
         self.tunnels.shutdown().await;
+    }
+
+    /// One-shot startup pass: drop temp leftovers and report drift between
+    /// the index and the backup directory. It runs beside the loops, so a
+    /// large directory never delays the listen socket.
+    async fn reconcile_storage(&self) {
+        let Some(root) = self.config.backup_dir.as_deref() else {
+            return;
+        };
+        match super::backup::reconcile_backups(&self.store, root).await {
+            Ok(report) => {
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics
+                        .backup()
+                        .record_reconcile(report.orphan_files, report.missing_files);
+                }
+                if report.orphan_files > 0
+                    || report.missing_files > 0
+                    || report.temp_files_removed > 0
+                {
+                    tracing::warn!(
+                        dir = %root.display(),
+                        orphan_files = report.orphan_files,
+                        missing_files = report.missing_files,
+                        temp_files_removed = report.temp_files_removed,
+                        "backup storage drift detected"
+                    );
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "backup reconcile failed"),
+        }
     }
 
     async fn run_probe_loop(&self, shutdown: CancellationToken) {
@@ -237,16 +320,43 @@ impl BackendManager {
             for execution in &entry.backup_executions {
                 if interval > 0 {
                     let key = Self::backup_key(&name, execution);
-                    let due = self
+                    let (memory_last, failures, last_attempt) = self
                         .backup_statuses
                         .get(&key)
-                        .and_then(|status| status.last_backup_ms)
-                        .map(|last| {
-                            now_ms.saturating_sub(last) >= (interval as i64).saturating_mul(1000)
+                        .map(|status| {
+                            (
+                                status.last_backup_ms,
+                                status.failures,
+                                status.last_attempt_ms,
+                            )
                         })
-                        .unwrap_or(true);
-                    if !due {
-                        continue;
+                        .unwrap_or((None, 0, None));
+                    // The index outlives the process, so a restart falls back
+                    // to the newest recorded backup instead of treating every
+                    // target as due at once.
+                    let indexed_last = if memory_last.is_some() {
+                        None
+                    } else {
+                        self.store
+                            .latest_backup_ms(&name, execution)
+                            .await
+                            .unwrap_or_default()
+                    };
+                    // The newest of success, indexed success and attempt is
+                    // the baseline; a target that never succeeded still gets
+                    // a real retry gap.
+                    let last = [memory_last, indexed_last, last_attempt]
+                        .into_iter()
+                        .flatten()
+                        .max();
+                    if let Some(last) = last {
+                        let gap = Self::effective_interval_ms(interval, failures);
+                        let due_at = last
+                            .saturating_add(gap)
+                            .saturating_add(Self::jitter_ms(&key, gap));
+                        if now_ms < due_at {
+                            continue;
+                        }
                     }
                 }
                 tasks.push((name.clone(), entry.clone(), execution.clone()));
@@ -255,23 +365,32 @@ impl BackendManager {
         for chunk in tasks.chunks(4) {
             let results = futures::future::join_all(chunk.iter().map(
                 |(name, entry, execution)| async move {
+                    let key = Self::backup_key(name, execution);
+                    // A manual trigger can overlap the scheduled round for the
+                    // same target; the lock keeps one target on one writer.
+                    let _guard = self.backup_guard(&key).await;
                     let request = self.backup_request(entry);
+                    let started = wf_common::epoch_ms();
                     let result =
                         super::backup::backup_one(&self.store, name, entry, execution, request)
                             .await;
-                    (name, entry, execution, result)
+                    let duration_ms = wf_common::epoch_ms().saturating_sub(started) as f64;
+                    (name, entry, execution, result, duration_ms)
                 },
             ))
             .await;
-            for (name, entry, execution, result) in results {
+            for (name, entry, execution, result, duration_ms) in results {
                 let key = Self::backup_key(name, execution);
                 match result {
-                    Ok(_) => {
+                    Ok(id) => {
+                        self.record_backup_success(name, &id, duration_ms).await;
                         self.backup_statuses.insert(
                             key,
                             BackupRoundStatus {
-                                last_backup_ms: Some(wf_common::epoch_ms()),
+                                last_backup_ms: Some(now_ms),
                                 error: None,
+                                failures: 0,
+                                last_attempt_ms: Some(now_ms),
                             },
                         );
                         let count = entry
@@ -280,22 +399,37 @@ impl BackendManager {
                         let days = entry
                             .backup_retention_days
                             .unwrap_or(self.config.backup_retention_days);
-                        if let Err(e) = prune_backups(&self.store, name, count, days).await {
-                            tracing::warn!(backend = %name, error = %e, "backup pruning failed");
+                        if let Some(root) = self.config.backup_dir.as_deref() {
+                            match prune_backups(&self.store, root, name, execution, count, days)
+                                .await
+                            {
+                                Ok(removed) => {
+                                    if let Some(metrics) = self.metrics.as_ref() {
+                                        metrics.backup().record_pruned(name, removed);
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(backend = %name, error = %e, "backup pruning failed")
+                                }
+                            }
                         }
                     }
                     Err(e) => {
-                        let previous = self
+                        let (previous, failures) = self
                             .backup_statuses
                             .get(&key)
-                            .and_then(|status| status.last_backup_ms);
+                            .map(|status| (status.last_backup_ms, status.failures))
+                            .unwrap_or((None, 0));
                         self.backup_statuses.insert(
                             key,
                             BackupRoundStatus {
                                 last_backup_ms: previous,
                                 error: Some(e.clone()),
+                                failures: failures.saturating_add(1),
+                                last_attempt_ms: Some(now_ms),
                             },
                         );
+                        self.record_backup_failure(name, &e);
                         tracing::warn!(
                             backend = %name,
                             execution = %execution,
@@ -306,6 +440,36 @@ impl BackendManager {
                 }
             }
         }
+    }
+
+    /// One target, one writer: manual triggers and the scheduled round share
+    /// this lock so a target never runs two backups or two prunes at once.
+    async fn backup_guard(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let entry = self
+                .backup_locks
+                .entry(key.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())));
+            Arc::clone(entry.value())
+        };
+        lock.lock_owned().await
+    }
+
+    /// Widen the retry gap of a repeatedly failing target, capped so it
+    /// still recovers within a few intervals.
+    fn effective_interval_ms(interval_secs: u64, failures: u32) -> i64 {
+        let base = (interval_secs as i64).saturating_mul(1000);
+        base.saturating_mul(1i64 << failures.min(4))
+    }
+
+    /// Deterministic offset inside one tenth of the gap: a shared tick or a
+    /// restart spreads targets instead of stacking them on one instant.
+    fn jitter_ms(key: &str, gap_ms: i64) -> i64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        let span = (gap_ms / 10).max(1) as u64;
+        (hasher.finish() % span) as i64
     }
 
     pub async fn list_with_status(&self) -> Result<Vec<BackendEntryView>, String> {
@@ -429,6 +593,15 @@ impl BackendManager {
         for key in keys {
             self.backup_statuses.remove(&key);
         }
+        let lock_keys: Vec<String> = self
+            .backup_locks
+            .iter()
+            .filter(|row| row.key().starts_with(&prefix))
+            .map(|row| row.key().clone())
+            .collect();
+        for key in lock_keys {
+            self.backup_locks.remove(&key);
+        }
         self.store.remove_entry(name).await
     }
 
@@ -507,6 +680,93 @@ impl BackendManager {
         self.store.list_backups(backend).await
     }
 
+    /// Re-read one backup file and compare it with its index row. This is the
+    /// only reader of a recorded digest, so a corrupted bundle is found by a
+    /// check instead of by a failed restore.
+    pub async fn verify_backup(&self, id: &str) -> Result<BackupVerificationView, String> {
+        self.require_enabled()?;
+        let Some(record) = self.store.get_backup(id).await? else {
+            return Err(format!("backup '{id}' not found"));
+        };
+        let Some(root) = self.config.backup_dir.as_deref() else {
+            return Err("backup directory is not configured".to_string());
+        };
+        let read_path = super::backup::resolve_backup_path(root, &record.path)?;
+        let read = tokio::task::spawn_blocking(move || std::fs::read(&read_path))
+            .await
+            .map_err(|e| format!("backup verify task failed: {e}"))?;
+        let (status, verified, actual_bytes, actual_sha256) = match read {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                ("missing_file".to_string(), false, None, None)
+            }
+            Err(e) => return Err(format!("cannot read backup '{}': {e}", record.path)),
+            Ok(bytes) => {
+                let digest = hex::encode(sha2::Sha256::digest(&bytes));
+                let matched = bytes.len() as u64 == record.size_bytes && digest == record.sha256;
+                let status = if matched { "ok" } else { "digest_mismatch" };
+                (
+                    status.to_string(),
+                    matched,
+                    Some(bytes.len() as u64),
+                    Some(digest),
+                )
+            }
+        };
+        if !verified {
+            if let Some(metrics) = self.metrics.as_ref() {
+                metrics.backup().record_verify_failure(&status);
+            }
+        }
+        Ok(BackupVerificationView {
+            status,
+            verified,
+            id: record.id,
+            path: record.path,
+            recorded_bytes: record.size_bytes,
+            recorded_sha256: record.sha256,
+            actual_bytes,
+            actual_sha256,
+        })
+    }
+
+    /// Read one backup payload back out for local inspection. The file is
+    /// re-hashed so an exported bundle cannot silently diverge from the
+    /// recorded digest; a mismatch fails instead of exporting bad data.
+    pub async fn export_backup(&self, id: &str) -> Result<BackupExportView, String> {
+        self.require_enabled()?;
+        let Some(record) = self.store.get_backup(id).await? else {
+            return Err(format!("backup '{id}' not found"));
+        };
+        let Some(root) = self.config.backup_dir.as_deref() else {
+            return Err("backup directory is not configured".to_string());
+        };
+        let path = super::backup::resolve_backup_path(root, &record.path)?;
+        let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
+            .await
+            .map_err(|e| format!("backup export task failed: {e}"))?
+            .map_err(|e| format!("cannot read backup '{id}': {e}"))?;
+        if bytes.len() as u64 != record.size_bytes
+            || hex::encode(sha2::Sha256::digest(&bytes)) != record.sha256
+        {
+            return Err(format!("backup '{id}' failed verification before export"));
+        }
+        let payload: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("backup '{id}' is not JSON: {e}"))?;
+        let backup_version = payload
+            .get("backup_version")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as u32;
+        Ok(BackupExportView {
+            id: record.id,
+            backend: record.backend,
+            execution: record.execution,
+            backup_version,
+            sha256: record.sha256,
+            size_bytes: record.size_bytes,
+            payload,
+        })
+    }
+
     pub async fn trigger_backup(&self, backend: &str, execution: &str) -> Result<String, String> {
         self.require_enabled()?;
         let entry = self
@@ -515,11 +775,15 @@ impl BackendManager {
             .await?
             .ok_or_else(|| format!("backend '{backend}' not found"))?;
         let key = Self::backup_key(backend, execution);
-        let previous = self
+        let _guard = self.backup_guard(&key).await;
+        let (previous, failures) = self
             .backup_statuses
             .get(&key)
-            .and_then(|status| status.last_backup_ms);
+            .map(|status| (status.last_backup_ms, status.failures))
+            .unwrap_or((None, 0));
+        let now_ms = wf_common::epoch_ms();
         let request = self.backup_request(&entry);
+        let started = wf_common::epoch_ms();
         let id = match super::backup::backup_one(&self.store, backend, &entry, execution, request)
             .await
         {
@@ -530,16 +794,27 @@ impl BackendManager {
                     BackupRoundStatus {
                         last_backup_ms: previous,
                         error: Some(e.clone()),
+                        failures: failures.saturating_add(1),
+                        last_attempt_ms: Some(wf_common::epoch_ms()),
                     },
                 );
+                self.record_backup_failure(backend, &e);
                 return Err(e);
             }
         };
+        self.record_backup_success(
+            backend,
+            &id,
+            wf_common::epoch_ms().saturating_sub(started) as f64,
+        )
+        .await;
         self.backup_statuses.insert(
             key,
             BackupRoundStatus {
                 last_backup_ms: Some(wf_common::epoch_ms()),
                 error: None,
+                failures: 0,
+                last_attempt_ms: Some(now_ms),
             },
         );
         let count = entry
@@ -548,8 +823,11 @@ impl BackendManager {
         let days = entry
             .backup_retention_days
             .unwrap_or(self.config.backup_retention_days);
-        if let Err(e) = prune_backups(&self.store, backend, count, days).await {
-            tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
+        if let Some(root) = self.config.backup_dir.as_deref() {
+            if let Err(e) = prune_backups(&self.store, root, backend, execution, count, days).await
+            {
+                tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
+            }
         }
         Ok(id)
     }
@@ -601,6 +879,8 @@ mod tests {
             BackupRoundStatus {
                 last_backup_ms: Some(100),
                 error: None,
+                failures: 0,
+                last_attempt_ms: Some(100),
             },
         );
         manager.backup_statuses.insert(
@@ -608,11 +888,83 @@ mod tests {
             BackupRoundStatus {
                 last_backup_ms: Some(200),
                 error: Some("down".to_string()),
+                failures: 2,
+                last_attempt_ms: Some(200),
             },
         );
         let view = manager.view_for("alpha", &entry()).await;
         assert_eq!(view.last_backup_ms, Some(200));
         assert_eq!(view.backup_error.as_deref(), Some("down"));
+    }
+
+    #[test]
+    fn retry_gap_widens_with_failures_and_is_capped() {
+        let base = BackendManager::effective_interval_ms(60, 0);
+        assert_eq!(base, 60_000);
+        assert_eq!(BackendManager::effective_interval_ms(60, 1), 120_000);
+        assert_eq!(BackendManager::effective_interval_ms(60, 2), 240_000);
+        // Capped at four doublings so recovery stays bounded.
+        assert_eq!(
+            BackendManager::effective_interval_ms(60, 9),
+            BackendManager::effective_interval_ms(60, 4)
+        );
+    }
+
+    #[test]
+    fn jitter_is_deterministic_and_bounded() {
+        let gap = 3_600_000;
+        for name in ["alpha/exec", "beta/exec", "gamma/exec"] {
+            let value = BackendManager::jitter_ms(name, gap);
+            assert_eq!(value, BackendManager::jitter_ms(name, gap));
+            assert!(
+                (0..gap / 10).contains(&value),
+                "jitter out of window: {value}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn backup_verification_names_missing_and_changed_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = BackendManager::new(
+            BackendConfig {
+                enabled: true,
+                backup_dir: Some(dir.path().to_path_buf()),
+                ..BackendConfig::default()
+            },
+            BackendStore::new_memory(),
+        );
+        let path = dir.path().join("alpha/bundle.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = b"{\"execution_id\":\"exec-1\"}";
+        std::fs::write(&path, original).unwrap();
+        manager
+            .store
+            .record_backup(&BackupRecordView {
+                id: "backup-1".to_string(),
+                backend: "alpha".to_string(),
+                execution: "exec-1".to_string(),
+                created_ms: 1,
+                size_bytes: original.len() as u64,
+                sha256: hex::encode(sha2::Sha256::digest(original)),
+                path: "alpha/bundle.json".to_string(),
+            })
+            .await
+            .unwrap();
+
+        let ok = manager.verify_backup("backup-1").await.unwrap();
+        assert!(ok.verified, "{:?}", ok);
+        assert_eq!(ok.status, "ok");
+
+        std::fs::write(&path, b"{\"execution_id\":\"other\"}").unwrap();
+        let changed = manager.verify_backup("backup-1").await.unwrap();
+        assert!(!changed.verified);
+        assert_eq!(changed.status, "digest_mismatch");
+
+        std::fs::remove_file(&path).unwrap();
+        let missing = manager.verify_backup("backup-1").await.unwrap();
+        assert!(!missing.verified);
+        assert_eq!(missing.status, "missing_file");
     }
 
     #[tokio::test]

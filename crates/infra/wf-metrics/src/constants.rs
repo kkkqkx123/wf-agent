@@ -235,6 +235,18 @@ pub mod http_metrics {
     pub const ERROR_COUNT: &str = "http.error.count";
 }
 
+/// Metrics for the server-owned remote backup pipeline.
+pub mod backup_metrics {
+    pub const SUCCESS_COUNT: &str = "backup.success.count";
+    pub const FAILURE_COUNT: &str = "backup.failure.count";
+    pub const DURATION: &str = "backup.duration";
+    pub const BYTES: &str = "backup.bytes";
+    pub const VERIFY_FAILURE_COUNT: &str = "backup.verify.failure.count";
+    pub const PRUNED_COUNT: &str = "backup.pruned.count";
+    pub const ORPHAN_COUNT: &str = "backup.orphan.count";
+    pub const MISSING_COUNT: &str = "backup.missing.count";
+}
+
 pub mod compaction_metrics {
     pub const PLANS_EMITTED: &str = "compaction.plans.emitted.count";
     pub const HANDOFFS_ENTERED: &str = "compaction.handoffs.entered.count";
@@ -410,6 +422,14 @@ mod tests {
             http_metrics::REQUEST_COUNT,
             http_metrics::REQUEST_DURATION,
             http_metrics::ERROR_COUNT,
+            backup_metrics::SUCCESS_COUNT,
+            backup_metrics::FAILURE_COUNT,
+            backup_metrics::DURATION,
+            backup_metrics::BYTES,
+            backup_metrics::VERIFY_FAILURE_COUNT,
+            backup_metrics::PRUNED_COUNT,
+            backup_metrics::ORPHAN_COUNT,
+            backup_metrics::MISSING_COUNT,
         ] {
             assert!(seen.insert(group), "duplicate metric name: {group}");
         }

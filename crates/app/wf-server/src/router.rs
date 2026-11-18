@@ -305,7 +305,8 @@ pub async fn serve_api_with_config(
     config: &ServerConfig,
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let backends = backend_manager_for_config(&config.backends).await;
+    let registry = Arc::new(wf_metrics::MetricsRegistry::new());
+    let backends = backend_manager_for_config(&config.backends, registry).await?;
     #[cfg(feature = "backends")]
     if let Some(manager) = backends.as_ref() {
         manager.start_background();
@@ -323,40 +324,52 @@ pub async fn serve_api_with_config(
     serve_with_router_and_backends(router, config.bind_addr, backends).await
 }
 
+/// Resolve the backend manager from config. Both call sites use `?`, so the
+/// function reports a failure instead of degrading.
 #[cfg(feature = "backends")]
-async fn backend_manager_for_config(config: &crate::backends::BackendConfig) -> BackendHandle {
+async fn backend_manager_for_config(
+    config: &crate::backends::BackendConfig,
+    registry: Arc<wf_metrics::MetricsRegistry>,
+) -> Result<BackendHandle, ServeError> {
     use crate::backends::{BackendManager, BackendStore};
     if !config.enabled {
-        return None;
+        return Ok(None);
     }
+    // A present but unusable index must fail startup: a memory fallback would
+    // keep writing backup files that no index and no pruning can see.
     let store = match config.registry_path.as_deref() {
-        Some(path) => match BackendStore::open_sqlite_file(path).await {
-            Ok(store) => store,
-            Err(e) => {
-                tracing::warn!(error = %e, "backend sqlite open failed; using memory store");
-                BackendStore::new_memory()
-            }
-        },
+        Some(path) => BackendStore::open_sqlite_file(path).await.map_err(|e| {
+            ServeError::Server(format!(
+                "cannot open backend registry {}: {e}",
+                path.display()
+            ))
+        })?,
         None => match config.backup_dir.as_deref() {
             Some(dir) => {
                 let path = dir.join("backends.db");
-                match BackendStore::open_sqlite_file(&path).await {
-                    Ok(store) => store,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "backend sqlite open failed; using memory store");
-                        BackendStore::new_memory()
-                    }
-                }
+                BackendStore::open_sqlite_file(&path).await.map_err(|e| {
+                    ServeError::Server(format!(
+                        "cannot open backend registry {}: {e}",
+                        path.display()
+                    ))
+                })?
             }
             None => BackendStore::new_memory(),
         },
     };
-    Some(BackendManager::new(config.clone(), store))
+    Ok(Some(BackendManager::new_with_metrics(
+        config.clone(),
+        store,
+        Some(registry),
+    )))
 }
 
 #[cfg(not(feature = "backends"))]
-async fn backend_manager_for_config(_config: &crate::backends::BackendConfig) -> BackendHandle {
-    None
+async fn backend_manager_for_config(
+    _config: &crate::backends::BackendConfig,
+    _registry: Arc<wf_metrics::MetricsRegistry>,
+) -> Result<BackendHandle, ServeError> {
+    Ok(None)
 }
 
 /// Serve metrics + API on the address owned by `config`, applying the
@@ -367,7 +380,7 @@ pub async fn serve_full_with_config(
     config: &ServerConfig,
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let backends = backend_manager_for_config(&config.backends).await;
+    let backends = backend_manager_for_config(&config.backends, Arc::clone(&registry)).await?;
     #[cfg(feature = "backends")]
     if let Some(manager) = backends.as_ref() {
         manager.start_background();

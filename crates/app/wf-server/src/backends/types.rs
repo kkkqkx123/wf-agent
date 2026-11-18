@@ -99,6 +99,25 @@ pub fn validate_backend_entry(name: &str, entry: &BackendEntry) -> Result<(), St
             ));
         }
     }
+    if entry.backup_retention_count == Some(0) {
+        return Err(format!(
+            "backend '{name}' has an illegal backup_retention_count: 0"
+        ));
+    }
+    if entry.backup_retention_days == Some(0) {
+        return Err(format!(
+            "backend '{name}' has an illegal backup_retention_days: 0"
+        ));
+    }
+    // Execution ids become path components and URL segments, so a bad id is
+    // rejected at write time instead of failing every backup round.
+    for execution in &entry.backup_executions {
+        if !is_safe_name_component(execution) {
+            return Err(format!(
+                "backend '{name}' has an illegal backup execution id '{execution}': use only letters, digits, '_', '-' and '.'"
+            ));
+        }
+    }
     if let Some(directory) = entry.backup_directory.as_deref() {
         if directory.trim().is_empty() {
             return Err(format!("backend '{name}' has an empty backup_directory"));
@@ -163,6 +182,38 @@ pub struct BackupRecordView {
     pub path: String,
 }
 
+/// Result of re-reading one backup file and comparing it with its index row.
+/// The status names the failure instead of collapsing every case into one
+/// boolean, because "file is gone" and "content changed" need different
+/// reactions.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BackupVerificationView {
+    /// `ok`, `missing_file` or `digest_mismatch`.
+    pub status: String,
+    pub verified: bool,
+    pub id: String,
+    pub path: String,
+    pub recorded_bytes: u64,
+    pub recorded_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_sha256: Option<String>,
+}
+
+/// Raw backup payload exported for local inspection. The bundle is returned
+/// unchanged; the digest and size let a local reader verify it before use.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BackupExportView {
+    pub id: String,
+    pub backend: String,
+    pub execution: String,
+    pub backup_version: u32,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub payload: serde_json::Value,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +262,28 @@ mod tests {
         assert_eq!(good.effective_local_port(18080), 18080);
         assert_eq!(good.effective_server_port(), 3000);
         assert_eq!(good.local_base_url(18080), "http://127.0.0.1:18080");
+    }
+
+    #[test]
+    fn zero_retention_fails_validation() {
+        let mut bad = entry();
+        bad.backup_retention_count = Some(0);
+        assert!(validate_backend_entry("broken", &bad).is_err());
+
+        let mut bad = entry();
+        bad.backup_retention_days = Some(0);
+        assert!(validate_backend_entry("broken", &bad).is_err());
+    }
+
+    #[test]
+    fn unsafe_backup_execution_fails_validation() {
+        let mut bad = entry();
+        bad.backup_executions = vec!["../escape".to_string()];
+        let err = validate_backend_entry("broken", &bad).unwrap_err();
+        assert!(err.contains("illegal backup execution id"), "{err}");
+
+        let mut good = entry();
+        good.backup_executions = vec!["exec-1".to_string()];
+        assert!(validate_backend_entry("alpha", &good).is_ok());
     }
 }

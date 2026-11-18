@@ -187,7 +187,7 @@ mod tests {
                 "/api/v1/info",
                 axum::routing::get(|| async {
                     axum::Json(serde_json::json!({
-                        "data": { "version": "9.9.9", "api_version": "v1" },
+                        "data": { "version": "9.9.9", "apiVersion": "v1" },
                     }))
                 }),
             );

@@ -256,6 +256,10 @@ pub struct ServerBackendRow {
     pub last_backup_ms: Option<i64>,
     #[serde(default)]
     pub backup_error: Option<String>,
+    /// Round-level backup failure from the server, mirrored onto each row so
+    /// status output can surface a failure that has no per-execution error.
+    #[serde(default, skip_serializing)]
+    pub backup_round_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -324,13 +328,23 @@ pub async fn fetch_server_backends(
         client.get_json("/api/v1/system/backends").await;
     match result {
         Ok(data) => {
+            let round_error = data
+                .get("backup_round_error")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
             let backends = data
                 .get("backends")
                 .and_then(|value| value.as_array())
                 .cloned()
                 .unwrap_or_default();
             let mut rows = Vec::new();
-            for raw in backends {
+            for mut raw in backends {
+                if let Some(object) = raw.as_object_mut() {
+                    object.insert(
+                        "backup_round_error".to_string(),
+                        serde_json::Value::from(round_error.clone()),
+                    );
+                }
                 match serde_json::from_value::<ServerBackendRow>(raw) {
                     Ok(row) => rows.push(row),
                     Err(e) => {
@@ -536,6 +550,40 @@ pub async fn trigger_server_backup(
             .and_then(|value| value.as_str())
             .unwrap_or("")
             .to_string()),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+/// Re-read one server-side backup and compare it with its index row. The
+/// status names the failure so "file is gone" and "content changed" stay
+/// distinguishable.
+pub async fn verify_server_backup(
+    client: &wf_client::WfClient,
+    id: &str,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .get_json(&format!("/api/v1/system/backups/{id}/verify"))
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+/// Fetch the verified payload of one backup from the management server for
+/// local export. The server re-hashes before returning, so a failing export
+/// never writes a diverged copy.
+pub async fn export_server_backup(
+    client: &wf_client::WfClient,
+    id: &str,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .get_json(&format!("/api/v1/system/backups/{id}/export"))
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }

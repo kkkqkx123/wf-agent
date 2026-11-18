@@ -79,6 +79,15 @@ impl BackendStore {
                 .await
                 .map_err(|e| format!("cannot init backend table {table}: {e}"))?;
         }
+        // Pruning and due-time lookups always filter by (backend, execution),
+        // so the same pair is indexed with the sort key pruning needs.
+        sqlx::query(&format!(
+            "CREATE INDEX IF NOT EXISTS idx_{BACKUP_TABLE}_target
+             ON {BACKUP_TABLE} (backend, execution, created_ms DESC)"
+        ))
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("cannot init backup index: {e}"))?;
         // Corrupt JSON rows fail here instead of surfacing as empty later.
         let rows: Vec<(String, String)> =
             sqlx::query_as(&format!("SELECT name, entry_json FROM {REGISTRY_TABLE}"))
@@ -299,6 +308,78 @@ impl BackendStore {
             records.sort_by_key(|record| std::cmp::Reverse(record.created_ms));
         }
         Ok(records)
+    }
+
+    /// Backups of one backup target (backend plus execution), newest first.
+    /// Retention is scoped per target, so pruning never competes with a
+    /// sibling execution's history.
+    pub async fn list_backups_for(
+        &self,
+        backend: &str,
+        execution: &str,
+    ) -> Result<Vec<BackupRecordView>, String> {
+        let mut records = self.list_backups(Some(backend)).await?;
+        records.retain(|record| record.execution == execution);
+        Ok(records)
+    }
+
+    /// Newest recorded backup time of one target. Used as the durable
+    /// fallback for due-time decisions so a restart cannot make every
+    /// target due at once.
+    pub async fn latest_backup_ms(
+        &self,
+        backend: &str,
+        execution: &str,
+    ) -> Result<Option<i64>, String> {
+        match self {
+            Self::Memory(inner) => Ok(inner
+                .backups
+                .iter()
+                .filter(|row| row.backend == backend && row.execution == execution)
+                .map(|row| row.created_ms)
+                .max()),
+            Self::Sqlite(inner) => {
+                let row: Option<(Option<i64>,)> = sqlx::query_as(&format!(
+                    "SELECT MAX(created_ms) FROM {BACKUP_TABLE} WHERE backend = ?1 AND execution = ?2"
+                ))
+                .bind(backend)
+                .bind(execution)
+                .fetch_optional(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot read latest backup for '{backend}/{execution}': {e}"))?;
+                Ok(row.and_then(|(value,)| value))
+            }
+        }
+    }
+
+    pub async fn get_backup(&self, id: &str) -> Result<Option<BackupRecordView>, String> {
+        match self {
+            Self::Memory(inner) => Ok(inner.backups.get(id).map(|row| row.value().clone())),
+            Self::Sqlite(inner) => {
+                let row: Option<(String, String, String, i64, i64, String, String)> =
+                    sqlx::query_as(&format!(
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path
+                         FROM {BACKUP_TABLE} WHERE id = ?1"
+                    ))
+                    .bind(id)
+                    .fetch_optional(&inner.pool)
+                    .await
+                    .map_err(|e| format!("cannot read backup '{id}': {e}"))?;
+                Ok(row.map(
+                    |(id, backend, execution, created_ms, size_bytes, sha256, path)| {
+                        BackupRecordView {
+                            id,
+                            backend,
+                            execution,
+                            created_ms,
+                            size_bytes: size_bytes.max(0) as u64,
+                            sha256,
+                            path,
+                        }
+                    },
+                ))
+            }
+        }
     }
 
     pub async fn remove_backup(&self, id: &str) -> Result<bool, String> {

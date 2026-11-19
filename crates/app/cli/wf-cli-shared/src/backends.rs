@@ -301,6 +301,10 @@ pub struct ServerBackupRecord {
     pub sha256: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub source_revision: Option<String>,
+    #[serde(default)]
+    pub payload_digest: Option<String>,
 }
 
 /// Management-service client: the currently resolved server without a
@@ -534,6 +538,34 @@ pub async fn fetch_server_backups(
             }
             Ok(out)
         }
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+pub async fn fetch_server_sync_states(
+    client: &wf_client::WfClient,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> =
+        client.get_json("/api/v1/system/backups/sync-state").await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+pub async fn restore_server_backup(
+    client: &wf_client::WfClient,
+    id: &str,
+    dry_run: bool,
+) -> CliResult<serde_json::Value> {
+    let body = serde_json::json!({"dry_run": dry_run});
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json(&format!("/api/v1/system/backups/{id}/restore"), &body)
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }

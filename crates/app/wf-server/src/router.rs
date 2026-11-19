@@ -180,6 +180,7 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::observation::logs::routes())
         .merge(api::observation::artifacts::routes())
         .merge(api::observation::bundle::routes())
+        .merge(api::recovery::routes())
         // system domain (events + impact + discovery; health carries its
         // own absolute prefixes and is merged at the root below)
         .merge(api::system::events::routes())

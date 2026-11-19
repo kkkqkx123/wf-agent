@@ -11,10 +11,11 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use super::types::{BackendEntry, BackupRecordView};
+use super::types::{BackendEntry, BackupRecordView, SyncStateView};
 
 const REGISTRY_TABLE: &str = "wf_backends";
 const BACKUP_TABLE: &str = "wf_backup_index";
+const SYNC_STATE_TABLE: &str = "wf_sync_state";
 
 /// Stored registry row: the whole entry as JSON plus an update timestamp.
 /// Host names are the unique key; writes only flow through the manager so
@@ -36,6 +37,7 @@ pub enum BackendStore {
 pub struct MemoryBackendStore {
     rows: DashMap<String, StoredRow>,
     backups: DashMap<String, BackupRecordView>,
+    sync_states: DashMap<(String, String), SyncStateView>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,10 +45,30 @@ pub struct SqliteBackendStore {
     pool: sqlx::SqlitePool,
 }
 
-type BackupRow = (String, String, String, i64, i64, String, String);
+type BackupRow = (
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    String,
+    String,
+    String,
+    String,
+);
 
 fn backup_view(row: BackupRow) -> BackupRecordView {
-    let (id, backend, execution, created_ms, size_bytes, sha256, path) = row;
+    let (
+        id,
+        backend,
+        execution,
+        created_ms,
+        size_bytes,
+        sha256,
+        path,
+        source_revision,
+        payload_digest,
+    ) = row;
     BackupRecordView {
         id,
         backend,
@@ -55,6 +77,45 @@ fn backup_view(row: BackupRow) -> BackupRecordView {
         size_bytes: size_bytes.max(0) as u64,
         sha256,
         path,
+        source_revision,
+        payload_digest,
+    }
+}
+
+type SyncStateRow = (
+    String,
+    String,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    i64,
+    String,
+    Option<String>,
+);
+
+fn sync_state_view(row: SyncStateRow) -> SyncStateView {
+    let (
+        backend,
+        execution,
+        last_success_ms,
+        last_attempt_ms,
+        revision,
+        backup_id,
+        failures,
+        repair_status,
+        error,
+    ) = row;
+    SyncStateView {
+        backend,
+        execution,
+        last_success_ms,
+        last_attempt_ms,
+        revision,
+        backup_id,
+        failures: failures.max(0) as u32,
+        repair_status,
+        error,
     }
 }
 
@@ -67,7 +128,7 @@ impl BackendStore {
     /// A present but corrupt database fails loud so a broken registry
     /// cannot masquerade as an empty one.
     pub async fn new_sqlite(pool: sqlx::SqlitePool) -> Result<Self, String> {
-        for table in [REGISTRY_TABLE, BACKUP_TABLE] {
+        for table in [REGISTRY_TABLE, BACKUP_TABLE, SYNC_STATE_TABLE] {
             let create = if table == REGISTRY_TABLE {
                 format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
@@ -76,7 +137,7 @@ impl BackendStore {
                         updated_ms INTEGER NOT NULL
                     )"
                 )
-            } else {
+            } else if table == BACKUP_TABLE {
                 format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
                         id TEXT PRIMARY KEY,
@@ -85,7 +146,24 @@ impl BackendStore {
                         created_ms INTEGER NOT NULL,
                         size_bytes INTEGER NOT NULL,
                         sha256 TEXT NOT NULL,
-                        path TEXT NOT NULL
+                        path TEXT NOT NULL,
+                        source_revision TEXT NOT NULL,
+                        payload_digest TEXT NOT NULL
+                    )"
+                )
+            } else {
+                format!(
+                    "CREATE TABLE IF NOT EXISTS {table} (
+                        backend TEXT NOT NULL,
+                        execution TEXT NOT NULL,
+                        last_success_ms INTEGER,
+                        last_attempt_ms INTEGER,
+                        revision TEXT,
+                        backup_id TEXT,
+                        failures INTEGER NOT NULL,
+                        repair_status TEXT NOT NULL,
+                        error TEXT,
+                        PRIMARY KEY (backend, execution)
                     )"
                 )
             };
@@ -113,6 +191,13 @@ impl BackendStore {
             serde_json::from_str::<BackendEntry>(&raw)
                 .map_err(|e| format!("invalid backend registry row '{name}': {e}"))?;
         }
+        sqlx::query(&format!(
+            "CREATE INDEX IF NOT EXISTS idx_{SYNC_STATE_TABLE}_target
+             ON {SYNC_STATE_TABLE} (backend, execution)"
+        ))
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("cannot init sync state index: {e}"))?;
         Ok(Self::Sqlite(Arc::new(SqliteBackendStore { pool })))
     }
 
@@ -248,11 +333,12 @@ impl BackendStore {
             }
             Self::Sqlite(inner) => {
                 sqlx::query(&format!(
-                    "INSERT INTO {BACKUP_TABLE} (id, backend, execution, created_ms, size_bytes, sha256, path)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    "INSERT INTO {BACKUP_TABLE} (id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                      ON CONFLICT(id) DO UPDATE SET backend = excluded.backend, execution = excluded.execution,
                        created_ms = excluded.created_ms, size_bytes = excluded.size_bytes,
-                       sha256 = excluded.sha256, path = excluded.path"
+                       sha256 = excluded.sha256, path = excluded.path,
+                       source_revision = excluded.source_revision, payload_digest = excluded.payload_digest"
                 ))
                 .bind(&record.id)
                 .bind(&record.backend)
@@ -261,6 +347,8 @@ impl BackendStore {
                 .bind(record.size_bytes as i64)
                 .bind(&record.sha256)
                 .bind(&record.path)
+                .bind(&record.source_revision)
+                .bind(&record.payload_digest)
                 .execute(&inner.pool)
                 .await
                 .map_err(|e| format!("cannot record backup '{}': {e}", record.id))?;
@@ -305,25 +393,24 @@ impl BackendStore {
                 .map(|row| row.value().clone())
                 .collect::<Vec<_>>(),
             Self::Sqlite(inner) => {
-                let rows: Vec<(String, String, String, i64, i64, String, String)> =
-                    if let Some(backend) = backend {
-                        sqlx::query_as(&format!(
-                            "SELECT id, backend, execution, created_ms, size_bytes, sha256, path
-                             FROM {BACKUP_TABLE} WHERE backend = ?1 ORDER BY created_ms DESC"
-                        ))
-                        .bind(backend)
-                        .fetch_all(&inner.pool)
-                        .await
-                        .map_err(|e| format!("cannot list backups: {e}"))?
-                    } else {
-                        sqlx::query_as(&format!(
-                            "SELECT id, backend, execution, created_ms, size_bytes, sha256, path
-                             FROM {BACKUP_TABLE} ORDER BY created_ms DESC"
-                        ))
-                        .fetch_all(&inner.pool)
-                        .await
-                        .map_err(|e| format!("cannot list backups: {e}"))?
-                    };
+                let rows: Vec<BackupRow> = if let Some(backend) = backend {
+                    sqlx::query_as(&format!(
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
+                         FROM {BACKUP_TABLE} WHERE backend = ?1 ORDER BY created_ms DESC"
+                    ))
+                    .bind(backend)
+                    .fetch_all(&inner.pool)
+                    .await
+                    .map_err(|e| format!("cannot list backups: {e}"))?
+                } else {
+                    sqlx::query_as(&format!(
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
+                         FROM {BACKUP_TABLE} ORDER BY created_ms DESC"
+                    ))
+                    .fetch_all(&inner.pool)
+                    .await
+                    .map_err(|e| format!("cannot list backups: {e}"))?
+                };
                 rows.into_iter().map(backup_view).collect()
             }
         };
@@ -357,7 +444,7 @@ impl BackendStore {
             }
             Self::Sqlite(inner) => {
                 let rows: Vec<BackupRow> = sqlx::query_as(&format!(
-                    "SELECT id, backend, execution, created_ms, size_bytes, sha256, path
+                    "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
                      FROM {BACKUP_TABLE} WHERE backend = ?1 AND execution = ?2
                      ORDER BY created_ms DESC"
                 ))
@@ -404,9 +491,9 @@ impl BackendStore {
         match self {
             Self::Memory(inner) => Ok(inner.backups.get(id).map(|row| row.value().clone())),
             Self::Sqlite(inner) => {
-                let row: Option<(String, String, String, i64, i64, String, String)> =
+                let row: Option<BackupRow> =
                     sqlx::query_as(&format!(
-                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
                          FROM {BACKUP_TABLE} WHERE id = ?1"
                     ))
                     .bind(id)
@@ -414,6 +501,111 @@ impl BackendStore {
                     .await
                     .map_err(|e| format!("cannot read backup '{id}': {e}"))?;
                 Ok(row.map(backup_view))
+            }
+        }
+    }
+
+    pub async fn upsert_sync_state(&self, state: &SyncStateView) -> Result<(), String> {
+        match self {
+            Self::Memory(inner) => {
+                inner
+                    .sync_states
+                    .insert((state.backend.clone(), state.execution.clone()), state.clone());
+                Ok(())
+            }
+            Self::Sqlite(inner) => {
+                sqlx::query(&format!(
+                    "INSERT INTO {SYNC_STATE_TABLE} (backend, execution, last_success_ms, last_attempt_ms, revision, backup_id, failures, repair_status, error)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                     ON CONFLICT(backend, execution) DO UPDATE SET
+                       last_success_ms = excluded.last_success_ms,
+                       last_attempt_ms = excluded.last_attempt_ms,
+                       revision = excluded.revision,
+                       backup_id = excluded.backup_id,
+                       failures = excluded.failures,
+                       repair_status = excluded.repair_status,
+                       error = excluded.error"
+                ))
+                .bind(&state.backend)
+                .bind(&state.execution)
+                .bind(state.last_success_ms)
+                .bind(state.last_attempt_ms)
+                .bind(&state.revision)
+                .bind(&state.backup_id)
+                .bind(state.failures as i64)
+                .bind(&state.repair_status)
+                .bind(&state.error)
+                .execute(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot record sync state: {e}"))?;
+                Ok(())
+            }
+        }
+    }
+
+    pub async fn get_sync_state(
+        &self,
+        backend: &str,
+        execution: &str,
+    ) -> Result<Option<SyncStateView>, String> {
+        match self {
+            Self::Memory(inner) => Ok(inner
+                .sync_states
+                .get(&(backend.to_string(), execution.to_string()))
+                .map(|row| row.value().clone())),
+            Self::Sqlite(inner) => {
+                let row: Option<SyncStateRow> = sqlx::query_as(&format!(
+                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, backup_id, failures, repair_status, error
+                     FROM {SYNC_STATE_TABLE} WHERE backend = ?1 AND execution = ?2"
+                ))
+                .bind(backend)
+                .bind(execution)
+                .fetch_optional(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot read sync state: {e}"))?;
+                Ok(row.map(sync_state_view))
+            }
+        }
+    }
+
+    pub async fn list_sync_states(&self) -> Result<Vec<SyncStateView>, String> {
+        match self {
+            Self::Memory(inner) => Ok(inner
+                .sync_states
+                .iter()
+                .map(|row| row.value().clone())
+                .collect()),
+            Self::Sqlite(inner) => {
+                let rows: Vec<SyncStateRow> = sqlx::query_as(&format!(
+                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, backup_id, failures, repair_status, error
+                     FROM {SYNC_STATE_TABLE}"
+                ))
+                .fetch_all(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot list sync states: {e}"))?;
+                Ok(rows.into_iter().map(sync_state_view).collect())
+            }
+        }
+    }
+
+    pub async fn remove_sync_state(&self, backend: &str, execution: &str) -> Result<(), String> {
+        match self {
+            Self::Memory(inner) => {
+                inner
+                    .sync_states
+                    .remove(&(backend.to_string(), execution.to_string()));
+                Ok(())
+            }
+            Self::Sqlite(inner) => {
+                sqlx::query(&format!(
+                    "DELETE FROM {SYNC_STATE_TABLE} WHERE backend = ?1 AND execution = ?2"
+                ))
+                .bind(backend)
+                .bind(execution)
+                .execute(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot delete sync state: {e}"))?;
+                Ok(())
             }
         }
     }
@@ -501,11 +693,40 @@ mod tests {
             size_bytes: 12,
             sha256: "abc".to_string(),
             path: "/tmp/backup-1.json".to_string(),
+            source_revision: "rev".to_string(),
+            payload_digest: "rev".to_string(),
         };
         store.record_backup(&record).await.unwrap();
         let listed = store.list_backups(Some("alpha")).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert!(store.remove_backup("backup-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn sync_state_round_trip_and_remove() {
+        let store = BackendStore::new_memory();
+        let state = SyncStateView {
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            last_success_ms: Some(10),
+            last_attempt_ms: Some(12),
+            revision: Some("rev".to_string()),
+            backup_id: Some("backup-1".to_string()),
+            failures: 2,
+            repair_status: "repair_pending".to_string(),
+            error: Some("down".to_string()),
+        };
+        store.upsert_sync_state(&state).await.unwrap();
+        let loaded = store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .expect("sync state row");
+        assert_eq!(loaded.revision.as_deref(), Some("rev"));
+        assert_eq!(loaded.failures, 2);
+        assert_eq!(store.list_sync_states().await.unwrap().len(), 1);
+        store.remove_sync_state("alpha", "exec-1").await.unwrap();
+        assert!(store.list_sync_states().await.unwrap().is_empty());
     }
 
     #[tokio::test]

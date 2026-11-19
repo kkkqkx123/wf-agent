@@ -101,6 +101,64 @@ impl FileCheckpointManager {
         git.read_blob(&tree.1)
             .map_err(crate::file::git_write::map_git_error)
     }
+
+    /// Current archive ref head of one execution, when it has been written.
+    pub fn archive_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
+        let git = self.git_ref()?;
+        git.read_ref(&context_archive_ref(entity_id))
+            .map_err(crate::file::git_write::map_git_error)
+    }
+
+    /// Read every archived file of one execution from its ref head. Missing
+    /// refs produce an empty archive so a run without captured files stays
+    /// recoverable from its persisted execution records alone.
+    pub fn archive_export(
+        &self,
+        entity_id: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>, CheckpointError> {
+        let git = self.git_ref()?;
+        let Some(head) = git
+            .read_ref(&context_archive_ref(entity_id))
+            .map_err(crate::file::git_write::map_git_error)?
+        else {
+            return Ok(Vec::new());
+        };
+        let commit = git
+            .read_commit(&head)
+            .map_err(crate::file::git_write::map_git_error)?;
+        let tree = git
+            .tree_to_files(&commit.tree)
+            .map_err(crate::file::git_write::map_git_error)?;
+        let mut paths: Vec<String> = tree.keys().cloned().collect();
+        paths.sort();
+        let mut out = Vec::with_capacity(paths.len());
+        for path in paths {
+            let blob = tree
+                .get(&path)
+                .map(|entry| entry.1.clone())
+                .ok_or_else(|| CheckpointError::NotFound {
+                    id: format!("archive path {path} missing in commit {head}"),
+                })?;
+            let bytes = git
+                .read_blob(&blob)
+                .map_err(crate::file::git_write::map_git_error)?;
+            out.push((path, bytes));
+        }
+        Ok(out)
+    }
+
+    /// Publish one archived file set on the execution archive ref.
+    pub fn archive_import(
+        &self,
+        entity_id: &str,
+        files: &[(String, Vec<u8>)],
+    ) -> Result<String, CheckpointError> {
+        let map: HashMap<String, Vec<u8>> = files
+            .iter()
+            .map(|(path, bytes)| (path.clone(), bytes.clone()))
+            .collect();
+        Ok(self.archive_write_files(entity_id, &map)?.commit)
+    }
 }
 
 #[cfg(test)]

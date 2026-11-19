@@ -163,7 +163,6 @@ struct SyncEnvelope {
 #[derive(Debug, Deserialize)]
 struct SyncData {
     bundle: serde_json::Value,
-    checkpoints: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,7 +196,7 @@ async fn backup_one_with_fetch<F, Fut>(
 ) -> Result<String, String>
 where
     F: Fn(BackendEntry, String, u16, Option<String>, Option<String>, u64, u64, usize) -> Fut,
-    Fut: std::future::Future<Output = Result<(serde_json::Value, serde_json::Value), String>>,
+    Fut: std::future::Future<Output = Result<serde_json::Value, String>>,
 {
     let Some(root) = request.backup_root else {
         return Err("backup directory is not configured".to_string());
@@ -207,7 +206,7 @@ where
             "unsafe backup path component for '{backend}/{execution}'"
         ));
     }
-    let (bundle, checkpoints) = fetch(
+    let mut bundle = fetch(
         entry.clone(),
         execution.to_string(),
         request.default_local_port,
@@ -219,16 +218,25 @@ where
     )
     .await
     .map_err(|e| format!("backup fetch failed for '{backend}/{execution}': {e}"))?;
-    let mut merged = bundle;
-    {
-        let Some(object) = merged.as_object_mut() else {
-            return Err("bundle payload is not an object".to_string());
-        };
-        object.insert(
-            "backup_version".to_string(),
-            serde_json::Value::from(BACKUP_BUNDLE_VERSION),
-        );
-        object.insert("checkpoints".to_string(), checkpoints);
+    let Some(object) = bundle.as_object_mut() else {
+        return Err("bundle payload is not an object".to_string());
+    };
+    object.insert(
+        "backup_version".to_string(),
+        serde_json::Value::from(BACKUP_BUNDLE_VERSION),
+    );
+    let revision = object
+        .get("source_revision")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "bundle payload has no source revision".to_string())?
+        .to_string();
+    let payload_digest = object
+        .get("payload_digest")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "bundle payload has no digest".to_string())?
+        .to_string();
+    if revision != payload_digest {
+        return Err("bundle revision and digest disagree".to_string());
     }
     let created_ms = wf_common::epoch_ms();
     let suffix = wf_common::generate_id();
@@ -258,7 +266,7 @@ where
     let path = canonical_dir.join(format!("{file_stem}.json"));
     let temp_path = canonical_dir.join(format!("{file_stem}.tmp"));
     let text =
-        serde_json::to_string(&merged).map_err(|e| format!("cannot encode backup '{id}': {e}"))?;
+        serde_json::to_string(&bundle).map_err(|e| format!("cannot encode backup '{id}': {e}"))?;
     let (size_bytes, sha256) =
         write_in_blocking_task(path.clone(), temp_path.clone(), text).await?;
     let record = BackupRecordView {
@@ -269,6 +277,8 @@ where
         size_bytes,
         sha256,
         path: relative_backup_path(&canonical_root, &path),
+        source_revision: revision,
+        payload_digest,
     };
     if let Err(e) = store.record_backup(&record).await {
         let _ = tokio::fs::remove_file(&path).await;
@@ -385,7 +395,7 @@ fn decode_sync_response(
     status: reqwest::StatusCode,
     envelope: SyncEnvelope,
     execution: &str,
-) -> Result<(serde_json::Value, serde_json::Value), String> {
+) -> Result<serde_json::Value, String> {
     let message = envelope
         .error
         .map(|error| error.message)
@@ -401,20 +411,19 @@ fn decode_sync_response(
     let Some(data) = envelope.data else {
         return Err("sync response has no data".to_string());
     };
-    if !data.bundle.is_object() || !data.checkpoints.is_object() {
+    if !data.bundle.is_object() {
         return Err("sync response has an incomplete bundle".to_string());
     }
     let bundle_id = data.bundle.get("execution_id").and_then(|v| v.as_str());
-    let chain_id = data
-        .checkpoints
-        .get("execution_id")
-        .and_then(|v| v.as_str());
-    if bundle_id != Some(execution) || chain_id != Some(execution) {
+    if bundle_id != Some(execution) {
         return Err(format!(
-            "sync response execution mismatch: expected '{execution}', got bundle '{bundle_id:?}' and checkpoints '{chain_id:?}'"
+            "sync response execution mismatch: expected '{execution}', got '{bundle_id:?}'"
         ));
     }
-    Ok((data.bundle, data.checkpoints))
+    if data.bundle.get("payload_digest").and_then(|v| v.as_str()).is_none() {
+        return Err("sync bundle has no payload digest".to_string());
+    }
+    Ok(data.bundle)
 }
 
 async fn fetch_bundle(
@@ -426,14 +435,14 @@ async fn fetch_bundle(
     timeout_secs: u64,
     max_response_bytes: u64,
     checkpoint_limit: usize,
-) -> Result<(serde_json::Value, serde_json::Value), String> {
+) -> Result<serde_json::Value, String> {
     let base_url = entry.local_base_url(default_local_port);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("cannot build backup client: {e}"))?;
     let mut request = client.get(format!(
-        "{base_url}/api/v1/remote-sync/executions/{execution}/bundle?checkpoint_limit={checkpoint_limit}"
+        "{base_url}/api/v1/remote-sync/executions/{execution}/bundle"
     ));
     if let Some(key) = api_key {
         request = request.header("x-api-key", key);
@@ -470,6 +479,7 @@ async fn fetch_bundle(
     }
     let envelope: SyncEnvelope =
         serde_json::from_slice(&bytes).map_err(|e| format!("sync decode failed: {e}"))?;
+    let _ = checkpoint_limit;
     decode_sync_response(status, envelope, &execution)
 }
 
@@ -671,6 +681,16 @@ fn parse_orphan_record(root: &Path, path: &Path) -> Result<BackupRecordView, Str
         size_bytes: bytes.len() as u64,
         sha256: hex::encode(Sha256::digest(&bytes)),
         path: relative_backup_path(root, path),
+        source_revision: payload
+            .get("source_revision")
+            .and_then(|value| value.as_str())
+            .ok_or("orphan bundle has no source revision")?
+            .to_string(),
+        payload_digest: payload
+            .get("payload_digest")
+            .and_then(|value| value.as_str())
+            .ok_or("orphan bundle has no payload digest")?
+            .to_string(),
     })
 }
 
@@ -757,8 +777,12 @@ mod tests {
         SyncEnvelope {
             success: true,
             data: Some(SyncData {
-                bundle: serde_json::json!({"version": 1, "execution_id": execution}),
-                checkpoints: serde_json::json!({"execution_id": execution, "checkpoint_count": 0}),
+                bundle: serde_json::json!({
+                    "version": 1,
+                    "execution_id": execution,
+                    "source_revision": "digest",
+                    "payload_digest": "digest"
+                }),
             }),
             error: None,
         }
@@ -791,8 +815,10 @@ mod tests {
         let mismatched = SyncEnvelope {
             success: true,
             data: Some(SyncData {
-                bundle: serde_json::json!({"execution_id": "other"}),
-                checkpoints: serde_json::json!({"execution_id": "e"}),
+                bundle: serde_json::json!({
+                    "execution_id": "other",
+                    "payload_digest": "digest"
+                }),
             }),
             error: None,
         };
@@ -810,7 +836,8 @@ mod tests {
         let bundle = serde_json::json!({
             "backup_version": BACKUP_BUNDLE_VERSION,
             "execution_id": "exec",
-            "checkpoints": {}
+            "source_revision": "digest",
+            "payload_digest": "digest"
         });
         let orphan = backend_dir.join("exec-123-abc.json");
         std::fs::write(&orphan, serde_json::to_string(&bundle).unwrap()).unwrap();
@@ -865,6 +892,8 @@ mod tests {
                     size_bytes: 10,
                     sha256: "abc".to_string(),
                     path: relative,
+                    source_revision: "rev".to_string(),
+                    payload_digest: "rev".to_string(),
                 })
                 .await
                 .unwrap();
@@ -897,6 +926,8 @@ mod tests {
                         size_bytes: 10,
                         sha256: "abc".to_string(),
                         path: relative,
+                    source_revision: "rev".to_string(),
+                    payload_digest: "rev".to_string(),
                     })
                     .await
                     .unwrap();
@@ -1014,7 +1045,7 @@ mod tests {
              _: u64,
              _: u64,
              _: usize| async {
-                Err::<(serde_json::Value, serde_json::Value), String>("down".to_string())
+                Err::<serde_json::Value, String>("down".to_string())
             },
         )
         .await;
@@ -1053,7 +1084,7 @@ mod tests {
                 assert_eq!(directory.as_deref(), Some("/workspace/alpha"));
                 let envelope = ok_envelope(&execution);
                 let data = envelope.data.expect("test envelope has data");
-                Ok::<_, String>((data.bundle, data.checkpoints))
+                Ok::<_, String>(data.bundle)
             },
         )
         .await
@@ -1070,7 +1101,7 @@ mod tests {
         let saved_path = resolve_backup_path(dir.path(), &records[0].path).unwrap();
         let text = std::fs::read_to_string(&saved_path).unwrap();
         let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(saved["checkpoints"]["execution_id"], "exec-1");
+        assert_eq!(saved["source_revision"], "digest");
         assert_eq!(
             std::fs::read_dir(dir.path().join("alpha")).unwrap().count(),
             1
@@ -1103,9 +1134,7 @@ mod tests {
              _: u64,
              _: u64,
              _: usize| async {
-                Err::<(serde_json::Value, serde_json::Value), String>(
-                    "fetch must not run".to_string(),
-                )
+                Err::<serde_json::Value, String>("fetch must not run".to_string())
             },
         )
         .await;

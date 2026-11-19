@@ -9,7 +9,7 @@
 //! Reads are persisted records only; a live run's artifacts appear once
 //! its record is written.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::execution::ExecutionType;
 
@@ -22,7 +22,7 @@ use crate::infra::error::{ApiError, ApiResult};
 pub const ARTIFACT_PREVIEW_MAX: usize = 500;
 
 /// What produced an artifact entry.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     WorkflowInput,
@@ -47,7 +47,7 @@ impl ArtifactKind {
 }
 
 /// One named output of an execution.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactEntry {
     pub execution_id: String,
     pub execution_type: ExecutionType,

@@ -158,6 +158,9 @@ pub enum RemoteSub {
         #[arg(long, value_name = "NAME")]
         backend: Option<String>,
     },
+    /// Show durable per-target synchronization and repair state.
+    #[command(name = "sync-state")]
+    SyncState,
     /// Trigger one backup now for a backend execution. The server fetches
     /// the bundle plus checkpoint chain and records it in the index.
     #[command(name = "backup-now")]
@@ -188,6 +191,17 @@ pub enum RemoteSub {
         /// Destination file for the exported bundle.
         #[arg(value_name = "DEST")]
         dest: String,
+    },
+    /// Restore one verified backup to its remote execution node. Dry run by
+    /// default; `--apply` performs the write after the target check.
+    #[command(name = "backup-restore")]
+    BackupRestore {
+        /// Backup id from `remote backups`.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Apply the restore instead of only showing the plan.
+        #[arg(long)]
+        apply: bool,
     },
     /// Rewrite absolute backup index paths to paths relative to the current
     /// server backup directory. Preview by default; `--apply` writes changes.

@@ -19,7 +19,7 @@ use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
 use super::types::{
     validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupExportView,
-    BackupRecordView, BackupRelinkReport, BackupVerificationView, TunnelStateView,
+    BackupRecordView, BackupRelinkReport, BackupVerificationView, SyncStateView, TunnelStateView,
 };
 
 /// Import report: per-row acceptance plus the skipped dirty rows.
@@ -33,6 +33,39 @@ pub struct ImportReport {
 pub struct ImportSkipped {
     pub name: String,
     pub reason: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InventoryEnvelope {
+    success: bool,
+    data: Option<InventoryData>,
+    error: Option<InventoryError>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InventoryData {
+    executions: Vec<InventoryEntry>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InventoryEntry {
+    execution_id: String,
+    found: bool,
+    revision: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InventoryError {
+    #[serde(default)]
+    message: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RestoreEnvelope {
+    success: bool,
+    data: Option<serde_json::Value>,
+    error: Option<InventoryError>,
 }
 
 /// Central backend state. Disabled managers reject every mutation with
@@ -164,6 +197,120 @@ impl BackendManager {
             timeout_secs: self.config.backup_timeout_secs,
             max_response_bytes: self.config.backup_max_response_bytes,
             checkpoint_limit: self.config.backup_checkpoint_limit,
+        }
+    }
+
+    fn remote_http_client(&self) -> Result<reqwest::Client, String> {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(self.config.backup_timeout_secs.max(1)))
+            .build()
+            .map_err(|e| format!("cannot build remote client: {e}"))
+    }
+
+    fn apply_remote_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+        entry: &BackendEntry,
+    ) -> reqwest::RequestBuilder {
+        let mut request = request;
+        if let Some(key) = self.config.remote_api_key.as_deref() {
+            request = request.header("x-api-key", key);
+        }
+        if let Some(directory) = entry
+            .backup_directory
+            .as_deref()
+            .or(self.config.backup_directory.as_deref())
+        {
+            request = request.header("x-wf-directory", directory);
+        }
+        request
+    }
+
+    async fn remote_inventory(
+        &self,
+        entry: &BackendEntry,
+        executions: &[String],
+    ) -> Result<std::collections::BTreeMap<String, (Option<String>, Option<String>)>, String> {
+        let client = self.remote_http_client()?;
+        let base_url = entry.local_base_url(self.config.default_local_port);
+        let ids = executions.join(",");
+        let request = self.apply_remote_headers(
+            client.get(format!("{base_url}/api/v1/remote-sync/inventory?ids={ids}")),
+            entry,
+        );
+        let status = request.send().await.map_err(|e| format!("inventory request failed: {e}"))?;
+        let status_code = status.status();
+        let envelope: InventoryEnvelope = status
+            .json()
+            .await
+            .map_err(|e| format!("inventory decode failed: {e}"))?;
+        if !status_code.is_success() || !envelope.success {
+            let message = envelope
+                .error
+                .map(|error| error.message)
+                .unwrap_or_else(|| status_code.to_string());
+            return Err(format!("remote inventory failed: {message}"));
+        }
+        let data = envelope
+            .data
+            .ok_or_else(|| "remote inventory has no data".to_string())?;
+        Ok(data
+            .executions
+            .into_iter()
+            .map(|row| {
+                (
+                    row.execution_id,
+                    (if row.found { row.revision } else { None }, row.error),
+                )
+            })
+            .collect())
+    }
+
+    async fn latest_local_backup(
+        &self,
+        backend: &str,
+        execution: &str,
+    ) -> Result<Option<BackupRecordView>, String> {
+        Ok(self
+            .store
+            .list_backups_for(backend, execution)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    async fn local_backup_is_valid(&self, record: &BackupRecordView) -> bool {
+        match self.verify_backup(&record.id).await {
+            Ok(view) => view.verified && view.status == "ok",
+            Err(_) => false,
+        }
+    }
+
+    async fn write_sync_state(
+        &self,
+        backend: &str,
+        execution: &str,
+        revision: Option<&str>,
+        backup_id: Option<&str>,
+        success_ms: Option<i64>,
+        attempt_ms: Option<i64>,
+        failures: u32,
+        repair_status: &str,
+        error: Option<&str>,
+    ) {
+        let state = SyncStateView {
+            backend: backend.to_string(),
+            execution: execution.to_string(),
+            last_success_ms: success_ms,
+            last_attempt_ms: attempt_ms,
+            revision: revision.map(str::to_string),
+            backup_id: backup_id.map(str::to_string),
+            failures,
+            repair_status: repair_status.to_string(),
+            error: error.map(str::to_string),
+        };
+        if let Err(e) = self.store.upsert_sync_state(&state).await {
+            tracing::warn!(backend = %backend, execution = %execution, error = %e, "sync state write failed");
         }
     }
 
@@ -302,9 +449,9 @@ impl BackendManager {
         }
     }
 
-    /// One scheduled backup round over executions that opt in. Due state
-    /// is keyed by backend and execution so one success cannot hide another
-    /// execution's failure. Tasks run in small batches to bound tail latency.
+    /// One synchronization round over executions that opt in. Remote
+    /// revisions drive fresh snapshots; missing or damaged local snapshots
+    /// are repaired even when the clock has not reached the next due time.
     async fn backup_round(&self) {
         let entries = match self.store.list_entries().await {
             Ok(entries) => entries,
@@ -317,55 +464,136 @@ impl BackendManager {
         };
         self.set_backup_round_error(None);
         let now_ms = wf_common::epoch_ms();
-        let mut tasks = Vec::new();
-        for (name, entry) in entries {
+        let mut inventories = BTreeMap::new();
+        for (name, entry) in &entries {
             if entry.backup_executions.is_empty() {
                 continue;
             }
+            inventories.insert(
+                name.clone(),
+                self.remote_inventory(entry, &entry.backup_executions).await,
+            );
+        }
+        let mut tasks = Vec::new();
+        for (name, entry) in entries {
+            let inventory = inventories.get(&name);
             let interval = entry
                 .backup_interval_secs
                 .unwrap_or(self.config.backup_interval_secs);
             for execution in &entry.backup_executions {
+                let key = Self::backup_key(&name, execution);
+                let failures = self
+                    .backup_statuses
+                    .get(&key)
+                    .map(|status| status.failures)
+                    .unwrap_or(0);
+                let state = self
+                    .store
+                    .get_sync_state(&name, execution)
+                    .await
+                    .unwrap_or(None);
+                let revisions = match inventory {
+                    Some(Ok(map)) => map,
+                    Some(Err(e)) => {
+                        self.write_sync_state(
+                            &name,
+                            execution,
+                            None,
+                            None,
+                            None,
+                            Some(now_ms),
+                            failures.saturating_add(1),
+                            "remote_unreachable",
+                            Some(e),
+                        )
+                        .await;
+                        continue;
+                    }
+                    None => continue,
+                };
+                let Some((remote_revision, inventory_error)) = revisions.get(execution).cloned() else {
+                    self.write_sync_state(
+                        &name,
+                        execution,
+                        None,
+                        None,
+                        None,
+                        Some(now_ms),
+                        failures.saturating_add(1),
+                        "remote_missing",
+                        Some("execution is absent from the remote inventory"),
+                    )
+                    .await;
+                    continue;
+                };
+                let remote_revision = match (remote_revision, inventory_error) {
+                    (Some(revision), None) => revision,
+                    (_, Some(error)) => {
+                        self.write_sync_state(
+                            &name,
+                            execution,
+                            None,
+                            None,
+                            None,
+                            Some(now_ms),
+                            failures.saturating_add(1),
+                            "remote_corrupt",
+                            Some(&error),
+                        )
+                        .await;
+                        continue;
+                    }
+                    (None, None) => {
+                        self.write_sync_state(
+                            &name,
+                            execution,
+                            None,
+                            None,
+                            None,
+                            Some(now_ms),
+                            failures.saturating_add(1),
+                            "remote_corrupt",
+                            Some("remote inventory has no revision"),
+                        )
+                        .await;
+                        continue;
+                    }
+                };
+                let local = self
+                    .latest_local_backup(&name, execution)
+                    .await
+                    .unwrap_or(None);
+                let local_valid = match &local {
+                    Some(record) => self.local_backup_is_valid(record).await,
+                    None => false,
+                };
+                let revision_changed = state
+                    .as_ref()
+                    .and_then(|row| row.revision.as_deref())
+                    != Some(remote_revision.as_str());
+                let mut due = true;
                 if interval > 0 {
-                    let key = Self::backup_key(&name, execution);
-                    let (memory_last, failures, last_attempt) = self
-                        .backup_statuses
-                        .get(&key)
-                        .map(|status| {
-                            (
-                                status.last_backup_ms,
-                                status.failures,
-                                status.last_attempt_ms,
-                            )
-                        })
-                        .unwrap_or((None, 0, None));
-                    // The index outlives the process, so a restart falls back
-                    // to the newest recorded backup instead of treating every
-                    // target as due at once.
-                    let indexed_last = if memory_last.is_some() {
-                        None
-                    } else {
-                        self.store
-                            .latest_backup_ms(&name, execution)
-                            .await
-                            .unwrap_or_default()
-                    };
-                    // The newest of success, indexed success and attempt is
-                    // the baseline; a target that never succeeded still gets
-                    // a real retry gap.
-                    let last = [memory_last, indexed_last, last_attempt]
-                        .into_iter()
-                        .flatten()
-                        .max();
+                    let last = [
+                        self.backup_statuses
+                            .get(&key)
+                            .and_then(|status| status.last_backup_ms),
+                        state.as_ref().and_then(|row| row.last_success_ms),
+                        state.as_ref().and_then(|row| row.last_attempt_ms),
+                        self.store.latest_backup_ms(&name, execution).await.unwrap_or(None),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .max();
                     if let Some(last) = last {
                         let gap = Self::effective_interval_ms(interval, failures);
                         let due_at = last
                             .saturating_add(gap)
                             .saturating_add(Self::jitter_ms(&key, gap));
-                        if now_ms < due_at {
-                            continue;
-                        }
+                        due = now_ms >= due_at;
                     }
+                }
+                if !due && local_valid && !revision_changed {
+                    continue;
                 }
                 tasks.push((name.clone(), entry.clone(), execution.clone()));
             }
@@ -373,8 +601,6 @@ impl BackendManager {
         for chunk in tasks.chunks(4) {
             futures::future::join_all(chunk.iter().map(|(name, entry, execution)| async move {
                 let key = Self::backup_key(name, execution);
-                // Hold the target lock across the write, the state update and
-                // retention so a manual trigger cannot interleave either step.
                 let _guard = self.backup_guard(&key).await;
                 let request = self.backup_request(entry);
                 let started = wf_common::epoch_ms();
@@ -389,8 +615,8 @@ impl BackendManager {
         }
     }
 
-    /// Apply one backup outcome while the target lock is held: status,
-    /// metrics and retention all belong to the same serialized section.
+    /// Apply one backup outcome while the target lock is held: verify first,
+    /// then publish the sync position and finally apply retention.
     async fn finish_backup(
         &self,
         backend: &str,
@@ -403,6 +629,22 @@ impl BackendManager {
         let key = Self::backup_key(backend, execution);
         match result {
             Ok(id) => {
+                let verification = self.verify_backup(&id).await;
+                let verified = match verification {
+                    Ok(view) if view.verified => view,
+                    Ok(view) => {
+                        let e = format!("fresh backup failed verification: {}", view.status);
+                        return self
+                            .fail_backup(backend, execution, key, e, duration_ms, now_ms)
+                            .await;
+                    }
+                    Err(e) => {
+                        return self
+                            .fail_backup(backend, execution, key, e, duration_ms, now_ms)
+                            .await;
+                    }
+                };
+                let record = self.store.get_backup(&id).await.ok().flatten();
                 self.record_backup_success(backend, &id, duration_ms).await;
                 self.backup_statuses.insert(
                     key,
@@ -413,58 +655,70 @@ impl BackendManager {
                         last_attempt_ms: Some(now_ms),
                     },
                 );
+                self.write_sync_state(
+                    backend,
+                    execution,
+                    record.as_ref().map(|row| row.source_revision.as_str()),
+                    Some(&id),
+                    Some(now_ms),
+                    Some(now_ms),
+                    0,
+                    "ok",
+                    None,
+                )
+                .await;
                 if let Err(e) = self.prune_for_target(backend, entry, execution).await {
                     tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
                 }
-                // Read the just-written file back through the verification
-                // path so every retained backup has passed one digest check
-                // before the next prune could ever drop it.
-                match self.verify_backup(&id).await {
-                    Ok(view) if view.verified => {}
-                    Ok(view) => {
-                        tracing::warn!(
-                            backend = %backend,
-                            id = %id,
-                            status = %view.status,
-                            "fresh backup failed verification"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            backend = %backend,
-                            id = %id,
-                            error = %e,
-                            "backup verification failed"
-                        );
-                    }
-                }
+                let _ = verified;
                 Ok(id)
             }
             Err(e) => {
-                let (previous, failures) = self
-                    .backup_statuses
-                    .get(&key)
-                    .map(|status| (status.last_backup_ms, status.failures))
-                    .unwrap_or((None, 0));
-                self.backup_statuses.insert(
-                    key,
-                    BackupRoundStatus {
-                        last_backup_ms: previous,
-                        error: Some(e.clone()),
-                        failures: failures.saturating_add(1),
-                        last_attempt_ms: Some(now_ms),
-                    },
-                );
-                self.record_backup_failure(backend, &e);
-                tracing::warn!(
-                    backend = %backend,
-                    execution = %execution,
-                    error = %e,
-                    "backup failed"
-                );
-                Err(e)
+                self.fail_backup(backend, execution, key, e, duration_ms, now_ms)
+                    .await
             }
         }
+    }
+
+    async fn fail_backup(
+        &self,
+        backend: &str,
+        execution: &str,
+        key: String,
+        error: String,
+        _duration_ms: f64,
+        now_ms: i64,
+    ) -> Result<String, String> {
+        let (previous, failures) = self
+            .backup_statuses
+            .get(&key)
+            .map(|status| (status.last_backup_ms, status.failures))
+            .unwrap_or((None, 0));
+        let failures = failures.saturating_add(1);
+        self.backup_statuses.insert(
+            key,
+            BackupRoundStatus {
+                last_backup_ms: previous,
+                error: Some(error.clone()),
+                failures,
+                last_attempt_ms: Some(now_ms),
+            },
+        );
+        self.record_backup_failure(backend, &error);
+        self.write_sync_state(
+            backend,
+            execution,
+            None,
+            None,
+            previous,
+            Some(now_ms),
+            failures,
+            "repair_pending",
+            Some(&error),
+        )
+        .await;
+        tracing::warn!(backend = %backend, execution = %execution, error = %error, "backup failed");
+        Err(error)
     }
 
     async fn prune_for_target(
@@ -652,6 +906,12 @@ impl BackendManager {
             self.backup_locks
                 .remove_if(&key, |_, lock| Arc::strong_count(lock) == 1);
         }
+        let sync_states = self.store.list_sync_states().await?;
+        for state in sync_states.into_iter().filter(|row| row.backend == name) {
+            self.store
+                .remove_sync_state(&state.backend, &state.execution)
+                .await?;
+        }
         self.store.remove_entry(name).await
     }
 
@@ -728,6 +988,71 @@ impl BackendManager {
     ) -> Result<Vec<BackupRecordView>, String> {
         self.require_enabled()?;
         self.store.list_backups(backend).await
+    }
+
+    pub async fn list_sync_states(&self) -> Result<Vec<SyncStateView>, String> {
+        self.require_enabled()?;
+        self.store.list_sync_states().await
+    }
+
+    /// Push one verified local recovery bundle to its remote node. The
+    /// remote owns conflict policy and writes only after its own validation.
+    pub async fn restore_backup(
+        &self,
+        id: &str,
+        dry_run: bool,
+    ) -> Result<serde_json::Value, String> {
+        self.require_enabled()?;
+        let record = self
+            .store
+            .get_backup(id)
+            .await?
+            .ok_or_else(|| format!("backup '{id}' not found"))?;
+        let verification = self.verify_backup(id).await?;
+        if !verification.verified {
+            return Err(format!(
+                "backup '{id}' failed verification before restore: {}",
+                verification.status
+            ));
+        }
+        let exported = self.export_backup(id).await?;
+        let entry = self
+            .store
+            .get_entry(&record.backend)
+            .await?
+            .ok_or_else(|| format!("backend '{}' not found", record.backend))?;
+        let client = self.remote_http_client()?;
+        let base_url = entry.local_base_url(self.config.default_local_port);
+        let body = serde_json::json!({
+            "bundle": exported.payload,
+            "dry_run": dry_run,
+        });
+        let response = self
+            .apply_remote_headers(
+                client.post(format!(
+                    "{base_url}/api/v1/remote-sync/executions/restore"
+                )),
+                &entry,
+            )
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("restore request failed: {e}"))?;
+        let status = response.status();
+        let envelope: RestoreEnvelope = response
+            .json()
+            .await
+            .map_err(|e| format!("restore decode failed: {e}"))?;
+        if !status.is_success() || !envelope.success {
+            let message = envelope
+                .error
+                .map(|error| error.message)
+                .unwrap_or_else(|| status.to_string());
+            return Err(format!("remote restore failed: {message}"));
+        }
+        envelope
+            .data
+            .ok_or_else(|| "remote restore returned no data".to_string())
     }
 
     /// Re-read one backup file and compare it with its index row. This is the
@@ -1020,6 +1345,8 @@ mod tests {
                 size_bytes: original.len() as u64,
                 sha256: hex::encode(sha2::Sha256::digest(original)),
                 path: "alpha/bundle.json".to_string(),
+                source_revision: "rev".to_string(),
+                payload_digest: "rev".to_string(),
             })
             .await
             .unwrap();
@@ -1114,6 +1441,8 @@ mod tests {
                     size_bytes: 2,
                     sha256: "digest".to_string(),
                     path: path.to_string(),
+                    source_revision: "rev".to_string(),
+                    payload_digest: "rev".to_string(),
                 })
                 .await
                 .unwrap();

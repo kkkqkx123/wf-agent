@@ -15,10 +15,11 @@ use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
     apply_server_default_port, collect_backend_candidates, create_server_backend,
-    export_server_backup, fetch_server_backends, fetch_server_backups, import_server_backends,
-    load_registry, management_client, probe_backends, relink_server_backups, remove_server_backend,
-    start_server_tunnel, stop_server_tunnel, trigger_server_backup, update_server_backend,
-    verify_server_backup, RemoteHost,
+    export_server_backup, fetch_server_backends, fetch_server_backups, fetch_server_sync_states,
+    import_server_backends, load_registry, management_client, probe_backends,
+    relink_server_backups, remove_server_backend, restore_server_backup, start_server_tunnel,
+    stop_server_tunnel, trigger_server_backup, update_server_backend, verify_server_backup,
+    RemoteHost,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -299,6 +300,11 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-status", data))
         }
+        RemoteSub::SyncState => {
+            let client = management_client(cli);
+            let report = fetch_server_sync_states(&client).await?;
+            render_envelope(cli.output, OutputEnvelope::success("remote-sync-state", report))
+        }
         RemoteSub::Backups { backend } => {
             let client = management_client(cli);
             let records = fetch_server_backups(&client, backend.as_deref()).await?;
@@ -314,6 +320,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                             "size_bytes": record.size_bytes,
                             "sha256": record.sha256,
                             "path": record.path,
+                            "source_revision": record.source_revision,
+                            "payload_digest": record.payload_digest,
                         })
                     })
                     .collect::<Vec<_>>(),
@@ -424,6 +432,19 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 OutputEnvelope::success("remote-backup-export", data),
             )
         }
+        RemoteSub::BackupRestore { id, apply } => {
+            if id.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote backup-restore requires a backup id".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let report = restore_server_backup(&client, id, !*apply).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-backup-restore", report),
+            )
+        }
         RemoteSub::BackupCheck {
             file,
             expect_sha256,
@@ -444,31 +465,42 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 .get("execution_id")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            let checkpoints = object.get("checkpoints");
-            let checkpoints_are_object =
-                checkpoints.map(|value| value.is_object()).unwrap_or(false);
-            let chain_id = checkpoints
-                .and_then(|value| value.get("execution_id"))
+            let checkpoints_are_array = object
+                .get("checkpoints")
+                .map(|value| value.is_array())
+                .unwrap_or(false);
+            let records_are_array = object
+                .get("records")
+                .map(|value| value.is_array())
+                .unwrap_or(false);
+            let payload_digest = object
+                .get("payload_digest")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
+            let source_revision = object
+                .get("source_revision")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let digest_matches_payload = payload_digest == source_revision && !payload_digest.is_empty();
             let digest = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
             let digest_match = expect_sha256
                 .as_deref()
                 .map(|expected| expected.eq_ignore_ascii_case(&digest));
-            let chain_execution_matches = chain_id == execution_id;
             const SUPPORTED_BACKUP_VERSION: u64 = 1;
             let valid = backup_version == SUPPORTED_BACKUP_VERSION
                 && !execution_id.is_empty()
-                && checkpoints_are_object
-                && chain_execution_matches
+                && records_are_array
+                && checkpoints_are_array
+                && digest_matches_payload
                 && digest_match.unwrap_or(true);
             let data = serde_json::json!({
                 "file": file,
                 "valid": valid,
                 "backup_version": backup_version,
                 "execution_id": execution_id,
-                "checkpoints_are_object": checkpoints_are_object,
-                "chain_execution_matches": chain_execution_matches,
+                "records_are_array": records_are_array,
+                "checkpoints_are_array": checkpoints_are_array,
+                "digest_matches_payload": digest_matches_payload,
                 "size_bytes": bytes.len(),
                 "sha256": digest,
                 "digest_matches_expected": digest_match,
@@ -500,17 +532,11 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
         } => {
             let handle = ClientHandle::from_cli(cli).await?;
             let client = handle.client();
-            let mut bundle: serde_json::Value = client
+            let bundle: serde_json::Value = client
                 .get_json(&format!(
                     "/api/v1/executions/{execution}/bundle?checkpoint_synced={checkpoint_synced}"
                 ))
                 .await?;
-            let chain = client.execution_checkpoints_chain(execution).await?;
-            let checkpoints = serde_json::to_value(chain)
-                .map_err(|e| CliError::Configuration(format!("checkpoint chain encode: {e}")))?;
-            if let Some(object) = bundle.as_object_mut() {
-                object.insert("checkpoints".to_string(), checkpoints);
-            }
             if let Some(parent) = dest.parent() {
                 if !parent.as_os_str().is_empty() {
                     std::fs::create_dir_all(parent)?;

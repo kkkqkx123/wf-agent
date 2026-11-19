@@ -1,9 +1,9 @@
 //! Audit view types shared by the audit query and timeline modules.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Where the audit data was resolved from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditSource {
     /// From a live entity in the runtime registry.
@@ -17,7 +17,7 @@ pub enum AuditSource {
 }
 
 /// Summary of one execution's audit trail.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditSummary {
     pub execution_id: String,
     /// `agent_loop` or `workflow`.

@@ -14,6 +14,7 @@ pub mod observation;
 pub mod pty;
 #[cfg(feature = "rag-vector")]
 pub mod rag;
+pub mod recovery;
 pub mod recap;
 pub mod system;
 pub mod template;

@@ -1,8 +1,6 @@
-//! Execution bundle export: one versioned archive per execution for
-//! disaster-recovery review and manual reproduction. The handler is a thin
-//! transport adapter over `wf_api::execution_bundle::export_bundle`; the CLI
-//! pull path reads this route instead of aggregating the history, artifact
-//! and audit endpoints on its own.
+//! Execution recovery bundle export: one self-contained archive per execution
+//! for local backup, remote synchronization and restoration. The handler is a
+//! thin transport adapter over `wf_api::execution_bundle`.
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
@@ -22,6 +20,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/remote-sync/executions/{id}/bundle",
             get(handle_remote_sync_bundle),
         )
+        .route("/remote-sync/inventory", get(handle_remote_sync_inventory))
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -34,8 +33,30 @@ pub(crate) struct ExecutionBundleQuery {
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct RemoteSyncQuery {
-    /// Upper bound on the number of checkpoints carried in the response.
+    /// Accepted for compatibility with existing schedulers; zero is still
+    /// rejected. Recovery snapshots always carry the full checkpoint chain.
     checkpoint_limit: Option<usize>,
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct RemoteInventoryQuery {
+    /// Comma-separated execution ids. When omitted, every owned execution of
+    /// the requested directory is reported.
+    ids: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct RemoteSyncInventoryEntry {
+    pub execution_id: String,
+    pub found: bool,
+    pub revision: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct RemoteSyncInventory {
+    pub executions: Vec<RemoteSyncInventoryEntry>,
 }
 
 #[utoipa::path(
@@ -69,22 +90,16 @@ pub(crate) async fn handle_execution_bundle(
     }
 }
 
-/// One-response sync payload for the local management service. The
-/// execution bundle and its checkpoint chain share one owner check so a
+/// One-response recovery snapshot for the local management service. The
+/// execution records and every derived view share one owner check so a
 /// backup never mixes data from different executions.
-#[derive(serde::Serialize)]
-struct RemoteSyncBundle<B: serde::Serialize, C: serde::Serialize> {
-    bundle: B,
-    checkpoints: C,
-}
-
 #[utoipa::path(
     get,
     path = "/api/v1/remote-sync/executions/{id}/bundle",
     operation_id = "get_remote_sync_bundle",
     tag = "observation",
     params(IdPath, RemoteSyncQuery),
-    responses((status = 200, description = "Execution bundle plus bounded checkpoint chain", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Complete execution recovery bundle", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_remote_sync_bundle(
@@ -102,26 +117,81 @@ pub(crate) async fn handle_remote_sync_bundle(
     if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
-    let bundle = match wf_api::execution_bundle::export_bundle(&state.ctx, &path.id, false).await {
-        Ok(bundle) => bundle,
-        Err(e) => return error_response(e),
-    };
-    let checkpoints = match wf_api::checkpoint::record::chain_for_execution_limited(
+    match wf_api::execution_bundle::export_bundle(&state.ctx, &path.id, false).await {
+        Ok(bundle) => ok(bundle).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Revision inventory used by the management service to decide whether a
+/// target needs a fresh snapshot or has disappeared from the remote node.
+#[utoipa::path(
+    get,
+    path = "/api/v1/remote-sync/inventory",
+    operation_id = "get_remote_sync_inventory",
+    tag = "observation",
+    params(RemoteInventoryQuery),
+    responses((status = 200, description = "Execution revision inventory", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_remote_sync_inventory(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Query(query): Query<RemoteInventoryQuery>,
+) -> impl IntoResponse {
+    let wanted: Vec<String> = query
+        .ids
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let directory = crate::directory::scope_dir_string(&scope);
+    let listed = match wf_api::execution_listing::list_unified(
         &state.ctx,
-        &path.id,
-        None,
-        query.checkpoint_limit,
+        Some(&wf_api::execution_listing::UnifiedExecutionFilter {
+            directory: directory.clone(),
+            ..Default::default()
+        }),
+        usize::MAX / 2,
+        0,
     )
     .await
     {
-        Ok(chain) => chain,
+        Ok((rows, _)) => rows,
         Err(e) => return error_response(e),
     };
-    ok(RemoteSyncBundle {
-        bundle,
-        checkpoints,
-    })
-    .into_response()
+    let known: Vec<String> = if wanted.is_empty() {
+        listed
+            .iter()
+            .map(|row| row.execution_id.clone())
+            .collect()
+    } else {
+        wanted
+    };
+    let mut executions = Vec::with_capacity(known.len());
+    for execution_id in known {
+        let found = listed.iter().any(|row| row.execution_id == execution_id);
+        let mut revision = None;
+        let mut error = None;
+        if found {
+            match wf_api::execution_bundle::source_revision(&state.ctx, &execution_id).await {
+                Ok(value) => revision = Some(value),
+                Err(e) => error = Some(e.to_string()),
+            }
+        }
+        executions.push(RemoteSyncInventoryEntry {
+            execution_id,
+            found,
+            revision,
+            error,
+        });
+    }
+    ok(RemoteSyncInventory { executions }).into_response()
 }
 
 #[cfg(test)]
@@ -133,10 +203,11 @@ mod tests {
     use tower::ServiceExt;
     use wf_api::ApiContext;
     use wf_storage::adapter::base::BaseStorageAdapter;
+    use wf_storage::context::StorageContext;
 
     fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
-            wf_storage::context::StorageContext::new_memory(),
+            StorageContext::new_memory(),
             Arc::new(wf_resource::registry::ResourceRegistries::new()),
         ))
     }
@@ -165,9 +236,7 @@ mod tests {
             loop_config: None,
             permanently_failed_tools: None,
             hierarchy: None,
-
             rerun_of: None,
-
             directory: None,
         };
         ctx.storage.agent_execution.save(&record).await.unwrap();
@@ -198,38 +267,33 @@ mod tests {
         assert_eq!(body["data"]["version"], 1);
         assert_eq!(body["data"]["execution_id"], "loop-bundle");
         assert_eq!(body["data"]["checkpoint_synced"], false);
+        assert!(body["data"]["payload_digest"].as_str().is_some());
     }
 
     #[tokio::test]
-    async fn bundle_flag_marks_checkpoint_synced() {
+    async fn remote_sync_reports_revision() {
         let ctx = make_ctx();
-        save_agent(&ctx, "loop-synced").await;
-
-        let response = send(
-            ctx,
-            "/api/v1/executions/loop-synced/bundle?checkpoint_synced=true",
-        )
-        .await;
+        save_agent(&ctx, "loop-sync").await;
+        let response = send(ctx, "/api/v1/remote-sync/inventory?ids=loop-sync,missing").await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_body(response).await;
-        assert_eq!(body["data"]["checkpoint_synced"], true);
+        let rows = body["data"]["executions"].as_array().expect("rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["execution_id"], "loop-sync");
+        assert_eq!(rows[0]["found"], true);
+        assert!(rows[0]["revision"].as_str().is_some());
+        assert_eq!(rows[1]["found"], false);
     }
 
     #[tokio::test]
     async fn remote_sync_rejects_zero_checkpoint_limit() {
         let ctx = make_ctx();
+        save_agent(&ctx, "loop-sync").await;
         let response = send(
             ctx,
             "/api/v1/remote-sync/executions/missing/bundle?checkpoint_limit=0",
         )
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn unknown_execution_is_not_found() {
-        let ctx = make_ctx();
-        let response = send(ctx, "/api/v1/executions/missing/bundle").await;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

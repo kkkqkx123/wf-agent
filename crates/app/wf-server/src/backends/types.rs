@@ -180,6 +180,25 @@ pub struct BackupRecordView {
     pub size_bytes: u64,
     pub sha256: String,
     pub path: String,
+    /// Remote source revision captured in the recovery bundle.
+    pub source_revision: String,
+    /// Canonical digest of the complete recovery snapshot.
+    pub payload_digest: String,
+}
+
+/// Durable per-target synchronization position and repair state.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SyncStateView {
+    pub backend: String,
+    pub execution: String,
+    pub last_success_ms: Option<i64>,
+    pub last_attempt_ms: Option<i64>,
+    pub revision: Option<String>,
+    pub backup_id: Option<String>,
+    pub failures: u32,
+    pub repair_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Outcome of a one-time absolute-path index relink. Counts describe the

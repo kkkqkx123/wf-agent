@@ -636,6 +636,8 @@ use utoipa::OpenApi;
         crate::api::observation::artifacts::handle_query_artifacts,
         crate::api::observation::bundle::handle_execution_bundle,
         crate::api::observation::bundle::handle_remote_sync_bundle,
+        crate::api::observation::bundle::handle_remote_sync_inventory,
+        crate::api::recovery::handle_restore_bundle,
         // ── system ──
         crate::api::system::code_context::handle_code_context,
         crate::api::system::code_context::handle_dead_letters,
@@ -690,6 +692,8 @@ use utoipa::OpenApi;
         crate::api::system::backends::handle_trigger_backup,
         crate::api::system::backends::handle_verify_backup,
         crate::api::system::backends::handle_export_backup,
+        crate::api::system::backends::handle_restore_backup,
+        crate::api::system::backends::handle_list_sync_states,
         crate::api::system::server::handle_server_info,
         crate::api::system::server::handle_server_status,
         crate::api::system::server::handle_server_pair,

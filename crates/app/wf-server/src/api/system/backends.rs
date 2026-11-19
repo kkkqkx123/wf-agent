@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::backends::types::{
     BackendEntry, BackendEntryView, BackupExportView, BackupRecordView, BackupRelinkReport,
-    BackupVerificationView,
+    BackupVerificationView, SyncStateView,
 };
 use crate::envelope::{error_response, ok, service_unavailable};
 use crate::extract::IdPath;
@@ -22,12 +22,17 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/system/backends", get(handle_list).post(handle_create))
         .route("/system/backends/import", post(handle_import))
         .route("/system/backups", get(handle_list_all_backups))
+        .route("/system/backups/sync-state", get(handle_list_sync_states))
         .route(
             "/system/backups/relink",
             get(handle_preview_relink_backups).post(handle_relink_backups),
         )
         .route("/system/backups/{id}/verify", get(handle_verify_backup))
         .route("/system/backups/{id}/export", get(handle_export_backup))
+        .route(
+            "/system/backups/{id}/restore",
+            post(handle_restore_backup),
+        )
         .route(
             "/system/backends/{name}",
             get(handle_get).put(handle_update).delete(handle_remove),
@@ -102,6 +107,12 @@ pub(crate) struct BackupTriggerBody {
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, utoipa::ToSchema)]
+pub(crate) struct BackupRestoreBody {
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, utoipa::ToSchema)]
 pub(crate) struct BackupRelinkBody {
     /// Preview by default; only `true` writes index changes.
     #[serde(default)]
@@ -118,6 +129,11 @@ pub(crate) struct BackupTriggerView {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub(crate) struct BackupListView {
     backups: Vec<BackupRecordView>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub(crate) struct SyncStateListView {
+    states: Vec<SyncStateView>,
 }
 
 #[utoipa::path(get, path = "/api/v1/system/backends", operation_id = "list_system_backends", tag = "system", responses((status = 200, description = "Backend registry with live status", body = crate::envelope::ApiEnvelope<BackendListView>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
@@ -349,6 +365,20 @@ pub(crate) async fn handle_list_all_backups(State(state): State<ApiState>) -> im
     }
 }
 
+#[utoipa::path(get, path = "/api/v1/system/backups/sync-state", operation_id = "list_system_sync_states", tag = "system", responses((status = 200, description = "Per-target synchronization state", body = crate::envelope::ApiEnvelope<SyncStateListView>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_list_sync_states(State(state): State<ApiState>) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.list_sync_states().await {
+        Ok(states) => ok(SyncStateListView { states }).into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
 #[utoipa::path(get, path = "/api/v1/system/backups/relink", operation_id = "preview_system_backup_relink", tag = "system", responses((status = 200, description = "Preview of absolute-path index relinking", body = crate::envelope::ApiEnvelope<BackupRelinkReport>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_preview_relink_backups(
     State(state): State<ApiState>,
@@ -417,6 +447,29 @@ pub(crate) async fn handle_export_backup(
     }
     match backends.export_backup(&path.id).await {
         Ok(view) => ok(view).into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backup".to_string(),
+            id: path.id,
+        })
+        .into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(post, path = "/api/v1/system/backups/{id}/restore", operation_id = "restore_system_backup", tag = "system", params(IdPath), request_body = BackupRestoreBody, responses((status = 200, description = "Restore plan or result", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Backup not found", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_restore_backup(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    axum::Json(body): axum::Json<BackupRestoreBody>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.restore_backup(&path.id, body.dry_run).await {
+        Ok(plan) => ok(plan).into_response(),
         Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
             entity_type: "backup".to_string(),
             id: path.id,

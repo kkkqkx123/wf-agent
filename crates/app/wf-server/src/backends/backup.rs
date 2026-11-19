@@ -40,7 +40,6 @@ pub struct BackupRequest<'a> {
     pub directory: Option<&'a str>,
     pub timeout_secs: u64,
     pub max_response_bytes: u64,
-    pub checkpoint_limit: usize,
 }
 
 /// Store a path relative to the backup root so a moved root does not leave
@@ -195,7 +194,7 @@ async fn backup_one_with_fetch<F, Fut>(
     fetch: F,
 ) -> Result<String, String>
 where
-    F: Fn(BackendEntry, String, u16, Option<String>, Option<String>, u64, u64, usize) -> Fut,
+    F: Fn(BackendEntry, String, u16, Option<String>, Option<String>, u64, u64) -> Fut,
     Fut: std::future::Future<Output = Result<serde_json::Value, String>>,
 {
     let Some(root) = request.backup_root else {
@@ -214,7 +213,6 @@ where
         request.directory.map(str::to_string),
         request.timeout_secs,
         request.max_response_bytes,
-        request.checkpoint_limit,
     )
     .await
     .map_err(|e| format!("backup fetch failed for '{backend}/{execution}': {e}"))?;
@@ -420,7 +418,12 @@ fn decode_sync_response(
             "sync response execution mismatch: expected '{execution}', got '{bundle_id:?}'"
         ));
     }
-    if data.bundle.get("payload_digest").and_then(|v| v.as_str()).is_none() {
+    if data
+        .bundle
+        .get("payload_digest")
+        .and_then(|v| v.as_str())
+        .is_none()
+    {
         return Err("sync bundle has no payload digest".to_string());
     }
     Ok(data.bundle)
@@ -434,7 +437,6 @@ async fn fetch_bundle(
     directory: Option<String>,
     timeout_secs: u64,
     max_response_bytes: u64,
-    checkpoint_limit: usize,
 ) -> Result<serde_json::Value, String> {
     let base_url = entry.local_base_url(default_local_port);
     let client = reqwest::Client::builder()
@@ -479,7 +481,6 @@ async fn fetch_bundle(
     }
     let envelope: SyncEnvelope =
         serde_json::from_slice(&bytes).map_err(|e| format!("sync decode failed: {e}"))?;
-    let _ = checkpoint_limit;
     decode_sync_response(status, envelope, &execution)
 }
 
@@ -491,6 +492,7 @@ async fn fetch_bundle(
 pub struct ReconcileReport {
     pub orphan_files: usize,
     pub missing_files: usize,
+    pub digest_mismatch_files: usize,
     pub temp_files_removed: usize,
     /// Symlinks seen during the pass. They are never followed or removed.
     pub symlink_entries: usize,
@@ -535,11 +537,34 @@ fn reconcile_blocking(
     let mut candidates = Vec::new();
     let root = std::fs::canonicalize(root)
         .map_err(|e| format!("cannot resolve backup root {}: {e}", root.display()))?;
-    let indexed: std::collections::HashSet<PathBuf> = records
-        .iter()
-        .filter_map(|record| resolve_backup_path(&root, &record.path).ok())
-        .collect();
+    let mut indexed = std::collections::HashSet::new();
     let mut report = ReconcileReport::default();
+    for record in records {
+        let path = match resolve_backup_path(&root, &record.path) {
+            Ok(path) => path,
+            Err(_) => {
+                report.missing_files += 1;
+                continue;
+            }
+        };
+        indexed.insert(normalize_path(&path));
+        if !path.exists() {
+            report.missing_files += 1;
+            continue;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                report.missing_files += 1;
+                continue;
+            }
+        };
+        if bytes.len() as u64 != record.size_bytes
+            || hex::encode(Sha256::digest(&bytes)) != record.sha256
+        {
+            report.digest_mismatch_files += 1;
+        }
+    }
     let backends = std::fs::read_dir(&root)
         .map_err(|e| format!("cannot read backup root {}: {e}", root.display()))?;
     for backend in backends.flatten() {
@@ -609,15 +634,6 @@ fn reconcile_blocking(
             }
         }
     }
-    // A row that resolves outside the root is counted missing: it cannot
-    // name a file we are willing to touch.
-    report.missing_files = records
-        .iter()
-        .filter(|record| match resolve_backup_path(&root, &record.path) {
-            Ok(path) => !path.exists(),
-            Err(_) => true,
-        })
-        .count();
     Ok((report, candidates))
 }
 
@@ -874,6 +890,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconcile_detects_missing_and_changed_indexed_files() {
+        let store = BackendStore::new_memory();
+        let dir = tempfile::tempdir().unwrap();
+        let backend_dir = dir.path().join("alpha");
+        std::fs::create_dir_all(&backend_dir).unwrap();
+        let changed = backend_dir.join("exec-changed.json");
+        std::fs::write(&changed, b"original").unwrap();
+        let missing = backend_dir.join("exec-missing.json");
+        for (id, path, bytes) in [
+            ("changed", &changed, b"original".as_slice()),
+            ("missing", &missing, b"gone".as_slice()),
+        ] {
+            store
+                .record_backup(&BackupRecordView {
+                    id: id.to_string(),
+                    backend: "alpha".to_string(),
+                    execution: "exec".to_string(),
+                    created_ms: 1,
+                    size_bytes: bytes.len() as u64,
+                    sha256: hex::encode(Sha256::digest(bytes)),
+                    path: relative_backup_path(dir.path(), path),
+                    source_revision: "rev".to_string(),
+                    payload_digest: "rev".to_string(),
+                })
+                .await
+                .unwrap();
+        }
+        std::fs::write(&changed, b"tampered").unwrap();
+
+        let report = reconcile_backups(&store, dir.path()).await.unwrap();
+        assert_eq!(report.missing_files, 1);
+        assert_eq!(report.digest_mismatch_files, 1);
+    }
+
+    #[tokio::test]
     async fn count_and_age_caps_apply_first_wins() {
         let store = BackendStore::new_memory();
         let dir = tempfile::tempdir().unwrap();
@@ -926,8 +977,8 @@ mod tests {
                         size_bytes: 10,
                         sha256: "abc".to_string(),
                         path: relative,
-                    source_revision: "rev".to_string(),
-                    payload_digest: "rev".to_string(),
+                        source_revision: "rev".to_string(),
+                        payload_digest: "rev".to_string(),
                     })
                     .await
                     .unwrap();
@@ -1035,7 +1086,6 @@ mod tests {
                 directory: None,
                 timeout_secs: 15,
                 max_response_bytes: 64 * 1024 * 1024,
-                checkpoint_limit: 500,
             },
             |_: BackendEntry,
              _: String,
@@ -1043,10 +1093,7 @@ mod tests {
              _: Option<String>,
              _: Option<String>,
              _: u64,
-             _: u64,
-             _: usize| async {
-                Err::<serde_json::Value, String>("down".to_string())
-            },
+             _: u64| async { Err::<serde_json::Value, String>("down".to_string()) },
         )
         .await;
         assert!(result.is_err());
@@ -1070,7 +1117,6 @@ mod tests {
                 directory: Some("/workspace/alpha"),
                 timeout_secs: 15,
                 max_response_bytes: 64 * 1024 * 1024,
-                checkpoint_limit: 500,
             },
             |_: BackendEntry,
              execution: String,
@@ -1078,8 +1124,7 @@ mod tests {
              api_key: Option<String>,
              directory: Option<String>,
              _: u64,
-             _: u64,
-             _: usize| async move {
+             _: u64| async move {
                 assert_eq!(api_key.as_deref(), Some("key"));
                 assert_eq!(directory.as_deref(), Some("/workspace/alpha"));
                 let envelope = ok_envelope(&execution);
@@ -1124,7 +1169,6 @@ mod tests {
                 directory: None,
                 timeout_secs: 15,
                 max_response_bytes: 64 * 1024 * 1024,
-                checkpoint_limit: 500,
             },
             |_: BackendEntry,
              _: String,
@@ -1132,8 +1176,7 @@ mod tests {
              _: Option<String>,
              _: Option<String>,
              _: u64,
-             _: u64,
-             _: usize| async {
+             _: u64| async {
                 Err::<serde_json::Value, String>("fetch must not run".to_string())
             },
         )

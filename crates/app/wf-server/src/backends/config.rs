@@ -32,8 +32,6 @@ const DEFAULT_BACKUP_RETENTION_DAYS: u64 = 7;
 const DEFAULT_BACKUP_TIMEOUT_SECS: u64 = 15;
 /// Default upper bound on one decoded sync response, in bytes (64 MiB).
 const DEFAULT_BACKUP_MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
-/// Default upper bound on checkpoints carried into one backup (500).
-const DEFAULT_BACKUP_CHECKPOINT_LIMIT: usize = 500;
 
 /// Server-owned backend configuration. `enabled == false` keeps every new
 /// backend endpoint at 503 and spawns no background tasks.
@@ -56,7 +54,6 @@ pub struct BackendConfig {
     pub backup_retention_days: u64,
     pub backup_timeout_secs: u64,
     pub backup_max_response_bytes: u64,
-    pub backup_checkpoint_limit: usize,
 }
 
 impl Default for BackendConfig {
@@ -75,7 +72,6 @@ impl Default for BackendConfig {
             backup_retention_days: DEFAULT_BACKUP_RETENTION_DAYS,
             backup_timeout_secs: DEFAULT_BACKUP_TIMEOUT_SECS,
             backup_max_response_bytes: DEFAULT_BACKUP_MAX_RESPONSE_BYTES,
-            backup_checkpoint_limit: DEFAULT_BACKUP_CHECKPOINT_LIMIT,
         }
     }
 }
@@ -143,9 +139,6 @@ impl BackendConfig {
         if let Some(max_bytes) = file.backup_max_response_bytes {
             self.backup_max_response_bytes = max_bytes;
         }
-        if let Some(limit) = file.backup_checkpoint_limit {
-            self.backup_checkpoint_limit = limit;
-        }
         Ok(())
     }
 
@@ -189,9 +182,6 @@ impl BackendConfig {
         }
         if let Some(max_bytes) = read_env_u64("WF_BACKEND_BACKUP_MAX_RESPONSE_BYTES") {
             self.backup_max_response_bytes = max_bytes;
-        }
-        if let Some(limit) = read_env_u64("WF_BACKEND_BACKUP_CHECKPOINT_LIMIT") {
-            self.backup_checkpoint_limit = limit as usize;
         }
     }
 
@@ -247,11 +237,6 @@ impl BackendConfig {
                 "invalid backend config: backup_max_response_bytes must be > 0".to_string(),
             ));
         }
-        if self.backup_checkpoint_limit == 0 {
-            return Err(ConfigError::Parse(
-                "invalid backend config: backup_checkpoint_limit must be > 0".to_string(),
-            ));
-        }
         Ok(())
     }
 }
@@ -270,7 +255,6 @@ struct BackendFileConfig {
     backup_retention_days: Option<u64>,
     backup_timeout_secs: Option<u64>,
     backup_max_response_bytes: Option<u64>,
-    backup_checkpoint_limit: Option<usize>,
 }
 
 fn load_merged_backend_file(

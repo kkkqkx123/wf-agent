@@ -317,6 +317,16 @@ fn detect_anomalies(registry: &MetricsRegistry) -> Vec<Anomaly> {
             severity: Severity::High,
         });
     }
+    if backup_stats.digest_mismatch_count > thresholds.max_backup_digest_mismatches {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::backup_metrics::DIGEST_MISMATCH_COUNT.to_string(),
+            description: format!(
+                "Indexed backup files with changed content: {}",
+                backup_stats.digest_mismatch_count
+            ),
+            severity: Severity::High,
+        });
+    }
     if backup_stats.verify_failure_count > thresholds.max_backup_verify_failures {
         anomalies.push(Anomaly {
             metric_name: crate::constants::backup_metrics::VERIFY_FAILURE_COUNT.to_string(),
@@ -537,13 +547,14 @@ mod tests {
                 max_backup_verify_failures: Some(0),
                 max_backup_orphan_files: Some(0),
                 max_backup_missing_files: Some(0),
+                max_backup_digest_mismatches: Some(0),
                 ..Default::default()
             }),
             ..Default::default()
         });
         registry.backup().record_failure("alpha", "timeout");
         registry.backup().record_verify_failure("digest_mismatch");
-        registry.backup().record_reconcile(2, 1);
+        registry.backup().record_reconcile(2, 1, 1);
 
         let report = generate_report(&registry, &ReportOptions::default()).await;
         let severity = |name: &str| {
@@ -555,6 +566,10 @@ mod tests {
         };
         assert_eq!(
             severity(crate::constants::backup_metrics::MISSING_COUNT),
+            Some(Severity::High)
+        );
+        assert_eq!(
+            severity(crate::constants::backup_metrics::DIGEST_MISMATCH_COUNT),
             Some(Severity::High)
         );
         assert_eq!(

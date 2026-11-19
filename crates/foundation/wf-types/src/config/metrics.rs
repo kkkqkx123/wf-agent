@@ -28,9 +28,9 @@ pub struct MetricCollectorConfig {
 /// (0..=1) triggers a workflow-success-degradation anomaly,
 /// `max_tool_error_rate` (0..=1) triggers a tool-error-rate anomaly and
 /// `max_checkpoint_failures` triggers a checkpoint-failure anomaly. The
-/// backup thresholds cap failures, verification failures, orphan files and
-/// missing files reported by the backup collector. All are optional; missing
-/// values fall back to the defaults.
+/// backup thresholds cap failures, verification failures, orphan files,
+/// missing files and digest mismatches reported by the backup collector. All
+/// are optional; missing values fall back to the defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AnomalyThresholdsConfig {
     pub max_error_count: Option<u64>,
@@ -41,6 +41,7 @@ pub struct AnomalyThresholdsConfig {
     pub max_backup_verify_failures: Option<u64>,
     pub max_backup_orphan_files: Option<u64>,
     pub max_backup_missing_files: Option<u64>,
+    pub max_backup_digest_mismatches: Option<u64>,
 }
 
 /// Global retention window (milliseconds) driving both the in-memory

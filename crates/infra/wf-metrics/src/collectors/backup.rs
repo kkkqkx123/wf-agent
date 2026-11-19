@@ -14,6 +14,7 @@ pub struct BackupStats {
     pub pruned_count: u64,
     pub orphan_count: u64,
     pub missing_count: u64,
+    pub digest_mismatch_count: u64,
     pub avg_duration_ms: f64,
 }
 
@@ -87,7 +88,12 @@ impl BackupMetricsCollector {
     }
 
     /// Publish the latest reconciliation counts as gauges.
-    pub fn record_reconcile(&self, orphan_files: usize, missing_files: usize) {
+    pub fn record_reconcile(
+        &self,
+        orphan_files: usize,
+        missing_files: usize,
+        digest_mismatch_files: usize,
+    ) {
         self.inner.set_gauge(
             backup_metrics::ORPHAN_COUNT,
             orphan_files as f64,
@@ -96,6 +102,11 @@ impl BackupMetricsCollector {
         self.inner.set_gauge(
             backup_metrics::MISSING_COUNT,
             missing_files as f64,
+            labels(&[]),
+        );
+        self.inner.set_gauge(
+            backup_metrics::DIGEST_MISMATCH_COUNT,
+            digest_mismatch_files as f64,
             labels(&[]),
         );
     }
@@ -129,6 +140,12 @@ impl BackupMetricsCollector {
             missing_count: crate::collectors::latest(&self.inner, backup_metrics::MISSING_COUNT)
                 .map(|m| m.value as u64)
                 .unwrap_or(0),
+            digest_mismatch_count: crate::collectors::latest(
+                &self.inner,
+                backup_metrics::DIGEST_MISMATCH_COUNT,
+            )
+            .map(|m| m.value as u64)
+            .unwrap_or(0),
             avg_duration_ms: duration
                 .map(|d| {
                     if d.count > 0 {
@@ -166,7 +183,7 @@ mod tests {
         c.record_verify_success();
         c.record_verify_failure("digest_mismatch");
         c.record_pruned("alpha", 3);
-        c.record_reconcile(2, 1);
+        c.record_reconcile(2, 1, 3);
 
         let stats = c.stats();
         assert_eq!(stats.success_count, 1);
@@ -176,6 +193,7 @@ mod tests {
         assert_eq!(stats.pruned_count, 3);
         assert_eq!(stats.orphan_count, 2);
         assert_eq!(stats.missing_count, 1);
+        assert_eq!(stats.digest_mismatch_count, 3);
         assert_eq!(stats.avg_duration_ms, 120.0);
     }
 

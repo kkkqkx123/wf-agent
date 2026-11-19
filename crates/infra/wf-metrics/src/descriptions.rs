@@ -177,6 +177,7 @@ pub fn metric_description(name: &str) -> Option<&'static str> {
         backup_metrics::PRUNED_COUNT => "Remote backup pruned count",
         backup_metrics::ORPHAN_COUNT => "Remote backup orphan files",
         backup_metrics::MISSING_COUNT => "Remote backup missing files",
+        backup_metrics::DIGEST_MISMATCH_COUNT => "Remote backup digest mismatches",
         _ => return None,
     })
 }

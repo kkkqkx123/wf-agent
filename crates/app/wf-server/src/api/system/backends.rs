@@ -29,10 +29,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/system/backups/{id}/verify", get(handle_verify_backup))
         .route("/system/backups/{id}/export", get(handle_export_backup))
-        .route(
-            "/system/backups/{id}/restore",
-            post(handle_restore_backup),
-        )
+        .route("/system/backups/{id}/restore", post(handle_restore_backup))
         .route(
             "/system/backends/{name}",
             get(handle_get).put(handle_update).delete(handle_remove),

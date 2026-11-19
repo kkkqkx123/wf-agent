@@ -23,11 +23,10 @@ backup_interval_secs = 3600
 backup_retention_count = 10
 backup_retention_days = 7
 
-# Remote fetch budget. `backup_checkpoint_limit` keeps only the most recent
-# checkpoints in a backup and records `truncated`/`total_count` in the bundle.
+# Remote fetch budget. Checkpoints are never truncated; an oversized bundle
+# fails before it reaches the backup directory.
 backup_timeout_secs = 15
 backup_max_response_bytes = 67108864
-backup_checkpoint_limit = 500
 
 # Environment overrides:
 # WF_BACKEND_ENABLED, WF_BACKEND_PROBE_INTERVAL_SECS,

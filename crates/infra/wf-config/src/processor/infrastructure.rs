@@ -169,6 +169,11 @@ pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
                 .as_ref()
                 .and_then(|t| t.max_backup_missing_files)
                 .or(Some(0)),
+            max_backup_digest_mismatches: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_backup_digest_mismatches)
+                .or(Some(0)),
         }),
     }
 }
@@ -338,6 +343,7 @@ mod tests {
                 min_success_rate: Some(0.5),
                 max_backup_failures: Some(2),
                 max_backup_missing_files: Some(3),
+                max_backup_digest_mismatches: Some(4),
                 ..Default::default()
             }),
         };
@@ -366,6 +372,14 @@ mod tests {
                 .unwrap()
                 .max_backup_missing_files,
             Some(3)
+        );
+        assert_eq!(
+            merged
+                .anomaly_thresholds
+                .as_ref()
+                .unwrap()
+                .max_backup_digest_mismatches,
+            Some(4)
         );
         assert_eq!(
             merged

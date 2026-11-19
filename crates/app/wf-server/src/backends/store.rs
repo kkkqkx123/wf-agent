@@ -508,9 +508,10 @@ impl BackendStore {
     pub async fn upsert_sync_state(&self, state: &SyncStateView) -> Result<(), String> {
         match self {
             Self::Memory(inner) => {
-                inner
-                    .sync_states
-                    .insert((state.backend.clone(), state.execution.clone()), state.clone());
+                inner.sync_states.insert(
+                    (state.backend.clone(), state.execution.clone()),
+                    state.clone(),
+                );
                 Ok(())
             }
             Self::Sqlite(inner) => {

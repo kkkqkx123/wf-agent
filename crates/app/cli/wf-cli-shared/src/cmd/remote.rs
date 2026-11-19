@@ -19,12 +19,48 @@ use crate::backends::{
     import_server_backends, load_registry, management_client, probe_backends,
     relink_server_backups, remove_server_backend, restore_server_backup, start_server_tunnel,
     stop_server_tunnel, trigger_server_backup, update_server_backend, verify_server_backup,
-    RemoteHost,
+    RemoteHost, ServerBackupRecord,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncStateRow {
+    backend: String,
+    execution: String,
+    #[serde(default)]
+    repair_status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SyncStateList {
+    #[serde(default)]
+    states: Vec<SyncStateRow>,
+}
+
+fn needs_recovery(status: &str) -> bool {
+    matches!(status, "remote_missing" | "remote_corrupt")
+}
+
+fn latest_backup<'a>(
+    records: &'a [ServerBackupRecord],
+    backend: &str,
+    execution: &str,
+) -> Option<&'a ServerBackupRecord> {
+    records
+        .iter()
+        .filter(|row| row.backend == backend && row.execution == execution)
+        .max_by_key(|row| row.created_ms.unwrap_or(i64::MIN))
+}
+
+fn read_sync_states(report: &serde_json::Value) -> CliResult<Vec<SyncStateRow>> {
+    let parsed: SyncStateList = serde_json::from_value(report.clone())
+        .map_err(|e| CliError::Configuration(format!("invalid sync-state response: {e}")))?;
+    Ok(parsed.states)
+}
 
 pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
     match sub {
@@ -300,14 +336,54 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-status", data))
         }
-        RemoteSub::SyncState => {
+        RemoteSub::SyncState { backend } => {
             let client = management_client(cli);
-            let report = fetch_server_sync_states(&client).await?;
-            render_envelope(cli.output, OutputEnvelope::success("remote-sync-state", report))
+            let mut report = fetch_server_sync_states(&client).await?;
+            if let Some(name) = backend {
+                let states = read_sync_states(&report)?;
+                report["states"] = serde_json::json!(states
+                    .into_iter()
+                    .filter(|row| &row.backend == name)
+                    .collect::<Vec<_>>());
+            }
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-sync-state", report),
+            )
         }
-        RemoteSub::Backups { backend } => {
+        RemoteSub::Backups {
+            backend,
+            repairable,
+        } => {
             let client = management_client(cli);
-            let records = fetch_server_backups(&client, backend.as_deref()).await?;
+            let mut records = fetch_server_backups(&client, backend.as_deref()).await?;
+            if *repairable {
+                let states = read_sync_states(&fetch_server_sync_states(&client).await?)?;
+                let targets = states
+                    .into_iter()
+                    .filter(|row| needs_recovery(&row.repair_status))
+                    .map(|row| (row.backend, row.execution))
+                    .collect::<std::collections::HashSet<_>>();
+                let mut selected = Vec::new();
+                for (name, execution) in targets {
+                    let Some(record) = latest_backup(&records, &name, &execution).cloned() else {
+                        continue;
+                    };
+                    let verification = verify_server_backup(&client, &record.id).await;
+                    if verification
+                        .map(|view| {
+                            view.get("verified")
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+                    {
+                        selected.push(record);
+                    }
+                }
+                records = selected;
+                records.sort_by_key(|row| std::cmp::Reverse(row.created_ms.unwrap_or(i64::MIN)));
+            }
             let data = serde_json::json!({
                 "backups": records
                     .iter()
@@ -327,6 +403,97 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                     .collect::<Vec<_>>(),
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-backups", data))
+        }
+        RemoteSub::Recover {
+            backend,
+            execution,
+            apply,
+        } => {
+            let client = management_client(cli);
+            let states = read_sync_states(&fetch_server_sync_states(&client).await?)?
+                .into_iter()
+                .filter(|row| needs_recovery(&row.repair_status))
+                .filter(|row| backend.as_ref().map_or(true, |name| name == &row.backend))
+                .filter(|row| execution.as_ref().map_or(true, |id| id == &row.execution))
+                .collect::<Vec<_>>();
+            let backups = fetch_server_backups(&client, backend.as_deref()).await?;
+            let mut targets = Vec::new();
+            let mut applied = 0usize;
+            let mut skipped = 0usize;
+            for state in states {
+                let mut row = serde_json::json!({
+                    "backend": state.backend.clone(),
+                    "execution": state.execution.clone(),
+                    "remote_status": state.repair_status.clone(),
+                    "dry_run": !*apply,
+                });
+                let Some(record) = latest_backup(&backups, &state.backend, &state.execution) else {
+                    row["skipped_reason"] = serde_json::json!("no local backup for target");
+                    skipped += 1;
+                    targets.push(row);
+                    continue;
+                };
+                row["backup_id"] = serde_json::json!(record.id);
+                let verification = match verify_server_backup(&client, &record.id).await {
+                    Ok(view) => view,
+                    Err(e) => {
+                        row["skipped_reason"] = serde_json::json!(format!("verify failed: {e}"));
+                        skipped += 1;
+                        targets.push(row);
+                        continue;
+                    }
+                };
+                if !verification
+                    .get("verified")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+                {
+                    row["skipped_reason"] = serde_json::json!(format!(
+                        "backup verification status: {}",
+                        verification
+                            .get("status")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("unknown")
+                    ));
+                    skipped += 1;
+                    targets.push(row);
+                    continue;
+                }
+                let plan = match restore_server_backup(&client, &record.id, true).await {
+                    Ok(plan) => plan,
+                    Err(e) => {
+                        row["skipped_reason"] = serde_json::json!(format!("dry run failed: {e}"));
+                        skipped += 1;
+                        targets.push(row);
+                        continue;
+                    }
+                };
+                row["plan"] = plan;
+                if *apply {
+                    match restore_server_backup(&client, &record.id, false).await {
+                        Ok(result) => {
+                            row["result"] = result;
+                            applied += 1;
+                        }
+                        Err(e) => {
+                            row["skipped_reason"] = serde_json::json!(format!("apply failed: {e}"));
+                            skipped += 1;
+                        }
+                    }
+                }
+                targets.push(row);
+            }
+            let mut data = serde_json::json!({
+                "dry_run": !*apply,
+                "checked": targets.len(),
+                "applied": applied,
+                "skipped": skipped,
+                "targets": targets,
+            });
+            if *apply {
+                data["states_after"] = fetch_server_sync_states(&client).await?;
+            }
+            render_envelope(cli.output, OutputEnvelope::success("remote-recover", data))
         }
         RemoteSub::BackupNow { backend, execution } => {
             if backend.trim().is_empty() || execution.trim().is_empty() {
@@ -481,7 +648,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 .get("source_revision")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            let digest_matches_payload = payload_digest == source_revision && !payload_digest.is_empty();
+            let digest_matches_payload =
+                payload_digest == source_revision && !payload_digest.is_empty();
             let digest = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
             let digest_match = expect_sha256
                 .as_deref()
@@ -631,4 +799,40 @@ async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<(RemoteHost, Op
         .cloned()
         .map(|entry| (entry, None))
         .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn backup(id: &str, created_ms: i64) -> ServerBackupRecord {
+        ServerBackupRecord {
+            id: id.to_string(),
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            created_ms: Some(created_ms),
+            size_bytes: Some(10),
+            sha256: Some("sha".to_string()),
+            path: Some("alpha/backup.json".to_string()),
+            source_revision: Some("rev".to_string()),
+            payload_digest: Some("rev".to_string()),
+        }
+    }
+
+    #[test]
+    fn only_remote_loss_statuses_need_recovery() {
+        assert!(needs_recovery("remote_missing"));
+        assert!(needs_recovery("remote_corrupt"));
+        assert!(!needs_recovery("ok"));
+        assert!(!needs_recovery("repair_pending"));
+        assert!(!needs_recovery("remote_unreachable"));
+    }
+
+    #[test]
+    fn recovery_selects_newest_backup_for_one_target() {
+        let rows = vec![backup("old", 10), backup("new", 30), backup("mid", 20)];
+        let selected = latest_backup(&rows, "alpha", "exec-1").expect("backup exists");
+        assert_eq!(selected.id, "new");
+        assert!(latest_backup(&rows, "alpha", "other").is_none());
+    }
 }

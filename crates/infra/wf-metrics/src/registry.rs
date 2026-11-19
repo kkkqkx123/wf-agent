@@ -23,8 +23,8 @@ use crate::sink::{MetricPoint, MetricsSink};
 /// Resolved anomaly detection thresholds. Defaults follow the report rules:
 /// an error storm above 100 occurrences, a workflow success rate below 0.8,
 /// a tool failure rate above 0.2, checkpoint creation failures above 10 and
-/// backup failures above 10 trigger anomalies. Any backup storage drift is
-/// reported by default.
+/// backup failures above 10 trigger anomalies. Any backup storage drift,
+/// including digest mismatches, is reported by default.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnomalyThresholds {
     pub max_error_count: u64,
@@ -35,6 +35,7 @@ pub struct AnomalyThresholds {
     pub max_backup_verify_failures: u64,
     pub max_backup_orphan_files: u64,
     pub max_backup_missing_files: u64,
+    pub max_backup_digest_mismatches: u64,
 }
 
 impl Default for AnomalyThresholds {
@@ -48,6 +49,7 @@ impl Default for AnomalyThresholds {
             max_backup_verify_failures: 10,
             max_backup_orphan_files: 0,
             max_backup_missing_files: 0,
+            max_backup_digest_mismatches: 0,
         }
     }
 }
@@ -201,6 +203,11 @@ impl MetricsRegistry {
                     .anomaly_thresholds
                     .as_ref()
                     .and_then(|t| t.max_backup_missing_files)
+                    .unwrap_or(0),
+                max_backup_digest_mismatches: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_backup_digest_mismatches)
                     .unwrap_or(0),
             },
         }

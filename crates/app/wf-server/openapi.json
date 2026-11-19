@@ -32742,21 +32742,11 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "checkpoint_limit",
-            "in": "query",
-            "description": "Upper bound on the number of checkpoints carried in the response.",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Execution bundle plus bounded checkpoint chain",
+            "description": "Complete execution recovery bundle",
             "content": {
               "application/json": {
                 "schema": {}

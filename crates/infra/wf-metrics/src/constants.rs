@@ -246,6 +246,7 @@ pub mod backup_metrics {
     pub const PRUNED_COUNT: &str = "backup.pruned.count";
     pub const ORPHAN_COUNT: &str = "backup.orphan.count";
     pub const MISSING_COUNT: &str = "backup.missing.count";
+    pub const DIGEST_MISMATCH_COUNT: &str = "backup.digest_mismatch.count";
 }
 
 pub mod compaction_metrics {
@@ -432,6 +433,7 @@ mod tests {
             backup_metrics::PRUNED_COUNT,
             backup_metrics::ORPHAN_COUNT,
             backup_metrics::MISSING_COUNT,
+            backup_metrics::DIGEST_MISMATCH_COUNT,
         ] {
             assert!(seen.insert(group), "duplicate metric name: {group}");
         }

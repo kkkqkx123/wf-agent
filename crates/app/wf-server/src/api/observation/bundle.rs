@@ -32,14 +32,6 @@ pub(crate) struct ExecutionBundleQuery {
 
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
-pub(crate) struct RemoteSyncQuery {
-    /// Accepted for compatibility with existing schedulers; zero is still
-    /// rejected. Recovery snapshots always carry the full checkpoint chain.
-    checkpoint_limit: Option<usize>,
-}
-
-#[derive(Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
 pub(crate) struct RemoteInventoryQuery {
     /// Comma-separated execution ids. When omitted, every owned execution of
     /// the requested directory is reported.
@@ -98,7 +90,7 @@ pub(crate) async fn handle_execution_bundle(
     path = "/api/v1/remote-sync/executions/{id}/bundle",
     operation_id = "get_remote_sync_bundle",
     tag = "observation",
-    params(IdPath, RemoteSyncQuery),
+    params(IdPath),
     responses((status = 200, description = "Complete execution recovery bundle", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -106,14 +98,7 @@ pub(crate) async fn handle_remote_sync_bundle(
     State(state): State<ApiState>,
     Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<IdPath>,
-    Query(query): Query<RemoteSyncQuery>,
 ) -> impl IntoResponse {
-    if query.checkpoint_limit == Some(0) {
-        return error_response(wf_api::ApiError::Validation(
-            "checkpoint_limit must be greater than zero".to_string(),
-        ))
-        .into_response();
-    }
     if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
@@ -166,10 +151,7 @@ pub(crate) async fn handle_remote_sync_inventory(
         Err(e) => return error_response(e),
     };
     let known: Vec<String> = if wanted.is_empty() {
-        listed
-            .iter()
-            .map(|row| row.execution_id.clone())
-            .collect()
+        listed.iter().map(|row| row.execution_id.clone()).collect()
     } else {
         wanted
     };
@@ -283,17 +265,5 @@ mod tests {
         assert_eq!(rows[0]["found"], true);
         assert!(rows[0]["revision"].as_str().is_some());
         assert_eq!(rows[1]["found"], false);
-    }
-
-    #[tokio::test]
-    async fn remote_sync_rejects_zero_checkpoint_limit() {
-        let ctx = make_ctx();
-        save_agent(&ctx, "loop-sync").await;
-        let response = send(
-            ctx,
-            "/api/v1/remote-sync/executions/missing/bundle?checkpoint_limit=0",
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

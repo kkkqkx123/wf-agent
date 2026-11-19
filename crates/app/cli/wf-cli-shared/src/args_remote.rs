@@ -157,10 +157,32 @@ pub enum RemoteSub {
         /// Filter to one backend; absent lists every backend.
         #[arg(long, value_name = "NAME")]
         backend: Option<String>,
+        /// Keep only backups for targets currently marked remote-lost or
+        /// remote-corrupt whose newest snapshot passes verification.
+        #[arg(long)]
+        repairable: bool,
     },
     /// Show durable per-target synchronization and repair state.
     #[command(name = "sync-state")]
-    SyncState,
+    SyncState {
+        /// Filter to one backend; absent lists every backend.
+        #[arg(long, value_name = "NAME")]
+        backend: Option<String>,
+    },
+    /// Recover remote executions from verified local backups. Dry run by
+    /// default; `--apply` performs the restore after the same checks.
+    #[command(name = "recover")]
+    Recover {
+        /// Limit recovery to one backend.
+        #[arg(long, value_name = "NAME")]
+        backend: Option<String>,
+        /// Limit recovery to one execution id.
+        #[arg(long, value_name = "ID")]
+        execution: Option<String>,
+        /// Apply restores instead of only showing the plans.
+        #[arg(long)]
+        apply: bool,
+    },
     /// Trigger one backup now for a backend execution. The server fetches
     /// the bundle plus checkpoint chain and records it in the index.
     #[command(name = "backup-now")]

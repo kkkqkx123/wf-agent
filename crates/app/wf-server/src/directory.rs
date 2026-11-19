@@ -1070,6 +1070,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "git-fs")]
     fn enabled_ctx() -> std::sync::Arc<wf_api::ApiContext> {
         let ctx = wf_api::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
@@ -1083,6 +1084,7 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "git-fs")]
     #[tokio::test]
     async fn workspace_routes_reject_directory_less_requests() {
         use tower::ServiceExt;
@@ -1103,6 +1105,7 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
+    #[cfg(feature = "git-fs")]
     #[tokio::test]
     async fn workspace_routes_serve_explicit_directories() {
         use tower::ServiceExt;

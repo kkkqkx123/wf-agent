@@ -68,8 +68,8 @@ pub struct ExecutionBundle {
     pub version: u32,
     pub execution_id: String,
     pub exported_at: i64,
-    /// Digest of the canonical snapshot without export-time fields. It is
-    /// stable across hosts and is the source revision used for drift checks.
+    /// Digest of the restorable projection. Export-time fields and derived
+    /// views are excluded so a restored execution recomputes the same value.
     pub source_revision: String,
     pub payload_digest: String,
     pub records: Vec<ExecutionRecordSnapshot>,
@@ -99,13 +99,19 @@ fn canonical_digest(bundle: &ExecutionBundle) -> ApiResult<String> {
         object.remove("exported_at");
         object.remove("source_revision");
         object.remove("payload_digest");
+        object.remove("history");
+        object.remove("artifacts");
+        object.remove("audit");
     }
     let text = serde_json::to_string(&value)
         .map_err(|e| ApiError::execution(format!("recovery digest encode failed: {e}")))?;
     Ok(hex::encode(Sha256::digest(text.as_bytes())))
 }
 
-async fn export_records(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<ExecutionRecordSnapshot>> {
+async fn export_records(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<ExecutionRecordSnapshot>> {
     let domain = crate::execution_hierarchy::execution_type(ctx, execution_id).await?;
     let mut out = Vec::new();
     match domain {
@@ -188,9 +194,15 @@ pub async fn export_bundle(
     checkpoint_synced: bool,
 ) -> ApiResult<ExecutionBundle> {
     let records = export_records(ctx, execution_id).await?;
-    let history_value =
-        serde_json::to_value(history(ctx, execution_id, &crate::execution_history::ExecutionHistorySections::all()).await?)
-            .map_err(|e| ApiError::execution(format!("history encode failed: {e}")))?;
+    let history_value = serde_json::to_value(
+        history(
+            ctx,
+            execution_id,
+            &crate::execution_history::ExecutionHistorySections::all(),
+        )
+        .await?,
+    )
+    .map_err(|e| ApiError::execution(format!("history encode failed: {e}")))?;
     let artifacts = crate::execution_artifacts::artifacts_for_execution(ctx, execution_id).await?;
     let audit = crate::audit::audit_summary(ctx, execution_id).await?;
     let checkpoints = export_checkpoints(ctx, execution_id).await?;
@@ -218,7 +230,9 @@ pub async fn export_bundle(
 /// Snapshot revision currently exposed by one execution without keeping a
 /// separate mutable counter on write paths.
 pub async fn source_revision(ctx: &ApiContext, execution_id: &str) -> ApiResult<String> {
-    Ok(export_bundle(ctx, execution_id, false).await?.source_revision)
+    Ok(export_bundle(ctx, execution_id, false)
+        .await?
+        .source_revision)
 }
 
 fn decode_hex_file(entry: &FileArchiveEntry) -> ApiResult<(String, Vec<u8>)> {
@@ -233,10 +247,68 @@ fn decode_hex_file(entry: &FileArchiveEntry) -> ApiResult<(String, Vec<u8>)> {
     Ok((entry.path.clone(), bytes))
 }
 
+enum DecodedCheckpoint {
+    Workflow {
+        id: String,
+        checkpoint: wf_checkpoint::WorkflowCheckpoint,
+    },
+    Agent {
+        id: String,
+        checkpoint: wf_checkpoint::AgentCheckpoint,
+    },
+    Metadata(Checkpoint),
+}
+
+fn decode_checkpoints(bundle: &ExecutionBundle) -> ApiResult<Vec<DecodedCheckpoint>> {
+    let mut out = Vec::with_capacity(bundle.checkpoints.len());
+    for item in &bundle.checkpoints {
+        match item.metadata.entity_type.as_str() {
+            "workflow_execution" => {
+                let value = item.blob.clone().ok_or_else(|| {
+                    ApiError::Validation(format!(
+                        "workflow checkpoint blob missing: {}",
+                        item.metadata.id
+                    ))
+                })?;
+                let checkpoint = serde_json::from_value(value).map_err(|e| {
+                    ApiError::Validation(format!(
+                        "workflow checkpoint decode failed: {}: {e}",
+                        item.metadata.id
+                    ))
+                })?;
+                out.push(DecodedCheckpoint::Workflow {
+                    id: item.metadata.id.clone(),
+                    checkpoint,
+                });
+            }
+            "agent_loop" => {
+                let value = item.blob.clone().ok_or_else(|| {
+                    ApiError::Validation(format!(
+                        "agent checkpoint blob missing: {}",
+                        item.metadata.id
+                    ))
+                })?;
+                let checkpoint = serde_json::from_value(value).map_err(|e| {
+                    ApiError::Validation(format!(
+                        "agent checkpoint decode failed: {}: {e}",
+                        item.metadata.id
+                    ))
+                })?;
+                out.push(DecodedCheckpoint::Agent {
+                    id: item.metadata.id.clone(),
+                    checkpoint,
+                });
+            }
+            _ => out.push(DecodedCheckpoint::Metadata(item.metadata.clone())),
+        }
+    }
+    Ok(out)
+}
+
 fn validate_bundle(
     bundle: &ExecutionBundle,
     expected_directory: Option<&str>,
-) -> ApiResult<RestorePlan> {
+) -> ApiResult<(RestorePlan, Vec<DecodedCheckpoint>)> {
     if bundle.version != EXECUTION_BUNDLE_VERSION {
         return Err(ApiError::Validation(format!(
             "unsupported recovery bundle version {}",
@@ -244,7 +316,9 @@ fn validate_bundle(
         )));
     }
     if bundle.execution_id.trim().is_empty() {
-        return Err(ApiError::Validation("recovery bundle has no execution id".to_string()));
+        return Err(ApiError::Validation(
+            "recovery bundle has no execution id".to_string(),
+        ));
     }
     let digest = canonical_digest(bundle)?;
     if bundle.payload_digest != digest || bundle.source_revision != digest {
@@ -254,7 +328,9 @@ fn validate_bundle(
         )));
     }
     if bundle.records.is_empty() {
-        return Err(ApiError::Validation("recovery bundle has no execution records".to_string()));
+        return Err(ApiError::Validation(
+            "recovery bundle has no execution records".to_string(),
+        ));
     }
     for record in &bundle.records {
         if record.execution_id() != bundle.execution_id {
@@ -284,14 +360,18 @@ fn validate_bundle(
     for file in &bundle.file_archive {
         decode_hex_file(file)?;
     }
-    Ok(RestorePlan {
-        execution_id: bundle.execution_id.clone(),
-        dry_run: true,
-        records: bundle.records.len(),
-        checkpoints: bundle.checkpoints.len(),
-        file_archive: bundle.file_archive.len(),
-        digest,
-    })
+    let decoded = decode_checkpoints(bundle)?;
+    Ok((
+        RestorePlan {
+            execution_id: bundle.execution_id.clone(),
+            dry_run: true,
+            records: bundle.records.len(),
+            checkpoints: bundle.checkpoints.len(),
+            file_archive: bundle.file_archive.len(),
+            digest,
+        },
+        decoded,
+    ))
 }
 
 /// Validate a snapshot and restore it into a target that does not exist yet.
@@ -302,8 +382,11 @@ pub async fn restore_bundle(
     expected_directory: Option<&str>,
     dry_run: bool,
 ) -> ApiResult<RestorePlan> {
-    let mut plan = validate_bundle(bundle, expected_directory)?;
-    if crate::resolve_execution(ctx, &bundle.execution_id).await.is_ok() {
+    let (mut plan, decoded_checkpoints) = validate_bundle(bundle, expected_directory)?;
+    if crate::resolve_execution(ctx, &bundle.execution_id)
+        .await
+        .is_ok()
+    {
         return Err(ApiError::AlreadyExists {
             entity_type: "execution".to_string(),
             id: bundle.execution_id.clone(),
@@ -332,40 +415,26 @@ pub async fn restore_bundle(
 
     let workflow = wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let agent = wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
-    for item in &bundle.checkpoints {
-        match item.metadata.entity_type.as_str() {
-            "workflow_execution" => {
-                let value = item.blob.clone().ok_or_else(|| {
-                    ApiError::Validation(format!(
-                        "workflow checkpoint blob missing: {}",
-                        item.metadata.id
-                    ))
-                })?;
-                let checkpoint: wf_checkpoint::WorkflowCheckpoint = serde_json::from_value(value)
-                    .map_err(|e| {
-                        ApiError::Validation(format!("workflow checkpoint decode failed: {e}"))
-                    })?;
+    for decoded in decoded_checkpoints {
+        match decoded {
+            DecodedCheckpoint::Workflow { id, checkpoint } => {
                 workflow
                     .save(&checkpoint, "workflow_execution", &bundle.execution_id)
                     .await
-                    .map_err(|e| ApiError::execution(format!("workflow checkpoint save failed: {e}")))?;
+                    .map_err(|e| {
+                        ApiError::execution(format!("workflow checkpoint save failed: {id}: {e}"))
+                    })?;
             }
-            "agent_loop" => {
-                let value = item.blob.clone().ok_or_else(|| {
-                    ApiError::Validation(format!(
-                        "agent checkpoint blob missing: {}",
-                        item.metadata.id
-                    ))
-                })?;
-                let checkpoint: wf_checkpoint::AgentCheckpoint = serde_json::from_value(value)
-                    .map_err(|e| ApiError::Validation(format!("agent checkpoint decode failed: {e}")))?;
+            DecodedCheckpoint::Agent { id, checkpoint } => {
                 agent
                     .save(&checkpoint, "agent_loop", &bundle.execution_id)
                     .await
-                    .map_err(|e| ApiError::execution(format!("agent checkpoint save failed: {e}")))?;
+                    .map_err(|e| {
+                        ApiError::execution(format!("agent checkpoint save failed: {id}: {e}"))
+                    })?;
             }
-            _ => {
-                ctx.storage.checkpoint.save(&item.metadata).await?;
+            DecodedCheckpoint::Metadata(metadata) => {
+                ctx.storage.checkpoint.save(&metadata).await?;
             }
         }
     }
@@ -392,8 +461,9 @@ mod tests {
     use wf_resource::registry::ResourceRegistries;
     use wf_storage::context::StorageContext;
     use wf_types::agent_execution::AgentExecutionStatus;
+    use wf_types::checkpoint::{CheckpointStatus, CheckpointType};
     use wf_types::execution::ExecutionType;
-    use wf_types::Id;
+    use wf_types::{Checkpoint, Id};
 
     fn ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
@@ -435,7 +505,12 @@ mod tests {
     #[tokio::test]
     async fn bundle_round_trips_into_missing_execution() {
         let source = ctx();
-        source.storage.agent_execution.save(&agent("exec-1")).await.unwrap();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-1"))
+            .await
+            .unwrap();
         let bundle = export_bundle(&source, "exec-1", false).await.unwrap();
         assert_eq!(bundle.source_revision, bundle.payload_digest);
         assert_eq!(bundle.records.len(), 1);
@@ -447,16 +522,89 @@ mod tests {
 
         let applied = restore_bundle(&target, &bundle, None, false).await.unwrap();
         assert!(!applied.dry_run);
-        let restored = target.storage.agent_execution.load("exec-1").await.unwrap().unwrap();
+        let restored = target
+            .storage
+            .agent_execution
+            .load("exec-1")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(restored.id.as_str(), "exec-1");
+    }
+
+    #[tokio::test]
+    async fn malformed_checkpoint_blob_fails_before_writes() {
+        let source = ctx();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-bad-cp"))
+            .await
+            .unwrap();
+        let mut bundle = export_bundle(&source, "exec-bad-cp", false).await.unwrap();
+        bundle.checkpoints.push(CheckpointRecovery {
+            metadata: Checkpoint {
+                id: "cp-bad".into(),
+                entity_type: "workflow_execution".into(),
+                entity_id: "exec-bad-cp".into(),
+                parent_entity_id: None,
+                checkpoint_type: CheckpointType::Full,
+                timestamp: 1,
+                status: CheckpointStatus::Active,
+                previous_checkpoint_id: None,
+                base_checkpoint_id: None,
+                chain_root_id: None,
+                chain_position: None,
+                blob_size: None,
+                tags: None,
+                custom_fields: None,
+            },
+            blob: Some(serde_json::json!({"invalid": true})),
+        });
+        let digest = canonical_digest(&bundle).unwrap();
+        bundle.source_revision = digest.clone();
+        bundle.payload_digest = digest;
+
+        let target = ctx();
+        let err = restore_bundle(&target, &bundle, None, true)
+            .await
+            .expect_err("bad checkpoint blob must fail in preflight");
+        assert!(err
+            .to_string()
+            .contains("workflow checkpoint decode failed"));
+        assert!(crate::resolve_execution(&target, "exec-bad-cp")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn derived_views_do_not_change_the_source_revision() {
+        let source = ctx();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-derived"))
+            .await
+            .unwrap();
+        let bundle = export_bundle(&source, "exec-derived", false).await.unwrap();
+        let before = bundle.source_revision.clone();
+        let mut changed = bundle;
+        changed.history = serde_json::json!({"view": "new"});
+        changed.exported_at += 1;
+        assert_eq!(canonical_digest(&changed).unwrap(), before);
     }
 
     #[tokio::test]
     async fn tampered_bundle_is_rejected() {
         let source = ctx();
-        source.storage.agent_execution.save(&agent("exec-2")).await.unwrap();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-2"))
+            .await
+            .unwrap();
         let mut bundle = export_bundle(&source, "exec-2", false).await.unwrap();
-        bundle.history = serde_json::json!({"changed": true});
+        bundle.records.clear();
         let err = restore_bundle(&ctx(), &bundle, None, true)
             .await
             .expect_err("tampered bundle must fail");

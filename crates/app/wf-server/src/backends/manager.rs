@@ -70,6 +70,8 @@ struct RestoreEnvelope {
 
 /// Central backend state. Disabled managers reject every mutation with
 /// the service-unavailable message; the HTTP layer maps that to 503.
+const INVENTORY_CHUNK_SIZE: usize = 64;
+
 pub struct BackendManager {
     config: BackendConfig,
     store: BackendStore,
@@ -196,13 +198,14 @@ impl BackendManager {
                 .or(self.config.backup_directory.as_deref()),
             timeout_secs: self.config.backup_timeout_secs,
             max_response_bytes: self.config.backup_max_response_bytes,
-            checkpoint_limit: self.config.backup_checkpoint_limit,
         }
     }
 
     fn remote_http_client(&self) -> Result<reqwest::Client, String> {
         reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(self.config.backup_timeout_secs.max(1)))
+            .timeout(std::time::Duration::from_secs(
+                self.config.backup_timeout_secs.max(1),
+            ))
             .build()
             .map_err(|e| format!("cannot build remote client: {e}"))
     }
@@ -226,7 +229,7 @@ impl BackendManager {
         request
     }
 
-    async fn remote_inventory(
+    async fn remote_inventory_batch(
         &self,
         entry: &BackendEntry,
         executions: &[String],
@@ -238,7 +241,10 @@ impl BackendManager {
             client.get(format!("{base_url}/api/v1/remote-sync/inventory?ids={ids}")),
             entry,
         );
-        let status = request.send().await.map_err(|e| format!("inventory request failed: {e}"))?;
+        let status = request
+            .send()
+            .await
+            .map_err(|e| format!("inventory request failed: {e}"))?;
         let status_code = status.status();
         let envelope: InventoryEnvelope = status
             .json()
@@ -266,6 +272,47 @@ impl BackendManager {
             .collect())
     }
 
+    fn apply_inventory_chunk(
+        output: &mut std::collections::BTreeMap<
+            String,
+            Result<(Option<String>, Option<String>), String>,
+        >,
+        chunk: &[String],
+        result: Result<
+            std::collections::BTreeMap<String, (Option<String>, Option<String>)>,
+            String,
+        >,
+    ) {
+        match result {
+            Ok(rows) => {
+                for execution in chunk {
+                    let row = rows.get(execution).cloned().unwrap_or((None, None));
+                    output.insert(execution.clone(), Ok(row));
+                }
+            }
+            Err(error) => {
+                for execution in chunk {
+                    output.insert(execution.clone(), Err(error.clone()));
+                }
+            }
+        }
+    }
+
+    /// Split the target list so a long URL or one bad batch cannot turn every
+    /// execution into an unreachable target. Each id keeps its own outcome.
+    async fn remote_inventory(
+        &self,
+        entry: &BackendEntry,
+        executions: &[String],
+    ) -> std::collections::BTreeMap<String, Result<(Option<String>, Option<String>), String>> {
+        let mut output = std::collections::BTreeMap::new();
+        for chunk in executions.chunks(INVENTORY_CHUNK_SIZE) {
+            let result = self.remote_inventory_batch(entry, chunk).await;
+            Self::apply_inventory_chunk(&mut output, chunk, result);
+        }
+        output
+    }
+
     async fn latest_local_backup(
         &self,
         backend: &str,
@@ -284,6 +331,49 @@ impl BackendManager {
             Ok(view) => view.verified && view.status == "ok",
             Err(_) => false,
         }
+    }
+
+    /// The last successful revision is the comparison baseline. When the
+    /// persisted state is absent, a valid local bundle still carries it.
+    fn known_revision<'a>(
+        state: Option<&'a SyncStateView>,
+        local: Option<&'a BackupRecordView>,
+    ) -> Option<&'a str> {
+        state
+            .and_then(|row| row.revision.as_deref())
+            .or_else(|| local.map(|row| row.source_revision.as_str()))
+    }
+
+    /// An absent baseline is not evidence of remote drift. Only a known
+    /// revision that no longer matches forces an immediate fresh snapshot.
+    fn revision_differs(known: Option<&str>, remote: &str) -> bool {
+        known.is_some_and(|value| value != remote)
+    }
+
+    /// Record a remote-side failure without discarding the last successful
+    /// position. Observability changes, the resume baseline does not.
+    async fn write_remote_failure_state(
+        &self,
+        state: Option<&SyncStateView>,
+        backend: &str,
+        execution: &str,
+        attempt_ms: i64,
+        failures: u32,
+        status: &str,
+        error: &str,
+    ) {
+        self.write_sync_state(
+            backend,
+            execution,
+            state.and_then(|row| row.revision.as_deref()),
+            state.and_then(|row| row.backup_id.as_deref()),
+            state.and_then(|row| row.last_success_ms),
+            Some(attempt_ms),
+            failures,
+            status,
+            Some(error),
+        )
+        .await;
     }
 
     async fn write_sync_state(
@@ -363,12 +453,15 @@ impl BackendManager {
         match super::backup::reconcile_backups(&self.store, root).await {
             Ok(report) => {
                 if let Some(metrics) = self.metrics.as_ref() {
-                    metrics
-                        .backup()
-                        .record_reconcile(report.orphan_files, report.missing_files);
+                    metrics.backup().record_reconcile(
+                        report.orphan_files,
+                        report.missing_files,
+                        report.digest_mismatch_files,
+                    );
                 }
                 if report.orphan_files > 0
                     || report.missing_files > 0
+                    || report.digest_mismatch_files > 0
                     || report.temp_files_removed > 0
                     || report.symlink_entries > 0
                     || report.unreadable_dirs > 0
@@ -377,6 +470,7 @@ impl BackendManager {
                         dir = %root.display(),
                         orphan_files = report.orphan_files,
                         missing_files = report.missing_files,
+                        digest_mismatch_files = report.digest_mismatch_files,
                         temp_files_removed = report.temp_files_removed,
                         symlink_entries = report.symlink_entries,
                         unreadable_dirs = report.unreadable_dirs,
@@ -492,85 +586,65 @@ impl BackendManager {
                     .get_sync_state(&name, execution)
                     .await
                     .unwrap_or(None);
-                let revisions = match inventory {
-                    Some(Ok(map)) => map,
-                    Some(Err(e)) => {
-                        self.write_sync_state(
+                let local = self
+                    .latest_local_backup(&name, execution)
+                    .await
+                    .unwrap_or(None);
+                let baseline = Self::known_revision(state.as_ref(), local.as_ref());
+                let next_failures = failures.saturating_add(1);
+                let Some(result) = inventory.and_then(|rows| rows.get(execution)) else {
+                    continue;
+                };
+                let (remote_revision, inventory_error) = match result {
+                    Ok(row) => row.clone(),
+                    Err(e) => {
+                        self.write_remote_failure_state(
+                            state.as_ref(),
                             &name,
                             execution,
-                            None,
-                            None,
-                            None,
-                            Some(now_ms),
-                            failures.saturating_add(1),
+                            now_ms,
+                            next_failures,
                             "remote_unreachable",
-                            Some(e),
+                            e.as_str(),
                         )
                         .await;
                         continue;
                     }
-                    None => continue,
-                };
-                let Some((remote_revision, inventory_error)) = revisions.get(execution).cloned() else {
-                    self.write_sync_state(
-                        &name,
-                        execution,
-                        None,
-                        None,
-                        None,
-                        Some(now_ms),
-                        failures.saturating_add(1),
-                        "remote_missing",
-                        Some("execution is absent from the remote inventory"),
-                    )
-                    .await;
-                    continue;
                 };
                 let remote_revision = match (remote_revision, inventory_error) {
                     (Some(revision), None) => revision,
                     (_, Some(error)) => {
-                        self.write_sync_state(
+                        self.write_remote_failure_state(
+                            state.as_ref(),
                             &name,
                             execution,
-                            None,
-                            None,
-                            None,
-                            Some(now_ms),
-                            failures.saturating_add(1),
+                            now_ms,
+                            next_failures,
                             "remote_corrupt",
-                            Some(&error),
+                            &error,
                         )
                         .await;
                         continue;
                     }
                     (None, None) => {
-                        self.write_sync_state(
+                        self.write_remote_failure_state(
+                            state.as_ref(),
                             &name,
                             execution,
-                            None,
-                            None,
-                            None,
-                            Some(now_ms),
-                            failures.saturating_add(1),
+                            now_ms,
+                            next_failures,
                             "remote_corrupt",
-                            Some("remote inventory has no revision"),
+                            "remote inventory has no revision",
                         )
                         .await;
                         continue;
                     }
                 };
-                let local = self
-                    .latest_local_backup(&name, execution)
-                    .await
-                    .unwrap_or(None);
                 let local_valid = match &local {
                     Some(record) => self.local_backup_is_valid(record).await,
                     None => false,
                 };
-                let revision_changed = state
-                    .as_ref()
-                    .and_then(|row| row.revision.as_deref())
-                    != Some(remote_revision.as_str());
+                let revision_changed = Self::revision_differs(baseline, &remote_revision);
                 let mut due = true;
                 if interval > 0 {
                     let last = [
@@ -579,7 +653,10 @@ impl BackendManager {
                             .and_then(|status| status.last_backup_ms),
                         state.as_ref().and_then(|row| row.last_success_ms),
                         state.as_ref().and_then(|row| row.last_attempt_ms),
-                        self.store.latest_backup_ms(&name, execution).await.unwrap_or(None),
+                        self.store
+                            .latest_backup_ms(&name, execution)
+                            .await
+                            .unwrap_or(None),
                     ]
                     .into_iter()
                     .flatten()
@@ -634,11 +711,13 @@ impl BackendManager {
                     Ok(view) if view.verified => view,
                     Ok(view) => {
                         let e = format!("fresh backup failed verification: {}", view.status);
+                        self.discard_failed_backup(&id).await;
                         return self
                             .fail_backup(backend, execution, key, e, duration_ms, now_ms)
                             .await;
                     }
                     Err(e) => {
+                        self.discard_failed_backup(&id).await;
                         return self
                             .fail_backup(backend, execution, key, e, duration_ms, now_ms)
                             .await;
@@ -680,6 +759,33 @@ impl BackendManager {
         }
     }
 
+    /// A fresh bundle that cannot be read back must not become the newest
+    /// indexed snapshot. Drop the index row first, then its file.
+    async fn discard_failed_backup(&self, id: &str) {
+        let Some(record) = self.store.get_backup(id).await.ok().flatten() else {
+            return;
+        };
+        if let Err(e) = self.store.remove_backup(id).await {
+            tracing::warn!(id = %id, error = %e, "failed backup index cleanup failed");
+            return;
+        }
+        let Some(root) = self.config.backup_dir.as_deref() else {
+            return;
+        };
+        let path = match super::backup::resolve_backup_path(root, &record.path) {
+            Ok(path) => path,
+            Err(e) => {
+                tracing::warn!(id = %id, error = %e, "skipping unsafe failed backup removal");
+                return;
+            }
+        };
+        if let Err(e) = tokio::fs::remove_file(&path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(path = %path.display(), error = %e, "failed backup file cleanup failed");
+            }
+        }
+    }
+
     async fn fail_backup(
         &self,
         backend: &str,
@@ -705,12 +811,20 @@ impl BackendManager {
             },
         );
         self.record_backup_failure(backend, &error);
+        let state = self
+            .store
+            .get_sync_state(backend, execution)
+            .await
+            .unwrap_or(None);
         self.write_sync_state(
             backend,
             execution,
-            None,
-            None,
-            previous,
+            state.as_ref().and_then(|row| row.revision.as_deref()),
+            state.as_ref().and_then(|row| row.backup_id.as_deref()),
+            state
+                .as_ref()
+                .and_then(|row| row.last_success_ms)
+                .or(previous),
             Some(now_ms),
             failures,
             "repair_pending",
@@ -1029,9 +1143,7 @@ impl BackendManager {
         });
         let response = self
             .apply_remote_headers(
-                client.post(format!(
-                    "{base_url}/api/v1/remote-sync/executions/restore"
-                )),
+                client.post(format!("{base_url}/api/v1/remote-sync/executions/restore")),
                 &entry,
             )
             .json(&body)
@@ -1268,6 +1380,29 @@ mod tests {
         )
     }
 
+    #[test]
+    fn inventory_chunk_results_stay_scoped_to_their_ids() {
+        let mut output = std::collections::BTreeMap::new();
+        let chunk = vec!["one".to_string(), "two".to_string()];
+        let rows = std::collections::BTreeMap::from([(
+            "one".to_string(),
+            (Some("revision".to_string()), None),
+        )]);
+        BackendManager::apply_inventory_chunk(&mut output, &chunk, Ok(rows));
+        BackendManager::apply_inventory_chunk(
+            &mut output,
+            &["three".to_string()],
+            Err("down".to_string()),
+        );
+
+        assert_eq!(
+            output["one"].as_ref().unwrap().0.as_deref(),
+            Some("revision")
+        );
+        assert_eq!(output["two"].as_ref().unwrap().0, None);
+        assert_eq!(output["three"].clone().unwrap_err(), "down");
+    }
+
     #[tokio::test]
     async fn backup_status_is_scoped_per_execution() {
         let manager = enabled_manager();
@@ -1305,6 +1440,47 @@ mod tests {
             BackendManager::effective_interval_ms(60, 9),
             BackendManager::effective_interval_ms(60, 4)
         );
+    }
+
+    #[test]
+    fn comparison_baseline_survives_missing_state() {
+        let record = BackupRecordView {
+            id: "backup-1".to_string(),
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            created_ms: 1,
+            size_bytes: 2,
+            sha256: "sha".to_string(),
+            path: "alpha/backup-1.json".to_string(),
+            source_revision: "revision-1".to_string(),
+            payload_digest: "revision-1".to_string(),
+        };
+        let state = SyncStateView {
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            last_success_ms: Some(10),
+            last_attempt_ms: Some(20),
+            revision: Some("revision-2".to_string()),
+            backup_id: Some("backup-2".to_string()),
+            failures: 0,
+            repair_status: "ok".to_string(),
+            error: None,
+        };
+
+        assert_eq!(
+            BackendManager::known_revision(Some(&state), Some(&record)),
+            Some("revision-2")
+        );
+        assert_eq!(
+            BackendManager::known_revision(None, Some(&record)),
+            Some("revision-1")
+        );
+        assert_eq!(BackendManager::known_revision(None, None), None);
+        assert!(BackendManager::revision_differs(
+            Some("revision-1"),
+            "revision-2"
+        ));
+        assert!(!BackendManager::revision_differs(None, "revision-2"));
     }
 
     #[test]

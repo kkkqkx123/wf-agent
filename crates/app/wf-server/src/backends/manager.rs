@@ -224,6 +224,7 @@ impl BackendManager {
                     || report.missing_files > 0
                     || report.temp_files_removed > 0
                     || report.symlink_entries > 0
+                    || report.unreadable_dirs > 0
                 {
                     tracing::warn!(
                         dir = %root.display(),
@@ -231,11 +232,15 @@ impl BackendManager {
                         missing_files = report.missing_files,
                         temp_files_removed = report.temp_files_removed,
                         symlink_entries = report.symlink_entries,
+                        unreadable_dirs = report.unreadable_dirs,
                         "backup storage drift detected"
                     );
                 }
             }
-            Err(e) => tracing::warn!(error = %e, "backup reconcile failed"),
+            Err(e) => {
+                tracing::warn!(error = %e, "backup reconcile failed");
+                self.set_backup_round_error(Some(format!("backup reconcile failed: {e}")));
+            }
         }
     }
 
@@ -410,6 +415,28 @@ impl BackendManager {
                 );
                 if let Err(e) = self.prune_for_target(backend, entry, execution).await {
                     tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
+                }
+                // Read the just-written file back through the verification
+                // path so every retained backup has passed one digest check
+                // before the next prune could ever drop it.
+                match self.verify_backup(&id).await {
+                    Ok(view) if view.verified => {}
+                    Ok(view) => {
+                        tracing::warn!(
+                            backend = %backend,
+                            id = %id,
+                            status = %view.status,
+                            "fresh backup failed verification"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            backend = %backend,
+                            id = %id,
+                            error = %e,
+                            "backup verification failed"
+                        );
+                    }
                 }
                 Ok(id)
             }

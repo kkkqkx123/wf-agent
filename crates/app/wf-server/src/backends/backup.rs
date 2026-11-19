@@ -475,7 +475,8 @@ async fn fetch_bundle(
 
 /// Startup reconciliation: leftovers from a crash or from a failed file
 /// removal, plus index rows whose file is gone. Reported, never deleted:
-/// discarding a bundle to tidy a listing is the worse failure.
+/// discarding a bundle to tidy a listing is the worse failure. A root that
+/// cannot be read is an error, not a healthy empty report.
 #[derive(Debug, Clone, Default)]
 pub struct ReconcileReport {
     pub orphan_files: usize,
@@ -483,6 +484,16 @@ pub struct ReconcileReport {
     pub temp_files_removed: usize,
     /// Symlinks seen during the pass. They are never followed or removed.
     pub symlink_entries: usize,
+    /// Per-backend directories that could not be listed. Skipped entries
+    /// would otherwise lower the orphan count, so they are counted instead.
+    pub unreadable_dirs: usize,
+    /// Orphan files that were parsed and re-registered in the index.
+    pub adopted: usize,
+    /// Orphan files that failed the structural checks for adoption and stay
+    /// outside the index.
+    pub adopt_rejected: usize,
+    /// Adoptable files whose index row could not be written.
+    pub adopt_failed: usize,
 }
 
 pub async fn reconcile_backups(
@@ -491,24 +502,36 @@ pub async fn reconcile_backups(
 ) -> Result<ReconcileReport, String> {
     let records = store.list_backups(None).await?;
     let root = root.to_path_buf();
-    let join = tokio::task::spawn_blocking(move || reconcile_blocking(&records, &root))
-        .await
-        .map_err(|e| format!("backup reconcile task failed: {e}"))?;
-    Ok(join)
+    let (mut report, candidates) =
+        tokio::task::spawn_blocking(move || reconcile_blocking(&records, &root))
+            .await
+            .map_err(|e| format!("backup reconcile task failed: {e}"))??;
+    for record in candidates {
+        match store.record_backup(&record).await {
+            Ok(()) => report.adopted += 1,
+            Err(e) => {
+                tracing::warn!(id = %record.id, error = %e, "backup adoption failed");
+                report.adopt_failed += 1;
+            }
+        }
+    }
+    Ok(report)
 }
 
-fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileReport {
-    let Ok(root) = std::fs::canonicalize(root) else {
-        return ReconcileReport::default();
-    };
+fn reconcile_blocking(
+    records: &[BackupRecordView],
+    root: &Path,
+) -> Result<(ReconcileReport, Vec<BackupRecordView>), String> {
+    let mut candidates = Vec::new();
+    let root = std::fs::canonicalize(root)
+        .map_err(|e| format!("cannot resolve backup root {}: {e}", root.display()))?;
     let indexed: std::collections::HashSet<PathBuf> = records
         .iter()
         .filter_map(|record| resolve_backup_path(&root, &record.path).ok())
         .collect();
     let mut report = ReconcileReport::default();
-    let Ok(backends) = std::fs::read_dir(&root) else {
-        return report;
-    };
+    let backends = std::fs::read_dir(&root)
+        .map_err(|e| format!("cannot read backup root {}: {e}", root.display()))?;
     for backend in backends.flatten() {
         let Ok(file_type) = backend.file_type() else {
             continue;
@@ -524,8 +547,12 @@ fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileRep
         if !file_type.is_dir() {
             continue;
         }
-        let Ok(files) = std::fs::read_dir(backend.path()) else {
-            continue;
+        let files = match std::fs::read_dir(backend.path()) {
+            Ok(files) => files,
+            Err(_) => {
+                report.unreadable_dirs += 1;
+                continue;
+            }
         };
         for file in files.flatten() {
             match file.file_type() {
@@ -558,6 +585,17 @@ fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileRep
             }
             if !indexed.contains(&normalize_path(&path)) {
                 report.orphan_files += 1;
+                match parse_orphan_record(&root, &path) {
+                    Ok(record) => candidates.push(record),
+                    Err(e) => {
+                        report.adopt_rejected += 1;
+                        tracing::warn!(
+                            path = %path.display(),
+                            error = %e,
+                            "orphan backup rejected from adoption"
+                        );
+                    }
+                }
             }
         }
     }
@@ -570,7 +608,70 @@ fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileRep
             Err(_) => true,
         })
         .count();
-    report
+    Ok((report, candidates))
+}
+
+/// Parse one orphan backup file into an adoptable index record. Size and
+/// digest are recomputed from the bytes on disk, so the adopted row
+/// describes the file exactly as write-side rows do. The created time comes
+/// from the file's mtime because the original id's timestamp component
+/// cannot be split off the stem reliably; the adoption id therefore gets a
+/// fresh suffix instead of reusing the file name.
+fn parse_orphan_record(root: &Path, path: &Path) -> Result<BackupRecordView, String> {
+    let backend = path
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "orphan file has no backend directory".to_string())?;
+    if !is_safe_name_component(backend) {
+        return Err("orphan backend name is unsafe".to_string());
+    }
+    let stem = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let bytes = std::fs::read(path).map_err(|e| format!("orphan file unreadable: {e}"))?;
+    let payload: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("orphan file is not valid JSON: {e}"))?;
+    let version = payload
+        .get("backup_version")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    if version != BACKUP_BUNDLE_VERSION as u64 {
+        return Err(format!("unsupported backup_version {version}"));
+    }
+    let execution = payload
+        .get("execution_id")
+        .and_then(|value| value.as_str())
+        .ok_or("orphan bundle has no execution_id")?
+        .to_string();
+    if !is_safe_name_component(&execution) {
+        return Err("orphan execution id is unsafe".to_string());
+    }
+    // Write-side files are named `{execution}-{created_ms}-{suffix}.json`,
+    // so the bundle execution id must be a stem prefix.
+    if !stem.starts_with(&format!("{execution}-")) {
+        return Err("file name does not match the bundle execution id".to_string());
+    }
+    let created_ms = std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or_else(wf_common::epoch_ms);
+    let suffix = wf_common::generate_id();
+    if !is_safe_name_component(&suffix) {
+        return Err("adoption suffix is unsafe".to_string());
+    }
+    Ok(BackupRecordView {
+        id: format!("{backend}-{execution}-{created_ms}-{suffix}"),
+        backend: backend.to_string(),
+        execution,
+        created_ms,
+        size_bytes: bytes.len() as u64,
+        sha256: hex::encode(Sha256::digest(&bytes)),
+        path: relative_backup_path(root, path),
+    })
 }
 
 /// Prune one backup target to the count cap and the age cap, whichever
@@ -698,6 +799,51 @@ mod tests {
         let err = decode_sync_response(reqwest::StatusCode::OK, mismatched, "e")
             .expect_err("mismatched execution must be rejected");
         assert!(err.contains("mismatch"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn orphan_backup_is_adopted_into_the_index() {
+        let store = BackendStore::new_memory();
+        let dir = tempfile::tempdir().unwrap();
+        let backend_dir = dir.path().join("alpha");
+        std::fs::create_dir_all(&backend_dir).unwrap();
+        let bundle = serde_json::json!({
+            "backup_version": BACKUP_BUNDLE_VERSION,
+            "execution_id": "exec",
+            "checkpoints": {}
+        });
+        let orphan = backend_dir.join("exec-123-abc.json");
+        std::fs::write(&orphan, serde_json::to_string(&bundle).unwrap()).unwrap();
+
+        let report = reconcile_backups(&store, dir.path()).await.unwrap();
+        assert_eq!(report.adopted, 1);
+        assert_eq!(report.adopt_rejected, 0);
+        let records = store.list_backups(Some("alpha")).await.unwrap();
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.execution, "exec");
+        assert_eq!(record.size_bytes, orphan.metadata().unwrap().len());
+
+        // Adoption is idempotent: a second pass sees no orphans.
+        let again = reconcile_backups(&store, dir.path()).await.unwrap();
+        assert_eq!(again.adopted, 0);
+        assert_eq!(again.orphan_files, 0);
+    }
+
+    #[tokio::test]
+    async fn unusable_orphan_files_stay_unadopted() {
+        let store = BackendStore::new_memory();
+        let dir = tempfile::tempdir().unwrap();
+        let backend_dir = dir.path().join("alpha");
+        std::fs::create_dir_all(&backend_dir).unwrap();
+        let stale = backend_dir.join("exec-123-abc.json");
+        std::fs::write(&stale, b"not json").unwrap();
+
+        let report = reconcile_backups(&store, dir.path()).await.unwrap();
+        assert_eq!(report.orphan_files, 1);
+        assert_eq!(report.adopt_rejected, 1);
+        assert_eq!(report.adopted, 0);
+        assert!(store.list_backups(Some("alpha")).await.unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -6350,6 +6350,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/remote-sync/executions/{id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_remote_sync_bundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scripts": {
         parameters: {
             query?: never;
@@ -7002,6 +7018,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_system_backups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backups/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_system_backup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backups/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["verify_system_backup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9531,6 +9579,7 @@ export interface components {
         ApiEnvelope_BackendListView: {
             data?: {
                 backends: components["schemas"]["BackendEntryView"][];
+                backup_round_error?: string | null;
                 source: string;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
@@ -9540,6 +9589,27 @@ export interface components {
             data?: {
                 background: boolean;
                 execution_id: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_BackupExportView: {
+            /**
+             * @description Raw backup payload exported for local inspection. The bundle is returned
+             *     both as structured JSON and as the exact stored text, so a local copy can
+             *     keep the digest and byte count the index records.
+             */
+            data?: {
+                backend: string;
+                /** Format: int32 */
+                backup_version: number;
+                execution: string;
+                id: string;
+                payload: unknown;
+                payload_text: string;
+                sha256: string;
+                /** Format: int64 */
+                size_bytes: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -9556,6 +9626,29 @@ export interface components {
                 backend: string;
                 execution: string;
                 id: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_BackupVerificationView: {
+            /**
+             * @description Result of re-reading one backup file and comparing it with its index row.
+             *     The status names the failure instead of collapsing every case into one
+             *     boolean, because "file is gone" and "content changed" need different
+             *     reactions.
+             */
+            data?: {
+                /** Format: int64 */
+                actual_bytes?: number | null;
+                actual_sha256?: string | null;
+                id: string;
+                path: string;
+                /** Format: int64 */
+                recorded_bytes: number;
+                recorded_sha256: string;
+                /** @description `ok`, `missing_file` or `digest_mismatch`. */
+                status: string;
+                verified: boolean;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -11259,6 +11352,7 @@ export interface components {
         };
         /** @description Persisted registry entry: connection references only, never key material. */
         BackendEntry: {
+            backup_directory?: string | null;
             backup_executions?: string[];
             /** Format: int64 */
             backup_interval_secs?: number | null;
@@ -11313,6 +11407,7 @@ export interface components {
         };
         BackendListView: {
             backends: components["schemas"]["BackendEntryView"][];
+            backup_round_error?: string | null;
             source: string;
         };
         /**
@@ -11332,6 +11427,23 @@ export interface components {
         BackgroundExecuteView: {
             background: boolean;
             execution_id: string;
+        };
+        /**
+         * @description Raw backup payload exported for local inspection. The bundle is returned
+         *     both as structured JSON and as the exact stored text, so a local copy can
+         *     keep the digest and byte count the index records.
+         */
+        BackupExportView: {
+            backend: string;
+            /** Format: int32 */
+            backup_version: number;
+            execution: string;
+            id: string;
+            payload: unknown;
+            payload_text: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
         };
         BackupListView: {
             backups: components["schemas"]["BackupRecordView"][];
@@ -11358,6 +11470,25 @@ export interface components {
             backend: string;
             execution: string;
             id: string;
+        };
+        /**
+         * @description Result of re-reading one backup file and comparing it with its index row.
+         *     The status names the failure instead of collapsing every case into one
+         *     boolean, because "file is gone" and "content changed" need different
+         *     reactions.
+         */
+        BackupVerificationView: {
+            /** Format: int64 */
+            actual_bytes?: number | null;
+            actual_sha256?: string | null;
+            id: string;
+            path: string;
+            /** Format: int64 */
+            recorded_bytes: number;
+            recorded_sha256: string;
+            /** @description `ok`, `missing_file` or `digest_mismatch`. */
+            status: string;
+            verified: boolean;
         };
         /** @description Pinned baseline anchor (`wf_checkpoint::git_store::BaselineAnchor` mirrored). */
         BaselineAnchorDoc: {
@@ -46711,6 +46842,84 @@ export interface operations {
             };
         };
     };
+    get_remote_sync_bundle: {
+        parameters: {
+            query?: {
+                /** @description Upper bound on the number of checkpoints carried in the response. */
+                checkpoint_limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Execution bundle plus bounded checkpoint chain */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_list_scripts: {
         parameters: {
             query?: {
@@ -49988,6 +50197,142 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    export_system_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified backup payload for local inspection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BackupExportView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backup not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verify_system_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backup re-read and compared with its index row */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BackupVerificationView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backup not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

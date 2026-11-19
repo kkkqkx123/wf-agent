@@ -202,7 +202,8 @@ pub struct BackupVerificationView {
 }
 
 /// Raw backup payload exported for local inspection. The bundle is returned
-/// unchanged; the digest and size let a local reader verify it before use.
+/// both as structured JSON and as the exact stored text, so a local copy can
+/// keep the digest and byte count the index records.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct BackupExportView {
     pub id: String,
@@ -212,6 +213,7 @@ pub struct BackupExportView {
     pub sha256: String,
     pub size_bytes: u64,
     pub payload: serde_json::Value,
+    pub payload_text: String,
 }
 
 #[cfg(test)]

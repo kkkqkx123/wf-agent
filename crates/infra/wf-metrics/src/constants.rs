@@ -241,6 +241,7 @@ pub mod backup_metrics {
     pub const FAILURE_COUNT: &str = "backup.failure.count";
     pub const DURATION: &str = "backup.duration";
     pub const BYTES: &str = "backup.bytes";
+    pub const VERIFY_SUCCESS_COUNT: &str = "backup.verify.success.count";
     pub const VERIFY_FAILURE_COUNT: &str = "backup.verify.failure.count";
     pub const PRUNED_COUNT: &str = "backup.pruned.count";
     pub const ORPHAN_COUNT: &str = "backup.orphan.count";
@@ -426,6 +427,7 @@ mod tests {
             backup_metrics::FAILURE_COUNT,
             backup_metrics::DURATION,
             backup_metrics::BYTES,
+            backup_metrics::VERIFY_SUCCESS_COUNT,
             backup_metrics::VERIFY_FAILURE_COUNT,
             backup_metrics::PRUNED_COUNT,
             backup_metrics::ORPHAN_COUNT,

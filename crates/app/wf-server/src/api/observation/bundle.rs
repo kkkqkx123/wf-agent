@@ -78,6 +78,15 @@ struct RemoteSyncBundle<B: serde::Serialize, C: serde::Serialize> {
     checkpoints: C,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/remote-sync/executions/{id}/bundle",
+    operation_id = "get_remote_sync_bundle",
+    tag = "observation",
+    params(IdPath, RemoteSyncQuery),
+    responses((status = 200, description = "Execution bundle plus bounded checkpoint chain", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
 pub(crate) async fn handle_remote_sync_bundle(
     State(state): State<ApiState>,
     Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,

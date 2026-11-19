@@ -43,6 +43,21 @@ pub struct SqliteBackendStore {
     pool: sqlx::SqlitePool,
 }
 
+type BackupRow = (String, String, String, i64, i64, String, String);
+
+fn backup_view(row: BackupRow) -> BackupRecordView {
+    let (id, backend, execution, created_ms, size_bytes, sha256, path) = row;
+    BackupRecordView {
+        id,
+        backend,
+        execution,
+        created_ms,
+        size_bytes: size_bytes.max(0) as u64,
+        sha256,
+        path,
+    }
+}
+
 impl BackendStore {
     pub fn new_memory() -> Self {
         Self::Memory(Arc::new(MemoryBackendStore::default()))
@@ -284,21 +299,7 @@ impl BackendStore {
                         .await
                         .map_err(|e| format!("cannot list backups: {e}"))?
                     };
-                rows.into_iter()
-                    .map(
-                        |(id, backend, execution, created_ms, size_bytes, sha256, path)| {
-                            BackupRecordView {
-                                id,
-                                backend,
-                                execution,
-                                created_ms,
-                                size_bytes: size_bytes.max(0) as u64,
-                                sha256,
-                                path,
-                            }
-                        },
-                    )
-                    .collect()
+                rows.into_iter().map(backup_view).collect()
             }
         };
         if matches!(self, Self::Memory(_)) {
@@ -318,9 +319,31 @@ impl BackendStore {
         backend: &str,
         execution: &str,
     ) -> Result<Vec<BackupRecordView>, String> {
-        let mut records = self.list_backups(Some(backend)).await?;
-        records.retain(|record| record.execution == execution);
-        Ok(records)
+        match self {
+            Self::Memory(inner) => {
+                let mut records = inner
+                    .backups
+                    .iter()
+                    .filter(|row| row.backend == backend && row.execution == execution)
+                    .map(|row| row.value().clone())
+                    .collect::<Vec<_>>();
+                records.sort_by_key(|record| std::cmp::Reverse(record.created_ms));
+                Ok(records)
+            }
+            Self::Sqlite(inner) => {
+                let rows: Vec<BackupRow> = sqlx::query_as(&format!(
+                    "SELECT id, backend, execution, created_ms, size_bytes, sha256, path
+                     FROM {BACKUP_TABLE} WHERE backend = ?1 AND execution = ?2
+                     ORDER BY created_ms DESC"
+                ))
+                .bind(backend)
+                .bind(execution)
+                .fetch_all(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot list backups for '{backend}/{execution}': {e}"))?;
+                Ok(rows.into_iter().map(backup_view).collect())
+            }
+        }
     }
 
     /// Newest recorded backup time of one target. Used as the durable
@@ -365,19 +388,7 @@ impl BackendStore {
                     .fetch_optional(&inner.pool)
                     .await
                     .map_err(|e| format!("cannot read backup '{id}': {e}"))?;
-                Ok(row.map(
-                    |(id, backend, execution, created_ms, size_bytes, sha256, path)| {
-                        BackupRecordView {
-                            id,
-                            backend,
-                            execution,
-                            created_ms,
-                            size_bytes: size_bytes.max(0) as u64,
-                            sha256,
-                            path,
-                        }
-                    },
-                ))
+                Ok(row.map(backup_view))
             }
         }
     }

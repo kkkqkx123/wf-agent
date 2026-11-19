@@ -9,6 +9,7 @@ use crate::labels;
 pub struct BackupStats {
     pub success_count: u64,
     pub failure_count: u64,
+    pub verify_success_count: u64,
     pub verify_failure_count: u64,
     pub pruned_count: u64,
     pub orphan_count: u64,
@@ -61,6 +62,12 @@ impl BackupMetricsCollector {
         );
     }
 
+    /// Record a verification that matched the index.
+    pub fn record_verify_success(&self) {
+        self.inner
+            .increment_counter(backup_metrics::VERIFY_SUCCESS_COUNT, labels(&[]));
+    }
+
     /// Record a verification that did not pass (`digest_mismatch` or
     /// `missing_file`), with the status as a bounded label.
     pub fn record_verify_failure(&self, reason: &str) {
@@ -103,6 +110,10 @@ impl BackupMetricsCollector {
             failure_count: crate::collectors::counter_total(
                 &self.inner,
                 backup_metrics::FAILURE_COUNT,
+            ) as u64,
+            verify_success_count: crate::collectors::counter_total(
+                &self.inner,
+                backup_metrics::VERIFY_SUCCESS_COUNT,
             ) as u64,
             verify_failure_count: crate::collectors::counter_total(
                 &self.inner,
@@ -152,6 +163,7 @@ mod tests {
         let c = collector();
         c.record_success("alpha", 120.0, 4096);
         c.record_failure("beta", "timeout");
+        c.record_verify_success();
         c.record_verify_failure("digest_mismatch");
         c.record_pruned("alpha", 3);
         c.record_reconcile(2, 1);
@@ -159,6 +171,7 @@ mod tests {
         let stats = c.stats();
         assert_eq!(stats.success_count, 1);
         assert_eq!(stats.failure_count, 1);
+        assert_eq!(stats.verify_success_count, 1);
         assert_eq!(stats.verify_failure_count, 1);
         assert_eq!(stats.pruned_count, 3);
         assert_eq!(stats.orphan_count, 2);

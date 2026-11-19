@@ -410,7 +410,13 @@ impl NativeSession {
     /// Names come from the registry; the current row marks this session's
     /// connection, which never changes here.
     pub(crate) async fn list_servers(&self) {
-        if let Ok(Some(rows)) = wf_cli_shared::backends::fetch_server_backends(&self.client).await {
+        if let Ok(Some(snapshot)) =
+            wf_cli_shared::backends::fetch_server_backends(&self.client).await
+        {
+            let rows = snapshot.backends;
+            if let Some(error) = snapshot.backup_round_error {
+                output::diag_line(&format!("backup round error: {error}"));
+            }
             if rows.is_empty() {
                 output::diag_line("no known backends");
                 return;

@@ -635,6 +635,7 @@ use utoipa::OpenApi;
         crate::api::observation::artifacts::handle_execution_artifacts,
         crate::api::observation::artifacts::handle_query_artifacts,
         crate::api::observation::bundle::handle_execution_bundle,
+        crate::api::observation::bundle::handle_remote_sync_bundle,
         // ── system ──
         crate::api::system::code_context::handle_code_context,
         crate::api::system::code_context::handle_dead_letters,

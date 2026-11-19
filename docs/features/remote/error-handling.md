@@ -54,7 +54,7 @@
 * 手动触发可立即重试，且复用同一套校验与落盘逻辑；与定时任务按目标串行化。
 * 隧道异常退出后需要人工执行 `remote up` 重建；备份不会自动拉起 ssh。
 * 备份的完整性可通过 `wf remote backup-verify ID` 复算摘要核查；结果区分文件缺失与内容变更。
-* 读回路径为 `wf remote backup-export ID DEST` 加 `wf remote backup-check FILE [--expect-sha256 SHA]`：导出前服务端复验摘要与大小，不符则拒绝；本地检视检查结构与摘要，不访问服务端。不提供导入为执行或重放命令。
+* 读回路径为 `wf remote backup-export ID DEST` 加 `wf remote backup-check FILE [--expect-sha256 SHA]`：导出前服务端复验摘要与大小，客户端按原始字节落盘并再次复验，不符则拒绝写出；本地检视检查结构与摘要，不访问服务端，检查不通过时以失败退出。不提供导入为执行或重放命令。
 * 存储打不开时启动失败，修复路径或权限后重启管理端；不再有静默内存模式。
 
 ## 五、已知边界

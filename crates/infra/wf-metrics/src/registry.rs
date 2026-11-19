@@ -90,8 +90,6 @@ impl MetricsRegistry {
     /// per-collector retention falls back to the global window.
     pub fn with_config(config: &MetricsConfig) -> Self {
         let global_retention = config.retention_ms.unwrap_or(3_600_000);
-        let mut backup_config = CollectorConfig::default();
-        backup_config.retention_ms = global_retention;
         let resolve = |section: Option<&wf_types::config::metrics::MetricCollectorConfig>| {
             let mut resolved = section.map(CollectorConfig::from).unwrap_or_default();
             if section.is_none_or(|c| c.retention_ms.is_none()) {
@@ -151,7 +149,7 @@ impl MetricsRegistry {
             http: Arc::new(HttpMetricsCollector::new(resolve(
                 config.http_metrics.as_ref(),
             ))),
-            backup: Arc::new(BackupMetricsCollector::new(backup_config)),
+            backup: Arc::new(BackupMetricsCollector::new(resolve(None))),
             subscribers: Mutex::new(Vec::new()),
             next_subscription_id: AtomicUsize::new(1),
             anomaly_thresholds: AnomalyThresholds {

@@ -256,9 +256,15 @@ pub struct ServerBackendRow {
     pub last_backup_ms: Option<i64>,
     #[serde(default)]
     pub backup_error: Option<String>,
-    /// Round-level backup failure from the server, mirrored onto each row so
-    /// status output can surface a failure that has no per-execution error.
-    #[serde(default, skip_serializing)]
+}
+
+/// Server backend view plus the round-level backup error. The error lives
+/// beside the rows, so it stays visible even when the registry is empty.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ServerBackendSnapshot {
+    #[serde(default)]
+    pub backends: Vec<ServerBackendRow>,
+    #[serde(default)]
     pub backup_round_error: Option<String>,
 }
 
@@ -323,7 +329,7 @@ fn server_unavailable_hint() -> String {
 /// file (unreachable or disabled); `Err` is a loud failure (auth, corrupt).
 pub async fn fetch_server_backends(
     client: &wf_client::WfClient,
-) -> CliResult<Option<Vec<ServerBackendRow>>> {
+) -> CliResult<Option<ServerBackendSnapshot>> {
     let result: wf_client::ClientResult<serde_json::Value> =
         client.get_json("/api/v1/system/backends").await;
     match result {
@@ -338,13 +344,7 @@ pub async fn fetch_server_backends(
                 .cloned()
                 .unwrap_or_default();
             let mut rows = Vec::new();
-            for mut raw in backends {
-                if let Some(object) = raw.as_object_mut() {
-                    object.insert(
-                        "backup_round_error".to_string(),
-                        serde_json::Value::from(round_error.clone()),
-                    );
-                }
+            for raw in backends {
                 match serde_json::from_value::<ServerBackendRow>(raw) {
                     Ok(row) => rows.push(row),
                     Err(e) => {
@@ -355,7 +355,10 @@ pub async fn fetch_server_backends(
                     }
                 }
             }
-            Ok(Some(rows))
+            Ok(Some(ServerBackendSnapshot {
+                backends: rows,
+                backup_round_error: round_error,
+            }))
         }
         Err(e) if is_fallback_error(&e) => Ok(None),
         Err(e) => Err(CliError::from(e)),

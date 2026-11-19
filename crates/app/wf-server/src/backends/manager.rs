@@ -363,83 +363,100 @@ impl BackendManager {
             }
         }
         for chunk in tasks.chunks(4) {
-            let results = futures::future::join_all(chunk.iter().map(
-                |(name, entry, execution)| async move {
-                    let key = Self::backup_key(name, execution);
-                    // A manual trigger can overlap the scheduled round for the
-                    // same target; the lock keeps one target on one writer.
-                    let _guard = self.backup_guard(&key).await;
-                    let request = self.backup_request(entry);
-                    let started = wf_common::epoch_ms();
-                    let result =
-                        super::backup::backup_one(&self.store, name, entry, execution, request)
-                            .await;
-                    let duration_ms = wf_common::epoch_ms().saturating_sub(started) as f64;
-                    (name, entry, execution, result, duration_ms)
-                },
-            ))
-            .await;
-            for (name, entry, execution, result, duration_ms) in results {
+            futures::future::join_all(chunk.iter().map(|(name, entry, execution)| async move {
                 let key = Self::backup_key(name, execution);
-                match result {
-                    Ok(id) => {
-                        self.record_backup_success(name, &id, duration_ms).await;
-                        self.backup_statuses.insert(
-                            key,
-                            BackupRoundStatus {
-                                last_backup_ms: Some(now_ms),
-                                error: None,
-                                failures: 0,
-                                last_attempt_ms: Some(now_ms),
-                            },
-                        );
-                        let count = entry
-                            .backup_retention_count
-                            .unwrap_or(self.config.backup_retention_count);
-                        let days = entry
-                            .backup_retention_days
-                            .unwrap_or(self.config.backup_retention_days);
-                        if let Some(root) = self.config.backup_dir.as_deref() {
-                            match prune_backups(&self.store, root, name, execution, count, days)
-                                .await
-                            {
-                                Ok(removed) => {
-                                    if let Some(metrics) = self.metrics.as_ref() {
-                                        metrics.backup().record_pruned(name, removed);
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(backend = %name, error = %e, "backup pruning failed")
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let (previous, failures) = self
-                            .backup_statuses
-                            .get(&key)
-                            .map(|status| (status.last_backup_ms, status.failures))
-                            .unwrap_or((None, 0));
-                        self.backup_statuses.insert(
-                            key,
-                            BackupRoundStatus {
-                                last_backup_ms: previous,
-                                error: Some(e.clone()),
-                                failures: failures.saturating_add(1),
-                                last_attempt_ms: Some(now_ms),
-                            },
-                        );
-                        self.record_backup_failure(name, &e);
-                        tracing::warn!(
-                            backend = %name,
-                            execution = %execution,
-                            error = %e,
-                            "scheduled backup failed"
-                        );
-                    }
+                // Hold the target lock across the write, the state update and
+                // retention so a manual trigger cannot interleave either step.
+                let _guard = self.backup_guard(&key).await;
+                let request = self.backup_request(entry);
+                let started = wf_common::epoch_ms();
+                let result =
+                    super::backup::backup_one(&self.store, name, entry, execution, request).await;
+                let duration_ms = wf_common::epoch_ms().saturating_sub(started) as f64;
+                let _ = self
+                    .finish_backup(name, entry, execution, result, duration_ms, now_ms)
+                    .await;
+            }))
+            .await;
+        }
+    }
+
+    /// Apply one backup outcome while the target lock is held: status,
+    /// metrics and retention all belong to the same serialized section.
+    async fn finish_backup(
+        &self,
+        backend: &str,
+        entry: &BackendEntry,
+        execution: &str,
+        result: Result<String, String>,
+        duration_ms: f64,
+        now_ms: i64,
+    ) -> Result<String, String> {
+        let key = Self::backup_key(backend, execution);
+        match result {
+            Ok(id) => {
+                self.record_backup_success(backend, &id, duration_ms).await;
+                self.backup_statuses.insert(
+                    key,
+                    BackupRoundStatus {
+                        last_backup_ms: Some(now_ms),
+                        error: None,
+                        failures: 0,
+                        last_attempt_ms: Some(now_ms),
+                    },
+                );
+                if let Err(e) = self.prune_for_target(backend, entry, execution).await {
+                    tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
                 }
+                Ok(id)
+            }
+            Err(e) => {
+                let (previous, failures) = self
+                    .backup_statuses
+                    .get(&key)
+                    .map(|status| (status.last_backup_ms, status.failures))
+                    .unwrap_or((None, 0));
+                self.backup_statuses.insert(
+                    key,
+                    BackupRoundStatus {
+                        last_backup_ms: previous,
+                        error: Some(e.clone()),
+                        failures: failures.saturating_add(1),
+                        last_attempt_ms: Some(now_ms),
+                    },
+                );
+                self.record_backup_failure(backend, &e);
+                tracing::warn!(
+                    backend = %backend,
+                    execution = %execution,
+                    error = %e,
+                    "backup failed"
+                );
+                Err(e)
             }
         }
+    }
+
+    async fn prune_for_target(
+        &self,
+        backend: &str,
+        entry: &BackendEntry,
+        execution: &str,
+    ) -> Result<(), String> {
+        let Some(root) = self.config.backup_dir.as_deref() else {
+            return Ok(());
+        };
+        let count = entry
+            .backup_retention_count
+            .unwrap_or(self.config.backup_retention_count);
+        let days = entry
+            .backup_retention_days
+            .unwrap_or(self.config.backup_retention_days);
+        let removed = prune_backups(&self.store, root, backend, execution, count, days).await?;
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics.backup().record_pruned(backend, removed);
+        }
+        Ok(())
     }
 
     /// One target, one writer: manual triggers and the scheduled round share
@@ -600,7 +617,10 @@ impl BackendManager {
             .map(|row| row.key().clone())
             .collect();
         for key in lock_keys {
-            self.backup_locks.remove(&key);
+            // A running backup keeps an Arc clone of its lock. Dropping that
+            // entry early would let a recreated backend run a second writer.
+            self.backup_locks
+                .remove_if(&key, |_, lock| Arc::strong_count(lock) == 1);
         }
         self.store.remove_entry(name).await
     }
@@ -712,8 +732,10 @@ impl BackendManager {
                 )
             }
         };
-        if !verified {
-            if let Some(metrics) = self.metrics.as_ref() {
+        if let Some(metrics) = self.metrics.as_ref() {
+            if verified {
+                metrics.backup().record_verify_success();
+            } else {
                 metrics.backup().record_verify_failure(&status);
             }
         }
@@ -750,8 +772,10 @@ impl BackendManager {
         {
             return Err(format!("backup '{id}' failed verification before export"));
         }
-        let payload: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("backup '{id}' is not JSON: {e}"))?;
+        let text = String::from_utf8(bytes)
+            .map_err(|e| format!("backup '{id}' is not UTF-8 text: {e}"))?;
+        let payload: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("backup '{id}' is not JSON: {e}"))?;
         let backup_version = payload
             .get("backup_version")
             .and_then(|value| value.as_u64())
@@ -764,6 +788,7 @@ impl BackendManager {
             sha256: record.sha256,
             size_bytes: record.size_bytes,
             payload,
+            payload_text: text,
         })
     }
 
@@ -776,60 +801,14 @@ impl BackendManager {
             .ok_or_else(|| format!("backend '{backend}' not found"))?;
         let key = Self::backup_key(backend, execution);
         let _guard = self.backup_guard(&key).await;
-        let (previous, failures) = self
-            .backup_statuses
-            .get(&key)
-            .map(|status| (status.last_backup_ms, status.failures))
-            .unwrap_or((None, 0));
         let now_ms = wf_common::epoch_ms();
         let request = self.backup_request(&entry);
         let started = wf_common::epoch_ms();
-        let id = match super::backup::backup_one(&self.store, backend, &entry, execution, request)
+        let result =
+            super::backup::backup_one(&self.store, backend, &entry, execution, request).await;
+        let duration_ms = wf_common::epoch_ms().saturating_sub(started) as f64;
+        self.finish_backup(backend, &entry, execution, result, duration_ms, now_ms)
             .await
-        {
-            Ok(id) => id,
-            Err(e) => {
-                self.backup_statuses.insert(
-                    key,
-                    BackupRoundStatus {
-                        last_backup_ms: previous,
-                        error: Some(e.clone()),
-                        failures: failures.saturating_add(1),
-                        last_attempt_ms: Some(wf_common::epoch_ms()),
-                    },
-                );
-                self.record_backup_failure(backend, &e);
-                return Err(e);
-            }
-        };
-        self.record_backup_success(
-            backend,
-            &id,
-            wf_common::epoch_ms().saturating_sub(started) as f64,
-        )
-        .await;
-        self.backup_statuses.insert(
-            key,
-            BackupRoundStatus {
-                last_backup_ms: Some(wf_common::epoch_ms()),
-                error: None,
-                failures: 0,
-                last_attempt_ms: Some(now_ms),
-            },
-        );
-        let count = entry
-            .backup_retention_count
-            .unwrap_or(self.config.backup_retention_count);
-        let days = entry
-            .backup_retention_days
-            .unwrap_or(self.config.backup_retention_days);
-        if let Some(root) = self.config.backup_dir.as_deref() {
-            if let Err(e) = prune_backups(&self.store, root, backend, execution, count, days).await
-            {
-                tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
-            }
-        }
-        Ok(id)
     }
 
     /// Test hook: seed the store without going through validation.

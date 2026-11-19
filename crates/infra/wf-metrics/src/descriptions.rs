@@ -168,6 +168,15 @@ pub fn metric_description(name: &str) -> Option<&'static str> {
         http_metrics::REQUEST_COUNT => "HTTP request count",
         http_metrics::REQUEST_DURATION => "HTTP request duration",
         http_metrics::ERROR_COUNT => "HTTP error count",
+        backup_metrics::SUCCESS_COUNT => "Remote backup success count",
+        backup_metrics::FAILURE_COUNT => "Remote backup failure count",
+        backup_metrics::DURATION => "Remote backup duration",
+        backup_metrics::BYTES => "Remote backup payload size",
+        backup_metrics::VERIFY_SUCCESS_COUNT => "Remote backup verification success count",
+        backup_metrics::VERIFY_FAILURE_COUNT => "Remote backup verification failure count",
+        backup_metrics::PRUNED_COUNT => "Remote backup pruned count",
+        backup_metrics::ORPHAN_COUNT => "Remote backup orphan files",
+        backup_metrics::MISSING_COUNT => "Remote backup missing files",
         _ => return None,
     })
 }

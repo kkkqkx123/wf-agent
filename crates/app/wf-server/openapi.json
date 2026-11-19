@@ -32728,6 +32728,84 @@
         ]
       }
     },
+    "/api/v1/remote-sync/executions/{id}/bundle": {
+      "get": {
+        "tags": [
+          "observation"
+        ],
+        "operationId": "get_remote_sync_bundle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "checkpoint_limit",
+            "in": "query",
+            "description": "Upper bound on the number of checkpoints carried in the response.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Execution bundle plus bounded checkpoint chain",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/scripts": {
       "get": {
         "tags": [
@@ -35696,6 +35774,140 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backups/{id}/export": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "export_system_backup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified backup payload for local inspection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupExportView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Backup not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backups/{id}/verify": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "verify_system_backup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup re-read and compared with its index row",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupVerificationView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Backup not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -49231,6 +49443,12 @@
                   "$ref": "#/components/schemas/BackendEntryView"
                 }
               },
+              "backup_round_error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": "string"
               }
@@ -49269,6 +49487,69 @@
               },
               "execution_id": {
                 "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_BackupExportView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Raw backup payload exported for local inspection. The bundle is returned\nboth as structured JSON and as the exact stored text, so a local copy can\nkeep the digest and byte count the index records.",
+            "required": [
+              "id",
+              "backend",
+              "execution",
+              "backup_version",
+              "sha256",
+              "size_bytes",
+              "payload",
+              "payload_text"
+            ],
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "backup_version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "execution": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "payload": {},
+              "payload_text": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
               }
             }
           },
@@ -49344,6 +49625,76 @@
               },
               "id": {
                 "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_BackupVerificationView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Result of re-reading one backup file and comparing it with its index row.\nThe status names the failure instead of collapsing every case into one\nboolean, because \"file is gone\" and \"content changed\" need different\nreactions.",
+            "required": [
+              "status",
+              "verified",
+              "id",
+              "path",
+              "recorded_bytes",
+              "recorded_sha256"
+            ],
+            "properties": {
+              "actual_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "actual_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "recorded_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "recorded_sha256": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "description": "`ok`, `missing_file` or `digest_mismatch`."
+              },
+              "verified": {
+                "type": "boolean"
               }
             }
           },
@@ -55635,6 +55986,12 @@
           "username"
         ],
         "properties": {
+          "backup_directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "backup_executions": {
             "type": "array",
             "items": {
@@ -55827,6 +56184,12 @@
               "$ref": "#/components/schemas/BackendEntryView"
             }
           },
+          "backup_round_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source": {
             "type": "string"
           }
@@ -55890,6 +56253,48 @@
           },
           "execution_id": {
             "type": "string"
+          }
+        }
+      },
+      "BackupExportView": {
+        "type": "object",
+        "description": "Raw backup payload exported for local inspection. The bundle is returned\nboth as structured JSON and as the exact stored text, so a local copy can\nkeep the digest and byte count the index records.",
+        "required": [
+          "id",
+          "backend",
+          "execution",
+          "backup_version",
+          "sha256",
+          "size_bytes",
+          "payload",
+          "payload_text"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backup_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "execution": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "payload": {},
+          "payload_text": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -55973,6 +56378,55 @@
           },
           "id": {
             "type": "string"
+          }
+        }
+      },
+      "BackupVerificationView": {
+        "type": "object",
+        "description": "Result of re-reading one backup file and comparing it with its index row.\nThe status names the failure instead of collapsing every case into one\nboolean, because \"file is gone\" and \"content changed\" need different\nreactions.",
+        "required": [
+          "status",
+          "verified",
+          "id",
+          "path",
+          "recorded_bytes",
+          "recorded_sha256"
+        ],
+        "properties": {
+          "actual_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "actual_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "recorded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "recorded_sha256": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`ok`, `missing_file` or `digest_mismatch`."
+          },
+          "verified": {
+            "type": "boolean"
           }
         }
       },

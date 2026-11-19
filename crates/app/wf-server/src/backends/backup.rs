@@ -168,6 +168,10 @@ where
         return Err("unsafe backup file suffix".to_string());
     }
     let id = format!("{backend}-{execution}-{created_ms}-{suffix}");
+    tokio::fs::create_dir_all(root)
+        .await
+        .map_err(|e| format!("cannot create backup root {}: {e}", root.display()))?;
+    restrict_dir_mode(root);
     let dir = root.join(backend);
     tokio::fs::create_dir_all(&dir)
         .await
@@ -249,8 +253,7 @@ fn write_backup_file(path: &Path, temp_path: &Path, text: &str) -> Result<(u64, 
 }
 
 /// Backup payloads carry prompts and artifact previews, so the file is
-/// created readable by its owner only.
-#[allow(unused_mut)]
+/// created and kept readable by its owner only.
 fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -259,7 +262,13 @@ fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
 }
 
 /// Tighten the per-backend backup directory to owner-only access.
@@ -339,7 +348,7 @@ async fn fetch_bundle(
     directory: Option<String>,
     timeout_secs: u64,
     max_response_bytes: u64,
-    _checkpoint_limit: usize,
+    checkpoint_limit: usize,
 ) -> Result<(serde_json::Value, serde_json::Value), String> {
     let base_url = entry.local_base_url(default_local_port);
     let client = reqwest::Client::builder()
@@ -347,7 +356,7 @@ async fn fetch_bundle(
         .build()
         .map_err(|e| format!("cannot build backup client: {e}"))?;
     let mut request = client.get(format!(
-        "{base_url}/api/v1/remote-sync/executions/{execution}/bundle?checkpoint_limit={_checkpoint_limit}"
+        "{base_url}/api/v1/remote-sync/executions/{execution}/bundle?checkpoint_limit={checkpoint_limit}"
     ));
     if let Some(key) = api_key {
         request = request.header("x-api-key", key);
@@ -355,20 +364,32 @@ async fn fetch_bundle(
     if let Some(directory) = directory {
         request = request.header("x-wf-directory", directory);
     }
-    let response = request
+    let mut response = request
         .send()
         .await
         .map_err(|e| format!("sync request failed: {e}"))?;
     let status = response.status();
-    let bytes = response
-        .bytes()
+    if let Some(length) = response.content_length() {
+        if length > max_response_bytes {
+            return Err(format!(
+                "sync response too large: declared {length} bytes exceeds {max_response_bytes}"
+            ));
+        }
+    }
+    // Read incrementally so an oversized body is rejected while streaming
+    // instead of allocating the whole payload before the cap is checked.
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| format!("sync body read failed: {e}"))?;
-    if bytes.len() as u64 > max_response_bytes {
-        return Err(format!(
-            "sync response too large: {} bytes exceeds {max_response_bytes}",
-            bytes.len()
-        ));
+        .map_err(|e| format!("sync body read failed: {e}"))?
+    {
+        if bytes.len() as u64 + chunk.len() as u64 > max_response_bytes {
+            return Err(format!(
+                "sync response too large: more than {max_response_bytes} bytes"
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let envelope: SyncEnvelope =
         serde_json::from_slice(&bytes).map_err(|e| format!("sync decode failed: {e}"))?;

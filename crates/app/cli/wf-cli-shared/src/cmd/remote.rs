@@ -94,13 +94,14 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 ));
             }
             let client = management_client(cli);
-            let rows = fetch_server_backends(&client).await?.ok_or_else(|| {
+            let snapshot = fetch_server_backends(&client).await?.ok_or_else(|| {
                 CliError::Configuration(
                     "cannot reach the management service; start wf-server with the backend domain enabled (backends.toml) and retry"
                         .to_string(),
                 )
             })?;
-            let current = rows
+            let current = snapshot
+                .backends
                 .iter()
                 .find(|row| row.name == *name)
                 .and_then(|row| row.entry.clone())
@@ -154,9 +155,9 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
         }
         RemoteSub::List => {
             let client = management_client(cli);
-            if let Some(rows) = fetch_server_backends(&client).await? {
+            if let Some(snapshot) = fetch_server_backends(&client).await? {
                 let data = serde_json::json!({
-                    "hosts": rows.iter().map(|row| &row.name).collect::<Vec<_>>(),
+                    "hosts": snapshot.backends.iter().map(|row| &row.name).collect::<Vec<_>>(),
                     "source": "server",
                 });
                 return render_envelope(cli.output, OutputEnvelope::success("remote-list", data));
@@ -247,11 +248,10 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
         RemoteSub::Status => {
             let client = management_client(cli);
             let current = wf_client::ClientConfig::resolve(cli.remote.clone(), cli.api_key.clone());
-            if let Some(rows) = fetch_server_backends(&client).await? {
-                let backup_round_error = rows.iter().find_map(|row| row.backup_round_error.clone());
+            if let Some(snapshot) = fetch_server_backends(&client).await? {
                 let data = serde_json::json!({
-                    "backup_round_error": backup_round_error,
-                    "backends": rows
+                    "backup_round_error": snapshot.backup_round_error,
+                    "backends": snapshot.backends
                         .iter()
                         .map(|row| {
                             let url = row.url.clone().unwrap_or_else(|| {
@@ -272,7 +272,6 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                                 "tunnel_running": row.tunnel.as_ref().map(|tunnel| tunnel.running).unwrap_or(false),
                                 "last_backup_ms": row.last_backup_ms,
                                 "backup_error": row.backup_error,
-                                "backup_round_error": row.backup_round_error,
                             })
                         })
                         .collect::<Vec<_>>(),
@@ -374,20 +373,45 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             }
             let client = management_client(cli);
             let view = export_server_backup(&client, &id).await?;
-            let payload = view.get("payload").cloned().ok_or_else(|| {
-                CliError::Configuration("export response has no payload".to_string())
-            })?;
+            let text = view
+                .get("payload_text")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| {
+                    CliError::Configuration("export response has no payload text".to_string())
+                })?;
+            let expected_sha256 = view
+                .get("sha256")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| {
+                    CliError::Configuration("export response has no digest".to_string())
+                })?;
+            let actual_sha256 =
+                hex::encode(<sha2::Sha256 as sha2::Digest>::digest(text.as_bytes()));
+            if !actual_sha256.eq_ignore_ascii_case(expected_sha256) {
+                return Err(CliError::Configuration(format!(
+                    "exported payload does not match recorded digest: expected {expected_sha256}, got {actual_sha256}"
+                )));
+            }
+            if let Some(size) = view.get("size_bytes").and_then(|value| value.as_u64()) {
+                if size != text.len() as u64 {
+                    return Err(CliError::Configuration(format!(
+                        "exported payload size {size} does not match local size {}",
+                        text.len()
+                    )));
+                }
+            }
             let path = std::path::Path::new(&dest);
             if let Some(parent) = path.parent() {
                 if !parent.as_os_str().is_empty() {
                     std::fs::create_dir_all(parent)?;
                 }
             }
-            let text = serde_json::to_string_pretty(&payload)
-                .map_err(|e| CliError::Configuration(format!("export encode: {e}")))?;
-            let temp = std::path::PathBuf::from(format!("{dest}.tmp"));
+            let temp = std::path::PathBuf::from(format!("{dest}.tmp-{}", wf_common::generate_id()));
             std::fs::write(&temp, text)?;
-            std::fs::rename(&temp, path)?;
+            if let Err(e) = std::fs::rename(&temp, path) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(e.into());
+            }
             let data = serde_json::json!({
                 "id": id,
                 "dest": dest,
@@ -431,10 +455,12 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             let digest_match = expect_sha256
                 .as_deref()
                 .map(|expected| expected.eq_ignore_ascii_case(&digest));
-            let valid = backup_version >= 1
+            let chain_execution_matches = chain_id == execution_id;
+            const SUPPORTED_BACKUP_VERSION: u64 = 1;
+            let valid = backup_version == SUPPORTED_BACKUP_VERSION
                 && !execution_id.is_empty()
                 && checkpoints_are_object
-                && chain_id == execution_id
+                && chain_execution_matches
                 && digest_match.unwrap_or(true);
             let data = serde_json::json!({
                 "file": file,
@@ -442,11 +468,18 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 "backup_version": backup_version,
                 "execution_id": execution_id,
                 "checkpoints_are_object": checkpoints_are_object,
-                "chain_execution_matches": chain_id == execution_id,
+                "chain_execution_matches": chain_execution_matches,
                 "size_bytes": bytes.len(),
                 "sha256": digest,
                 "digest_matches_expected": digest_match,
             });
+            if !valid {
+                let details = serde_json::to_string(&data)
+                    .map_err(|e| CliError::Configuration(format!("backup check detail: {e}")))?;
+                return Err(CliError::Configuration(format!(
+                    "backup check failed: {details}"
+                )));
+            }
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("remote-backup-check", data),
@@ -547,8 +580,8 @@ async fn dry_run_add(
 /// default port.
 async fn resolve_print_entry(cli: &Cli, name: &str) -> CliResult<(RemoteHost, Option<String>)> {
     let client = management_client(cli);
-    if let Some(rows) = fetch_server_backends(&client).await? {
-        if let Some(row) = rows.into_iter().find(|row| row.name == name) {
+    if let Some(snapshot) = fetch_server_backends(&client).await? {
+        if let Some(row) = snapshot.backends.into_iter().find(|row| row.name == name) {
             if let Some(entry) = row.entry {
                 return Ok((entry, row.url));
             }

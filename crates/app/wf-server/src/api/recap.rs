@@ -162,6 +162,7 @@ mod tests {
                 crate::directory::DirectoryConfig::default(),
             )),
             locks: crate::api::workflow::locks::DefinitionLocks::default(),
+            #[cfg(feature = "backends")]
             backends: None,
         };
         // Unknown session: no history, so the read converges to null text

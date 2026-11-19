@@ -223,6 +223,11 @@ where
         "backup_version".to_string(),
         serde_json::Value::from(BACKUP_BUNDLE_VERSION),
     );
+    let sequence = object
+        .get("source_sequence")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "bundle payload has no source sequence".to_string())?;
     let revision = object
         .get("source_revision")
         .and_then(|value| value.as_str())
@@ -275,6 +280,7 @@ where
         size_bytes,
         sha256,
         path: relative_backup_path(&canonical_root, &path),
+        source_sequence: sequence,
         source_revision: revision,
         payload_digest,
     };
@@ -697,6 +703,10 @@ fn parse_orphan_record(root: &Path, path: &Path) -> Result<BackupRecordView, Str
         size_bytes: bytes.len() as u64,
         sha256: hex::encode(Sha256::digest(&bytes)),
         path: relative_backup_path(root, path),
+        source_sequence: payload
+            .get("source_sequence")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or("orphan bundle has no source sequence")?,
         source_revision: payload
             .get("source_revision")
             .and_then(|value| value.as_str())
@@ -796,6 +806,7 @@ mod tests {
                 bundle: serde_json::json!({
                     "version": 1,
                     "execution_id": execution,
+                    "source_sequence": 1,
                     "source_revision": "digest",
                     "payload_digest": "digest"
                 }),
@@ -852,6 +863,7 @@ mod tests {
         let bundle = serde_json::json!({
             "backup_version": BACKUP_BUNDLE_VERSION,
             "execution_id": "exec",
+            "source_sequence": 1,
             "source_revision": "digest",
             "payload_digest": "digest"
         });
@@ -911,6 +923,7 @@ mod tests {
                     size_bytes: bytes.len() as u64,
                     sha256: hex::encode(Sha256::digest(bytes)),
                     path: relative_backup_path(dir.path(), path),
+                    source_sequence: 1,
                     source_revision: "rev".to_string(),
                     payload_digest: "rev".to_string(),
                 })
@@ -943,6 +956,7 @@ mod tests {
                     size_bytes: 10,
                     sha256: "abc".to_string(),
                     path: relative,
+                    source_sequence: 1,
                     source_revision: "rev".to_string(),
                     payload_digest: "rev".to_string(),
                 })
@@ -977,6 +991,7 @@ mod tests {
                         size_bytes: 10,
                         sha256: "abc".to_string(),
                         path: relative,
+                        source_sequence: 1,
                         source_revision: "rev".to_string(),
                         payload_digest: "rev".to_string(),
                     })

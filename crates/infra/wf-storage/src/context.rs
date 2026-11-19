@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::adapter::adapter_impls::{
     AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, AgentStorage,
     CheckpointStorage, MessageStorage, MetricsStorage, NodeDraftStorage, NodeTemplateStorage,
@@ -12,6 +14,7 @@ use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics, StorageM
 use crate::domain::indexes::EntityIndexes;
 use crate::domain::store::{CrossTableOperation, StoreExt, StoreOperation};
 use crate::error::StorageError;
+use crate::revision::{RevisionStore, REVISION_TABLE};
 use crate::store::memory::MemoryStorage;
 use crate::store::postgres::PostgresStorage;
 use crate::store::sqlite::SqliteStorage;
@@ -20,7 +23,10 @@ use sqlx::SqlitePool;
 
 macro_rules! make_backend {
     ($variant:ident, $name:expr) => {
-        StorageBackend::$variant(InstrumentedStore::new(MemoryStorage::new($name)))
+        StorageBackend::$variant {
+            store: InstrumentedStore::new(MemoryStorage::new($name)),
+            revision: None,
+        }
     };
 }
 
@@ -70,14 +76,20 @@ macro_rules! define_storage_entities {
 
         pub struct StorageContext {
             $(pub $field: $adapter<StorageBackend>),*,
+            pub revisions: Arc<RevisionStore>,
             sqlite_pool: Option<SqlitePool>,
             pg_pool: Option<PgPool>,
         }
 
         impl StorageContext {
             pub fn new_memory() -> Self {
+                let revisions = Arc::new(RevisionStore::new(Arc::new(make_backend!(
+                    Memory,
+                    REVISION_TABLE
+                ))));
                 Self {
-                    $($field: $adapter::new(make_backend!(Memory, $table))),*,
+                    $($field: $adapter::new(make_backend!(Memory, $table).with_revision(revisions.clone()))),*,
+                    revisions,
                     sqlite_pool: None,
                     pg_pool: None,
                 }
@@ -103,9 +115,22 @@ macro_rules! define_storage_entities {
                 cache: CacheConfig,
             ) -> Result<Self, StorageError> {
                 let pool = SqliteStorage::create_pool(path).await?;
+                let revision_backend = Arc::new(StorageBackend::Sqlite {
+                    store: InstrumentedStore::new(CachingStore::new(
+                        SqliteStorage::with_pool(
+                            pool.clone(),
+                            REVISION_TABLE,
+                            EntityIndexes::new(&["executionId"], &[], None),
+                        )
+                        .await?,
+                        cache,
+                    )),
+                    revision: None,
+                });
+                let revisions = Arc::new(RevisionStore::new(revision_backend));
                 Ok(Self {
-                    $($field: $adapter::new(StorageBackend::Sqlite(InstrumentedStore::new(
-                        CachingStore::new(
+                    $($field: $adapter::new(StorageBackend::Sqlite {
+                        store: InstrumentedStore::new(CachingStore::new(
                             SqliteStorage::with_pool(
                                 pool.clone(),
                                 $table,
@@ -113,8 +138,10 @@ macro_rules! define_storage_entities {
                             )
                             .await?,
                             cache,
-                        ),
-                    )))),*,
+                        )),
+                        revision: Some(revisions.clone()),
+                    })),*,
+                    revisions,
                     sqlite_pool: Some(pool),
                     pg_pool: None,
                 })
@@ -131,15 +158,28 @@ macro_rules! define_storage_entities {
             ) -> Result<Self, StorageError> {
                 let _ = cache;
                 let pool = crate::util::pool::create_pg_pool(connection_string).await?;
-                Ok(Self {
-                    $($field: $adapter::new(StorageBackend::Postgres(InstrumentedStore::new(
+                let revision_backend = Arc::new(StorageBackend::Postgres {
+                    store: InstrumentedStore::new(
                         PostgresStorage::with_pool(
+                            pool.clone(),
+                            REVISION_TABLE,
+                            EntityIndexes::new(&["executionId"], &[], None),
+                        )
+                        .await?,
+                    ),
+                    revision: None,
+                });
+                let revisions = Arc::new(RevisionStore::new(revision_backend));
+                Ok(Self {
+                    $($field: $adapter::new(StorageBackend::Postgres {
+                        store: InstrumentedStore::new(PostgresStorage::with_pool(
                             pool.clone(),
                             $table,
                             EntityStoreId::$variant.indexes(),
-                        )
-                        .await?,
-                    )))),*,
+                        ).await?),
+                        revision: Some(revisions.clone()),
+                    })),*,
+                    revisions,
                     sqlite_pool: None,
                     pg_pool: Some(pool),
                 })
@@ -199,33 +239,39 @@ macro_rules! define_storage_entities {
             /// version guard stays active without reopening.
             pub async fn clear_all(&self) -> Result<(), StorageError> {
                 if let Some(pool) = self.sqlite_pool.as_ref() {
-                    let tables: Vec<&str> = self
+                    let mut tables: Vec<&str> = self
                         .named_backends()
                         .iter()
                         .map(|(id, _)| id.table())
                         .collect();
+                    tables.push(REVISION_TABLE);
                     SqliteStorage::clear_cross_table(pool, &tables).await?;
                     self.invalidate_all_cached();
                     return Ok(());
                 }
 
                 if let Some(pool) = self.pg_pool.as_ref() {
-                    let tables: Vec<&str> = self
+                    let mut tables: Vec<&str> = self
                         .named_backends()
                         .iter()
                         .map(|(id, _)| id.table())
                         .collect();
+                    tables.push(REVISION_TABLE);
                     PostgresStorage::clear_cross_table(pool, &tables).await?;
                     self.invalidate_all_cached();
                     return Ok(());
                 }
 
                 {
-                    let stores: Vec<&MemoryStorage> = self
+                    let mut stores: Vec<&MemoryStorage> = self
                         .named_backends()
                         .iter()
                         .filter_map(|(_, backend)| backend.memory_storage())
                         .collect();
+                    if let Some(store) = self.revisions.backend().memory_storage() {
+                        stores.push(store);
+                    }
+                    stores.sort_by(|left, right| left.name().cmp(right.name()));
                     return MemoryStorage::clear_cross_store(&stores).await;
                 }
             }
@@ -237,6 +283,7 @@ macro_rules! define_storage_entities {
                 for backend in self.all_backends() {
                     backend.invalidate_all_cached();
                 }
+                self.revisions.backend().invalidate_all_cached();
             }
         }
     };

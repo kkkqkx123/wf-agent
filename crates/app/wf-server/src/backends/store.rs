@@ -53,6 +53,7 @@ type BackupRow = (
     i64,
     String,
     String,
+    i64,
     String,
     String,
 );
@@ -66,6 +67,7 @@ fn backup_view(row: BackupRow) -> BackupRecordView {
         size_bytes,
         sha256,
         path,
+        source_sequence,
         source_revision,
         payload_digest,
     ) = row;
@@ -77,6 +79,7 @@ fn backup_view(row: BackupRow) -> BackupRecordView {
         size_bytes: size_bytes.max(0) as u64,
         sha256,
         path,
+        source_sequence: source_sequence.max(0) as u64,
         source_revision,
         payload_digest,
     }
@@ -85,6 +88,7 @@ fn backup_view(row: BackupRow) -> BackupRecordView {
 type SyncStateRow = (
     String,
     String,
+    Option<i64>,
     Option<i64>,
     Option<i64>,
     Option<String>,
@@ -101,6 +105,7 @@ fn sync_state_view(row: SyncStateRow) -> SyncStateView {
         last_success_ms,
         last_attempt_ms,
         revision,
+        digest,
         backup_id,
         failures,
         repair_status,
@@ -111,7 +116,8 @@ fn sync_state_view(row: SyncStateRow) -> SyncStateView {
         execution,
         last_success_ms,
         last_attempt_ms,
-        revision,
+        revision: revision.map(|value| value.max(0) as u64),
+        digest,
         backup_id,
         failures: failures.max(0) as u32,
         repair_status,
@@ -147,6 +153,7 @@ impl BackendStore {
                         size_bytes INTEGER NOT NULL,
                         sha256 TEXT NOT NULL,
                         path TEXT NOT NULL,
+                        source_sequence INTEGER NOT NULL,
                         source_revision TEXT NOT NULL,
                         payload_digest TEXT NOT NULL
                     )"
@@ -158,7 +165,8 @@ impl BackendStore {
                         execution TEXT NOT NULL,
                         last_success_ms INTEGER,
                         last_attempt_ms INTEGER,
-                        revision TEXT,
+                        revision INTEGER,
+                        digest TEXT,
                         backup_id TEXT,
                         failures INTEGER NOT NULL,
                         repair_status TEXT NOT NULL,
@@ -333,11 +341,12 @@ impl BackendStore {
             }
             Self::Sqlite(inner) => {
                 sqlx::query(&format!(
-                    "INSERT INTO {BACKUP_TABLE} (id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    "INSERT INTO {BACKUP_TABLE} (id, backend, execution, created_ms, size_bytes, sha256, path, source_sequence, source_revision, payload_digest)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                      ON CONFLICT(id) DO UPDATE SET backend = excluded.backend, execution = excluded.execution,
                        created_ms = excluded.created_ms, size_bytes = excluded.size_bytes,
                        sha256 = excluded.sha256, path = excluded.path,
+                       source_sequence = excluded.source_sequence,
                        source_revision = excluded.source_revision, payload_digest = excluded.payload_digest"
                 ))
                 .bind(&record.id)
@@ -347,6 +356,7 @@ impl BackendStore {
                 .bind(record.size_bytes as i64)
                 .bind(&record.sha256)
                 .bind(&record.path)
+                .bind(record.source_sequence as i64)
                 .bind(&record.source_revision)
                 .bind(&record.payload_digest)
                 .execute(&inner.pool)
@@ -395,7 +405,7 @@ impl BackendStore {
             Self::Sqlite(inner) => {
                 let rows: Vec<BackupRow> = if let Some(backend) = backend {
                     sqlx::query_as(&format!(
-                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_sequence, source_revision, payload_digest
                          FROM {BACKUP_TABLE} WHERE backend = ?1 ORDER BY created_ms DESC"
                     ))
                     .bind(backend)
@@ -404,7 +414,7 @@ impl BackendStore {
                     .map_err(|e| format!("cannot list backups: {e}"))?
                 } else {
                     sqlx::query_as(&format!(
-                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_sequence, source_revision, payload_digest
                          FROM {BACKUP_TABLE} ORDER BY created_ms DESC"
                     ))
                     .fetch_all(&inner.pool)
@@ -444,7 +454,7 @@ impl BackendStore {
             }
             Self::Sqlite(inner) => {
                 let rows: Vec<BackupRow> = sqlx::query_as(&format!(
-                    "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
+                    "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_sequence, source_revision, payload_digest
                      FROM {BACKUP_TABLE} WHERE backend = ?1 AND execution = ?2
                      ORDER BY created_ms DESC"
                 ))
@@ -493,7 +503,7 @@ impl BackendStore {
             Self::Sqlite(inner) => {
                 let row: Option<BackupRow> =
                     sqlx::query_as(&format!(
-                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_revision, payload_digest
+                        "SELECT id, backend, execution, created_ms, size_bytes, sha256, path, source_sequence, source_revision, payload_digest
                          FROM {BACKUP_TABLE} WHERE id = ?1"
                     ))
                     .bind(id)
@@ -516,12 +526,13 @@ impl BackendStore {
             }
             Self::Sqlite(inner) => {
                 sqlx::query(&format!(
-                    "INSERT INTO {SYNC_STATE_TABLE} (backend, execution, last_success_ms, last_attempt_ms, revision, backup_id, failures, repair_status, error)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    "INSERT INTO {SYNC_STATE_TABLE} (backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                      ON CONFLICT(backend, execution) DO UPDATE SET
                        last_success_ms = excluded.last_success_ms,
                        last_attempt_ms = excluded.last_attempt_ms,
                        revision = excluded.revision,
+                       digest = excluded.digest,
                        backup_id = excluded.backup_id,
                        failures = excluded.failures,
                        repair_status = excluded.repair_status,
@@ -531,7 +542,8 @@ impl BackendStore {
                 .bind(&state.execution)
                 .bind(state.last_success_ms)
                 .bind(state.last_attempt_ms)
-                .bind(&state.revision)
+                .bind(state.revision.map(|value| value as i64))
+                .bind(&state.digest)
                 .bind(&state.backup_id)
                 .bind(state.failures as i64)
                 .bind(&state.repair_status)
@@ -556,7 +568,7 @@ impl BackendStore {
                 .map(|row| row.value().clone())),
             Self::Sqlite(inner) => {
                 let row: Option<SyncStateRow> = sqlx::query_as(&format!(
-                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, backup_id, failures, repair_status, error
+                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error
                      FROM {SYNC_STATE_TABLE} WHERE backend = ?1 AND execution = ?2"
                 ))
                 .bind(backend)
@@ -578,7 +590,7 @@ impl BackendStore {
                 .collect()),
             Self::Sqlite(inner) => {
                 let rows: Vec<SyncStateRow> = sqlx::query_as(&format!(
-                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, backup_id, failures, repair_status, error
+                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error
                      FROM {SYNC_STATE_TABLE}"
                 ))
                 .fetch_all(&inner.pool)
@@ -694,6 +706,7 @@ mod tests {
             size_bytes: 12,
             sha256: "abc".to_string(),
             path: "/tmp/backup-1.json".to_string(),
+            source_sequence: 1,
             source_revision: "rev".to_string(),
             payload_digest: "rev".to_string(),
         };
@@ -711,7 +724,8 @@ mod tests {
             execution: "exec-1".to_string(),
             last_success_ms: Some(10),
             last_attempt_ms: Some(12),
-            revision: Some("rev".to_string()),
+            revision: Some(7),
+            digest: Some("rev".to_string()),
             backup_id: Some("backup-1".to_string()),
             failures: 2,
             repair_status: "repair_pending".to_string(),
@@ -723,7 +737,8 @@ mod tests {
             .await
             .unwrap()
             .expect("sync state row");
-        assert_eq!(loaded.revision.as_deref(), Some("rev"));
+        assert_eq!(loaded.revision, Some(7));
+        assert_eq!(loaded.digest.as_deref(), Some("rev"));
         assert_eq!(loaded.failures, 2);
         assert_eq!(store.list_sync_states().await.unwrap().len(), 1);
         store.remove_sync_state("alpha", "exec-1").await.unwrap();

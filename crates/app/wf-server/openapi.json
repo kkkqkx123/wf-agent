@@ -32728,11 +32728,60 @@
         ]
       }
     },
+    "/api/v1/remote-sync/executions/restore": {
+      "post": {
+        "tags": [
+          "observation"
+        ],
+        "operationId": "restore_remote_execution_bundle",
+        "responses": {
+          "200": {
+            "description": "Restore plan or result",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid bundle or conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/remote-sync/executions/{id}/bundle": {
       "get": {
         "tags": [
           "observation"
         ],
+        "summary": "One-response recovery snapshot for the local management service. The\nexecution records and every derived view share one owner check so a\nbackup never mixes data from different executions.",
         "operationId": "get_remote_sync_bundle",
         "parameters": [
           {
@@ -32768,6 +32817,186 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/remote-sync/inventory": {
+      "get": {
+        "tags": [
+          "observation"
+        ],
+        "summary": "Revision inventory used by the management service to decide whether a\ntarget needs a fresh snapshot or has disappeared from the remote node.",
+        "operationId": "get_remote_sync_inventory",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "description": "Comma-separated execution ids. When omitted, every owned execution of\nthe requested directory is reported.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Execution revision inventory",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/remote-sync/reconcile": {
+      "get": {
+        "tags": [
+          "observation"
+        ],
+        "summary": "Full-export verification of suspicious targets. Inventory stays O(1);\nthis slower path runs only from startup or explicit reconciliation.",
+        "operationId": "get_remote_sync_reconcile",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "description": "Comma-separated execution ids. When omitted, every owned execution of\nthe requested directory is reported.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revision verification",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/remote-sync/revisions/rebuild": {
+      "post": {
+        "tags": [
+          "observation"
+        ],
+        "summary": "Rebuild revision rows from full exports after the revision table is lost.",
+        "operationId": "post_remote_sync_revisions_rebuild",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "description": "Comma-separated execution ids. When omitted, every owned execution of\nthe requested directory is reported.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rebuilt revisions",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -35891,6 +36120,53 @@
         ]
       }
     },
+    "/api/v1/system/backups/sync-state": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_system_sync_states",
+        "responses": {
+          "200": {
+            "description": "Per-target synchronization state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_SyncStateListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/backups/{id}/export": {
       "get": {
         "tags": [
@@ -35914,6 +36190,83 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiEnvelope_BackupExportView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Backup not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backups/{id}/restore": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "restore_system_backup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRestoreBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Restore plan or result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
                 }
               }
             }
@@ -54324,6 +54677,41 @@
           }
         }
       },
+      "ApiEnvelope_SyncStateListView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "states"
+            ],
+            "properties": {
+              "states": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SyncStateView"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_SystemTasksView": {
         "type": "object",
         "required": [
@@ -56481,7 +56869,10 @@
           "created_ms",
           "size_bytes",
           "sha256",
-          "path"
+          "path",
+          "source_sequence",
+          "source_revision",
+          "payload_digest"
         ],
         "properties": {
           "backend": {
@@ -56500,12 +56891,26 @@
           "path": {
             "type": "string"
           },
+          "payload_digest": {
+            "type": "string",
+            "description": "Canonical digest of the complete recovery snapshot."
+          },
           "sha256": {
             "type": "string"
           },
           "size_bytes": {
             "type": "integer",
             "format": "int64",
+            "minimum": 0
+          },
+          "source_revision": {
+            "type": "string",
+            "description": "Canonical digest of the restorable projection in the bundle."
+          },
+          "source_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Remote source sequence captured in the recovery bundle.",
             "minimum": 0
           }
         }
@@ -56562,6 +56967,14 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "BackupRestoreBody": {
+        "type": "object",
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
           }
         }
       },
@@ -61858,6 +62271,88 @@
           },
           "auto_import": {
             "type": "boolean"
+          }
+        }
+      },
+      "SyncStateListView": {
+        "type": "object",
+        "required": [
+          "states"
+        ],
+        "properties": {
+          "states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncStateView"
+            }
+          }
+        }
+      },
+      "SyncStateView": {
+        "type": "object",
+        "description": "Durable per-target synchronization position and repair state.",
+        "required": [
+          "backend",
+          "execution",
+          "failures",
+          "repair_status"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backup_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Digest retained for content validation, never as the baseline."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution": {
+            "type": "string"
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_attempt_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "last_success_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "repair_status": {
+            "type": "string"
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Monotonic remote sequence used as the comparison baseline.",
+            "minimum": 0
           }
         }
       },

@@ -7,5 +7,6 @@ pub mod entity_impl;
 pub mod error;
 pub mod note;
 pub mod registry_bridge;
+pub mod revision;
 pub mod store;
 pub mod util;

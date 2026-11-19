@@ -119,6 +119,28 @@ impl Entity for wf_types::WorkflowExecution {
     }
 }
 
+impl Entity for wf_types::ExecutionRevision {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.execution_id
+    }
+
+    fn entity_type() -> &'static str {
+        crate::revision::REVISION_TABLE
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "executionId": self.execution_id,
+            "sequence": self.sequence,
+            "updatedAt": self.updated_at_ms,
+            "source": self.source,
+            "reason": self.reason,
+        })
+    }
+}
+
 impl Entity for wf_types::storage::checkpoint::CheckpointStorageMetadata {
     type Metadata = Value;
 

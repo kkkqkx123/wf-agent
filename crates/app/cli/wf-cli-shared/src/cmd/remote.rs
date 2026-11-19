@@ -396,6 +396,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                             "size_bytes": record.size_bytes,
                             "sha256": record.sha256,
                             "path": record.path,
+                            "source_sequence": record.source_sequence,
                             "source_revision": record.source_revision,
                             "payload_digest": record.payload_digest,
                         })
@@ -814,6 +815,7 @@ mod tests {
             size_bytes: Some(10),
             sha256: Some("sha".to_string()),
             path: Some("alpha/backup.json".to_string()),
+            source_sequence: Some(1),
             source_revision: Some("rev".to_string()),
             payload_digest: Some("rev".to_string()),
         }

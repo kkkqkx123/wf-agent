@@ -1,6 +1,7 @@
 pub mod agent_loop;
 pub mod agent_profile;
 pub mod checkpoint;
+pub mod execution_revision;
 pub mod message;
 pub mod node_template;
 pub mod script;
@@ -15,6 +16,7 @@ pub mod variable;
 pub use agent_loop::*;
 pub use agent_profile::*;
 pub use checkpoint::*;
+pub use execution_revision::*;
 pub use message::*;
 pub use node_template::*;
 pub use script::*;

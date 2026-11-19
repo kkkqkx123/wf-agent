@@ -7,12 +7,17 @@
 //! state for review, never a live session handle.
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use wf_checkpoint::CheckpointStateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_storage::revision::{
+    checkpoint_component, file_archive_component, hash_file_archive, projection_digest,
+    record_component,
+};
 use wf_types::execution::ExecutionType;
-use wf_types::{AgentExecution, Checkpoint, WorkflowExecution};
+use wf_types::{
+    AgentExecution, Checkpoint, ExecutionRevision, RevisionComponent, WorkflowExecution,
+};
 
 use crate::audit::AuditSummary;
 use crate::execution_artifacts::ArtifactEntry;
@@ -68,6 +73,8 @@ pub struct ExecutionBundle {
     pub version: u32,
     pub execution_id: String,
     pub exported_at: i64,
+    /// Durable sequence captured from the revision row at export time.
+    pub source_sequence: u64,
     /// Digest of the restorable projection. Export-time fields and derived
     /// views are excluded so a restored execution recomputes the same value.
     pub source_revision: String,
@@ -92,20 +99,51 @@ pub struct RestorePlan {
     pub digest: String,
 }
 
-fn canonical_digest(bundle: &ExecutionBundle) -> ApiResult<String> {
-    let mut value = serde_json::to_value(bundle)
-        .map_err(|e| ApiError::execution(format!("recovery bundle encode failed: {e}")))?;
-    if let Some(object) = value.as_object_mut() {
-        object.remove("exported_at");
-        object.remove("source_revision");
-        object.remove("payload_digest");
-        object.remove("history");
-        object.remove("artifacts");
-        object.remove("audit");
+fn canonical_components(bundle: &ExecutionBundle) -> ApiResult<Vec<RevisionComponent>> {
+    let mut components = Vec::with_capacity(
+        bundle.records.len()
+            + bundle.checkpoints.len()
+            + usize::from(!bundle.file_archive.is_empty()),
+    );
+    for record in &bundle.records {
+        let record_id = record.execution_id();
+        let value = match record {
+            ExecutionRecordSnapshot::Workflow(value) => serde_json::to_value(value),
+            ExecutionRecordSnapshot::Agent(value) => serde_json::to_value(value),
+        }
+        .map_err(|e| ApiError::execution(format!("recovery record encode failed: {e}")))?;
+        components.push(
+            record_component(record_id, &value)
+                .map_err(|e| ApiError::execution(format!("recovery record hash failed: {e}")))?,
+        );
     }
-    let text = serde_json::to_string(&value)
-        .map_err(|e| ApiError::execution(format!("recovery digest encode failed: {e}")))?;
-    Ok(hex::encode(Sha256::digest(text.as_bytes())))
+    for item in &bundle.checkpoints {
+        let blob = item.blob.clone().unwrap_or(serde_json::Value::Null);
+        components.push(
+            checkpoint_component(
+                item.metadata.id.as_str(),
+                &item.metadata.metadata_document(),
+                &blob,
+            )
+            .map_err(|e| ApiError::execution(format!("checkpoint hash failed: {e}")))?,
+        );
+    }
+    if !bundle.file_archive.is_empty() {
+        let files: Vec<(String, Vec<u8>)> = bundle
+            .file_archive
+            .iter()
+            .map(decode_hex_file)
+            .collect::<ApiResult<_>>()?;
+        let hash = hash_file_archive(&files)
+            .map_err(|e| ApiError::execution(format!("file archive hash failed: {e}")))?;
+        components.push(file_archive_component(hash));
+    }
+    Ok(components)
+}
+
+fn canonical_digest(bundle: &ExecutionBundle) -> ApiResult<String> {
+    projection_digest(&bundle.execution_id, &canonical_components(bundle)?)
+        .map_err(|e| ApiError::execution(format!("recovery digest encode failed: {e}")))
 }
 
 async fn export_records(
@@ -187,11 +225,11 @@ fn export_file_archive(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<Fi
         .collect())
 }
 
-/// Export one execution into a self-contained recovery snapshot.
-pub async fn export_bundle(
+async fn build_bundle(
     ctx: &ApiContext,
     execution_id: &str,
     checkpoint_synced: bool,
+    require_revision: bool,
 ) -> ApiResult<ExecutionBundle> {
     let records = export_records(ctx, execution_id).await?;
     let history_value = serde_json::to_value(
@@ -207,10 +245,17 @@ pub async fn export_bundle(
     let audit = crate::audit::audit_summary(ctx, execution_id).await?;
     let checkpoints = export_checkpoints(ctx, execution_id).await?;
     let file_archive = export_file_archive(ctx, execution_id)?;
+    let revision = revision_snapshot(ctx, execution_id).await.ok();
+    if require_revision && revision.is_none() {
+        return Err(ApiError::execution(format!(
+            "execution revision is missing for '{execution_id}'"
+        )));
+    }
     let mut bundle = ExecutionBundle {
         version: EXECUTION_BUNDLE_VERSION,
         execution_id: execution_id.to_string(),
         exported_at: wf_common::now(),
+        source_sequence: revision.map(|row| row.sequence).unwrap_or(0),
         source_revision: String::new(),
         payload_digest: String::new(),
         records,
@@ -227,12 +272,47 @@ pub async fn export_bundle(
     Ok(bundle)
 }
 
-/// Snapshot revision currently exposed by one execution without keeping a
-/// separate mutable counter on write paths.
-pub async fn source_revision(ctx: &ApiContext, execution_id: &str) -> ApiResult<String> {
-    Ok(export_bundle(ctx, execution_id, false)
-        .await?
-        .source_revision)
+/// Export one execution into a self-contained recovery snapshot.
+pub async fn export_bundle(
+    ctx: &ApiContext,
+    execution_id: &str,
+    checkpoint_synced: bool,
+) -> ApiResult<ExecutionBundle> {
+    build_bundle(ctx, execution_id, checkpoint_synced, true).await
+}
+
+/// Rebuild one revision row from a full export. Used only when the revision
+/// table has been lost; normal inventory and backup rounds never export a
+/// bundle to derive a version.
+pub async fn rebuild_revision(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<ExecutionRevision> {
+    let bundle = build_bundle(ctx, execution_id, false, false).await?;
+    let components = canonical_components(&bundle)?;
+    ctx.storage
+        .revisions
+        .rebuild(execution_id, components)
+        .await
+        .map_err(|e| ApiError::execution(format!("execution revision rebuild failed: {e}")))
+}
+
+/// Durable revision row of one execution. Inventory reads this directly so
+/// polling never exports a bundle to derive a version.
+pub async fn revision_snapshot(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<ExecutionRevision> {
+    ctx.storage
+        .revisions
+        .load(execution_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("execution revision load failed: {e}")))?
+        .ok_or_else(|| {
+            ApiError::execution(format!(
+                "execution revision is missing for '{execution_id}'"
+            ))
+        })
 }
 
 fn decode_hex_file(entry: &FileArchiveEntry) -> ApiResult<(String, Vec<u8>)> {
@@ -321,6 +401,11 @@ fn validate_bundle(
         ));
     }
     let digest = canonical_digest(bundle)?;
+    if bundle.source_sequence == 0 {
+        return Err(ApiError::Validation(
+            "recovery bundle has no source sequence".to_string(),
+        ));
+    }
     if bundle.payload_digest != digest || bundle.source_revision != digest {
         return Err(ApiError::Validation(format!(
             "recovery bundle digest mismatch for '{}'",
@@ -451,6 +536,12 @@ pub async fn restore_bundle(
             .map_err(|e| ApiError::execution(format!("file archive import failed: {e}")))?;
     }
 
+    ctx.storage
+        .revisions
+        .advance_after_restore(&bundle.execution_id, bundle.source_sequence)
+        .await
+        .map_err(|e| ApiError::execution(format!("revision restore failed: {e}")))?;
+
     Ok(plan)
 }
 
@@ -512,7 +603,10 @@ mod tests {
             .await
             .unwrap();
         let bundle = export_bundle(&source, "exec-1", false).await.unwrap();
+        let revision = revision_snapshot(&source, "exec-1").await.unwrap();
+        assert_eq!(bundle.source_sequence, revision.sequence);
         assert_eq!(bundle.source_revision, bundle.payload_digest);
+        assert_eq!(revision.digest, bundle.payload_digest);
         assert_eq!(bundle.records.len(), 1);
 
         let target = ctx();
@@ -530,6 +624,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(restored.id.as_str(), "exec-1");
+        let restored_revision = revision_snapshot(&target, "exec-1").await.unwrap();
+        assert!(restored_revision.sequence > bundle.source_sequence);
+        assert_eq!(restored_revision.source, "restore");
+        assert_eq!(restored_revision.digest, bundle.payload_digest);
     }
 
     #[tokio::test]

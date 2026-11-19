@@ -637,6 +637,8 @@ use utoipa::OpenApi;
         crate::api::observation::bundle::handle_execution_bundle,
         crate::api::observation::bundle::handle_remote_sync_bundle,
         crate::api::observation::bundle::handle_remote_sync_inventory,
+        crate::api::observation::bundle::handle_remote_sync_reconcile,
+        crate::api::observation::bundle::handle_remote_sync_rebuild,
         crate::api::recovery::handle_restore_bundle,
         // ── system ──
         crate::api::system::code_context::handle_code_context,

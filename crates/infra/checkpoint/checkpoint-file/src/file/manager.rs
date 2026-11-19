@@ -8,7 +8,7 @@ mod tests_b;
 mod types;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 
@@ -18,6 +18,11 @@ use checkpoint_base::actor::cache::ActorCache;
 use checkpoint_base::clock::CheckpointClock;
 
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
+
+/// Called after one context archive commit with the new archive digest.
+/// Advancing the revision table is asynchronous at the caller, so the hook
+/// reports commit fact only; reconciliation repairs a failed advance.
+pub type RevisionAdvanceHook = Arc<dyn Fn(&str, String) + Send + Sync>;
 
 pub use types::{
     FileCheckpoint, FileCheckpointMetadata, FileCheckpointOptions, FileContentEntry,
@@ -69,6 +74,9 @@ pub struct FileCheckpointManager {
     /// a collector attached after construction still observes every handle.
     /// Absent collectors add zero overhead.
     checkpoint_metrics: Arc<std::sync::Mutex<Option<Arc<wf_metrics::CheckpointMetricsCollector>>>>,
+    /// Revision hook shared by every clone so archive writes through any
+    /// session advance the same durable execution revision.
+    revision_hook: Arc<Mutex<Option<RevisionAdvanceHook>>>,
 }
 
 impl Clone for FileCheckpointManager {
@@ -85,6 +93,7 @@ impl Clone for FileCheckpointManager {
             pending_batches: self.pending_batches.clone(),
             redo_stacks: self.redo_stacks.clone(),
             checkpoint_metrics: self.checkpoint_metrics.clone(),
+            revision_hook: self.revision_hook.clone(),
         }
     }
 }
@@ -130,6 +139,20 @@ impl FileCheckpointManager {
         &self,
     ) -> Option<Arc<wf_metrics::CheckpointMetricsCollector>> {
         wf_common::lock::lock_ok(self.checkpoint_metrics.lock()).clone()
+    }
+
+    /// Attach the archive revision hook. Git commits cannot join the
+    /// revision table transaction, so a failed advance is left for
+    /// reconciliation instead of rolling back the committed archive.
+    pub fn set_revision_hook(&self, hook: RevisionAdvanceHook) {
+        *wf_common::lock::lock_ok(self.revision_hook.lock()) = Some(hook);
+    }
+
+    pub(crate) fn notify_revision(&self, execution_id: &str, archive_hash: String) {
+        let Some(hook) = wf_common::lock::lock_ok(self.revision_hook.lock()).clone() else {
+            return;
+        };
+        hook(execution_id, archive_hash);
     }
 
     pub(crate) fn checkpoint_metrics(&self) -> Option<Arc<wf_metrics::CheckpointMetricsCollector>> {

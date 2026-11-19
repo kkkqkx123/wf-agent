@@ -123,6 +123,10 @@ impl<S: Store> CachingStore<S> {
         &self.cache
     }
 
+    pub(crate) fn inner(&self) -> &S {
+        &self.inner
+    }
+
     pub fn into_inner(self) -> S {
         self.inner
     }

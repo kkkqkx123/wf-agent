@@ -326,6 +326,23 @@ impl ApiContext {
         mut self,
         manager: wf_checkpoint::FileCheckpointManager,
     ) -> Self {
+        let revisions = self.storage.revisions.clone();
+        manager.set_revision_hook(Arc::new(move |execution_id, archive_hash| {
+            let revisions = revisions.clone();
+            let execution_id = execution_id.to_string();
+            tokio::spawn(async move {
+                if let Err(error) = revisions
+                    .advance_file_archive(&execution_id, archive_hash)
+                    .await
+                {
+                    tracing::warn!(
+                        execution_id = %execution_id,
+                        error = %error,
+                        "archive revision advance failed; reconciliation will repair it"
+                    );
+                }
+            });
+        }));
         self.file_checkpoint_manager = Some(manager);
         self.handlers = self.build_default_handlers();
         self

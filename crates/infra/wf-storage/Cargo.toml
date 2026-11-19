@@ -19,6 +19,7 @@ sqlx.workspace = true
 
 moka.workspace = true
 sha2.workspace = true
+hex.workspace = true
 flate2.workspace = true
 url.workspace = true
 tokio-util.workspace = true

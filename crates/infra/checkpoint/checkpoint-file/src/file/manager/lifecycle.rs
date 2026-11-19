@@ -59,6 +59,7 @@ impl FileCheckpointManager {
             pending_batches: Arc::new(DashMap::new()),
             redo_stacks: Arc::new(crate::file::redo_store::RedoStackStore::new(storage)?),
             checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
+            revision_hook: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -183,6 +184,7 @@ impl FileCheckpointManager {
             pending_batches: Arc::new(DashMap::new()),
             redo_stacks: Arc::new(crate::file::redo_store::RedoStackStore::new(storage)?),
             checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
+            revision_hook: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 

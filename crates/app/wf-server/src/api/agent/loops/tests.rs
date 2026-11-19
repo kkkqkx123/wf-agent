@@ -61,6 +61,7 @@ fn test_state() -> crate::router::ApiState {
             crate::directory::DirectoryConfig::default(),
         )),
         locks: crate::api::workflow::locks::DefinitionLocks::default(),
+        #[cfg(feature = "backends")]
         backends: None,
     }
 }

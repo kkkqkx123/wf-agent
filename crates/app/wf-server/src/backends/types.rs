@@ -180,7 +180,9 @@ pub struct BackupRecordView {
     pub size_bytes: u64,
     pub sha256: String,
     pub path: String,
-    /// Remote source revision captured in the recovery bundle.
+    /// Remote source sequence captured in the recovery bundle.
+    pub source_sequence: u64,
+    /// Canonical digest of the restorable projection in the bundle.
     pub source_revision: String,
     /// Canonical digest of the complete recovery snapshot.
     pub payload_digest: String,
@@ -193,7 +195,10 @@ pub struct SyncStateView {
     pub execution: String,
     pub last_success_ms: Option<i64>,
     pub last_attempt_ms: Option<i64>,
-    pub revision: Option<String>,
+    /// Monotonic remote sequence used as the comparison baseline.
+    pub revision: Option<u64>,
+    /// Digest retained for content validation, never as the baseline.
+    pub digest: Option<String>,
     pub backup_id: Option<String>,
     pub failures: u32,
     pub repair_status: String,

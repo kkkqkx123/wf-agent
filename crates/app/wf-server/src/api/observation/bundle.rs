@@ -4,7 +4,7 @@
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
 use utoipa::IntoParams;
@@ -21,6 +21,11 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_remote_sync_bundle),
         )
         .route("/remote-sync/inventory", get(handle_remote_sync_inventory))
+        .route("/remote-sync/reconcile", get(handle_remote_sync_reconcile))
+        .route(
+            "/remote-sync/revisions/rebuild",
+            post(handle_remote_sync_rebuild),
+        )
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -42,13 +47,32 @@ pub(crate) struct RemoteInventoryQuery {
 pub(crate) struct RemoteSyncInventoryEntry {
     pub execution_id: String,
     pub found: bool,
-    pub revision: Option<String>,
+    /// Monotonic sequence from the durable revision table.
+    pub revision: Option<u64>,
+    pub digest: Option<String>,
+    pub updated_at_ms: Option<i64>,
+    /// `ok`, `remote_missing`, `incomplete` or `needs_rebuild`.
+    pub status: String,
     pub error: Option<String>,
 }
 
 #[derive(serde::Serialize)]
 pub(crate) struct RemoteSyncInventory {
     pub executions: Vec<RemoteSyncInventoryEntry>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct RemoteReconcileEntry {
+    pub execution_id: String,
+    pub status: String,
+    pub sequence: Option<u64>,
+    pub recorded_digest: Option<String>,
+    pub exported_digest: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct RemoteReconcileResult {
+    pub executions: Vec<RemoteReconcileEntry>,
 }
 
 #[utoipa::path(
@@ -155,25 +179,197 @@ pub(crate) async fn handle_remote_sync_inventory(
     } else {
         wanted
     };
+    let needs_rebuild = !listed.is_empty()
+        && state
+            .ctx
+            .storage
+            .revisions
+            .has_rows()
+            .await
+            .map(|found| !found)
+            .unwrap_or(false);
     let mut executions = Vec::with_capacity(known.len());
     for execution_id in known {
         let found = listed.iter().any(|row| row.execution_id == execution_id);
         let mut revision = None;
+        let mut digest = None;
+        let mut updated_at_ms = None;
         let mut error = None;
-        if found {
-            match wf_api::execution_bundle::source_revision(&state.ctx, &execution_id).await {
-                Ok(value) => revision = Some(value),
-                Err(e) => error = Some(e.to_string()),
+        let status = if !found {
+            "remote_missing"
+        } else if needs_rebuild {
+            "needs_rebuild"
+        } else {
+            match wf_api::execution_bundle::revision_snapshot(&state.ctx, &execution_id).await {
+                Ok(row) => {
+                    revision = Some(row.sequence);
+                    digest = Some(row.digest);
+                    updated_at_ms = Some(row.updated_at_ms);
+                    "ok"
+                }
+                Err(e) => {
+                    error = Some(e.to_string());
+                    "incomplete"
+                }
             }
-        }
+        };
         executions.push(RemoteSyncInventoryEntry {
             execution_id,
             found,
             revision,
+            digest,
+            updated_at_ms,
+            status: status.to_string(),
             error,
         });
     }
     ok(RemoteSyncInventory { executions }).into_response()
+}
+
+fn reconcile_ids(query: &RemoteInventoryQuery) -> Vec<String> {
+    query
+        .ids
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Full-export verification of suspicious targets. Inventory stays O(1);
+/// this slower path runs only from startup or explicit reconciliation.
+#[utoipa::path(
+    get,
+    path = "/api/v1/remote-sync/reconcile",
+    operation_id = "get_remote_sync_reconcile",
+    tag = "observation",
+    params(RemoteInventoryQuery),
+    responses((status = 200, description = "Revision verification", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_remote_sync_reconcile(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Query(query): Query<RemoteInventoryQuery>,
+) -> impl IntoResponse {
+    let directory = crate::directory::scope_dir_string(&scope);
+    let listed = match wf_api::execution_listing::list_unified(
+        &state.ctx,
+        Some(&wf_api::execution_listing::UnifiedExecutionFilter {
+            directory: directory.clone(),
+            ..Default::default()
+        }),
+        usize::MAX / 2,
+        0,
+    )
+    .await
+    {
+        Ok((rows, _)) => rows,
+        Err(e) => return error_response(e),
+    };
+    let known = {
+        let wanted = reconcile_ids(&query);
+        if wanted.is_empty() {
+            listed.iter().map(|row| row.execution_id.clone()).collect()
+        } else {
+            wanted
+        }
+    };
+    let mut executions = Vec::with_capacity(known.len());
+    for execution_id in known {
+        let mut entry = RemoteReconcileEntry {
+            execution_id: execution_id.clone(),
+            status: "ok".to_string(),
+            sequence: None,
+            recorded_digest: None,
+            exported_digest: None,
+        };
+        if !listed.iter().any(|row| row.execution_id == execution_id) {
+            entry.status = "remote_missing".to_string();
+            executions.push(entry);
+            continue;
+        }
+        let Some(revision) = state
+            .ctx
+            .storage
+            .revisions
+            .load(&execution_id)
+            .await
+            .ok()
+            .flatten()
+        else {
+            entry.status = "incomplete".to_string();
+            executions.push(entry);
+            continue;
+        };
+        entry.sequence = Some(revision.sequence);
+        entry.recorded_digest = Some(revision.digest.clone());
+        match wf_api::execution_bundle::export_bundle(&state.ctx, &execution_id, false).await {
+            Ok(bundle) => {
+                entry.exported_digest = Some(bundle.payload_digest.clone());
+                if bundle.payload_digest != revision.digest {
+                    entry.status = "digest_mismatch".to_string();
+                }
+            }
+            Err(e) => {
+                entry.status = "export_failed".to_string();
+                entry.exported_digest = Some(e.to_string());
+            }
+        }
+        executions.push(entry);
+    }
+    ok(RemoteReconcileResult { executions }).into_response()
+}
+
+/// Rebuild revision rows from full exports after the revision table is lost.
+#[utoipa::path(
+    post,
+    path = "/api/v1/remote-sync/revisions/rebuild",
+    operation_id = "post_remote_sync_revisions_rebuild",
+    tag = "observation",
+    params(RemoteInventoryQuery),
+    responses((status = 200, description = "Rebuilt revisions", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_remote_sync_rebuild(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Query(query): Query<RemoteInventoryQuery>,
+) -> impl IntoResponse {
+    let wanted = reconcile_ids(&query);
+    let directory = crate::directory::scope_dir_string(&scope);
+    let targets = if wanted.is_empty() {
+        match wf_api::execution_listing::list_unified(
+            &state.ctx,
+            Some(&wf_api::execution_listing::UnifiedExecutionFilter {
+                directory: directory.clone(),
+                ..Default::default()
+            }),
+            usize::MAX / 2,
+            0,
+        )
+        .await
+        {
+            Ok((rows, _)) => rows.into_iter().map(|row| row.execution_id).collect(),
+            Err(e) => return error_response(e),
+        }
+    } else {
+        wanted
+    };
+    let mut rebuilt = Vec::new();
+    for execution_id in targets {
+        let result = wf_api::execution_bundle::rebuild_revision(&state.ctx, &execution_id).await;
+        rebuilt.push(serde_json::json!({
+            "execution_id": execution_id,
+            "sequence": result.as_ref().ok().map(|row| row.sequence),
+            "error": result.as_ref().err().map(|e| e.to_string()),
+        }));
+    }
+    ok(serde_json::json!({ "executions": rebuilt })).into_response()
 }
 
 #[cfg(test)]
@@ -187,14 +383,14 @@ mod tests {
     use wf_storage::adapter::base::BaseStorageAdapter;
     use wf_storage::context::StorageContext;
 
-    fn make_ctx() -> Arc<ApiContext> {
+    pub(super) fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(wf_resource::registry::ResourceRegistries::new()),
         ))
     }
 
-    async fn save_agent(ctx: &ApiContext, id: &str) {
+    pub(super) async fn save_agent(ctx: &ApiContext, id: &str) {
         let record = wf_types::AgentExecution {
             id: wf_types::Id::from(id.to_string()),
             definition_id: wf_types::Id::from("agent-1".to_string()),
@@ -224,14 +420,14 @@ mod tests {
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }
 
-    async fn send(ctx: Arc<ApiContext>, uri: &str) -> Response {
+    pub(super) async fn send(ctx: Arc<ApiContext>, uri: &str) -> Response {
         crate::router::api_router(ctx)
             .oneshot(Request::builder().uri(uri).body(AxBody::empty()).unwrap())
             .await
             .unwrap()
     }
 
-    async fn json_body(response: Response) -> serde_json::Value {
+    pub(super) async fn json_body(response: Response) -> serde_json::Value {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -263,7 +459,61 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["execution_id"], "loop-sync");
         assert_eq!(rows[0]["found"], true);
-        assert!(rows[0]["revision"].as_str().is_some());
+        assert_eq!(rows[0]["status"], "ok");
+        assert!(rows[0]["revision"].as_u64().is_some_and(|value| value > 0));
+        assert!(rows[0]["digest"].as_str().is_some());
         assert_eq!(rows[1]["found"], false);
+        assert_eq!(rows[1]["status"], "remote_missing");
+    }
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::tests::{json_body, make_ctx, save_agent, send};
+
+    #[tokio::test]
+    async fn inventory_reports_needs_rebuild_when_revision_table_is_lost() {
+        let ctx = make_ctx();
+        save_agent(&ctx, "loop-rebuild").await;
+        ctx.storage.revisions.clear().await.unwrap();
+
+        let body =
+            json_body(send(ctx, "/api/v1/remote-sync/inventory?ids=loop-rebuild").await).await;
+        let rows = body["data"]["executions"].as_array().expect("rows");
+        assert_eq!(rows[0]["found"], true);
+        assert_eq!(rows[0]["status"], "needs_rebuild");
+        assert!(rows[0]["revision"].is_null());
+    }
+
+    #[tokio::test]
+    async fn reconcile_reports_a_digest_mismatch_without_writing() {
+        let ctx = make_ctx();
+        save_agent(&ctx, "loop-mismatch").await;
+        let before = ctx
+            .storage
+            .revisions
+            .load("loop-mismatch")
+            .await
+            .unwrap()
+            .unwrap();
+        ctx.storage
+            .revisions
+            .advance_file_archive("loop-mismatch", "forged-archive".to_string())
+            .await
+            .unwrap();
+        let after = ctx
+            .storage
+            .revisions
+            .load("loop-mismatch")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(after.sequence > before.sequence);
+
+        let body =
+            json_body(send(ctx, "/api/v1/remote-sync/reconcile?ids=loop-mismatch").await).await;
+        let rows = body["data"]["executions"].as_array().expect("rows");
+        assert_eq!(rows[0]["status"], "digest_mismatch");
+        assert_eq!(rows[0]["recorded_digest"], after.digest);
     }
 }

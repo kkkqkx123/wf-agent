@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use checkpoint_base::error::CheckpointError;
+use wf_storage::revision::hash_file_archive;
 
 use crate::file::manager::FileCheckpointManager;
 use crate::git_store::MODE_FILE;
@@ -61,6 +62,16 @@ impl FileCheckpointManager {
                 "context archive write",
             )
             .map_err(crate::file::git_write::map_git_error)?;
+        if let Ok(files) = self.archive_export(entity_id) {
+            match hash_file_archive(&files) {
+                Ok(hash) => self.notify_revision(entity_id, hash),
+                Err(error) => tracing::warn!(
+                    entity_id = %entity_id,
+                    error = %error,
+                    "archive revision hash failed; reconciliation will repair the revision row"
+                ),
+            }
+        }
         Ok(ArchiveWriteOutcome {
             commit: outcome.id,
             blobs,

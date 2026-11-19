@@ -6350,6 +6350,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/remote-sync/executions/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restore_remote_execution_bundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/remote-sync/executions/{id}/bundle": {
         parameters: {
             query?: never;
@@ -6357,9 +6373,71 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * One-response recovery snapshot for the local management service. The
+         *     execution records and every derived view share one owner check so a
+         *     backup never mixes data from different executions.
+         */
         get: operations["get_remote_sync_bundle"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-sync/inventory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Revision inventory used by the management service to decide whether a
+         *     target needs a fresh snapshot or has disappeared from the remote node.
+         */
+        get: operations["get_remote_sync_inventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-sync/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Full-export verification of suspicious targets. Inventory stays O(1);
+         *     this slower path runs only from startup or explicit reconciliation.
+         */
+        get: operations["get_remote_sync_reconcile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-sync/revisions/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild revision rows from full exports after the revision table is lost. */
+        post: operations["post_remote_sync_revisions_rebuild"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7042,6 +7120,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backups/sync-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_system_sync_states"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backups/{id}/export": {
         parameters: {
             query?: never;
@@ -7052,6 +7146,22 @@ export interface paths {
         get: operations["export_system_backup"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backups/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restore_system_backup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10921,6 +11031,13 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_SyncStateListView: {
+            data?: {
+                states: components["schemas"]["SyncStateView"][];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_SystemTasksView: {
             data?: {
                 agent_loops: number;
@@ -11492,9 +11609,18 @@ export interface components {
             execution: string;
             id: string;
             path: string;
+            /** @description Canonical digest of the complete recovery snapshot. */
+            payload_digest: string;
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
+            /** @description Canonical digest of the restorable projection in the bundle. */
+            source_revision: string;
+            /**
+             * Format: int64
+             * @description Remote source sequence captured in the recovery bundle.
+             */
+            source_sequence: number;
         };
         BackupRelinkBody: {
             /** @description Preview by default; only `true` writes index changes. */
@@ -11512,6 +11638,9 @@ export interface components {
             rewritten: number;
             unresolved: number;
             unresolved_ids: string[];
+        };
+        BackupRestoreBody: {
+            dry_run?: boolean;
         };
         BackupTriggerBody: {
             execution: string;
@@ -13344,6 +13473,30 @@ export interface components {
         SyncConfigDoc: {
             auto_commit: boolean;
             auto_import: boolean;
+        };
+        SyncStateListView: {
+            states: components["schemas"]["SyncStateView"][];
+        };
+        /** @description Durable per-target synchronization position and repair state. */
+        SyncStateView: {
+            backend: string;
+            backup_id?: string | null;
+            /** @description Digest retained for content validation, never as the baseline. */
+            digest?: string | null;
+            error?: string | null;
+            execution: string;
+            /** Format: int32 */
+            failures: number;
+            /** Format: int64 */
+            last_attempt_ms?: number | null;
+            /** Format: int64 */
+            last_success_ms?: number | null;
+            repair_status: string;
+            /**
+             * Format: int64
+             * @description Monotonic remote sequence used as the comparison baseline.
+             */
+            revision?: number | null;
         };
         SystemTasksView: {
             agent_loops: number;
@@ -46892,12 +47045,73 @@ export interface operations {
             };
         };
     };
+    restore_remote_execution_bundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restore plan or result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid bundle or conflict */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_remote_sync_bundle: {
         parameters: {
-            query?: {
-                /** @description Upper bound on the number of checkpoints carried in the response. */
-                checkpoint_limit?: number;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -46906,7 +47120,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Execution bundle plus bounded checkpoint chain */
+            /** @description Complete execution recovery bundle */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -46937,6 +47151,216 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_remote_sync_inventory: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Comma-separated execution ids. When omitted, every owned execution of
+                 *     the requested directory is reported.
+                 */
+                ids?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Execution revision inventory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_remote_sync_reconcile: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Comma-separated execution ids. When omitted, every owned execution of
+                 *     the requested directory is reported.
+                 */
+                ids?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revision verification */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_remote_sync_revisions_rebuild: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Comma-separated execution ids. When omitted, every owned execution of
+                 *     the requested directory is reported.
+                 */
+                ids?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rebuilt revisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
@@ -50391,6 +50815,63 @@ export interface operations {
             };
         };
     };
+    list_system_sync_states: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-target synchronization state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_SyncStateListView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     export_system_backup: {
         parameters: {
             query?: never;
@@ -50409,6 +50890,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_BackupExportView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backup not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    restore_system_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupRestoreBody"];
+            };
+        };
+        responses: {
+            /** @description Restore plan or result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

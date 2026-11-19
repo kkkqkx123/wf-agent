@@ -302,6 +302,8 @@ pub struct ServerBackupRecord {
     #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
+    pub source_sequence: Option<u64>,
+    #[serde(default)]
     pub source_revision: Option<String>,
     #[serde(default)]
     pub payload_digest: Option<String>,

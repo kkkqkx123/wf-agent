@@ -269,6 +269,31 @@ impl BackendStore {
         }
     }
 
+    /// Rewrite only the stored path of one backup row. Relinking never
+    /// touches file bytes, sizes or digests.
+    pub async fn update_backup_path(&self, id: &str, path: &str) -> Result<bool, String> {
+        match self {
+            Self::Memory(inner) => match inner.backups.get_mut(id) {
+                Some(mut row) => {
+                    row.path = path.to_string();
+                    Ok(true)
+                }
+                None => Ok(false),
+            },
+            Self::Sqlite(inner) => {
+                let result = sqlx::query(&format!(
+                    "UPDATE {BACKUP_TABLE} SET path = ?1 WHERE id = ?2"
+                ))
+                .bind(path)
+                .bind(id)
+                .execute(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot relink backup '{id}': {e}"))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
     pub async fn list_backups(
         &self,
         backend: Option<&str>,

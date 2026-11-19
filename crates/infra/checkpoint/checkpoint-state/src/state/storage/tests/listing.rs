@@ -239,6 +239,26 @@ async fn list_by_entity_paged_slices_in_timestamp_order() {
 }
 
 #[tokio::test]
+async fn list_latest_by_entity_matches_the_full_listing_tail() {
+    let storage = make_storage();
+    let mgr = save_five_for_exec1(&storage).await;
+    let full = mgr.list_by_entity("exec-1").await.unwrap();
+
+    let tail = mgr.list_latest_by_entity("exec-1", 3).await.unwrap();
+    assert_eq!(
+        tail.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["cp-2", "cp-3", "cp-4"]
+    );
+    assert_eq!(tail, full[2..]);
+    assert!(mgr
+        .list_latest_by_entity("exec-1", 0)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(mgr.list_latest_by_entity("exec-1", 10).await.unwrap(), full);
+}
+
+#[tokio::test]
 async fn list_by_entity_paged_pages_reassemble_the_full_listing() {
     let storage = make_storage();
     let mgr = save_five_for_exec1(&storage).await;

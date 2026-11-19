@@ -7026,6 +7026,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backups/relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["preview_system_backup_relink"];
+        put?: never;
+        post: operations["relink_system_backups"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backups/{id}/export": {
         parameters: {
             query?: never;
@@ -9621,6 +9637,23 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_BackupRelinkReport: {
+            /**
+             * @description Outcome of a one-time absolute-path index relink. Counts describe the
+             *     inspected rows; unresolved ids are returned for manual decisions.
+             */
+            data?: {
+                apply: boolean;
+                failed: number;
+                failed_ids: string[];
+                kept: number;
+                rewritten: number;
+                unresolved: number;
+                unresolved_ids: string[];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_BackupTriggerView: {
             data?: {
                 backend: string;
@@ -11462,6 +11495,23 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
+        };
+        BackupRelinkBody: {
+            /** @description Preview by default; only `true` writes index changes. */
+            apply?: boolean;
+        };
+        /**
+         * @description Outcome of a one-time absolute-path index relink. Counts describe the
+         *     inspected rows; unresolved ids are returned for manual decisions.
+         */
+        BackupRelinkReport: {
+            apply: boolean;
+            failed: number;
+            failed_ids: string[];
+            kept: number;
+            rewritten: number;
+            unresolved: number;
+            unresolved_ids: string[];
         };
         BackupTriggerBody: {
             execution: string;
@@ -50182,6 +50232,124 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_BackupListView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    preview_system_backup_relink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preview of absolute-path index relinking */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BackupRelinkReport"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    relink_system_backups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupRelinkBody"];
+            };
+        };
+        responses: {
+            /** @description Absolute-path index relink result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BackupRelinkReport"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

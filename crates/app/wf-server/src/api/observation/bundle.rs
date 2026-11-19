@@ -93,6 +93,12 @@ pub(crate) async fn handle_remote_sync_bundle(
     Path(path): Path<IdPath>,
     Query(query): Query<RemoteSyncQuery>,
 ) -> impl IntoResponse {
+    if query.checkpoint_limit == Some(0) {
+        return error_response(wf_api::ApiError::Validation(
+            "checkpoint_limit must be greater than zero".to_string(),
+        ))
+        .into_response();
+    }
     if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
@@ -207,6 +213,17 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_body(response).await;
         assert_eq!(body["data"]["checkpoint_synced"], true);
+    }
+
+    #[tokio::test]
+    async fn remote_sync_rejects_zero_checkpoint_limit() {
+        let ctx = make_ctx();
+        let response = send(
+            ctx,
+            "/api/v1/remote-sync/executions/missing/bundle?checkpoint_limit=0",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

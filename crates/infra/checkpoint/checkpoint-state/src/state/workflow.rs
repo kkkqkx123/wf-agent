@@ -136,6 +136,14 @@ impl CheckpointStateManager for WorkflowCheckpointStateManager {
             .await
     }
 
+    async fn list_latest_by_entity(
+        &self,
+        entity_id: &str,
+        limit: u64,
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        self.inner.list_latest_by_entity(entity_id, limit).await
+    }
+
     async fn cleanup(
         &self,
         entity_id: &str,

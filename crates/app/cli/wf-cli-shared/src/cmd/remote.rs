@@ -16,9 +16,9 @@ use crate::args_remote::RemoteSub;
 use crate::backends::{
     apply_server_default_port, collect_backend_candidates, create_server_backend,
     export_server_backup, fetch_server_backends, fetch_server_backups, import_server_backends,
-    load_registry, management_client, probe_backends, remove_server_backend, start_server_tunnel,
-    stop_server_tunnel, trigger_server_backup, update_server_backend, verify_server_backup,
-    RemoteHost,
+    load_registry, management_client, probe_backends, relink_server_backups, remove_server_backend,
+    start_server_tunnel, stop_server_tunnel, trigger_server_backup, update_server_backend,
+    verify_server_backup, RemoteHost,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -483,6 +483,14 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("remote-backup-check", data),
+            )
+        }
+        RemoteSub::BackupRelink { apply } => {
+            let client = management_client(cli);
+            let report = relink_server_backups(&client, *apply).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-backup-relink", report),
             )
         }
         RemoteSub::Pull {

@@ -223,16 +223,27 @@ fn build_chain(execution_id: &str, sorted: Vec<Checkpoint>) -> CheckpointChainAn
 /// reader can tell the chain was narrowed.
 pub fn build_chain_limited(
     execution_id: &str,
+    sorted: Vec<Checkpoint>,
+    limit: Option<usize>,
+) -> CheckpointChainAnalysisView {
+    let total_count = sorted.len();
+    build_chain_with_total(execution_id, sorted, limit, total_count)
+}
+
+/// Build a chain whose reported total comes from storage counts instead of
+/// the number of rows materialized for the window.
+fn build_chain_with_total(
+    execution_id: &str,
     mut sorted: Vec<Checkpoint>,
     limit: Option<usize>,
+    total_count: usize,
 ) -> CheckpointChainAnalysisView {
     // Deterministic order: timestamp alone is not unique, so equal
     // timestamps fall back to id order instead of storage order.
     sorted.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
-    let total_count = sorted.len();
     let truncated = match limit {
-        Some(max) if sorted.len() > max => {
-            let keep_from = sorted.len() - max;
+        Some(max) if total_count > max => {
+            let keep_from = sorted.len().saturating_sub(max);
             sorted.drain(..keep_from);
             true
         }
@@ -370,6 +381,65 @@ pub async fn list_by_entity_unified(
     Ok(merged)
 }
 
+/// Extra rows fetched from each source so equal boundary timestamps do not
+/// make the selected tail depend on storage order. The final sort trims the
+/// buffer away again.
+const TIE_BUFFER: u64 = 32;
+
+/// Merge the newest window from every checkpoint writer without loading a
+/// whole execution history. Returns the window and the total stored count,
+/// which stays the `total_count` reported by the chain view. Writers share
+/// one indexed table, so one entity-and-type count covers all sources.
+async fn list_by_entity_unified_limited(
+    ctx: &crate::infra::context::ApiContext,
+    entity_id: &str,
+    entity_type: &str,
+    limit: usize,
+) -> crate::ApiResult<(Vec<Checkpoint>, u64)> {
+    use wf_checkpoint::CheckpointStateManager;
+    let lookup_failed = |e: wf_checkpoint::CheckpointError| {
+        crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
+    };
+    let window = (limit as u64).saturating_add(TIE_BUFFER);
+    let workflow_manager =
+        wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    let agent_manager =
+        wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    let workflow = workflow_manager
+        .list_latest_by_entity(entity_id, window)
+        .await
+        .map_err(lookup_failed)?;
+    let agent = agent_manager
+        .list_latest_by_entity(entity_id, window)
+        .await
+        .map_err(lookup_failed)?;
+    let legacy = ctx
+        .storage
+        .checkpoint
+        .list_latest_by_entity(entity_id, entity_type, window)
+        .await?;
+    let legacy_count = ctx
+        .storage
+        .checkpoint
+        .count_by_entity(entity_id, entity_type)
+        .await?;
+
+    let mut merged: Vec<Checkpoint> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for cp in workflow.into_iter().chain(agent).chain(legacy) {
+        if cp.entity_type != entity_type {
+            continue;
+        }
+        if seen.insert(cp.id.to_string()) {
+            merged.push(cp);
+        }
+    }
+    merged.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
+    let keep_from = merged.len().saturating_sub(limit);
+    merged.drain(..keep_from);
+    Ok((merged, legacy_count))
+}
+
 /// Latest checkpoint of an entity across every checkpoint writer.
 pub async fn latest_unified(
     ctx: &crate::infra::context::ApiContext,
@@ -398,20 +468,33 @@ pub async fn chain_for_execution(
     execution_id: &str,
     domain_override: Option<crate::entity::execution::ExecutionDomain>,
 ) -> crate::ApiResult<CheckpointChainAnalysisView> {
-    chain_for_execution_limited(ctx, execution_id, domain_override, None).await
+    let sorted = list_for_execution(ctx, execution_id, domain_override).await?;
+    Ok(build_chain(execution_id, sorted))
 }
 
 /// Same as `chain_for_execution` but caps the number of checkpoints in the
-/// result. The cap applies after sorting, keeping the most recent entries;
-/// the returned view reports the original count and whether it was trimmed.
+/// result. The cap applies while reading each source, keeping the most
+/// recent entries; the returned view reports the stored count and whether it
+/// was trimmed. Unbounded callers keep the full listing path.
 pub async fn chain_for_execution_limited(
     ctx: &crate::infra::context::ApiContext,
     execution_id: &str,
     domain_override: Option<crate::entity::execution::ExecutionDomain>,
     limit: Option<usize>,
 ) -> crate::ApiResult<CheckpointChainAnalysisView> {
-    let sorted = list_for_execution(ctx, execution_id, domain_override).await?;
-    Ok(build_chain_limited(execution_id, sorted, limit))
+    let Some(max) = limit else {
+        return chain_for_execution(ctx, execution_id, domain_override).await;
+    };
+    let entity_type = entity_type_for_execution(ctx, execution_id, domain_override).await?;
+    let (sorted, total_count) =
+        list_by_entity_unified_limited(ctx, execution_id, entity_type, max).await?;
+    let total_count = total_count.min(usize::MAX as u64) as usize;
+    Ok(build_chain_with_total(
+        execution_id,
+        sorted,
+        Some(max),
+        total_count,
+    ))
 }
 
 /// Delete all checkpoints of an execution with the `entity_type` resolved
@@ -536,6 +619,38 @@ mod tests {
         assert_eq!(capped.checkpoint_count, 2);
         assert_eq!(capped.checkpoints[0].id, "cp-2");
         assert_eq!(capped.checkpoints[1].id, "cp-3");
+    }
+
+    #[tokio::test]
+    async fn bounded_chain_matches_the_full_chain_tail() {
+        use std::sync::Arc;
+        use wf_resource::registry::ResourceRegistries;
+
+        let ctx = crate::ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(ResourceRegistries::new()),
+        );
+        for index in 0..5 {
+            save_checkpoint(
+                &ctx.storage,
+                &make_checkpoint(&format!("cp-{index}"), "ex-bound", 100 * index as i64),
+            )
+            .await
+            .unwrap();
+        }
+
+        let full = chain_for_execution(&ctx, "ex-bound", None).await.unwrap();
+        let bounded = chain_for_execution_limited(&ctx, "ex-bound", None, Some(2))
+            .await
+            .unwrap();
+        assert_eq!(full.total_count, 5);
+        assert_eq!(bounded.total_count, full.total_count);
+        assert!(bounded.truncated);
+        assert_eq!(
+            bounded.checkpoints,
+            full.checkpoints[full.checkpoints.len() - 2..].to_vec()
+        );
+        assert_eq!(bounded.transitions.len(), 1);
     }
 
     #[tokio::test]

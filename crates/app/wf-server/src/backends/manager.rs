@@ -6,6 +6,7 @@
 //! is reported beside the stored rows, never persisted.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -18,7 +19,7 @@ use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
 use super::types::{
     validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupExportView,
-    BackupRecordView, BackupVerificationView, TunnelStateView,
+    BackupRecordView, BackupRelinkReport, BackupVerificationView, TunnelStateView,
 };
 
 /// Import report: per-row acceptance plus the skipped dirty rows.
@@ -222,12 +223,14 @@ impl BackendManager {
                 if report.orphan_files > 0
                     || report.missing_files > 0
                     || report.temp_files_removed > 0
+                    || report.symlink_entries > 0
                 {
                     tracing::warn!(
                         dir = %root.display(),
                         orphan_files = report.orphan_files,
                         missing_files = report.missing_files,
                         temp_files_removed = report.temp_files_removed,
+                        symlink_entries = report.symlink_entries,
                         "backup storage drift detected"
                     );
                 }
@@ -711,27 +714,36 @@ impl BackendManager {
         let Some(root) = self.config.backup_dir.as_deref() else {
             return Err("backup directory is not configured".to_string());
         };
-        let read_path = super::backup::resolve_backup_path(root, &record.path)?;
-        let read = tokio::task::spawn_blocking(move || std::fs::read(&read_path))
-            .await
-            .map_err(|e| format!("backup verify task failed: {e}"))?;
-        let (status, verified, actual_bytes, actual_sha256) = match read {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                ("missing_file".to_string(), false, None, None)
-            }
-            Err(e) => return Err(format!("cannot read backup '{}': {e}", record.path)),
-            Ok(bytes) => {
-                let digest = hex::encode(sha2::Sha256::digest(&bytes));
-                let matched = bytes.len() as u64 == record.size_bytes && digest == record.sha256;
-                let status = if matched { "ok" } else { "digest_mismatch" };
-                (
-                    status.to_string(),
-                    matched,
-                    Some(bytes.len() as u64),
-                    Some(digest),
-                )
-            }
-        };
+        let (status, verified, actual_bytes, actual_sha256) =
+            match super::backup::resolve_backup_path(root, &record.path) {
+                Err(super::backup::BackupPathError::Unavailable { .. }) => {
+                    ("missing_file".to_string(), false, None, None)
+                }
+                Err(e) => return Err(e.to_string()),
+                Ok(read_path) => {
+                    let read = tokio::task::spawn_blocking(move || std::fs::read(&read_path))
+                        .await
+                        .map_err(|e| format!("backup verify task failed: {e}"))?;
+                    match read {
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            ("missing_file".to_string(), false, None, None)
+                        }
+                        Err(e) => return Err(format!("cannot read backup '{}': {e}", record.path)),
+                        Ok(bytes) => {
+                            let digest = hex::encode(sha2::Sha256::digest(&bytes));
+                            let matched =
+                                bytes.len() as u64 == record.size_bytes && digest == record.sha256;
+                            let status = if matched { "ok" } else { "digest_mismatch" };
+                            (
+                                status.to_string(),
+                                matched,
+                                Some(bytes.len() as u64),
+                                Some(digest),
+                            )
+                        }
+                    }
+                }
+            };
         if let Some(metrics) = self.metrics.as_ref() {
             if verified {
                 metrics.backup().record_verify_success();
@@ -762,7 +774,8 @@ impl BackendManager {
         let Some(root) = self.config.backup_dir.as_deref() else {
             return Err("backup directory is not configured".to_string());
         };
-        let path = super::backup::resolve_backup_path(root, &record.path)?;
+        let path =
+            super::backup::resolve_backup_path(root, &record.path).map_err(|e| e.to_string())?;
         let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
             .await
             .map_err(|e| format!("backup export task failed: {e}"))?
@@ -790,6 +803,59 @@ impl BackendManager {
             payload,
             payload_text: text,
         })
+    }
+
+    /// Preview or apply a one-time rewrite of absolute index paths to paths
+    /// relative to the current backup root. Files are never moved and rows
+    /// outside the root are reported instead of being silently changed.
+    pub async fn relink_backups(&self, apply: bool) -> Result<BackupRelinkReport, String> {
+        self.require_enabled()?;
+        let Some(root) = self.config.backup_dir.as_deref() else {
+            return Err("backup directory is not configured".to_string());
+        };
+        let canonical_root = std::fs::canonicalize(root)
+            .map_err(|e| format!("cannot resolve backup root {}: {e}", root.display()))?;
+        let records = self.store.list_backups(None).await?;
+        let mut report = BackupRelinkReport {
+            apply,
+            ..Default::default()
+        };
+        for record in records {
+            if !Path::new(&record.path).is_absolute() {
+                report.kept += 1;
+                continue;
+            }
+            let resolved = match super::backup::resolve_backup_path(&canonical_root, &record.path) {
+                Ok(path) => path,
+                Err(_) => {
+                    report.unresolved += 1;
+                    report.unresolved_ids.push(record.id);
+                    continue;
+                }
+            };
+            let relative = super::backup::relative_backup_path(&canonical_root, &resolved);
+            if relative == record.path {
+                report.kept += 1;
+                continue;
+            }
+            if !apply {
+                report.rewritten += 1;
+                continue;
+            }
+            match self.store.update_backup_path(&record.id, &relative).await {
+                Ok(true) => report.rewritten += 1,
+                Ok(false) => {
+                    report.failed += 1;
+                    report.failed_ids.push(record.id);
+                }
+                Err(e) => {
+                    tracing::warn!(id = %record.id, error = %e, "backup relink failed");
+                    report.failed += 1;
+                    report.failed_ids.push(record.id);
+                }
+            }
+        }
+        Ok(report)
     }
 
     pub async fn trigger_backup(&self, backend: &str, execution: &str) -> Result<String, String> {
@@ -992,6 +1058,69 @@ mod tests {
         colliding.local_port = Some(18081);
         let err = manager.update("alpha", colliding).await.unwrap_err();
         assert!(err.contains("already used by backend 'beta'"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn relink_preview_and_apply_only_rewrite_root_relative_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("alpha")).unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let store = BackendStore::new_memory();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let outside = outside_dir.path().join("outside.json");
+        std::fs::write(&outside, b"{}").unwrap();
+        let inside_path = root.join("alpha/inside.json");
+        let inside = inside_path.to_str().unwrap();
+        let outside = outside.to_str().unwrap();
+        let cases = [
+            ("relative", "alpha/relative.json"),
+            ("inside", inside),
+            ("outside", outside),
+        ];
+        for (id, path) in cases {
+            store
+                .record_backup(&BackupRecordView {
+                    id: id.to_string(),
+                    backend: "alpha".to_string(),
+                    execution: "exec".to_string(),
+                    created_ms: 1,
+                    size_bytes: 2,
+                    sha256: "digest".to_string(),
+                    path: path.to_string(),
+                })
+                .await
+                .unwrap();
+        }
+        let manager = BackendManager::new(
+            BackendConfig {
+                enabled: true,
+                backup_dir: Some(dir.path().to_path_buf()),
+                ..BackendConfig::default()
+            },
+            store.clone(),
+        );
+
+        let preview = manager.relink_backups(false).await.unwrap();
+        assert_eq!(preview.rewritten, 1);
+        assert_eq!(preview.kept, 1);
+        assert_eq!(preview.unresolved, 1);
+        assert_eq!(preview.unresolved_ids, ["outside".to_string()]);
+        assert_eq!(
+            store.get_backup("inside").await.unwrap().unwrap().path,
+            inside
+        );
+
+        let applied = manager.relink_backups(true).await.unwrap();
+        assert_eq!(applied.rewritten, 1);
+        assert_eq!(applied.failed, 0);
+        assert_eq!(
+            store.get_backup("inside").await.unwrap().unwrap().path,
+            "alpha/inside.json"
+        );
+        let again = manager.relink_backups(true).await.unwrap();
+        assert_eq!(again.rewritten, 0);
+        assert_eq!(again.kept, 2);
+        assert_eq!(again.unresolved, 1);
     }
 
     #[tokio::test]

@@ -557,6 +557,22 @@ pub async fn trigger_server_backup(
     }
 }
 
+/// Preview or apply the one-time absolute-path index relink on the server.
+pub async fn relink_server_backups(
+    client: &wf_client::WfClient,
+    apply: bool,
+) -> CliResult<serde_json::Value> {
+    let body = serde_json::json!({"apply": apply});
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json("/api/v1/system/backups/relink", &body)
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
 /// Re-read one server-side backup and compare it with its index row. The
 /// status names the failure so "file is gone" and "content changed" stay
 /// distinguishable.

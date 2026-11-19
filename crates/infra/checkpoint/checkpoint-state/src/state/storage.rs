@@ -362,6 +362,39 @@ where
         Ok(Some(parse_storage_metadata(&id, entity_id, &meta)?))
     }
 
+    /// Latest rows of an entity with the limit pushed into the storage
+    /// query. The backend returns the descending tail; callers receive the
+    /// same ascending order as the full listing.
+    async fn list_latest_by_entity(
+        &self,
+        entity_id: &str,
+        limit: u64,
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let filter = QueryFilter::new()
+            .with_field("entityId", entity_id)
+            .with_order_by("timestamp", true)
+            .with_limit(limit);
+        let entries = self
+            .storage
+            .list(Some(&filter))
+            .await
+            .map_err(CheckpointError::Storage)?;
+        let mut results: Vec<CheckpointStorageMetadata> = Vec::new();
+        for (id, meta) in entries {
+            match parse_storage_metadata(&id, entity_id, &meta) {
+                Ok(parsed) => results.push(parsed),
+                Err(e) => {
+                    tracing::warn!(checkpoint_id = %id, error = %e, "skipping corrupt checkpoint metadata")
+                }
+            }
+        }
+        results.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
+        Ok(results)
+    }
+
     async fn load_metadata(
         &self,
         id: &str,

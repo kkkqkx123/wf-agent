@@ -35799,6 +35799,108 @@
         ]
       }
     },
+    "/api/v1/system/backups/relink": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "preview_system_backup_relink",
+        "responses": {
+          "200": {
+            "description": "Preview of absolute-path index relinking",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupRelinkReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "relink_system_backups",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRelinkBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Absolute-path index relink result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackupRelinkReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/backups/{id}/export": {
       "get": {
         "tags": [
@@ -49603,6 +49705,73 @@
           }
         }
       },
+      "ApiEnvelope_BackupRelinkReport": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Outcome of a one-time absolute-path index relink. Counts describe the\ninspected rows; unresolved ids are returned for manual decisions.",
+            "required": [
+              "apply",
+              "rewritten",
+              "kept",
+              "unresolved",
+              "failed",
+              "unresolved_ids",
+              "failed_ids"
+            ],
+            "properties": {
+              "apply": {
+                "type": "boolean"
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kept": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rewritten": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unresolved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unresolved_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_BackupTriggerView": {
         "type": "object",
         "required": [
@@ -56348,6 +56517,61 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "BackupRelinkBody": {
+        "type": "object",
+        "properties": {
+          "apply": {
+            "type": "boolean",
+            "description": "Preview by default; only `true` writes index changes."
+          }
+        }
+      },
+      "BackupRelinkReport": {
+        "type": "object",
+        "description": "Outcome of a one-time absolute-path index relink. Counts describe the\ninspected rows; unresolved ids are returned for manual decisions.",
+        "required": [
+          "apply",
+          "rewritten",
+          "kept",
+          "unresolved",
+          "failed",
+          "unresolved_ids",
+          "failed_ids"
+        ],
+        "properties": {
+          "apply": {
+            "type": "boolean"
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kept": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rewritten": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unresolved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unresolved_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

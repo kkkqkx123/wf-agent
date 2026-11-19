@@ -78,7 +78,7 @@ pub struct ReportOptions {
 
 const TOP_METRICS_LIMIT: usize = 10;
 const PER_COLLECTOR_TOP: usize = 5;
-const TREND_KEY_METRICS: [&str; 14] = [
+const TREND_KEY_METRICS: [&str; 17] = [
     "workflow.execution.count",
     "workflow.execution.duration",
     "node.execution.count",
@@ -93,6 +93,9 @@ const TREND_KEY_METRICS: [&str; 14] = [
     "timeout.expiration.count",
     "http.request.count",
     "checkpoint.creation.count",
+    "backup.success.count",
+    "backup.failure.count",
+    "backup.bytes",
 ];
 
 /// Generate a full report from the registry.
@@ -226,7 +229,7 @@ fn dominant_labels(groups: &[crate::metric::LabelGroup]) -> HashMap<String, Stri
         .unwrap_or_default()
 }
 
-/// Anomaly rules driven by the configured thresholds (M6): an error storm
+/// Anomaly rules driven by the configured thresholds: an error storm
 /// above `max_error_count`, workflow success degradation below
 /// `min_success_rate`, tool failure rate above `max_tool_error_rate` and
 /// checkpoint creation failures above `max_checkpoint_failures`. High
@@ -300,6 +303,42 @@ fn detect_anomalies(registry: &MetricsRegistry) -> Vec<Anomaly> {
                 token_stats.request_count
             ),
             severity: Severity::Medium,
+        });
+    }
+
+    let backup_stats = registry.backup().stats();
+    if backup_stats.missing_count > thresholds.max_backup_missing_files {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::backup_metrics::MISSING_COUNT.to_string(),
+            description: format!(
+                "Backup files missing from the index: {}",
+                backup_stats.missing_count
+            ),
+            severity: Severity::High,
+        });
+    }
+    if backup_stats.verify_failure_count > thresholds.max_backup_verify_failures {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::backup_metrics::VERIFY_FAILURE_COUNT.to_string(),
+            description: format!(
+                "Backup verifications failed: {}",
+                backup_stats.verify_failure_count
+            ),
+            severity: Severity::Medium,
+        });
+    }
+    if backup_stats.failure_count > thresholds.max_backup_failures {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::backup_metrics::FAILURE_COUNT.to_string(),
+            description: format!("Backup attempts failed: {}", backup_stats.failure_count),
+            severity: Severity::Medium,
+        });
+    }
+    if backup_stats.orphan_count > thresholds.max_backup_orphan_files {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::backup_metrics::ORPHAN_COUNT.to_string(),
+            description: format!("Orphan backup files found: {}", backup_stats.orphan_count),
+            severity: Severity::Low,
         });
     }
 
@@ -491,6 +530,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn report_detects_backup_anomalies_by_severity() {
+        let registry = MetricsRegistry::with_config(&MetricsConfig {
+            anomaly_thresholds: Some(AnomalyThresholdsConfig {
+                max_backup_failures: Some(1),
+                max_backup_verify_failures: Some(0),
+                max_backup_orphan_files: Some(0),
+                max_backup_missing_files: Some(0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        registry.backup().record_failure("alpha", "timeout");
+        registry.backup().record_verify_failure("digest_mismatch");
+        registry.backup().record_reconcile(2, 1);
+
+        let report = generate_report(&registry, &ReportOptions::default()).await;
+        let severity = |name: &str| {
+            report
+                .anomalies
+                .iter()
+                .find(|anomaly| anomaly.metric_name == name)
+                .map(|anomaly| anomaly.severity)
+        };
+        assert_eq!(
+            severity(crate::constants::backup_metrics::MISSING_COUNT),
+            Some(Severity::High)
+        );
+        assert_eq!(
+            severity(crate::constants::backup_metrics::VERIFY_FAILURE_COUNT),
+            Some(Severity::Medium)
+        );
+        assert_eq!(
+            severity(crate::constants::backup_metrics::FAILURE_COUNT),
+            None
+        );
+        assert_eq!(
+            severity(crate::constants::backup_metrics::ORPHAN_COUNT),
+            Some(Severity::Low)
+        );
+    }
+
+    #[tokio::test]
+    async fn report_respects_backup_failure_threshold() {
+        let registry = MetricsRegistry::with_config(&MetricsConfig {
+            anomaly_thresholds: Some(AnomalyThresholdsConfig {
+                max_backup_failures: Some(0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let report = generate_report(&registry, &ReportOptions::default()).await;
+        assert!(!report
+            .anomalies
+            .iter()
+            .any(|a| a.metric_name == crate::constants::backup_metrics::FAILURE_COUNT));
+
+        registry.backup().record_failure("alpha", "timeout");
+        let report = generate_report(&registry, &ReportOptions::default()).await;
+        assert!(report
+            .anomalies
+            .iter()
+            .any(|a| a.metric_name == crate::constants::backup_metrics::FAILURE_COUNT));
+    }
+
+    #[tokio::test]
     async fn report_detects_workflow_degradation() {
         let registry = MetricsRegistry::new();
         for _ in 0..5 {
@@ -528,7 +632,7 @@ mod tests {
             .any(|a| { a.metric_name == crate::constants::error_metrics::OCCURRENCE_COUNT }));
 
         // ...but a configured `max_error_count` of 3 makes the same 4 errors
-        // an anomaly (M6).
+        // an anomaly.
         let configured = MetricsRegistry::with_config(&MetricsConfig {
             anomaly_thresholds: Some(AnomalyThresholdsConfig {
                 max_error_count: Some(3),
@@ -574,7 +678,7 @@ mod tests {
             .any(|a| a.metric_name == "workflow.execution.success.rate"));
 
         // ...but a configured `min_success_rate` of 0.9 flags it as a
-        // Medium-severity degradation (M6).
+        // Medium-severity degradation.
         let configured = MetricsRegistry::with_config(&MetricsConfig {
             anomaly_thresholds: Some(AnomalyThresholdsConfig {
                 max_error_count: Some(100),

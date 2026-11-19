@@ -6,7 +6,8 @@
 //! that execution; it never blocks other executions or backends. Retention
 //! applies a count cap and an age cap after a verified successful write.
 
-use std::path::Path;
+use std::fmt;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -52,21 +53,88 @@ pub fn relative_backup_path(root: &Path, path: &Path) -> String {
     }
 }
 
-/// Resolve an indexed path against the current backup root. Older indexes
-/// hold absolute paths; those stay valid, while newer relative rows follow
-/// the configured root. A path that escapes the root is rejected so a
-/// tampered index cannot delete files elsewhere.
-pub fn resolve_backup_path(root: &Path, stored: &str) -> Result<std::path::PathBuf, String> {
-    let path = std::path::Path::new(stored);
-    let resolved = if path.is_absolute() {
+/// Why an indexed backup path cannot be resolved to an operable file.
+/// Callers treat an escape as a hard failure and a missing parent as an
+/// absent file; a broken root is a configuration or storage error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackupPathError {
+    Escape { stored: String },
+    Unavailable { stored: String, reason: String },
+    RootUnavailable { root: PathBuf, reason: String },
+}
+
+impl BackupPathError {
+    fn escape(stored: &str) -> Self {
+        Self::Escape {
+            stored: stored.to_string(),
+        }
+    }
+
+    fn unavailable(stored: &str, reason: impl fmt::Display) -> Self {
+        Self::Unavailable {
+            stored: stored.to_string(),
+            reason: reason.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for BackupPathError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Escape { stored } => write!(f, "backup path escapes root: '{stored}'"),
+            Self::Unavailable { stored, reason } => {
+                write!(f, "backup path '{stored}' has no operable parent: {reason}")
+            }
+            Self::RootUnavailable { root, reason } => {
+                write!(f, "cannot resolve backup root {}: {reason}", root.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for BackupPathError {}
+
+/// Resolve an indexed path against the current backup root using real
+/// directories. Lexical containment alone cannot stop a symlink inside the
+/// root from redirecting a write, verification or removal outside it. The
+/// returned path uses the canonical parent so every consumer operates on
+/// the same real location.
+pub fn resolve_backup_path(root: &Path, stored: &str) -> Result<PathBuf, BackupPathError> {
+    let canonical_root =
+        std::fs::canonicalize(root).map_err(|e| BackupPathError::RootUnavailable {
+            root: root.to_path_buf(),
+            reason: e.to_string(),
+        })?;
+    let path = Path::new(stored);
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| BackupPathError::escape(stored))?;
+    let candidate = if path.is_absolute() {
         path.to_path_buf()
     } else {
         root.join(path)
     };
-    let normalized = normalize_path(&resolved);
-    let root_normalized = normalize_path(root);
-    if !normalized.starts_with(&root_normalized) {
-        return Err(format!("backup path escapes root: '{stored}'"));
+    let normalized = normalize_path(&candidate);
+    if !normalized.starts_with(&normalize_path(root)) {
+        return Err(BackupPathError::escape(stored));
+    }
+    let parent = normalized
+        .parent()
+        .ok_or_else(|| BackupPathError::escape(stored))?;
+    let canonical_parent =
+        std::fs::canonicalize(parent).map_err(|e| BackupPathError::unavailable(stored, e))?;
+    if !canonical_parent.starts_with(&canonical_root) {
+        return Err(BackupPathError::escape(stored));
+    }
+    let resolved = canonical_parent.join(file_name);
+    if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
+        if metadata.file_type().is_symlink() {
+            let target = std::fs::canonicalize(&resolved)
+                .map_err(|e| BackupPathError::unavailable(stored, e))?;
+            if !target.starts_with(&canonical_root) {
+                return Err(BackupPathError::escape(stored));
+            }
+        }
     }
     Ok(resolved)
 }
@@ -172,14 +240,23 @@ where
         .await
         .map_err(|e| format!("cannot create backup root {}: {e}", root.display()))?;
     restrict_dir_mode(root);
+    let canonical_root = tokio::fs::canonicalize(root)
+        .await
+        .map_err(|e| format!("cannot resolve backup root {}: {e}", root.display()))?;
     let dir = root.join(backend);
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("cannot create backup dir {}: {e}", dir.display()))?;
-    restrict_dir_mode(&dir);
+    let canonical_dir = tokio::fs::canonicalize(&dir)
+        .await
+        .map_err(|e| format!("cannot resolve backup dir {}: {e}", dir.display()))?;
+    if !canonical_dir.starts_with(&canonical_root) {
+        return Err(format!("backup path escapes root: '{}'", dir.display()));
+    }
+    restrict_dir_mode(&canonical_dir);
     let file_stem = format!("{execution}-{created_ms}-{suffix}");
-    let path = dir.join(format!("{file_stem}.json"));
-    let temp_path = dir.join(format!("{file_stem}.tmp"));
+    let path = canonical_dir.join(format!("{file_stem}.json"));
+    let temp_path = canonical_dir.join(format!("{file_stem}.tmp"));
     let text =
         serde_json::to_string(&merged).map_err(|e| format!("cannot encode backup '{id}': {e}"))?;
     let (size_bytes, sha256) =
@@ -191,7 +268,7 @@ where
         created_ms,
         size_bytes,
         sha256,
-        path: relative_backup_path(root, &path),
+        path: relative_backup_path(&canonical_root, &path),
     };
     if let Err(e) = store.record_backup(&record).await {
         let _ = tokio::fs::remove_file(&path).await;
@@ -404,6 +481,8 @@ pub struct ReconcileReport {
     pub orphan_files: usize,
     pub missing_files: usize,
     pub temp_files_removed: usize,
+    /// Symlinks seen during the pass. They are never followed or removed.
+    pub symlink_entries: usize,
 }
 
 pub async fn reconcile_backups(
@@ -419,20 +498,49 @@ pub async fn reconcile_backups(
 }
 
 fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileReport {
-    let indexed: std::collections::HashSet<std::path::PathBuf> = records
+    let Ok(root) = std::fs::canonicalize(root) else {
+        return ReconcileReport::default();
+    };
+    let indexed: std::collections::HashSet<PathBuf> = records
         .iter()
-        .filter_map(|record| resolve_backup_path(root, &record.path).ok())
-        .map(|path| normalize_path(&path))
+        .filter_map(|record| resolve_backup_path(&root, &record.path).ok())
         .collect();
     let mut report = ReconcileReport::default();
-    let Ok(backends) = std::fs::read_dir(root) else {
+    let Ok(backends) = std::fs::read_dir(&root) else {
         return report;
     };
     for backend in backends.flatten() {
+        let Ok(file_type) = backend.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            report.symlink_entries += 1;
+            tracing::warn!(
+                path = %backend.path().display(),
+                "backup reconcile skipped symlink"
+            );
+            continue;
+        }
+        if !file_type.is_dir() {
+            continue;
+        }
         let Ok(files) = std::fs::read_dir(backend.path()) else {
             continue;
         };
         for file in files.flatten() {
+            match file.file_type() {
+                Ok(file_type) if file_type.is_symlink() => {
+                    report.symlink_entries += 1;
+                    tracing::warn!(
+                        path = %file.path().display(),
+                        "backup reconcile skipped symlink"
+                    );
+                    continue;
+                }
+                Ok(file_type) if !file_type.is_file() => continue,
+                Err(_) => continue,
+                _ => {}
+            }
             let path = file.path();
             let name = path
                 .file_name()
@@ -457,7 +565,7 @@ fn reconcile_blocking(records: &[BackupRecordView], root: &Path) -> ReconcileRep
     // name a file we are willing to touch.
     report.missing_files = records
         .iter()
-        .filter(|record| match resolve_backup_path(root, &record.path) {
+        .filter(|record| match resolve_backup_path(&root, &record.path) {
             Ok(path) => !path.exists(),
             Err(_) => true,
         })
@@ -497,7 +605,7 @@ pub async fn prune_backups(
                 let path = match resolve_backup_path(root, &record.path) {
                     Ok(path) => path,
                     Err(e) => {
-                        tracing::warn!(id = %record.id, error = %e, "skipping out-of-root backup removal");
+                        tracing::warn!(id = %record.id, error = %e, "skipping unsafe backup removal");
                         continue;
                     }
                 };
@@ -660,19 +768,77 @@ mod tests {
 
     #[test]
     fn relative_paths_follow_root_and_reject_escape() {
-        let root = std::path::Path::new("/data/backups");
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        std::fs::create_dir_all(root.join("alpha")).unwrap();
         let file = root.join("alpha/exec-1.json");
+        std::fs::write(&file, b"{}").unwrap();
+        let canonical_root = root.clone();
         assert_eq!(
-            relative_backup_path(root, &file),
+            relative_backup_path(&canonical_root, &file),
             "alpha/exec-1.json".to_string()
         );
         assert_eq!(
-            resolve_backup_path(root, "alpha/exec-1.json").unwrap(),
-            file
+            resolve_backup_path(&root, "alpha/exec-1.json").unwrap(),
+            canonical_root.join("alpha/exec-1.json")
         );
-        assert!(resolve_backup_path(root, "/data/backups/alpha/exec-1.json").is_ok());
-        assert!(resolve_backup_path(root, "../../etc/passwd").is_err());
-        assert!(resolve_backup_path(root, "/tmp/elsewhere.json").is_err());
+        assert!(resolve_backup_path(
+            &root,
+            canonical_root.join("alpha/exec-1.json").to_str().unwrap()
+        )
+        .is_ok());
+        assert_eq!(
+            resolve_backup_path(&root, "../../etc/passwd"),
+            Err(BackupPathError::escape("../../etc/passwd"))
+        );
+        assert!(matches!(
+            resolve_backup_path(&root, "missing/exec.json"),
+            Err(BackupPathError::Unavailable { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_parent_and_target_cannot_escape_the_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("backups");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(root.join("alpha")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.json"), b"{}").unwrap();
+        symlink(&outside, root.join("alpha/link")).unwrap();
+        symlink(outside.join("secret.json"), root.join("alpha/target.json")).unwrap();
+
+        let escaped = resolve_backup_path(&root, "alpha/link/secret.json")
+            .expect_err("a symlinked parent must not redirect outside the root");
+        assert!(matches!(escaped, BackupPathError::Escape { .. }));
+        let escaped_target = resolve_backup_path(&root, "alpha/target.json")
+            .expect_err("a symlinked target must not point outside the root");
+        assert!(matches!(escaped_target, BackupPathError::Escape { .. }));
+        assert!(outside.join("secret.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_root_is_normalized_to_the_real_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let link = temp.path().join("link");
+        std::fs::create_dir_all(real.join("alpha")).unwrap();
+        std::fs::write(real.join("alpha/exec.json"), b"{}").unwrap();
+        symlink(&real, &link).unwrap();
+
+        assert_eq!(
+            resolve_backup_path(&link, "alpha/exec.json").unwrap(),
+            std::fs::canonicalize(&real)
+                .unwrap()
+                .join("alpha/exec.json")
+        );
+        assert!(resolve_backup_path(&link, link.join("alpha/exec.json").to_str().unwrap()).is_ok());
     }
 
     #[tokio::test]

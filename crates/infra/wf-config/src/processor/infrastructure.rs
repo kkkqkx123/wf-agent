@@ -149,6 +149,26 @@ pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
                 .as_ref()
                 .and_then(|t| t.max_checkpoint_failures)
                 .or(Some(10)),
+            max_backup_failures: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_backup_failures)
+                .or(Some(10)),
+            max_backup_verify_failures: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_backup_verify_failures)
+                .or(Some(10)),
+            max_backup_orphan_files: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_backup_orphan_files)
+                .or(Some(0)),
+            max_backup_missing_files: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_backup_missing_files)
+                .or(Some(0)),
         }),
     }
 }
@@ -287,7 +307,7 @@ mod tests {
     #[test]
     fn test_merged_metrics_fields_all_map_to_consumers() {
         // Every config field must survive merge and have a consumer in the
-        // registry/collectors/runtime tasks (M3); a field accepted but never
+        // registry/collectors/runtime tasks; a field accepted but never
         // consumed is a silent misconfiguration.
         use wf_types::config::metrics::AnomalyThresholdsConfig;
         let user = MetricsConfig {
@@ -316,6 +336,8 @@ mod tests {
             anomaly_thresholds: Some(AnomalyThresholdsConfig {
                 max_error_count: Some(7),
                 min_success_rate: Some(0.5),
+                max_backup_failures: Some(2),
+                max_backup_missing_files: Some(3),
                 ..Default::default()
             }),
         };
@@ -328,6 +350,38 @@ mod tests {
         assert_eq!(
             merged.anomaly_thresholds.as_ref().unwrap().min_success_rate,
             Some(0.5)
+        );
+        assert_eq!(
+            merged
+                .anomaly_thresholds
+                .as_ref()
+                .unwrap()
+                .max_backup_failures,
+            Some(2)
+        );
+        assert_eq!(
+            merged
+                .anomaly_thresholds
+                .as_ref()
+                .unwrap()
+                .max_backup_missing_files,
+            Some(3)
+        );
+        assert_eq!(
+            merged
+                .anomaly_thresholds
+                .as_ref()
+                .unwrap()
+                .max_backup_verify_failures,
+            Some(10)
+        );
+        assert_eq!(
+            merged
+                .anomaly_thresholds
+                .as_ref()
+                .unwrap()
+                .max_backup_orphan_files,
+            Some(0)
         );
         let collector_fields = [
             merged.workflow_metrics,

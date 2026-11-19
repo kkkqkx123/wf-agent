@@ -189,6 +189,14 @@ pub enum RemoteSub {
         #[arg(value_name = "DEST")]
         dest: String,
     },
+    /// Rewrite absolute backup index paths to paths relative to the current
+    /// server backup directory. Preview by default; `--apply` writes changes.
+    #[command(name = "backup-relink")]
+    BackupRelink {
+        /// Apply the relink instead of only previewing it.
+        #[arg(long)]
+        apply: bool,
+    },
     /// Inspect a locally exported backup file without a server: validate its
     /// structure, format version, execution id and checkpoint section, and
     /// optionally re-check a known SHA-256.

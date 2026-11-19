@@ -66,12 +66,12 @@ async fn agent_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.storage.agent_execution.load(id).await?.is_some() {
         return Ok(true);
     }
-    let list = ctx
+    Ok(ctx
         .storage
         .checkpoint
-        .list_by_entity(id, ExecutionDomain::AgentLoop.checkpoint_entity_type())
-        .await?;
-    Ok(!list.is_empty())
+        .get_latest_by_entity(id, ExecutionDomain::AgentLoop.checkpoint_entity_type())
+        .await?
+        .is_some())
 }
 
 /// Workflow-domain counterpart of [`agent_present`], same cost order. The
@@ -84,12 +84,12 @@ async fn workflow_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.storage.workflow_execution.load(id).await?.is_some() {
         return Ok(true);
     }
-    let list = ctx
+    Ok(ctx
         .storage
         .checkpoint
-        .list_by_entity(id, ExecutionDomain::Workflow.checkpoint_entity_type())
-        .await?;
-    Ok(!list.is_empty())
+        .get_latest_by_entity(id, ExecutionDomain::Workflow.checkpoint_entity_type())
+        .await?
+        .is_some())
 }
 
 /// Resolve a bare execution id to its domain.

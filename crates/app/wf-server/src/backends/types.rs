@@ -182,6 +182,19 @@ pub struct BackupRecordView {
     pub path: String,
 }
 
+/// Outcome of a one-time absolute-path index relink. Counts describe the
+/// inspected rows; unresolved ids are returned for manual decisions.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BackupRelinkReport {
+    pub apply: bool,
+    pub rewritten: usize,
+    pub kept: usize,
+    pub unresolved: usize,
+    pub failed: usize,
+    pub unresolved_ids: Vec<String>,
+    pub failed_ids: Vec<String>,
+}
+
 /// Result of re-reading one backup file and comparing it with its index row.
 /// The status names the failure instead of collapsing every case into one
 /// boolean, because "file is gone" and "content changed" need different

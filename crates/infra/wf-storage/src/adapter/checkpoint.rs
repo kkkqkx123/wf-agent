@@ -46,6 +46,21 @@ pub trait CheckpointStorageAdapter:
         entity_type: &'a str,
     ) -> impl Future<Output = Result<Option<wf_types::Checkpoint>, StorageError>> + Send + 'a;
 
+    /// Newest checkpoints of one entity in ascending timestamp order, with
+    /// the limit pushed into the storage query.
+    fn list_latest_by_entity<'a>(
+        &'a self,
+        entity_id: &'a str,
+        entity_type: &'a str,
+        limit: u64,
+    ) -> impl Future<Output = Result<Vec<wf_types::Checkpoint>, StorageError>> + Send + 'a;
+
+    fn count_by_entity<'a>(
+        &'a self,
+        entity_id: &'a str,
+        entity_type: &'a str,
+    ) -> impl Future<Output = Result<u64, StorageError>> + Send + 'a;
+
     fn delete_by_entity<'a>(
         &'a self,
         entity_id: &'a str,

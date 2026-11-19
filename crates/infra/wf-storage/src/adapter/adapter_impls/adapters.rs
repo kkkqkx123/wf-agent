@@ -202,6 +202,36 @@ impl<S: Store + StoreExt> CheckpointStorageAdapter for CheckpointStorage<S> {
             .next())
     }
 
+    async fn list_latest_by_entity(
+        &self,
+        entity_id: &str,
+        entity_type: &str,
+        limit: u64,
+    ) -> Result<Vec<wf_types::Checkpoint>, StorageError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let filter = QueryFilter::new()
+            .with_field("entityId", entity_id)
+            .with_entity_type(entity_type)
+            .with_order_by("timestamp", true)
+            .with_limit(limit);
+        let mut results = self.entity_store.list(Some(&filter)).await?;
+        results.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
+        Ok(results)
+    }
+
+    async fn count_by_entity(
+        &self,
+        entity_id: &str,
+        entity_type: &str,
+    ) -> Result<u64, StorageError> {
+        let filter = QueryFilter::new()
+            .with_field("entityId", entity_id)
+            .with_entity_type(entity_type);
+        self.entity_store.count(Some(&filter)).await
+    }
+
     async fn delete_by_entity(
         &self,
         entity_id: &str,

@@ -70,6 +70,25 @@ pub trait CheckpointStateManager: Send + Sync {
             Ok(all[start..end].to_vec())
         }
     }
+    /// Latest metadata rows of an entity in ascending timestamp order.
+    /// The default derives the tail offset from the aggregate count; storage
+    /// managers push the descending window down to the backend.
+    fn list_latest_by_entity(
+        &self,
+        entity_id: &str,
+        limit: u64,
+    ) -> impl std::future::Future<Output = Result<Vec<CheckpointStorageMetadata>, CheckpointError>> + Send
+    {
+        async move {
+            if limit == 0 {
+                return Ok(Vec::new());
+            }
+            let count = self.count_by_entity(entity_id).await?;
+            let offset = count.saturating_sub(limit);
+            self.list_by_entity_paged(entity_id, offset, limit).await
+        }
+    }
+
     fn cleanup(
         &self,
         entity_id: &str,

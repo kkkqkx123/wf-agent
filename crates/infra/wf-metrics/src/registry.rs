@@ -20,16 +20,21 @@ use crate::constants::{
 use crate::report::{MetricReport, ReportCallback};
 use crate::sink::{MetricPoint, MetricsSink};
 
-/// Resolved anomaly detection thresholds (M6). Defaults follow the report
-/// rules: an error storm above 100 occurrences, a workflow success
-/// rate below 0.8, a tool failure rate above 0.2 and checkpoint creation
-/// failures above 10 trigger anomalies.
+/// Resolved anomaly detection thresholds. Defaults follow the report rules:
+/// an error storm above 100 occurrences, a workflow success rate below 0.8,
+/// a tool failure rate above 0.2, checkpoint creation failures above 10 and
+/// backup failures above 10 trigger anomalies. Any backup storage drift is
+/// reported by default.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnomalyThresholds {
     pub max_error_count: u64,
     pub min_success_rate: f64,
     pub max_tool_error_rate: f64,
     pub max_checkpoint_failures: u64,
+    pub max_backup_failures: u64,
+    pub max_backup_verify_failures: u64,
+    pub max_backup_orphan_files: u64,
+    pub max_backup_missing_files: u64,
 }
 
 impl Default for AnomalyThresholds {
@@ -39,6 +44,10 @@ impl Default for AnomalyThresholds {
             min_success_rate: 0.8,
             max_tool_error_rate: 0.2,
             max_checkpoint_failures: 10,
+            max_backup_failures: 10,
+            max_backup_verify_failures: 10,
+            max_backup_orphan_files: 0,
+            max_backup_missing_files: 0,
         }
     }
 }
@@ -173,6 +182,26 @@ impl MetricsRegistry {
                     .as_ref()
                     .and_then(|t| t.max_checkpoint_failures)
                     .unwrap_or(10),
+                max_backup_failures: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_backup_failures)
+                    .unwrap_or(10),
+                max_backup_verify_failures: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_backup_verify_failures)
+                    .unwrap_or(10),
+                max_backup_orphan_files: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_backup_orphan_files)
+                    .unwrap_or(0),
+                max_backup_missing_files: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_backup_missing_files)
+                    .unwrap_or(0),
             },
         }
     }

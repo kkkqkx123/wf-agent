@@ -15,7 +15,7 @@ use axum::Router;
 use serde::Deserialize;
 
 use wf_config::env::{env_parse_bool, env_parse_int, env_parse_list, EnvValue};
-use wf_config::error::{ConfigError, ConfigResult};
+use wf_config::error::ConfigResult;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -363,26 +363,7 @@ where
     if let Some(dir) = project_server_dir {
         paths.push(dir.join(file_name));
     }
-    let existing: Vec<&std::path::Path> = paths
-        .iter()
-        .map(|path| path.as_path())
-        .filter(|path| path.exists())
-        .collect();
-    if existing.is_empty() {
-        return Ok(None);
-    }
-    wf_config::layered::load_layered_config_sync::<T>(&existing)
-        .map(Some)
-        .map_err(|e| {
-            ConfigError::Parse(format!(
-                "invalid middleware config files {}: {e}",
-                existing
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-        })
+    wf_config::layered::load_optional_merged_config(&paths, "middleware")
 }
 
 // ---------------------------------------------------------------------------

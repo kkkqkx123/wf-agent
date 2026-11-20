@@ -26,7 +26,7 @@
 | `WF_FILE_CHECKPOINT_GC_INTERVAL_SECS` | GC 自动运行间隔 |
 | `WF_SANDBOX_MODE` | 沙箱模式（disabled/lenient/strict） |
 
-所有 `WF_*` 覆盖 fail-fast：非法值启动失败；空字符串按未设置处理，由下一优先级来源填充。日志级别与格式只接受上述枚举值，不解析 EnvFilter 表达式；日志写 stderr，由服务管理器负责捕获与留存。
+基础设施域的 `WF_*` 覆盖 fail-fast：非法值启动失败；空字符串按未设置处理，由下一优先级来源填充。布尔值只接受 `true`/`1`/`yes`/`on` 与 `false`/`0`/`no`/`off`，整数超出目标字段范围或为负数时启动失败；环境覆盖结束后会再次执行 limits 的跨字段校验。服务中间件的鉴权与限流环境变量沿用同一解析器，但采用告警并保留旧值的策略，拼写错误不会静默变成关闭。日志级别与格式只接受上述枚举值，不解析 EnvFilter 表达式；日志写 stderr，由服务管理器负责捕获与留存。
 
 ## 冻结旧名（无 WF_ 前缀）
 
@@ -49,4 +49,4 @@
 
 ## 运行环境默认
 
-`RuntimeEnvironment` 区分 Development / Production。缺失基础设施文件时使用对应环境的优化默认值（如存储、输出、指标、预设、沙箱模式）。
+`RuntimeEnvironment` 区分 Development / Production。缺失基础设施文件时使用对应环境的优化默认值（存储、指标、预设）；宿主 `config.toml` 的值作为领域默认值优先于代码默认值，环境覆盖与程序化覆盖仍最高。

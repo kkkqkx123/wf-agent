@@ -14,6 +14,16 @@ use crate::error::{ConfigError, ConfigResult};
 /// value. Prefix lists are deliberately not carried over the environment:
 /// comma-separated parsing invites separator ambiguity, so large prefix
 /// tables belong in the domain file.
+fn env_parse_storage_type(value: &str) -> ConfigResult<EnvValue> {
+    let lower = value.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "sqlite" | "postgres" | "memory" => Ok(EnvValue::String(lower)),
+        _ => Err(ConfigError::EnvVar(format!(
+            "WF_STORAGE_TYPE must be one of sqlite/postgres/memory, got '{value}'"
+        ))),
+    }
+}
+
 fn env_parse_sandbox_mode(value: &str) -> ConfigResult<EnvValue> {
     match value.to_lowercase().as_str() {
         "disabled" => Ok(EnvValue::String("Disabled".to_string())),
@@ -30,10 +40,7 @@ pub(crate) fn build_infra_env_mapping() -> HashMap<String, crate::env::EnvMappin
         .custom(
             "storage_type",
             "WF_STORAGE_TYPE",
-            Box::new(|v| {
-                let lower = v.to_lowercase();
-                Ok(EnvValue::String(lower))
-            }),
+            Box::new(env_parse_storage_type),
             None,
         )
         .string("storage_sqlite_db_path", "WF_STORAGE_SQLITE_DB_PATH", None)

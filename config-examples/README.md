@@ -17,11 +17,11 @@
 | `server/` | 传输、中间件与后端注册表五文件模板，落到 `{settings_dir}/server/` 或项目 `.wf/server/` |
 | `mcp/` | 全局 MCP 设置，落到显式用户设置目录或项目 `.wf/mcp.json` |
 | `skills/` | 全局技能设置，落到显式用户设置目录或项目 `.wf/skills.json` |
-| `workflows/` | 工作流定义样例与索引格式 |
-| `agent-loops/` | 智能体循环定义样例与索引格式 |
-| `node-templates/` | 节点模板样例与索引格式 |
+| `workflows/` | 工作流定义样例（定义由 API 与存储管理） |
+| `agent-loops/` | 智能体循环定义样例（定义由 API 与存储管理） |
+| `node-templates/` | 节点模板样例 |
 | `prompt-templates/` | 提示词模板样例 |
-| `scripts/` | 预留脚本家族索引格式 |
+| `scripts/` | 脚本定义样例（定义由 API 与存储管理） |
 
 本目录不参与任何优先级链，不随发布物分发到生产环境；
 生产真实值只由 `deploy/` 机制在目标机器上渲染（见 `deploy/README.md`）。

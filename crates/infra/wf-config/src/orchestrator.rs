@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::env::apply_env_overrides;
+use crate::env::{apply_env_overrides, EnvValue};
 use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
 use crate::orchestrator_loader::{display_paths, load_merged_domain_config_with_metrics};
@@ -108,6 +108,22 @@ pub struct AssembledConfig {
     pub retention: RetentionConfig,
 }
 
+/// Values supplied by the host dotfile layer. They replace code defaults
+/// only when no domain file exists; environment and programmatic overrides
+/// still win.
+#[derive(Debug, Clone, Default)]
+pub struct ConfigDefaults {
+    pub storage: Option<StorageConfig>,
+    pub metrics: Option<MetricsConfig>,
+    pub sandbox: Option<SandboxGlobalConfig>,
+    pub file_checkpoint: Option<FileCheckpointConfig>,
+    pub tool_approval: Option<ToolApprovalConfig>,
+    pub presets: Option<PresetsConfig>,
+    pub tools: Option<ToolConfigs>,
+    pub limits: Option<LimitsConfig>,
+    pub retention: Option<RetentionConfig>,
+}
+
 /// Programmatic overrides applied after file-based config loading.
 #[derive(Debug, Clone, Default)]
 pub struct ConfigOverrides {
@@ -142,6 +158,7 @@ pub struct ConfigOrchestratorBuilder {
     settings_dir: Option<PathBuf>,
     explicit_infra_dir: Option<PathBuf>,
     runtime_env: RuntimeEnvironment,
+    defaults: ConfigDefaults,
     config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
 
@@ -152,6 +169,7 @@ impl ConfigOrchestratorBuilder {
             settings_dir: None,
             explicit_infra_dir: None,
             runtime_env: RuntimeEnvironment::Development,
+            defaults: ConfigDefaults::default(),
             config_metrics: None,
         }
     }
@@ -186,12 +204,19 @@ impl ConfigOrchestratorBuilder {
         self
     }
 
+    /// Supply host dotfile values as domain defaults, below fixed files.
+    pub fn defaults(mut self, defaults: ConfigDefaults) -> Self {
+        self.defaults = defaults;
+        self
+    }
+
     pub fn build(self) -> ConfigOrchestratorLoaded {
         ConfigOrchestratorLoaded {
             project_dir: self.project_dir,
             settings_dir: self.settings_dir,
             explicit_infra_dir: self.explicit_infra_dir,
             runtime_env: self.runtime_env,
+            defaults: self.defaults,
             config_metrics: self.config_metrics,
         }
     }
@@ -203,6 +228,7 @@ pub struct ConfigOrchestratorLoaded {
     settings_dir: Option<PathBuf>,
     explicit_infra_dir: Option<PathBuf>,
     runtime_env: RuntimeEnvironment,
+    defaults: ConfigDefaults,
     config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
 
@@ -237,6 +263,7 @@ impl ConfigOrchestratorLoaded {
             &self.project_dir,
             &files,
             self.runtime_env,
+            &self.defaults,
             self.config_metrics.as_deref(),
         )?;
         Self::apply_env_overrides(&mut config)?;
@@ -249,14 +276,15 @@ impl ConfigOrchestratorLoaded {
     /// Load all infrastructure config domains using the resolved file mapping.
     /// Per domain the explicit override wins when set; otherwise the
     /// settings layer and the project layer merge with the project winning.
-    /// Missing files fall back to `runtime_env`-optimized defaults; present
-    /// but invalid files fail.
+    /// Missing files fall back to caller defaults (host dotfile values first,
+    /// then `runtime_env`-optimized defaults); invalid files fail.
     fn load_infrastructure_configs(
         explicit_infra_dir: Option<&Path>,
         settings_dir: Option<&Path>,
         project_dir: &Path,
         files: &InfrastructurePresetFiles,
         runtime_env: RuntimeEnvironment,
+        defaults: &ConfigDefaults,
         metrics: Option<&wf_metrics::ConfigMetricsCollector>,
     ) -> ConfigResult<AssembledConfig> {
         let candidates = |file: &str| -> Vec<PathBuf> {
@@ -275,22 +303,28 @@ impl ConfigOrchestratorLoaded {
 
         let storage: StorageConfig = load_merged_domain_config_with_metrics(
             &candidates(&files.storage),
-            get_storage_environment_defaults(runtime_env),
+            defaults
+                .storage
+                .clone()
+                .unwrap_or_else(|| get_storage_environment_defaults(runtime_env)),
             metrics,
         )?;
         let metrics_config: MetricsConfig = load_merged_domain_config_with_metrics(
             &candidates(&files.metrics),
-            get_metrics_environment_defaults(runtime_env),
+            defaults
+                .metrics
+                .clone()
+                .unwrap_or_else(|| get_metrics_environment_defaults(runtime_env)),
             metrics,
         )?;
         let limits: LimitsConfig = load_merged_domain_config_with_metrics(
             &candidates(&files.limits),
-            LimitsConfig::default(),
+            defaults.limits.clone().unwrap_or_default(),
             metrics,
         )?;
         let retention: RetentionConfig = load_merged_domain_config_with_metrics(
             &candidates(&files.retention),
-            RetentionConfig::default(),
+            defaults.retention.clone().unwrap_or_default(),
             metrics,
         )?;
 
@@ -303,7 +337,7 @@ impl ConfigOrchestratorLoaded {
             .filter(|path| path.exists())
             .collect();
         let sandbox: Option<SandboxGlobalConfig> = if sandbox_existing.is_empty() {
-            None
+            defaults.sandbox.clone()
         } else {
             let config: SandboxGlobalConfig =
                 layered::load_layered_config_sync_with_metrics(&sandbox_existing, metrics)
@@ -321,21 +355,24 @@ impl ConfigOrchestratorLoaded {
         // files fail.
         let file_checkpoint = load_merged_domain_config_with_metrics::<FileCheckpointConfig>(
             &candidates(&files.file_checkpoint),
-            FileCheckpointConfig::default(),
+            defaults.file_checkpoint.clone().unwrap_or_default(),
             metrics,
         )?;
         let tool_approval = load_merged_domain_config_with_metrics::<ToolApprovalConfig>(
             &candidates(&files.tool_approval),
-            ToolApprovalConfig::default(),
+            defaults.tool_approval.clone().unwrap_or_default(),
             metrics,
         )?;
         let presets =
             transform_presets_config(load_merged_domain_config_with_metrics::<PresetsConfig>(
                 &candidates(&files.presets),
-                get_presets_environment_defaults(runtime_env),
+                defaults
+                    .presets
+                    .clone()
+                    .unwrap_or_else(|| get_presets_environment_defaults(runtime_env)),
                 metrics,
             )?)?;
-        let tools = load_tool_configs(&candidates(&files.tools))?;
+        let tools = load_tool_configs(&candidates(&files.tools), defaults.tools.clone())?;
 
         let storage = merge_storage_with_defaults(&storage);
         let metrics_config = merge_metrics_with_defaults(&metrics_config);
@@ -378,166 +415,134 @@ impl ConfigOrchestratorLoaded {
     fn apply_env_overrides(config: &mut AssembledConfig) -> ConfigResult<()> {
         let mapping = crate::orchestrator_env::build_infra_env_mapping();
         apply_env_overrides(
-            |key, value| match key {
-                "storage_type" => {
-                    if let Some(s) = value.as_string() {
-                        match s {
-                            "sqlite" => {
-                                config.storage.storage_type = StorageType::Sqlite;
+            |key, value| {
+                match key {
+                    "storage_type" => {
+                        let storage_type = env_string(key, value)?;
+                        config.storage.storage_type = match storage_type.as_str() {
+                            "sqlite" => StorageType::Sqlite,
+                            "postgres" => StorageType::Postgres,
+                            "memory" => StorageType::Memory,
+                            _ => {
+                                return Err(ConfigError::EnvVar(format!(
+                                    "unsupported storage type: {storage_type}"
+                                )))
                             }
-                            "postgres" => {
-                                config.storage.storage_type = StorageType::Postgres;
-                            }
-                            "memory" => {
-                                config.storage.storage_type = StorageType::Memory;
-                            }
-                            _ => {}
-                        }
+                        };
                     }
-                }
-                "storage_sqlite_db_path" => {
-                    if let Some(path) = value.as_string() {
+                    "storage_sqlite_db_path" => {
+                        let path = env_string(key, value)?;
                         if !path.is_empty() {
                             if let Some(ref mut sqlite) = config.storage.sqlite {
-                                sqlite.db_path = path.to_string();
+                                sqlite.db_path = path;
                             } else {
                                 config.storage.sqlite =
                                     Some(wf_types::config::storage::SqliteStorageConfig {
-                                        db_path: path.to_string(),
+                                        db_path: path,
                                         ..Default::default()
                                     });
                             }
                         }
                     }
-                }
-                "limits_agent_max_iterations_cap" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_agent_max_iterations_cap" => {
+                        let limit = env_u32(key, value)?;
+                        set_agent_limit(&mut config.limits, |l| l.max_iterations_cap = Some(limit));
+                    }
+                    "limits_agent_default_max_iterations" => {
+                        let limit = env_u32(key, value)?;
                         set_agent_limit(&mut config.limits, |l| {
-                            l.max_iterations_cap = Some(v as u32)
+                            l.default_max_iterations = Some(limit)
                         });
                     }
-                }
-                "limits_agent_default_max_iterations" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_agent_max_concurrent" => {
+                        let limit = env_u32(key, value)?;
+                        set_agent_limit(&mut config.limits, |l| l.max_concurrent = Some(limit));
+                    }
+                    "limits_agent_max_sub_agent_depth" => {
+                        let limit = env_u32(key, value)?;
                         set_agent_limit(&mut config.limits, |l| {
-                            l.default_max_iterations = Some(v as u32)
+                            l.max_sub_agent_depth = Some(limit)
                         });
                     }
-                }
-                "limits_agent_max_concurrent" => {
-                    if let Some(v) = value.as_int() {
-                        set_agent_limit(&mut config.limits, |l| l.max_concurrent = Some(v as u32));
-                    }
-                }
-                "limits_agent_max_sub_agent_depth" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_agent_max_pause_duration_ms" => {
+                        let limit = env_u64(key, value)?;
                         set_agent_limit(&mut config.limits, |l| {
-                            l.max_sub_agent_depth = Some(v as u32)
+                            l.max_pause_duration_ms = Some(limit)
                         });
                     }
-                }
-                "limits_agent_max_pause_duration_ms" => {
-                    if let Some(v) = value.as_int() {
-                        set_agent_limit(&mut config.limits, |l| {
-                            l.max_pause_duration_ms = Some(v as u64)
-                        });
-                    }
-                }
-                "limits_workflow_loop_max_iterations_cap" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_workflow_loop_max_iterations_cap" => {
+                        let limit = env_u32(key, value)?;
                         set_workflow_limit(&mut config.limits, |l| {
-                            l.loop_max_iterations_cap = Some(v as u32)
+                            l.loop_max_iterations_cap = Some(limit)
                         });
                     }
-                }
-                "limits_workflow_loop_default_max_iterations" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_workflow_loop_default_max_iterations" => {
+                        let limit = env_u32(key, value)?;
                         set_workflow_limit(&mut config.limits, |l| {
-                            l.loop_default_max_iterations = Some(v as u32)
+                            l.loop_default_max_iterations = Some(limit)
                         });
                     }
-                }
-                "limits_workflow_max_navigation_multiplier" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_workflow_max_navigation_multiplier" => {
+                        let limit = env_u32(key, value)?;
                         set_workflow_limit(&mut config.limits, |l| {
-                            l.max_navigation_multiplier = Some(v as u32)
+                            l.max_navigation_multiplier = Some(limit)
                         });
                     }
-                }
-                "limits_exec_node_timeout_ms" => {
-                    if let Some(v) = value.as_int() {
+                    "limits_exec_node_timeout_ms" => {
+                        let timeout = env_u64(key, value)?;
+                        set_exec_default(&mut config.limits, |l| l.node_timeout_ms = Some(timeout));
+                    }
+                    "limits_exec_max_execution_time_ms" => {
+                        let timeout = env_u64(key, value)?;
                         set_exec_default(&mut config.limits, |l| {
-                            l.node_timeout_ms = Some(v as u64)
+                            l.max_execution_time_ms = Some(timeout)
                         });
                     }
-                }
-                "limits_exec_max_execution_time_ms" => {
-                    if let Some(v) = value.as_int() {
-                        set_exec_default(&mut config.limits, |l| {
-                            l.max_execution_time_ms = Some(v as u64)
-                        });
+                    "metrics_enabled" => {
+                        config.metrics.enabled = Some(env_bool(key, value)?);
                     }
-                }
-                "metrics_enabled" => {
-                    if let Some(enabled) = value.as_bool() {
-                        config.metrics.enabled = Some(enabled);
+                    "file_checkpoint_enabled" => {
+                        config.file_checkpoint.enabled = env_bool(key, value)?;
                     }
-                }
-                "file_checkpoint_enabled" => {
-                    if let Some(enabled) = value.as_bool() {
-                        config.file_checkpoint.enabled = enabled;
-                    }
-                }
-                "file_checkpoint_workspace_root" => {
-                    if let Some(root) = value.as_string() {
+                    "file_checkpoint_workspace_root" => {
+                        let root = env_string(key, value)?;
                         if !root.is_empty() {
-                            config.file_checkpoint.workspace_root = Some(root.to_string());
+                            config.file_checkpoint.workspace_root = Some(root);
                         }
                     }
-                }
-                "file_checkpoint_manual_watch" => {
-                    if let Some(watch) = value.as_bool() {
-                        config.file_checkpoint.manual_watch = watch;
+                    "file_checkpoint_manual_watch" => {
+                        config.file_checkpoint.manual_watch = env_bool(key, value)?;
                     }
-                }
-                "file_checkpoint_manual_poll_ms" => {
-                    if let Some(v) = value.as_int() {
-                        if let Ok(poll_ms) = u64::try_from(v) {
-                            config.file_checkpoint.manual_poll_ms = Some(poll_ms);
-                        }
+                    "file_checkpoint_manual_poll_ms" => {
+                        config.file_checkpoint.manual_poll_ms = Some(env_u64(key, value)?);
                     }
-                }
-                "file_checkpoint_gc_interval_secs" => {
-                    if let Some(v) = value.as_int() {
-                        if let Ok(interval) = u64::try_from(v) {
-                            config.file_checkpoint.gc_interval_secs = Some(interval);
-                        }
+                    "file_checkpoint_gc_interval_secs" => {
+                        config.file_checkpoint.gc_interval_secs = Some(env_u64(key, value)?);
                     }
-                }
-                "sandbox_mode" => {
-                    if let Some(mode) = value.as_string() {
-                        // Only the canonical spellings arrive here; the
-                        // mapping parser rejects everything else.
-                        let mode = match mode {
-                            "Disabled" => Some(SandboxMode::Disabled),
-                            "Lenient" => Some(SandboxMode::Lenient),
-                            "Strict" => Some(SandboxMode::Strict),
-                            _ => None,
+                    "sandbox_mode" => {
+                        let mode = match env_string(key, value)?.as_str() {
+                            "Disabled" => SandboxMode::Disabled,
+                            "Lenient" => SandboxMode::Lenient,
+                            "Strict" => SandboxMode::Strict,
+                            other => {
+                                return Err(ConfigError::EnvVar(format!(
+                                    "unsupported sandbox mode: {other}"
+                                )))
+                            }
                         };
-                        if let Some(mode) = mode {
-                            match config.sandbox.as_mut() {
-                                Some(global) => global.mode = Some(mode),
-                                None => {
-                                    config.sandbox = Some(SandboxGlobalConfig {
-                                        mode: Some(mode),
-                                        ..Default::default()
-                                    });
-                                }
+                        match config.sandbox.as_mut() {
+                            Some(global) => global.mode = Some(mode),
+                            None => {
+                                config.sandbox = Some(SandboxGlobalConfig {
+                                    mode: Some(mode),
+                                    ..Default::default()
+                                });
                             }
                         }
                     }
+                    _ => return Err(ConfigError::EnvVar(format!("unknown config key: {key}"))),
                 }
-                _ => {}
+                Ok(())
             },
             &mapping,
         )?;
@@ -545,6 +550,7 @@ impl ConfigOrchestratorLoaded {
         // as file values: a zero poll interval or an out-of-bounds default
         // scope introduced here aborts startup.
         validate_file_checkpoint_config(&config.file_checkpoint)?;
+        validate_limits_config(&config.limits)?;
         if let Some(sandbox) = config.sandbox.as_ref() {
             validate_sandbox_global(sandbox)?;
         }
@@ -592,6 +598,42 @@ impl ConfigOrchestratorLoaded {
     }
 }
 
+fn env_string(key: &str, value: EnvValue) -> ConfigResult<String> {
+    match value {
+        EnvValue::String(value) => Ok(value),
+        _ => Err(ConfigError::EnvVar(format!(
+            "{key} requires a string value"
+        ))),
+    }
+}
+
+fn env_bool(key: &str, value: EnvValue) -> ConfigResult<bool> {
+    match value {
+        EnvValue::Bool(value) => Ok(value),
+        _ => Err(ConfigError::EnvVar(format!(
+            "{key} requires a boolean value"
+        ))),
+    }
+}
+
+fn env_u32(key: &str, value: EnvValue) -> ConfigResult<u32> {
+    let raw = match value {
+        EnvValue::Int(value) => value,
+        _ => return Err(ConfigError::EnvVar(format!("{key} requires an integer"))),
+    };
+    u32::try_from(raw)
+        .map_err(|_| ConfigError::EnvVar(format!("{key} must be between 0 and {}", u32::MAX)))
+}
+
+fn env_u64(key: &str, value: EnvValue) -> ConfigResult<u64> {
+    let raw = match value {
+        EnvValue::Int(value) => value,
+        _ => return Err(ConfigError::EnvVar(format!("{key} requires an integer"))),
+    };
+    u64::try_from(raw)
+        .map_err(|_| ConfigError::EnvVar(format!("{key} must be between 0 and {}", u64::MAX)))
+}
+
 /// Update the `agent` section of the limits config, materializing it when
 /// absent.
 fn set_agent_limit(
@@ -632,13 +674,16 @@ fn set_exec_default(
 /// precedence order (low to high). Missing files yield defaults; a present
 /// file with invalid sections fails. Unknown sections are kept verbatim but
 /// must be tables so mistyped scalars cannot hide as opaque tool config.
-pub fn load_tool_configs(paths: &[PathBuf]) -> ConfigResult<ToolConfigs> {
+pub fn load_tool_configs(
+    paths: &[PathBuf],
+    defaults: Option<ToolConfigs>,
+) -> ConfigResult<ToolConfigs> {
     let existing: Vec<&Path> = paths
         .iter()
         .map(PathBuf::as_path)
         .filter(|path| path.exists())
         .collect();
-    let mut tools = ToolConfigs::default();
+    let mut tools = defaults.unwrap_or_default();
     if existing.is_empty() {
         return Ok(tools);
     }

@@ -50,14 +50,17 @@ fn test_resolve_infra_config_from_file_layers() {
         Some(project_dir.path().to_path_buf())
     );
 
-    // Programmatic values win over the file layer.
-    let programmatic = RuntimeConfig {
-        metrics: Some(MetricsConfig::default()),
-        ..Default::default()
+    // Programmatic overrides win over the file layer.
+    let overridden = InfraSourceConfig {
+        overrides: wf_config::orchestrator::ConfigOverrides {
+            metrics: Some(MetricsConfig::default()),
+            ..Default::default()
+        },
+        ..infra.clone()
     };
-    let config = resolve_with_file_layer(programmatic, &infra, &runtime);
+    let config = resolve_with_file_layer(RuntimeConfig::default(), &overridden, &runtime);
     assert!(config.metrics.is_some());
-    // storage was left default -> still filled from the file layer.
+    // Other domains still come from the file layer.
     assert_ne!(config.storage, StorageConfig::default());
 }
 
@@ -106,7 +109,8 @@ db_path = "./layer-test.db"
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
     assert_eq!(config.log_config.level, Some(LogLevel::Debug));
 
-    // Programmatic values (CLI parameters) win over both file layers.
+    // CLI log options win over both file layers; infrastructure files keep
+    // their own resolution chain.
     let config = resolve_with_file_layer(
         RuntimeConfig {
             log_config: LogConfig::default().with_level(LogLevel::Off),
@@ -165,9 +169,37 @@ fn test_resolve_infra_config_ambient_disabled_by_default() {
     std::env::remove_var("XDG_CONFIG_HOME");
 }
 
+/// Invalid LLM declarations fail bootstrap instead of leaving a missing
+/// reference for a later tool call to discover.
+#[test]
+fn test_resolve_infra_config_rejects_invalid_llm_profile() {
+    let project_dir = tempfile::tempdir().unwrap();
+    let profiles = project_dir.path().join(".wf").join("llm-profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    std::fs::write(
+        profiles.join("bad.profile.toml"),
+        "id = \"bad\"\nname = \"Bad\"\nformat = \"OPENAI_CHAT\"\nmodel = \"m\"\napi_key = \"!cmd\"\n",
+    )
+    .unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let infra = InfraSourceConfig {
+        project_root: Some(project_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let layer = load_infra_file_layer(&infra);
+    let result = runtime.block_on(resolve_infra_config(
+        RuntimeConfig::default(),
+        &infra,
+        layer.config,
+        None,
+    ));
+    assert!(result.is_err());
+}
+
 /// An explicitly closed file channel delivered through programmatic
 /// overrides keeps its value even though it reads identical to the type
-/// default, and overrides outrank a non-default programmatic value.
+/// default.
 #[test]
 fn test_resolve_infra_config_explicit_close_survives() {
     use wf_types::config::file_checkpoint::FileCheckpointConfig;
@@ -196,14 +228,17 @@ fn test_resolve_infra_config_explicit_close_survives() {
     let config = resolve_with_file_layer(RuntimeConfig::default(), &infra, &runtime);
     assert!(!config.file_checkpoint.as_ref().unwrap().enabled);
 
-    let programmatic = RuntimeConfig {
-        file_checkpoint: Some(FileCheckpointConfig {
-            enabled: true,
-            workspace_root: Some("/repo".to_string()),
+    let enabled_source = InfraSourceConfig {
+        overrides: wf_config::orchestrator::ConfigOverrides {
+            file_checkpoint: Some(FileCheckpointConfig {
+                enabled: true,
+                workspace_root: Some("/repo".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
+        },
+        ..infra.clone()
     };
-    let config = resolve_with_file_layer(programmatic, &infra, &runtime);
-    assert!(!config.file_checkpoint.as_ref().unwrap().enabled);
+    let config = resolve_with_file_layer(RuntimeConfig::default(), &enabled_source, &runtime);
+    assert!(config.file_checkpoint.as_ref().unwrap().enabled);
 }

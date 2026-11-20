@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use wf_config::env::{env_parse_bool, EnvValue};
 use wf_config::error::{ConfigError, ConfigResult};
 
 use crate::backends::BackendConfig;
@@ -175,7 +176,19 @@ impl ServerConfig {
             .ok()
             .filter(|raw| !raw.trim().is_empty())
         {
-            Some(raw) => parse_static_bool(&raw)?,
+            Some(raw) => match env_parse_bool(&raw) {
+                Ok(EnvValue::Bool(value)) => value,
+                Ok(_) => {
+                    return Err(ConfigError::Parse(format!(
+                        "invalid {STATIC_FALLBACK_ENV_VAR}"
+                    )))
+                }
+                Err(e) => {
+                    return Err(ConfigError::Parse(format!(
+                        "invalid {STATIC_FALLBACK_ENV_VAR}: {e}"
+                    )))
+                }
+            },
             None => file
                 .as_ref()
                 .and_then(|file| file.static_fallback)
@@ -290,18 +303,6 @@ impl StaticConfig {
     }
 }
 
-/// Parse a static toggle env value. Invalid values fail startup instead
-/// of silently flipping the SPA fallback.
-fn parse_static_bool(raw: &str) -> ConfigResult<bool> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Ok(true),
-        "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(ConfigError::Parse(format!(
-            "invalid {STATIC_FALLBACK_ENV_VAR}: expected one of 1/true/yes/on or 0/false/no/off"
-        ))),
-    }
-}
-
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ServerFileConfig {
     bind_addr: Option<String>,
@@ -327,26 +328,7 @@ fn load_merged_server_file(
     if let Some(dir) = project_layer {
         paths.push(dir.join(SERVER_CONFIG_FILE));
     }
-    let existing: Vec<&Path> = paths
-        .iter()
-        .map(|path| path.as_path())
-        .filter(|path| path.exists())
-        .collect();
-    if existing.is_empty() {
-        return Ok(None);
-    }
-    wf_config::layered::load_layered_config_sync::<ServerFileConfig>(&existing)
-        .map(Some)
-        .map_err(|e| {
-            ConfigError::Parse(format!(
-                "invalid server config files {}: {e}",
-                existing
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-        })
+    wf_config::layered::load_optional_merged_config(&paths, "server")
 }
 
 #[cfg(test)]

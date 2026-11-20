@@ -77,10 +77,13 @@ pub fn env_parse_float(value: &str) -> ConfigResult<EnvValue> {
 }
 
 pub fn env_parse_bool(value: &str) -> ConfigResult<EnvValue> {
-    let lower = value.to_lowercase();
-    Ok(EnvValue::Bool(
-        lower == "true" || lower == "1" || lower == "yes",
-    ))
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(EnvValue::Bool(true)),
+        "false" | "0" | "no" | "off" => Ok(EnvValue::Bool(false)),
+        _ => Err(ConfigError::EnvVar(format!(
+            "invalid boolean '{value}': expected true/1/yes/on or false/0/no/off"
+        ))),
+    }
 }
 
 pub fn env_parse_list(value: &str) -> ConfigResult<EnvValue> {
@@ -291,7 +294,7 @@ impl EnvMappingBuilder {
 }
 
 pub fn apply_env_overrides(
-    mut apply_fn: impl FnMut(&str, EnvValue),
+    mut apply_fn: impl FnMut(&str, EnvValue) -> ConfigResult<()>,
     mapping: &HashMap<String, EnvMappingEntry>,
 ) -> ConfigResult<()> {
     for (key, entry) in mapping {
@@ -303,7 +306,7 @@ pub fn apply_env_overrides(
                 let parsed = (entry.parser)(&value).map_err(|e| {
                     ConfigError::EnvVar(format!("failed to parse env var {}: {e}", entry.env_var))
                 })?;
-                apply_fn(key, parsed);
+                apply_fn(key, parsed)?;
             }
             Err(std::env::VarError::NotPresent) => {
                 if entry.required && entry.default.is_none() {
@@ -313,7 +316,7 @@ pub fn apply_env_overrides(
                     )));
                 }
                 if let Some(ref default) = entry.default {
-                    apply_fn(key, default.clone());
+                    apply_fn(key, default.clone())?;
                 }
             }
             Err(e) => return Err(ConfigError::EnvVar(e.to_string())),
@@ -346,6 +349,8 @@ mod tests {
         assert_eq!(env_parse_bool("yes").unwrap().as_bool(), Some(true));
         assert_eq!(env_parse_bool("false").unwrap().as_bool(), Some(false));
         assert_eq!(env_parse_bool("0").unwrap().as_bool(), Some(false));
+        assert_eq!(env_parse_bool("off").unwrap().as_bool(), Some(false));
+        assert!(env_parse_bool("tru").is_err());
     }
 
     #[test]

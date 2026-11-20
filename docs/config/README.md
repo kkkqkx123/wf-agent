@@ -7,13 +7,12 @@
 从低到高：
 
 1. 代码默认值（Development / Production 两套环境默认）
-2. 显式 settings 目录（`--settings-dir`，或 XDG / `~/.wf`）
-3. 项目层 `.wf/`（随业务仓库，优先于 settings）
-4. 显式托管目录（ops 渲染，`--infra-dir` / `--settings-dir`）
-5. `WF_*` 环境变量
-6. CLI flags / SDK `ConfigOverrides` / 程序化覆盖
+2. 宿主 `config.toml` 提供的领域默认值（显式 settings 目录优先于 XDG / `~/.wf`，项目 `.wf/config.toml` 再优先）
+3. 固定域文件：显式托管目录（`--infra-dir` / `--settings-dir`）替代 settings 与项目层；否则 settings 层低于项目 `.wf/infrastructure/`
+4. `WF_*` 环境变量
+5. CLI flags / SDK `ConfigOverrides` / 程序化覆盖
 
-TOML 合并为字段级递归合并；JSON 家族按记录 `id` 覆盖。缺失文件回退默认值；存在但损坏的文件会启动失败，避免拼写错误静默跑默认值。用户级 `config.toml` 层采用宽松策略（坏文件告警跳过）。
+TOML 合并为字段级递归合并；JSON 家族按记录 `id` 覆盖。基础设施文件缺失时回退领域默认值，存在但损坏的文件启动失败；用户级 `config.toml` 层采用宽松策略（坏文件告警跳过），有效值进入装配器作为领域默认值。LLM 文件族声明非法时在 bootstrap 直接失败，不降级为默认配置。
 
 ## 文件系统布局
 
@@ -47,7 +46,7 @@ TOML 合并为字段级递归合并；JSON 家族按记录 `id` 覆盖。缺失�
 ## 通用加载规则
 
 - `*.example.*` 样例文件永远不加载；`config-examples/` 目录从不参与加载。
-- 索引家族通过 `index.json` 的路径模式展开 glob，元数据从配置文件本身提取。
+- 只有 LLM 文件族（providers / profiles / auth）支持 `index.json` 的路径模式；资源定义由 API 与存储管理。
 - 领域文件"缺失"回退默认值；"存在但无效"启动失败。
 - 用户级全局层（`config.toml`）缺失给默认值、坏文件告警跳过而非阻断启动。
 - `${VAR}` / `${VAR:default}` 在解析前展开；仅大写变量名匹配，工作流表达式 `${input.a}` 不受影响。

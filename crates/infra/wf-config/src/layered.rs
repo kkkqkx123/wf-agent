@@ -4,7 +4,7 @@
 //! (low → high) and recursively merge them. Sub-table fields are merged at
 //! field level so partial overrides work at any depth.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
 use wf_metrics::ConfigMetricsCollector;
@@ -100,86 +100,38 @@ fn load_layered_config_sync_inner<T: DeserializeOwned>(paths: &[&Path]) -> Confi
         ))
     })?;
 
-    // Serialize merged toml::Value back to string, then deserialize into T.
-    // This round-trip is necessary because toml::Value -> T requires
-    // going through serialization when T is not directly from Value.
-    let serialized = toml::to_string_pretty(&merged).map_err(|e| {
-        ConfigError::Serialization(format!("failed to serialize merged config: {e}"))
-    })?;
-    toml::from_str(&serialized)
+    merged
+        .try_into::<T>()
         .map_err(|e| ConfigError::Parse(format!("failed to deserialize merged config: {e}")))
 }
 
-/// Async version of [`load_layered_config_sync`].
-pub async fn load_layered_config<T: DeserializeOwned>(paths: &[&Path]) -> ConfigResult<T> {
-    load_layered_config_with_metrics(paths, None).await
-}
-
-/// Async version of [`load_layered_config_sync_with_metrics`].
-pub async fn load_layered_config_with_metrics<T: DeserializeOwned>(
-    paths: &[&Path],
-    metrics: Option<&ConfigMetricsCollector>,
-) -> ConfigResult<T> {
-    if let Some(metrics) = metrics {
-        metrics.record_access();
+/// Merge candidate files in precedence order, returning `None` when none of
+/// them exist. A present but invalid file fails so typos cannot silently
+/// fall back to defaults.
+pub fn load_optional_merged_config<T: DeserializeOwned>(
+    paths: &[PathBuf],
+    label: &str,
+) -> ConfigResult<Option<T>> {
+    let existing: Vec<&Path> = paths
+        .iter()
+        .map(PathBuf::as_path)
+        .filter(|path| path.exists())
+        .collect();
+    if existing.is_empty() {
+        return Ok(None);
     }
-    let start = std::time::Instant::now();
-    let result = load_layered_config_inner(paths).await;
-    match &result {
-        Ok(_) => {
-            if let Some(metrics) = metrics {
-                metrics.record_load_complete(start.elapsed().as_millis() as f64);
-            }
-        }
-        Err(_) => {
-            if let Some(metrics) = metrics {
-                metrics.record_validation_error();
-            }
-        }
-    }
-    result
-}
-
-async fn load_layered_config_inner<T: DeserializeOwned>(paths: &[&Path]) -> ConfigResult<T> {
-    let mut base: Option<toml::Value> = None;
-
-    for path in paths {
-        if !path.exists() {
-            continue;
-        }
-        let content = tokio::fs::read_to_string(path).await.map_err(|e| {
-            ConfigError::Io(std::io::Error::other(format!(
-                "failed to read {}: {}",
-                path.display(),
-                e
-            )))
-        })?;
-        let content = crate::env::expand_env_vars(&content);
-        let overlay: toml::Value = toml::from_str(&content).map_err(|e| {
-            ConfigError::Parse(format!("failed to parse {}: {}", path.display(), e))
-        })?;
-
-        match &mut base {
-            Some(b) => merge_toml_values(b, overlay),
-            None => base = Some(overlay),
-        }
-    }
-
-    let merged = base.ok_or_else(|| {
-        ConfigError::NotFound(format!(
-            "no config files found in: {:?}",
-            paths
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-        ))
-    })?;
-
-    let serialized = toml::to_string_pretty(&merged).map_err(|e| {
-        ConfigError::Serialization(format!("failed to serialize merged config: {e}"))
-    })?;
-    toml::from_str(&serialized)
-        .map_err(|e| ConfigError::Parse(format!("failed to deserialize merged config: {e}")))
+    load_layered_config_sync::<T>(&existing)
+        .map(Some)
+        .map_err(|e| {
+            ConfigError::Parse(format!(
+                "invalid {label} config files {}: {e}",
+                existing
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })
 }
 
 #[cfg(test)]

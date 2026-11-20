@@ -74,12 +74,10 @@ fn env_usize(name: &str) -> Option<usize> {
 
 fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig>) {
     let mut config = RuntimeConfig::default();
-
-    if let Some(spec) = args.storage.as_deref() {
-        if let Some(storage) = wf_config::storage_spec::parse_storage_spec(spec) {
-            config.storage = storage;
-        }
-    }
+    let storage_override = args
+        .storage
+        .as_deref()
+        .and_then(wf_config::storage_spec::parse_storage_spec);
 
     // Workspace-bound domains (fs, git, pty, mentions) carry no server-side
     // default workspace: every request names its directory explicitly and
@@ -104,13 +102,16 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
         config.log_config = config.log_config.with_format(format);
     }
 
-    let source = match args.config.clone() {
-        None => None,
-        project_root => Some(InfraSourceConfig {
-            project_root,
-            settings_dir: args.settings_dir.clone(),
-            ..Default::default()
-        }),
+    let mut source = InfraSourceConfig {
+        project_root: args.config.clone(),
+        settings_dir: args.settings_dir.clone(),
+        ..Default::default()
+    };
+    source.overrides.storage = storage_override;
+    let source = if args.config.is_some() || source.overrides.storage.is_some() {
+        Some(source)
+    } else {
+        None
     };
 
     (config, source)

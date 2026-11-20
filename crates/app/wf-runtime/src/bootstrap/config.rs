@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use wf_config::file_layer::{load_user_file_layer, FileLayerConfig, UserFileLayerLoad};
-use wf_config::orchestrator::{ConfigOrchestratorBuilder, ConfigOverrides};
+use wf_config::orchestrator::{ConfigDefaults, ConfigOrchestratorBuilder, ConfigOverrides};
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::keyword::KeywordIndexConfig;
 use wf_types::config::limits::LimitsConfig;
@@ -16,7 +16,7 @@ use wf_types::llm::LlmProfile;
 use wf_types::llm::LlmProviderDefinition;
 use wf_types::skill::SkillConfig;
 
-use crate::error::RuntimeResult;
+use crate::error::{RuntimeError, RuntimeResult};
 use crate::logger::{LogConfig, LogFormat, LogLevel};
 use crate::mode::{ExecutionMode, ModeInfo};
 
@@ -146,13 +146,11 @@ pub struct RuntimeConfig {
     /// Tool-specific configuration sections (read_file / glob / list_files
     /// and raw pass-through sections).
     pub tools: wf_config::orchestrator::ToolConfigs,
-    /// File checkpoint configuration. `None` means the caller did not set it
-    /// explicitly, so the assembled infrastructure value fills it; `Some`
-    /// carries an explicit programmatic value (including `enabled = false`,
-    /// which must not be mistaken for "unset") and wins per the merge rules.
+    /// File checkpoint configuration resolved by the orchestrator. Explicit
+    /// programmatic values enter through `ConfigOverrides`.
     pub file_checkpoint: Option<FileCheckpointConfig>,
-    /// User repository Git configuration. `None` leaves the domain unset and
-    /// the assembled infrastructure value fills it; `Some` is explicit.
+    /// User repository Git configuration. This domain has no file source yet,
+    /// so `None` leaves it unset and bootstrap installs a disabled default.
     pub user_git: Option<wf_types::config::user_git::UserGitConfig>,
     /// Host default tool approval configuration. The type-level default is
     /// disabled (library contract: auto-approve); hosts enable it in their
@@ -161,8 +159,8 @@ pub struct RuntimeConfig {
     /// Resource limits (agent/workflow) resolved from the infrastructure
     /// file layer via `bootstrap_with_source`; defaults otherwise.
     pub limits: LimitsConfig,
-    /// Server-owned retention policy. `None` fills from the infrastructure
-    /// file layer; an explicit value wins.
+    /// Server-owned retention policy resolved by the orchestrator. Explicit
+    /// programmatic values enter through `ConfigOverrides`.
     pub retention: Option<RetentionConfig>,
     /// Keyword index configuration. Enabled by default; the database path
     /// derives from the storage configuration unless set explicitly.
@@ -265,36 +263,6 @@ fn apply_shell_tool_config(
     }
 }
 
-/// Apply the user file layer to fields the caller has not set explicitly:
-/// file values only fill in defaults, so programmatic parameters (already
-/// present in `config` when this runs) always win. Loading itself lives in
-/// `wf_config::file_layer`; this only maps the loaded values onto runtime
-/// fields. Log level is resolved separately by `resolve_log_config`.
-///
-/// Precedence across the whole resolution (highest first): programmatic
-/// `RuntimeConfig` (including `ConfigOverrides`) > `WF_*` environment >
-/// explicit managed directory (ops-rendered, e.g. from `deploy/`) > project
-/// `.wf/` layer (including the host-knob `config.toml`) > explicit settings
-/// dir (ambient workstation state joins only when the caller opts in) >
-/// built-in code defaults. The environment check below exists because the
-/// file layer runs before the orchestrator bakes `WF_*` overrides into the
-/// assembled config: without it a dotfile `storage` would silently beat an
-/// explicit `WF_STORAGE_*` export.
-fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
-    if let Some(storage) = &layer.storage {
-        let storage_env_set = std::env::var_os("WF_STORAGE_TYPE").is_some()
-            || std::env::var_os("WF_STORAGE_SQLITE_DB_PATH").is_some();
-        if !storage_env_set && config.storage == StorageConfig::default() {
-            config.storage = storage.clone();
-        }
-    }
-    if let Some(approval) = &layer.tool_approval {
-        if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
-            config.tool_approval = approval.clone();
-        }
-    }
-}
-
 /// Load the host dotfile layer once, before logging is installed. The caller
 /// emits the returned warnings after installation so configuration diagnostics
 /// are not dropped.
@@ -367,9 +335,15 @@ pub async fn resolve_infra_config(
         }
     }
 
-    // The user/project dotfile layer was loaded before logging was installed;
-    // it fills only fields the caller left unset.
-    apply_file_layer(&mut config, &file_layer);
+    // The user/project dotfile layer was loaded before logging was installed.
+    // Its infrastructure knobs enter the orchestrator as domain defaults so
+    // fixed files, environment overrides and programmatic overrides keep
+    // their higher priority inside one resolution chain.
+    let defaults = ConfigDefaults {
+        storage: file_layer.storage.clone(),
+        tool_approval: file_layer.tool_approval.clone(),
+        ..Default::default()
+    };
 
     let mut builder = ConfigOrchestratorBuilder::new(&project_root).runtime_env(
         infra
@@ -383,6 +357,7 @@ pub async fn resolve_infra_config(
         builder = builder.with_config_metrics(metrics.clone());
     }
     let assembled = builder
+        .defaults(defaults)
         .build()
         .assemble(Some(infra.overrides.clone()))
         .map_err(|e| {
@@ -391,54 +366,25 @@ pub async fn resolve_infra_config(
             ))
         })?;
 
-    if config.storage == StorageConfig::default() {
-        config.storage = assembled.storage;
-    }
-    if config.metrics.is_none() {
-        config.metrics = Some(assembled.metrics);
-    }
-    // Programmatic overrides already won inside the assembled config, so
-    // they outrank the programmatic runtime values below. Explicitness is
-    // carried by `Option`: `None` means the caller left file checkpoint
-    // unset and the assembled value fills it; `Some` survives verbatim so
-    // an explicitly closed file channel (`enabled = false`) cannot be
-    // mistaken for "unset" and covered by the assembled value. An explicit
-    // infra override still wins over an explicit programmatic value.
-    config.file_checkpoint = Some(
-        match (
-            config.file_checkpoint,
-            infra.overrides.file_checkpoint.as_ref(),
-        ) {
-            (_, Some(_)) => assembled.file_checkpoint,
-            (Some(explicit), None) => explicit,
-            (None, None) => assembled.file_checkpoint,
-        },
-    );
-    if infra.overrides.sandbox.is_some() || config.sandbox.is_none() {
-        config.sandbox = assembled.sandbox;
-    }
-    if config.presets == wf_types::config::presets::PresetsConfig::default() {
-        config.presets = assembled.presets;
-    }
-    if config.tools == wf_config::orchestrator::ToolConfigs::default() {
-        config.tools = assembled.tools;
-    }
+    // The orchestrator is the single resolution point for infrastructure
+    // domains. Caller-provided explicit values arrive as `ConfigOverrides`;
+    // RuntimeConfig only receives the final assembled result.
+    config.storage = assembled.storage;
+    config.metrics = Some(assembled.metrics);
+    config.file_checkpoint = Some(assembled.file_checkpoint);
+    config.sandbox = assembled.sandbox;
+    config.presets = assembled.presets;
+    config.tools = assembled.tools;
     apply_shell_tool_config(&mut config.shell, config.tools.shell.as_ref());
-    if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
-        config.tool_approval = assembled.tool_approval;
-    }
+    config.tool_approval = assembled.tool_approval;
     // User git has no dedicated infrastructure domain file yet; the
     // programmatic value wins when present, otherwise a disabled default
     // keeps the domain off until the host configures a repo root.
     if config.user_git.is_none() {
         config.user_git = Some(wf_types::config::user_git::UserGitConfig::default());
     }
-    if config.limits == wf_types::config::limits::LimitsConfig::default() {
-        config.limits = assembled.limits;
-    }
-    if infra.overrides.retention.is_some() || config.retention.is_none() {
-        config.retention = Some(assembled.retention);
-    }
+    config.limits = assembled.limits;
+    config.retention = Some(assembled.retention);
 
     // Skill settings chain (global -> project). Lenient:
     // a missing/invalid skill config falls back to the defaults. Without a
@@ -471,55 +417,46 @@ pub async fn resolve_infra_config(
     if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default()
         && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
     {
-        match wf_config::llm_auth::load_llm_auth_config(
+        let auth = wf_config::llm_auth::load_llm_auth_config(
             &project_root,
             infra.settings_dir.as_deref(),
             infra.allow_ambient,
-        ) {
-            Ok(auth) => {
-                if !auth.providers.is_empty() {
-                    config.llm.auth = auth;
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
+        )
+        .map_err(|e| RuntimeError::Config(format!("Invalid llm-auth config: {e}")))?;
+        if !auth.providers.is_empty() {
+            config.llm.auth = auth;
         }
     }
     // File-driven LLM profiles and provider definitions fill only empty
     // programmatic values; explicit profiles keep the highest priority.
-    // Validation failures are fail-fast so a typoed profile cannot run
-    // with defaults unnoticed.
+    // Invalid files fail bootstrap so a typo cannot surface later as a
+    // missing reference at call time.
     if config.llm.profiles.is_empty()
         && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
     {
-        match wf_config::llm::load_llm_profiles_config(
+        let profiles = wf_config::llm::load_llm_profiles_config(
             &project_root,
             infra.settings_dir.as_deref(),
             infra.allow_ambient,
             infra.strict_env,
-        ) {
-            Ok(profiles) => {
-                if !profiles.is_empty() {
-                    config.llm.profiles = profiles;
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to load llm-profiles config; keeping defaults"),
+        )
+        .map_err(|e| RuntimeError::Config(format!("Invalid llm-profiles config: {e}")))?;
+        if !profiles.is_empty() {
+            config.llm.profiles = profiles;
         }
     }
     if config.llm.provider_definitions.is_empty()
         && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
     {
-        match wf_config::llm::load_llm_provider_definitions_config(
+        let definitions = wf_config::llm::load_llm_provider_definitions_config(
             &project_root,
             infra.settings_dir.as_deref(),
             infra.allow_ambient,
             infra.strict_env,
-        ) {
-            Ok(definitions) => {
-                if !definitions.is_empty() {
-                    config.llm.provider_definitions = definitions;
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to load llm-providers config; keeping defaults"),
+        )
+        .map_err(|e| RuntimeError::Config(format!("Invalid llm-providers config: {e}")))?;
+        if !definitions.is_empty() {
+            config.llm.provider_definitions = definitions;
         }
     }
     // Credential store placement: with ambient disabled the store resolves

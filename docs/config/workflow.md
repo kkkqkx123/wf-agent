@@ -1,10 +1,10 @@
 # 工作流配置（workflows / node-templates / prompt-templates / scripts）
 
-工作流相关配置位于项目 `.wf/`（或 settings）下的资源索引家族。启动时只作为 `import` 起点；网关与注册表的真实来源是 API 与存储。
+工作流相关定义由 API 与存储管理；仓库中的样例文件只描述结构，不会被运行时自动加载。`wf-config::processor` 提供定义校验，供 API 保存与资源注册复用。当前 `index.json` 仅用于 LLM 文件族，资源家族的索引清单不作为启动入口。
 
 ## workflows/
 
-文件：`{project}/.wf/workflows/*.workflow.toml`，索引：`index.json`（`type: workflows`，路径 `./*.toml`）。
+样例文件：`config-examples/workflows/*.workflow.example.toml`（加载器跳过 `.example.` 文件）。
 
 关键字段（`WorkflowDefinition`）：
 
@@ -21,7 +21,7 @@
 
 ## node-templates/
 
-文件：`{project}/.wf/node-templates/*.template.toml`，多模板以 `---` 分隔。
+样例文件：`config-examples/node-templates/*.template.example.toml`，多模板以 `---` 分隔。
 
 关键字段（`NodeTemplate`）：`name`、`node_type`、`description`、`[nodes.config]`、`[metadata]`。
 
@@ -29,8 +29,8 @@
 
 两种形式：
 
-- TOML：`{project}/.wf/prompt-templates/*.prompt.toml`（`Template` + `TemplateVariableDefinition`）
-- JSON：`custom.prompts.json`（`prompts` 数组）
+- TOML：`config-examples/prompt-templates/*.prompt.example.toml`（`Template` + `TemplateVariableDefinition`）
+- JSON：`config-examples/prompt-templates/custom.prompts.example.json`（`prompts` 数组）
 
 关键字段：`id`、`name`、`description`、`category`、`content`、`[[variables]]`（`name`、`type`、`required`、`description`、`default_value`）、`fragments`、`metadata`。
 
@@ -38,4 +38,4 @@
 
 ## scripts/
 
-目录预留：`{project}/.wf/scripts/index.json`（`type: scripts`），暂无自动加载的脚本家族文件。
+脚本定义由 API 与存储管理，没有自动加载的脚本家族文件。

@@ -377,6 +377,34 @@ fn test_assemble_rejects_zero_poll_ms_from_env() {
 }
 
 #[test]
+fn test_assemble_rejects_invalid_env_values() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    clear_wf_env_vars();
+
+    let dir = std::env::temp_dir().join(format!("wf-orch-env-invalid-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    setup_test_project(&dir);
+
+    std::env::set_var("WF_STORAGE_TYPE", "redis");
+    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    clear_wf_env_vars();
+
+    std::env::set_var("WF_AGENT_MAX_CONCURRENT", "-1");
+    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    clear_wf_env_vars();
+
+    std::env::set_var("WF_METRICS_ENABLED", "tru");
+    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    clear_wf_env_vars();
+
+    std::env::set_var("WF_AGENT_DEFAULT_MAX_ITERATIONS", "2000");
+    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    clear_wf_env_vars();
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_assemble_sandbox_mode_env_override() {
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();

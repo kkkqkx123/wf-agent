@@ -1,6 +1,6 @@
 # 智能体循环配置（agent-loops/）
 
-文件：`{project}/.wf/agent-loops/*.agent.toml`，索引：`index.json`（`type: agent_loops`）。
+样例文件：`config-examples/agent-loops/*.agent.example.toml`（加载器跳过 `.example.` 文件）。Agent 定义由 API 与存储管理，仓库样例不参与启动加载。
 
 关键字段（`AgentDefinition` / `AgentConfig`）：
 

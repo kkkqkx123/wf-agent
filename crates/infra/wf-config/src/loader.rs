@@ -3,16 +3,6 @@ use std::path::{Path, PathBuf};
 use crate::error::{ConfigError, ConfigResult};
 use crate::parser;
 
-pub async fn load_config_file<T: serde::de::DeserializeOwned>(path: &Path) -> ConfigResult<T> {
-    let content = tokio::fs::read_to_string(path).await?;
-    let format = parser::config_format_from_path(path)?;
-    parser::parse_config(&content, format)
-}
-
-pub async fn try_load_config_file<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
-    load_config_file(path).await.ok()
-}
-
 pub fn load_config_file_sync<T: serde::de::DeserializeOwned>(path: &Path) -> ConfigResult<T> {
     let content = std::fs::read_to_string(path)?;
     let format = parser::config_format_from_path(path)?;
@@ -35,20 +25,6 @@ pub fn find_config_file(base_dir: &Path, file_names: &[&str]) -> Option<PathBuf>
         }
     }
     None
-}
-
-pub async fn load_config_from_paths<T: serde::de::DeserializeOwned>(
-    paths: &[PathBuf],
-) -> ConfigResult<(T, PathBuf)> {
-    for path in paths {
-        if let Ok(config) = load_config_file::<T>(path).await {
-            return Ok((config, path.clone()));
-        }
-    }
-    Err(ConfigError::NotFound(format!(
-        "no valid config file found in: {:?}",
-        paths
-    )))
 }
 
 pub fn expand_glob_paths(pattern: &str) -> ConfigResult<Vec<PathBuf>> {

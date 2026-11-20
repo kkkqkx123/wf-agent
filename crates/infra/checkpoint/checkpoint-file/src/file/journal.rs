@@ -530,7 +530,7 @@ mod tests {
         let b = git
             .write_commit(
                 &tree,
-                &[a.clone()],
+                std::slice::from_ref(&a),
                 "a",
                 crate::git_store::SYSTEM_COMMITTER,
                 2,
@@ -809,7 +809,7 @@ mod tests {
         let second = git
             .write_commit(
                 &tree,
-                &[first.clone()],
+                std::slice::from_ref(&first),
                 "a",
                 crate::git_store::SYSTEM_COMMITTER,
                 2,
@@ -819,7 +819,7 @@ mod tests {
         let third = git
             .write_commit(
                 &tree,
-                &[second.clone()],
+                std::slice::from_ref(&second),
                 "a",
                 crate::git_store::SYSTEM_COMMITTER,
                 3,
@@ -895,6 +895,6 @@ mod tests {
         let report = manager.reconcile_ref_operations().unwrap();
         assert_eq!(report, RefReconcileReport::default());
         assert_eq!(manager.reconcile_ref_operations().unwrap(), report);
-        assert!(manager.can_redo("entity-1").unwrap() == false);
+        assert!(!manager.can_redo("entity-1").unwrap());
     }
 }

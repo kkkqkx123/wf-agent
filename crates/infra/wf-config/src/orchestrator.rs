@@ -95,7 +95,7 @@ pub struct ToolConfigs {
 }
 
 /// Fully assembled configuration produced by the orchestrator.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AssembledConfig {
     pub storage: StorageConfig,
     pub metrics: MetricsConfig,
@@ -106,22 +106,6 @@ pub struct AssembledConfig {
     pub tools: ToolConfigs,
     pub limits: LimitsConfig,
     pub retention: RetentionConfig,
-}
-
-impl Default for AssembledConfig {
-    fn default() -> Self {
-        Self {
-            storage: StorageConfig::default(),
-            metrics: MetricsConfig::default(),
-            sandbox: None,
-            file_checkpoint: FileCheckpointConfig::default(),
-            tool_approval: wf_types::config::tool_approval::ToolApprovalConfig::default(),
-            presets: PresetsConfig::default(),
-            tools: ToolConfigs::default(),
-            limits: LimitsConfig::default(),
-            retention: RetentionConfig::default(),
-        }
-    }
 }
 
 /// Programmatic overrides applied after file-based config loading.

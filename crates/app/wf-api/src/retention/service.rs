@@ -70,7 +70,7 @@ async fn candidates(ctx: &ApiContext, config: &RetentionConfig) -> ApiResult<Vec
                 && matches!(record.status.as_str(), "running" | "paused"),
         });
     }
-    rows.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.started_at));
     Ok(rows)
 }
 

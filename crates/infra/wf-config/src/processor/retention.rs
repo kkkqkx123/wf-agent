@@ -62,8 +62,10 @@ mod tests {
 
     #[test]
     fn zero_interval_is_rejected() {
-        let mut config = RetentionConfig::default();
-        config.scan_interval_secs = 0;
+        let config = RetentionConfig {
+            scan_interval_secs: 0,
+            ..Default::default()
+        };
         assert!(validate_retention_config(&config).is_err());
     }
 }

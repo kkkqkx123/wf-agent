@@ -434,8 +434,8 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             let states = read_sync_states(&fetch_server_sync_states(&client).await?)?
                 .into_iter()
                 .filter(|row| needs_recovery(&row.repair_status))
-                .filter(|row| backend.as_ref().map_or(true, |name| name == &row.backend))
-                .filter(|row| execution.as_ref().map_or(true, |id| id == &row.execution))
+                .filter(|row| backend.as_ref().is_none_or(|name| name == &row.backend))
+                .filter(|row| execution.as_ref().is_none_or(|id| id == &row.execution))
                 .collect::<Vec<_>>();
             let backups = fetch_server_backups(&client, backend.as_deref()).await?;
             let mut targets = Vec::new();
@@ -572,7 +572,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 ));
             }
             let client = management_client(cli);
-            let report = verify_server_backup(&client, &id).await?;
+            let report = verify_server_backup(&client, id).await?;
             let verified = report
                 .get("verified")
                 .and_then(|value| value.as_bool())
@@ -599,7 +599,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 ));
             }
             let client = management_client(cli);
-            let view = export_server_backup(&client, &id).await?;
+            let view = export_server_backup(&client, id).await?;
             let text = view
                 .get("payload_text")
                 .and_then(|value| value.as_str())

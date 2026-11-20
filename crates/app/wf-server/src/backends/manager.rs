@@ -118,6 +118,18 @@ const INVENTORY_CHUNK_SIZE: usize = 64;
 /// adopt its position, ignoring both the persisted and the local baseline.
 const REBASING_STATUS: &str = "rebasing";
 
+/// Failure context for one remote round, grouped so the state write stays a
+/// direct projection of the persisted sync row.
+struct RemoteFailure<'a> {
+    state: Option<&'a SyncStateView>,
+    backend: &'a str,
+    execution: &'a str,
+    attempt_ms: i64,
+    failures: u32,
+    status: &'a str,
+    error: &'a str,
+}
+
 pub struct BackendManager {
     config: BackendConfig,
     store: BackendStore,
@@ -513,15 +525,15 @@ impl BackendManager {
                     }
                     other => ("remote_corrupt", other),
                 };
-                self.write_remote_failure_state(
-                    state.as_ref(),
-                    &name,
-                    &row.execution_id,
-                    now_ms,
-                    state.as_ref().map(|row| row.failures).unwrap_or(0),
+                self.write_remote_failure_state(RemoteFailure {
+                    state: state.as_ref(),
+                    backend: &name,
+                    execution: &row.execution_id,
+                    attempt_ms: now_ms,
+                    failures: state.as_ref().map(|row| row.failures).unwrap_or(0),
                     status,
-                    message,
-                )
+                    error: message,
+                })
                 .await;
             }
             if !rebuild_ids.is_empty() {
@@ -608,35 +620,27 @@ impl BackendManager {
     /// A target marked for rebasing keeps that mark: it is an operator
     /// intent that only a successfully adopted position can clear, so a
     /// failed attempt must not send it back to the old baseline.
-    async fn write_remote_failure_state(
-        &self,
-        state: Option<&SyncStateView>,
-        backend: &str,
-        execution: &str,
-        attempt_ms: i64,
-        failures: u32,
-        status: &str,
-        error: &str,
-    ) {
+    async fn write_remote_failure_state(&self, failure: RemoteFailure<'_>) {
+        let state = failure.state;
         let repair_status = match state.map(|row| row.repair_status.as_str()) {
             Some(REBASING_STATUS) => REBASING_STATUS,
-            _ => status,
+            _ => failure.status,
         };
-        self.write_sync_state(
-            backend,
-            execution,
-            state.and_then(|row| row.revision),
-            state.and_then(|row| row.digest.as_deref()),
-            state.and_then(|row| row.backup_id.as_deref()),
-            state.and_then(|row| row.last_success_ms),
-            Some(attempt_ms),
-            failures,
-            repair_status,
-            state
-                .map(|row| row.local_status.as_str())
-                .unwrap_or("unverified"),
-            Some(error),
-        )
+        self.write_sync_state(SyncStateView {
+            backend: failure.backend.to_string(),
+            execution: failure.execution.to_string(),
+            last_success_ms: state.and_then(|row| row.last_success_ms),
+            last_attempt_ms: Some(failure.attempt_ms),
+            revision: state.and_then(|row| row.revision),
+            digest: state.and_then(|row| row.digest.clone()),
+            backup_id: state.and_then(|row| row.backup_id.clone()),
+            failures: failure.failures,
+            repair_status: repair_status.to_string(),
+            local_status: state
+                .map(|row| row.local_status.clone())
+                .unwrap_or_else(|| "unverified".to_string()),
+            error: Some(failure.error.to_string()),
+        })
         .await;
     }
 
@@ -676,38 +680,23 @@ impl BackendManager {
     /// outranks the write unless the writer is adopting a snapshot the reset
     /// never saw: only a different backup id carries a position that replaces
     /// the dropped baseline, everything else is the position it escaped.
-    async fn write_sync_state(
-        &self,
-        backend: &str,
-        execution: &str,
-        revision: Option<u64>,
-        digest: Option<&str>,
-        backup_id: Option<&str>,
-        success_ms: Option<i64>,
-        attempt_ms: Option<i64>,
-        failures: u32,
-        repair_status: &str,
-        local_status: &str,
-        error: Option<&str>,
-    ) {
+    async fn write_sync_state(&self, mut state: SyncStateView) {
         let repair_status = self
-            .repair_status_for_write(backend, execution, repair_status, backup_id)
+            .repair_status_for_write(
+                &state.backend,
+                &state.execution,
+                &state.repair_status,
+                state.backup_id.as_deref(),
+            )
             .await;
-        let state = SyncStateView {
-            backend: backend.to_string(),
-            execution: execution.to_string(),
-            last_success_ms: success_ms,
-            last_attempt_ms: attempt_ms,
-            revision,
-            digest: digest.map(str::to_string),
-            backup_id: backup_id.map(str::to_string),
-            failures,
-            repair_status,
-            local_status: local_status.to_string(),
-            error: error.map(str::to_string),
-        };
+        state.repair_status = repair_status;
         if let Err(e) = self.store.upsert_sync_state(&state).await {
-            tracing::warn!(backend = %backend, execution = %execution, error = %e, "sync state write failed");
+            tracing::warn!(
+                backend = %state.backend,
+                execution = %state.execution,
+                error = %e,
+                "sync state write failed"
+            );
         }
     }
 
@@ -930,29 +919,29 @@ impl BackendManager {
                 let inventory = match result {
                     Ok(row) => row.clone(),
                     Err(e) => {
-                        self.write_remote_failure_state(
-                            state.as_ref(),
-                            &name,
+                        self.write_remote_failure_state(RemoteFailure {
+                            state: state.as_ref(),
+                            backend: &name,
                             execution,
-                            now_ms,
-                            next_failures,
-                            "remote_unreachable",
-                            e.as_str(),
-                        )
+                            attempt_ms: now_ms,
+                            failures: next_failures,
+                            status: "remote_unreachable",
+                            error: e.as_str(),
+                        })
                         .await;
                         continue;
                     }
                 };
                 if let Some(error) = inventory.error.as_deref() {
-                    self.write_remote_failure_state(
-                        state.as_ref(),
-                        &name,
+                    self.write_remote_failure_state(RemoteFailure {
+                        state: state.as_ref(),
+                        backend: &name,
                         execution,
-                        now_ms,
-                        next_failures,
-                        "remote_corrupt",
+                        attempt_ms: now_ms,
+                        failures: next_failures,
+                        status: "remote_corrupt",
                         error,
-                    )
+                    })
                     .await;
                     continue;
                 }
@@ -970,44 +959,44 @@ impl BackendManager {
                     other => Some(("remote_corrupt", other)),
                 };
                 if let Some((status, message)) = remote_status {
-                    self.write_remote_failure_state(
-                        state.as_ref(),
-                        &name,
+                    self.write_remote_failure_state(RemoteFailure {
+                        state: state.as_ref(),
+                        backend: &name,
                         execution,
-                        now_ms,
-                        next_failures,
+                        attempt_ms: now_ms,
+                        failures: next_failures,
                         status,
-                        message,
-                    )
+                        error: message,
+                    })
                     .await;
                     continue;
                 }
                 let Some(remote) = inventory.revision else {
                     let status = "remote_corrupt";
                     let message = "remote inventory has no revision row";
-                    self.write_remote_failure_state(
-                        state.as_ref(),
-                        &name,
+                    self.write_remote_failure_state(RemoteFailure {
+                        state: state.as_ref(),
+                        backend: &name,
                         execution,
-                        now_ms,
-                        next_failures,
+                        attempt_ms: now_ms,
+                        failures: next_failures,
                         status,
-                        message,
-                    )
+                        error: message,
+                    })
                     .await;
                     continue;
                 };
                 let remote_decision = Self::revision_decision(baseline, &remote);
                 if let Err((status, message)) = remote_decision {
-                    self.write_remote_failure_state(
-                        state.as_ref(),
-                        &name,
+                    self.write_remote_failure_state(RemoteFailure {
+                        state: state.as_ref(),
+                        backend: &name,
                         execution,
-                        now_ms,
-                        next_failures,
+                        attempt_ms: now_ms,
+                        failures: next_failures,
                         status,
-                        message,
-                    )
+                        error: message,
+                    })
                     .await;
                     continue;
                 }
@@ -1042,25 +1031,26 @@ impl BackendManager {
                     // so a rebuilt or restored target leaves the repair queue
                     // without waiting for the next snapshot.
                     if state.as_ref().map(|row| row.repair_status.as_str()) != Some("ok") {
-                        self.write_sync_state(
-                            &name,
-                            execution,
-                            baseline.map(|(sequence, _)| sequence),
-                            baseline.map(|(_, digest)| digest),
-                            state
-                                .as_ref()
-                                .and_then(|row| row.backup_id.as_deref())
-                                .or_else(|| local.as_ref().map(|row| row.id.as_str())),
-                            state
+                        self.write_sync_state(SyncStateView {
+                            backend: name.clone(),
+                            execution: execution.to_string(),
+                            last_success_ms: state
                                 .as_ref()
                                 .and_then(|row| row.last_success_ms)
                                 .or_else(|| local.as_ref().map(|row| row.created_ms)),
-                            state.as_ref().and_then(|row| row.last_attempt_ms),
-                            0,
-                            "ok",
-                            &local_status,
-                            None,
-                        )
+                            last_attempt_ms: state.as_ref().and_then(|row| row.last_attempt_ms),
+                            revision: baseline.map(|(sequence, _)| sequence),
+                            digest: baseline.map(|(_, digest)| digest).map(str::to_string),
+                            backup_id: state
+                                .as_ref()
+                                .and_then(|row| row.backup_id.as_deref())
+                                .or_else(|| local.as_ref().map(|row| row.id.as_str()))
+                                .map(str::to_string),
+                            failures: 0,
+                            repair_status: "ok".to_string(),
+                            local_status: local_status.clone(),
+                            error: None,
+                        })
                         .await;
                     }
                     continue;
@@ -1127,19 +1117,22 @@ impl BackendManager {
                         last_attempt_ms: Some(now_ms),
                     },
                 );
-                self.write_sync_state(
-                    backend,
-                    execution,
-                    record.as_ref().map(|row| row.source_sequence),
-                    record.as_ref().map(|row| row.source_revision.as_str()),
-                    Some(&id),
-                    Some(now_ms),
-                    Some(now_ms),
-                    0,
-                    "ok",
-                    "ok",
-                    None,
-                )
+                self.write_sync_state(SyncStateView {
+                    backend: backend.to_string(),
+                    execution: execution.to_string(),
+                    last_success_ms: Some(now_ms),
+                    last_attempt_ms: Some(now_ms),
+                    revision: record.as_ref().map(|row| row.source_sequence),
+                    digest: record
+                        .as_ref()
+                        .map(|row| row.source_revision.as_str())
+                        .map(str::to_string),
+                    backup_id: Some(id.clone()),
+                    failures: 0,
+                    repair_status: "ok".to_string(),
+                    local_status: "ok".to_string(),
+                    error: None,
+                })
                 .await;
                 if let Err(e) = self.prune_for_target(backend, entry, execution).await {
                     tracing::warn!(backend = %backend, error = %e, "backup pruning failed");
@@ -1211,25 +1204,32 @@ impl BackendManager {
             .get_sync_state(backend, execution)
             .await
             .unwrap_or(None);
-        self.write_sync_state(
-            backend,
-            execution,
-            state.as_ref().and_then(|row| row.revision),
-            state.as_ref().and_then(|row| row.digest.as_deref()),
-            state.as_ref().and_then(|row| row.backup_id.as_deref()),
-            state
+        self.write_sync_state(SyncStateView {
+            backend: backend.to_string(),
+            execution: execution.to_string(),
+            last_success_ms: state
                 .as_ref()
                 .and_then(|row| row.last_success_ms)
                 .or(previous),
-            Some(now_ms),
+            last_attempt_ms: Some(now_ms),
+            revision: state.as_ref().and_then(|row| row.revision),
+            digest: state
+                .as_ref()
+                .and_then(|row| row.digest.as_deref())
+                .map(str::to_string),
+            backup_id: state
+                .as_ref()
+                .and_then(|row| row.backup_id.as_deref())
+                .map(str::to_string),
             failures,
-            "repair_pending",
-            state
+            repair_status: "repair_pending".to_string(),
+            local_status: state
                 .as_ref()
                 .map(|row| row.local_status.as_str())
-                .unwrap_or("unverified"),
-            Some(&error),
-        )
+                .unwrap_or("unverified")
+                .to_string(),
+            error: Some(error.clone()),
+        })
         .await;
         tracing::warn!(backend = %backend, execution = %execution, error = %error, "backup failed");
         Err(error)
@@ -1627,19 +1627,19 @@ impl BackendManager {
             .and_then(serde_json::Value::as_str)
             .unwrap_or(record.source_revision.as_str());
         let now_ms = wf_common::epoch_ms();
-        self.write_sync_state(
-            &record.backend,
-            &record.execution,
-            Some(sequence),
-            Some(digest),
-            Some(&record.id),
-            Some(now_ms),
-            Some(now_ms),
-            0,
-            "ok",
-            "ok",
-            None,
-        )
+        self.write_sync_state(SyncStateView {
+            backend: record.backend.clone(),
+            execution: record.execution.clone(),
+            last_success_ms: Some(now_ms),
+            last_attempt_ms: Some(now_ms),
+            revision: Some(sequence),
+            digest: Some(digest.to_string()),
+            backup_id: Some(record.id.clone()),
+            failures: 0,
+            repair_status: "ok".to_string(),
+            local_status: "ok".to_string(),
+            error: None,
+        })
         .await;
     }
 
@@ -2033,19 +2033,19 @@ mod tests {
         // The failure path of a round that started before the reset: same
         // snapshot, so it carries the position the reset left behind.
         manager
-            .write_sync_state(
-                "alpha",
-                "exec-1",
-                Some(4),
-                Some("digest-4"),
-                Some("backup-1"),
-                Some(10),
-                Some(30),
-                1,
-                "remote_corrupt",
-                "ok",
-                Some("content rewritten at the same sequence"),
-            )
+            .write_sync_state(SyncStateView {
+                backend: "alpha".to_string(),
+                execution: "exec-1".to_string(),
+                last_success_ms: Some(10),
+                last_attempt_ms: Some(30),
+                revision: Some(4),
+                digest: Some("digest-4".to_string()),
+                backup_id: Some("backup-1".to_string()),
+                failures: 1,
+                repair_status: "remote_corrupt".to_string(),
+                local_status: "ok".to_string(),
+                error: Some("content rewritten at the same sequence".to_string()),
+            })
             .await;
 
         let state = manager
@@ -2073,19 +2073,19 @@ mod tests {
             .unwrap();
 
         manager
-            .write_sync_state(
-                "alpha",
-                "exec-1",
-                Some(5),
-                Some("digest-5"),
-                Some("backup-2"),
-                Some(40),
-                Some(40),
-                0,
-                "ok",
-                "ok",
-                None,
-            )
+            .write_sync_state(SyncStateView {
+                backend: "alpha".to_string(),
+                execution: "exec-1".to_string(),
+                last_success_ms: Some(40),
+                last_attempt_ms: Some(40),
+                revision: Some(5),
+                digest: Some("digest-5".to_string()),
+                backup_id: Some("backup-2".to_string()),
+                failures: 0,
+                repair_status: "ok".to_string(),
+                local_status: "ok".to_string(),
+                error: None,
+            })
             .await;
 
         let state = manager
@@ -2109,19 +2109,19 @@ mod tests {
             .unwrap();
 
         manager
-            .write_sync_state(
-                "alpha",
-                "exec-1",
-                None,
-                None,
-                None,
-                None,
-                Some(30),
-                3,
-                "repair_pending",
-                "unverified",
-                Some("backup failed"),
-            )
+            .write_sync_state(SyncStateView {
+                backend: "alpha".to_string(),
+                execution: "exec-1".to_string(),
+                last_success_ms: None,
+                last_attempt_ms: Some(30),
+                revision: None,
+                digest: None,
+                backup_id: None,
+                failures: 3,
+                repair_status: "repair_pending".to_string(),
+                local_status: "unverified".to_string(),
+                error: Some("backup failed".to_string()),
+            })
             .await;
 
         // Nothing was adopted, so there is no position to protect: the failed
@@ -2374,15 +2374,15 @@ mod tests {
         );
         // A failed attempt keeps the intent instead of restoring the old one.
         manager
-            .write_remote_failure_state(
-                Some(&reset),
-                "alpha",
-                "exec-1",
-                20,
-                1,
-                "remote_unreachable",
-                "tunnel down",
-            )
+            .write_remote_failure_state(RemoteFailure {
+                state: Some(&reset),
+                backend: "alpha",
+                execution: "exec-1",
+                attempt_ms: 20,
+                failures: 1,
+                status: "remote_unreachable",
+                error: "tunnel down",
+            })
             .await;
         let kept = manager
             .store

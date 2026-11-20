@@ -48,9 +48,11 @@ mod tests {
         let ctx = ctx();
         assert_eq!(current(&ctx).await.unwrap(), RetentionConfig::default());
 
-        let mut next = RetentionConfig::default();
-        next.enabled = true;
-        next.dry_run = false;
+        let next = RetentionConfig {
+            enabled: true,
+            dry_run: false,
+            ..Default::default()
+        };
         replace(&ctx, next.clone()).await.unwrap();
         assert_eq!(current(&ctx).await.unwrap(), next);
     }

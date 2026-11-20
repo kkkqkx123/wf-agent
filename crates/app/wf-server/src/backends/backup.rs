@@ -114,7 +114,7 @@ pub fn resolve_backup_path(root: &Path, stored: &str) -> Result<PathBuf, BackupP
         root.join(path)
     };
     let normalized = normalize_path(&candidate);
-    if !normalized.starts_with(&normalize_path(root)) {
+    if !normalized.starts_with(normalize_path(root)) {
         return Err(BackupPathError::escape(stored));
     }
     let parent = normalized

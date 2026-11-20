@@ -35,8 +35,8 @@ pub const EXECUTION_BUNDLE_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExecutionRecordSnapshot {
-    Workflow(WorkflowExecution),
-    Agent(AgentExecution),
+    Workflow(Box<WorkflowExecution>),
+    Agent(Box<AgentExecution>),
 }
 
 impl ExecutionRecordSnapshot {
@@ -270,7 +270,7 @@ async fn export_records(
                 .load(execution_id)
                 .await?
                 .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-            out.push(ExecutionRecordSnapshot::Workflow(record));
+            out.push(ExecutionRecordSnapshot::Workflow(Box::new(record)));
         }
         ExecutionType::Agent | ExecutionType::Chat => {
             let record = ctx
@@ -279,7 +279,7 @@ async fn export_records(
                 .load(execution_id)
                 .await?
                 .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-            out.push(ExecutionRecordSnapshot::Agent(record));
+            out.push(ExecutionRecordSnapshot::Agent(Box::new(record)));
         }
     }
     Ok(out)
@@ -299,14 +299,14 @@ async fn export_checkpoints(
                 .load(item.id.as_str())
                 .await
                 .map_err(|e| ApiError::execution(format!("workflow checkpoint load failed: {e}")))?
-                .map(|cp| serde_json::to_value(cp))
+                .map(serde_json::to_value)
                 .transpose()
                 .map_err(|e| ApiError::execution(format!("checkpoint encode failed: {e}")))?,
             "agent_loop" => agent
                 .load(item.id.as_str())
                 .await
                 .map_err(|e| ApiError::execution(format!("agent checkpoint load failed: {e}")))?
-                .map(|cp| serde_json::to_value(cp))
+                .map(serde_json::to_value)
                 .transpose()
                 .map_err(|e| ApiError::execution(format!("checkpoint encode failed: {e}")))?,
             _ => None,
@@ -445,11 +445,11 @@ fn decode_hex_file(entry: &FileArchiveEntry) -> ApiResult<(String, Vec<u8>)> {
 enum DecodedCheckpoint {
     Workflow {
         id: String,
-        checkpoint: wf_checkpoint::WorkflowCheckpoint,
+        checkpoint: Box<wf_checkpoint::WorkflowCheckpoint>,
     },
     Agent {
         id: String,
-        checkpoint: wf_checkpoint::AgentCheckpoint,
+        checkpoint: Box<wf_checkpoint::AgentCheckpoint>,
     },
     /// A checkpoint row with no state blob. Its metadata already travels in
     /// the bundle, so only the absence of a blob has to be recorded here.
@@ -475,7 +475,7 @@ fn decode_checkpoints(bundle: &ExecutionBundle) -> ApiResult<Vec<DecodedCheckpoi
                 })?;
                 out.push(DecodedCheckpoint::Workflow {
                     id: item.metadata.id.clone(),
-                    checkpoint,
+                    checkpoint: Box::new(checkpoint),
                 });
             }
             "agent_loop" => {
@@ -493,7 +493,7 @@ fn decode_checkpoints(bundle: &ExecutionBundle) -> ApiResult<Vec<DecodedCheckpoi
                 })?;
                 out.push(DecodedCheckpoint::Agent {
                     id: item.metadata.id.clone(),
-                    checkpoint,
+                    checkpoint: Box::new(checkpoint),
                 });
             }
             _ => out.push(DecodedCheckpoint::MetadataOnly),

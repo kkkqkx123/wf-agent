@@ -30,6 +30,21 @@
 
 调用约定：`libc::kill` 只做信号投递，安全前提是 pid 指向本进程创建的存活子进程，由 `RunningSidecar` 与监督任务的生命周期保证。
 
+### U4 宿主侧原生插件后端（`crates/infra/wf-plugin/src/native/`）
+
+该后端用 `libloading` 在宿主地址空间内装载动态库并与其交换裸指针，按行计共 78 处 `unsafe`（个别行同时属于两类，故各类之和略大于总数）。形态高度同构，按类概述如下，不逐条登记：
+
+| 类 | 位置 | 规模 | 说明 |
+|---|---|---|---|
+| 库装载与符号解析 | `native/loader.rs`、`native/abi.rs` | 10 处 | `Library::new` 打开动态库；`lib.get::<extern "C" fn…>` 取 `wf_plugin_get_manifest`、`wf_plugin_supported_abi_versions`、`wf_plugin_dispatch_handler` 及六个生命周期钩子。安全前提是符号签名与 `wf_plugin.h` 声明一致，且库在插件生命周期内不被卸载 |
+| 注册器上下文回取 | `native/plugin.rs` 的 `registrar_from_ctx`（1 处定义）与 32 处调用 | 33 处 | 宿主把 `RegistrarWithDispatch` 装箱后以 `*mut c_void` 交给访客的不透明指针，访客回调宿主 `ffi_register_*` 时该指针被还原为 `&'static mut`。安全前提是回调发生在同一次同步调用内、访客不缓存该指针、且不跨线程使用 |
+| 回调参数解码 | `native/abi.rs` 的 `ptr_to_string`（定义）与 `native/plugin.rs` 的 34 处调用 | 35 处 | 把访客传入的空结尾 C 字符串复制为 `String`，遍历时不持有引用。安全前提是字符串在调用期间有效且确实以 NUL 结尾 |
+| 装箱所有权收回 | `native/plugin.rs` 的 `Box::from_raw` | 1 处 | 访客返回后立刻收回 `RegistrarWithDispatch` 的所有权并读取其中累积的首个错误 |
+
+不在 `unsafe` 之列但同属该边界的部分：`abi.rs` 的 `load_manifest` 是安全封装，两阶段先查长度再请访客填缓冲区，用访客自报的写入长度截断，因此宿主侧不做越界假设。
+
+整体安全论证：仅在宿主进程内装载、无沙箱隔离，因而只允许信任的第一方库；后端在 `PluginSystemConfig` 中默认运行期关闭（`native_enabled = false`），插件清单需显式放行；所有裸指针的生命周期都不跨越装载、注册、调用这三个同步阶段。`PluginPermission` 与清单声明对 native 只作准入与审计输入，不构成运行时边界，因此不得把本后端用于不可信代码。
+
 ## 二、已排除项
 
 宿主注册器回调字段为普通（非 `unsafe`）`extern "C" fn` 指针，调用无需 `unsafe` 块；此前误加的包裹已删除。测试中对宏生成的普通 `extern "C"` 导出的调用同样无需 `unsafe` 包裹，已清理。

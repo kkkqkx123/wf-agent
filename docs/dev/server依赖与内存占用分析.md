@@ -2,13 +2,15 @@
 
 本文基于 devs 上的 release 实测，分析 `wf-server` 的依赖构成、空闲态内存去向，以及面向嵌入式部署可裁剪的功能。测试数据来自当前工作树（含尚未提交的关键词索引加固改动），不回传编译产物。
 
+> 基线说明：文中体积、依赖数与 RSS 数值实测于 **Lua 运行时为系统 LuaJIT** 的构建。插件 VM 已迁移到 Lua 5.4 + vendored（见 `docs/plan/plugin-lua-vm-migration.md`），因此涉及 Lua 的数值与"LuaJIT 动态库"相关结论待复测；结构性结论（线程、arena、索引、缓存）不受影响。
+
 ## 结论速览
 
 * 默认 release 二进制 151 MiB，strip 后 110 MiB；`--no-default-features` 后 121 MiB，strip 后 89 MiB。编译期依赖从 482 个降到 401 个。
 * 空闲态（已响应一次 `/health`，内存存储，devs 32 核）默认进程 RSS 约 38.7 MiB，其中匿名内存约 9.3 MiB、文件映射约 29.4 MiB；无插件构建约 34 MiB。
 * 进程虚拟地址空间约 2.3 GiB，实测确认是 glibc 每线程 arena 预留：34 个线程 × 64 MiB `PROT_NONE`。设置 `MALLOC_ARENA_MAX=2` 后降到约 265 MiB，RSS 不变。
 * 空闲态大部分 RSS 是启动时触碰的代码段页，并非活跃数据结构。运行时真正的增长点是执行历史与并发预算、存储实体缓存、文件检查点快照、RAG 向量/关键词索引、PTY 输出缓冲，以及带标签的指标与限流表。
-* 嵌入式建议档位：`--no-default-features`（或仅加 `plugins,lua`）+ strip + 显式限制 Tokio worker 线程数 + 关闭关键词索引 + 收紧并发与缓存。若不需要插件，wasmtime/Cranelift/LuaJIT 全部不进镜像。
+* 嵌入式建议档位：`--no-default-features`（或仅加 `plugins,lua`）+ strip + 显式限制 Tokio worker 线程数 + 关闭关键词索引 + 收紧并发与缓存。若不需要插件，wasmtime/Cranelift/Lua 运行时全部不进镜像。
 
 ## 依赖构成
 
@@ -23,10 +25,10 @@
 | RAG 与向量 | rag-core、jieba-rs（约 5 MB 词典）、rusqlite FTS5、vector-contracts、llm-suite-embedding/rerank | `wf-api`/`wf-runtime` 无条件依赖；tantivy 与 elastic 后端是可选 feature，当前未开启 |
 | LLM 栈 | wf-llm、wf-pricing、wf-llm-catalog、llm-suite-client/auth/gateway/discovery/codec 等约 20 个 crate、reqwest 0.13 + rustls/aws-lc | 默认配置只使用内置 provider 与静态表，但整栈始终链接 |
 | 工具与脚本 | wf-tools、rmcp（子进程与 HTTP MCP 客户端）、wf-script、wf-shell、portable-pty、notify、wf-integration/code-context | 工具注册、MCP、PTY、shell 会话、代码上下文服务 |
-| 插件与沙箱 | wf-plugin、wf-sandbox、mlua/LuaJIT、wasmtime 34 + Cranelift 系列、libloading、ed25519-dalek、cap-std、moka | `wf-server` 默认 feature 为 `plugins,lua,native,wasm`；native 运行时默认禁用但仍然编译 |
+| 插件与沙箱 | wf-plugin、wf-sandbox、mlua/Lua 5.4（vendored 源码构建）、wasmtime 34 + Cranelift 系列、libloading、ed25519-dalek、cap-std、moka | `wf-server` 默认 feature 为 `plugins,lua,native,wasm`；native 运行时默认禁用但仍然编译 |
 | 可观测性 | tracing-subscriber、wf-metrics（17 个采集器） | 默认程序化配置下 metrics 为 `None`，server 另建一个空 registry；部署模板默认启用采集 |
 
-`--no-default-features` 相比默认构建移除 81 个 crate，主要是 wasmtime、Cranelift、wit/cap-std、wf-plugin、mlua/LuaJIT、libloading、ed25519-dalek；仅保留 `plugins,lua` 时只增加 10 个 crate（wf-plugin、mlua、LuaJIT 及签名相关），不引入 wasm 栈。
+`--no-default-features` 相比默认构建移除 81 个 crate，主要是 wasmtime、Cranelift、wit/cap-std、wf-plugin、mlua/Lua 5.4、libloading、ed25519-dalek；仅保留 `plugins,lua` 时只增加约 10 个 crate（wf-plugin、mlua、lua-src 及签名相关），不引入 wasm 栈。上述 crate 数为迁移前基线，VM 换代后需复测。
 
 ## 实测方法与环境
 
@@ -51,7 +53,7 @@ cargo build --release --locked -p wf-server --bin wf-server --no-default-feature
 
 其他观察：
 
-* 默认进程最大的常驻映射是二进制代码段（约 23 MiB），其次是约 6 MiB 堆、约 5.7 MiB 只读数据；LuaJIT 只占约 64 KiB 代码页。空闲态“内存占用”主要由链接进镜像的功能面积决定。
+* 默认进程最大的常驻映射是二进制代码段（约 23 MiB），其次是约 6 MiB 堆、约 5.7 MiB 只读数据；迁移前的 LuaJIT 只占约 64 KiB 代码页，Lua 5.4 静态链接后代码段增量待复测。空闲态“内存占用”主要由链接进镜像的功能面积决定。
 * `MALLOC_ARENA_MAX=2` 在 34 线程下把 VmSize 从 2313 MiB 降到 265 MiB，RSS 保持约 38 MiB；因此 64 MiB 的 `PROT_NONE` 映射来自 glibc 的每线程 arena（大小随 CPU 数增长），不是 wasmtime。嵌入式若用 musl 通常没有该现象；glibc 环境建议显式限制 arena 数。
 * `strip` 把三种二进制分别缩到 110 MiB、92 MiB、89 MiB；符号表不影响 RSS，但显著影响镜像大小与烧写时间。
 * 关闭关键词索引（同时关闭 workspace 域）后 RSS 约下降 2 MiB，说明空闲态索引本身开销有限；它更大的意义在于避免加载 FTS/中文词典相关代码与后续索引增长。
@@ -67,7 +69,7 @@ cargo build --release --locked -p wf-server --bin wf-server --no-default-feature
 5. RAG/检索：关键词索引的 SQLite FTS 文件、mixed tokenizer 的 jieba 词典、稠密检索的向量批次与 embedding/rerank 请求缓冲。当前默认走 SQLite FTS（英文分词），混合检索启动开销小，但大语料索引与批量导入会持续增长。
 6. PTY 与 shell：每个会话用无界 channel 与不断累积的输出字符串，订阅者再多路复制；长时间运行的交互式会话需要上限和裁剪策略。
 7. 管理面：后端注册表的 sqlx SQLite 池、SSH tunnel 子进程、备份打包时的内存缓冲；默认 `backends.enabled = false`，不会启动，但仍编译进镜像。指标采集器使用带标签的映射，标签基数（模型、工具、节点）增长会长期占内存；限流表在 1 万客户端前不清理过期项。
-8. 虚拟地址：除 glibc arena 外，Tokio/Rust 线程栈（8 MiB 保留/线程）与 LuaJIT/wasmtime 的地址空间预留也计入 VmSize，但不等于物理内存。
+8. 虚拟地址：除 glibc arena 外，Tokio/Rust 线程栈（8 MiB 保留/线程）与 Lua/wasmtime 的地址空间预留也计入 VmSize，但不等于物理内存。
 
 ## 可裁剪功能与建议
 
@@ -95,12 +97,12 @@ cargo build --release --locked -p wf-server --bin wf-server --no-default-feature
 
 ### 构建配置
 
-在 `Cargo.toml` 的 release profile 中启用 `strip = "symbols"`，并按目标选择 `opt-level = "z"`（或 `"s"`）、`lto = "thin"`、`codegen-units = 1`。若裁剪掉 LuaJIT，可进一步考虑 musl 静态链接；否则 LuaJIT 的动态库依赖会阻碍纯静态部署。
+在 `Cargo.toml` 的 release profile 中启用 `strip = "symbols"`，并按目标选择 `opt-level = "z"`（或 `"s"`）、`lto = "thin"`、`codegen-units = 1`。Lua 运行时已改为 5.4 + vendored 静态链接，不再有解释器动态库依赖，因此 musl 静态链接可按需尝试（此前 LuaJIT 的动态库依赖会阻断该路径）。
 
 ### 推荐嵌入式档位
 
 * 最小 API 节点：`--no-default-features` + strip + worker 线程 1～2 + `MALLOC_ARENA_MAX=1` + 关键词索引关闭 + 并发上限显式配置。实测空闲 RSS 约 32 MiB（2 核口径），镜像约 89 MiB（strip 后）。
-* 需要 Lua 插件：在上述基础上加 `plugins,lua`，镜像约 92 MiB，空闲 RSS 增加约 2 MiB，并需随镜像携带 LuaJIT 动态库。
+* 需要 Lua 插件：在上述基础上加 `plugins,lua`，镜像约 92 MiB，空闲 RSS 增加约 2 MiB（迁移前基线）。Lua 5.4 已静态链接进二进制，无需随镜像携带解释器动态库。
 * 需要本地检索：再开启 `rag` 中的关键词 SQLite 子集，避免 tantivy/elastic 与稠密向量栈；把索引目录放到可写分区，并限制导入批量大小。
 
 ## 备注

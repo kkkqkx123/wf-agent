@@ -1,6 +1,6 @@
 # devs 服务器同步与远程编译指南
 
-devs（`ssh devs`）已具备 Rust 编译环境：cargo 已安装（不在默认 PATH），stable 工具链可用，LuaJIT 已装在用户目录并由编译脚本提供给 pkg-config；crates.io 可访问，依赖由 devs 自己执行 `cargo fetch --locked` 安装。本指南只说明 Rust 侧的同步与编译用法；前端不在 devs 构建，也不传输 `node_modules` 或 npm 缓存。同步包不使用校验清单，以包内文件数与解压后体积抽查为准。
+devs（`ssh devs`）已具备 Rust 编译环境：cargo 已安装（不在默认 PATH），stable 工具链可用；crates.io 可访问，依赖由 devs 自己执行 `cargo fetch --locked` 安装。Lua 运行时已改为 Lua 5.4 源码构建（`vendored`），不再需要用户目录下的 LuaJIT 与 `pkg-config` 探测，只需 C 编译器；下文脚本里遗留的 `PKG_CONFIG_PATH` / `LD_LIBRARY_PATH` 已无作用，可保留亦可移除。本指南只说明 Rust 侧的同步与编译用法；前端不在 devs 构建，也不传输 `node_modules` 或 npm 缓存。同步包不使用校验清单，以包内文件数与解压后体积抽查为准。
 
 ## 1. 目录约定
 
@@ -82,7 +82,7 @@ scp crates/app/wf-api/src/lib.rs \
 
 ## 5. 远端编译
 
-`check.sh` 已固化所需环境（cargo 的 PATH、`RUSTUP_TOOLCHAIN=stable`、外部 `CARGO_TARGET_DIR`、LuaJIT 的 `PKG_CONFIG_PATH` / `LD_LIBRARY_PATH`），依次执行 `cargo fetch --locked` 与 `cargo check --locked`。每次同步后直接运行：
+`check.sh` 已固化所需环境（cargo 的 PATH、`RUSTUP_TOOLCHAIN=stable`、外部 `CARGO_TARGET_DIR`；其中 LuaJIT 的 `PKG_CONFIG_PATH` / `LD_LIBRARY_PATH` 在 VM 迁移后已无作用），依次执行 `cargo fetch --locked` 与 `cargo check --locked`。每次同步后直接运行：
 
 ```bash
 ssh devs "nohup bash /data/kkkqkx/wf-agent/check.sh > /data/kkkqkx/wf-agent/check-$SHA.log 2>&1 < /dev/null &"

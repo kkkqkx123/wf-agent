@@ -193,6 +193,6 @@
 * 陈旧写入不抹掉重置标记：带旧快照的失败写入保留 `rebasing` 但照常记录错误与失败计数；带新快照的采纳清除标记并发布新位点；无快照目标不保留标记，失败可见。
 * 两节点链路：远端丢失后新建式恢复并回到健康、一致目标为无操作、不一致目标需显式覆盖且覆盖后摘要收敛、整表丢失按已知序号重建、跨目录作用域不动目标、本地快照损坏后重拉。
 
-环境说明：本机 stable 原为 1.93，不满足既有 `checkpoint-base` 使用的 `atomic_try_update`，已通过 rsproxy 镜像升级到 1.100.0。默认特性需要系统 luajit，已安装 `libluajit-5.1-dev` 后编译通过。`rust-toolchain.toml` 列出的三平台 target 未在沙箱安装，执行时显式使用本机 stable 通道：`cargo`/`rustfmt` 前设 `RUSTUP_TOOLCHAIN=stable-x86_64-unknown-linux-gnu`，否则 rustup 会去下载另外两个 target 并卡住。
+环境说明：本机 stable 原为 1.93，不满足既有 `checkpoint-base` 使用的 `atomic_try_update`，已通过 rsproxy 镜像升级到 1.100.0。当时默认特性需要系统 luajit，已安装 `libluajit-5.1-dev` 后编译通过（Lua 运行时其后已迁移到 5.4 + vendored，该前置条件不再存在，见 `docs/plan/plugin-lua-vm-migration.md`）。`rust-toolchain.toml` 列出的三平台 target 未在沙箱安装，执行时显式使用本机 stable 通道：`cargo`/`rustfmt` 前设 `RUSTUP_TOOLCHAIN=stable-x86_64-unknown-linux-gnu`，否则 rustup 会去下载另外两个 target 并卡住。
 
 未覆盖：含检查点与文件归档的恢复后再对账用例；运行中的目标被拒绝（需要可注入的活跃执行注册表）；归档多余文件清理；事务写入失败后的重放；周期复核在长时间运行下的资源占用。测试分层与逐条判定见 `docs/tests/08-remote-backup-recovery-tests.md`。

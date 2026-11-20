@@ -138,8 +138,13 @@ glob = "0.3"
 # FFI / dynamic loading
 libloading = "0.8"
 
-# Lua plugin runtime (optional, enabled via wf-plugin/lua and wf-sandbox/lua)
-mlua = { version = "0.9", default-features = false, features = ["luajit", "send"] }
+# Lua plugin runtime (optional, enabled via wf-plugin/lua and wf-sandbox/lua).
+# Lua 5.4 built from source (`vendored`) rather than a system library: the
+# build must not depend on a preinstalled interpreter, and static linking
+# keeps single-binary deployment possible. This is the single place the VM
+# is chosen; mlua rejects two VMs in one dependency graph, so no crate may
+# restate this choice.
+mlua = { version = "0.9", default-features = false, features = ["lua55", "vendored", "send"] }
 
 # WASM plugin runtime (optional, enabled via wf-plugin/wasm)
 wasmtime = { version = "34", default-features = false, features = ["async", "runtime", "cranelift", "wat", "component-model"] }

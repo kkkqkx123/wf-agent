@@ -69,6 +69,11 @@ impl Runtime {
             handle.abort();
         }
 
+        // Stop the execution retention sweep before storage shutdown.
+        if let Some(handle) = self.retention_timer_handle.take() {
+            handle.abort();
+        }
+
         if let Some(manager) = self.mcp_manager.take() {
             let servers = manager.connected_servers();
             for server in servers {

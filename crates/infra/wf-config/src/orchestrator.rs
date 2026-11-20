@@ -22,6 +22,7 @@ use crate::processor::infrastructure::{
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
 use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
+use crate::processor::retention::{merge_retention_with_defaults, validate_retention_config};
 use crate::processor::sandbox_global::{merge_sandbox_global_config, validate_sandbox_global};
 use crate::processor::tools::{
     transform_code_context_config, transform_glob_config, transform_list_files_config,
@@ -35,6 +36,7 @@ use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
+use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::script::sandbox::{SandboxGlobalConfig, SandboxMode};
@@ -49,6 +51,7 @@ pub struct InfrastructurePresetFiles {
     pub file_checkpoint: String,
     pub tool_approval: String,
     pub presets: String,
+    pub retention: String,
     pub tools: String,
     pub limits: String,
 }
@@ -65,6 +68,7 @@ impl InfrastructurePresetFiles {
             file_checkpoint: "file-checkpoint.toml".to_string(),
             tool_approval: "tool-approval.toml".to_string(),
             presets: "presets.toml".to_string(),
+            retention: "retention.toml".to_string(),
             tools: "tools.toml".to_string(),
             limits: "limits.toml".to_string(),
         }
@@ -106,6 +110,7 @@ pub struct AssembledConfig {
     pub presets: PresetsConfig,
     pub tools: ToolConfigs,
     pub limits: LimitsConfig,
+    pub retention: RetentionConfig,
 }
 
 impl Default for AssembledConfig {
@@ -126,6 +131,7 @@ impl Default for AssembledConfig {
             presets: PresetsConfig::default(),
             tools: ToolConfigs::default(),
             limits: LimitsConfig::default(),
+            retention: RetentionConfig::default(),
         }
     }
 }
@@ -142,6 +148,7 @@ pub struct ConfigOverrides {
     pub presets: Option<PresetsConfig>,
     pub tools: Option<ToolConfigs>,
     pub limits: Option<LimitsConfig>,
+    pub retention: Option<RetentionConfig>,
 }
 
 pub struct ConfigOrchestrator;
@@ -315,6 +322,11 @@ impl ConfigOrchestratorLoaded {
             LimitsConfig::default(),
             metrics,
         )?;
+        let retention: RetentionConfig = load_merged_domain_config_with_metrics(
+            &candidates(&files.retention),
+            RetentionConfig::default(),
+            metrics,
+        )?;
 
         // Sandbox config is fail-fast: a malformed sandbox.toml must reject
         // startup instead of silently running with the weaker defaults.
@@ -364,6 +376,13 @@ impl ConfigOrchestratorLoaded {
         let output = merge_output_with_defaults(&output);
         let file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
         let limits = merge_limits_with_defaults(&limits);
+        let retention = merge_retention_with_defaults(&retention);
+        if let Err(e) = validate_retention_config(&retention) {
+            if let Some(metrics) = metrics {
+                metrics.record_validation_error();
+            }
+            return Err(e);
+        }
         if let Err(e) = validate_limits_config(&limits) {
             if let Some(metrics) = metrics {
                 metrics.record_validation_error();
@@ -387,6 +406,7 @@ impl ConfigOrchestratorLoaded {
             presets,
             tools,
             limits,
+            retention,
         })
     }
 
@@ -609,6 +629,10 @@ impl ConfigOrchestratorLoaded {
         if let Some(limits) = overrides.limits {
             config.limits = merge_limits_with_defaults(&limits);
             validate_limits_config(&config.limits)?;
+        }
+        if let Some(retention) = overrides.retention {
+            config.retention = merge_retention_with_defaults(&retention);
+            validate_retention_config(&config.retention)?;
         }
         Ok(())
     }

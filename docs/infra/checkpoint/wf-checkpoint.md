@@ -40,7 +40,16 @@ workflow/    WorkflowCheckpointCoordinator(+ content_policy / progress / restore
 4. **持久化**(`persist.rs`):`persist_checkpoint` 写库 → 成功发布 `persisted` 事件;失败发布 `persist_failed` 并交 `CheckpointErrorHandler` 裁决 —— 默认上抛,失败绝不伪装成功;宽松配置才允许无检查点继续。`delete_checkpoint` 同构;
 5. **文件投影**(`projection.rs`):同步 best-effort —— `tokio::spawn_blocking` 调 `create_latest_file_checkpoint`,成功则记录**状态→文件链接**(恢复时解析"当时的文件集合"而非"最新");文件层缺失/失败均返回 Ok,状态检查点永不受牵连;成功/失败均带状态检查点 id 记日志便于关联;
 6. **后台队列**(`queue.rs`):延迟的文件投影任务进入 `PersistenceQueue`(有界,≤128);队满时先排空积压再入队,发布 `cleanup_skipped(persistence_backlog)` 并记 `persistence_backlog` 指标,内存保持有界;
-7. **清理**:按策略触发状态侧清理;文件侧由 gc 自治。
+7. **清理**:按策略触发状态侧清理;文件侧由 gc 自治。应用层的周期保留扫描另行覆盖空闲执行:收藏执行整条跳过,归档时导出 bundle、删除状态检查点、解除文件 ref,最后触发 gc。
+
+## 应用生命周期接入
+
+`wf-api::retention` 是生命周期编排层,不修改协调器策略语义:
+
+- `settings` 读取 `retention.toml` 初始值或服务端的 `system:retention` 覆盖;
+- `lifecycle` 保存 `active/preserved/archived` 状态与完整执行 bundle,`preserved` 是删除操作的硬保护;
+- `service` 周期扫描先排除收藏、运行中/暂停中和最近 N 条,再分别执行检查点旧行清理、归档、历史过期删除与任务/触发器清理;
+- 状态检查点的批量清理复用 `CheckpointStateManager::cleanup_with_strategy`,保留增量链保护;文件侧先解除 edit/context ref 再运行对象库 GC。
 
 ## Agent 协调器(coordinator/agent)
 

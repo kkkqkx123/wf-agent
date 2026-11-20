@@ -335,6 +335,16 @@ impl FileCheckpointManager {
         self.journaled_ref_update(spec, |_| git.delete_ref(&refname))
     }
 
+    /// Release every file-history ref owned by one execution. The context
+    /// archive ref is written without the edit journal, so it is removed
+    /// directly; unreachable objects are reclaimed by the normal GC sweep.
+    pub fn discard_execution_history(&self, entity_id: &str) -> Result<(), CheckpointError> {
+        self.discard_execution(entity_id)?;
+        let git = self.git_ref()?;
+        let archive_ref = crate::archive::context_archive_ref(entity_id);
+        git.delete_ref(&archive_ref).map_err(map_git_error)
+    }
+
     /// Explicit rename entry point: delete the old path and write the new
     /// path content in a single atomic commit on the actor's edit ref.
     /// Rename following happens on read via similarity detection. Returns

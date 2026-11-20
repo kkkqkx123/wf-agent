@@ -1,6 +1,6 @@
 # 基础设施配置（infrastructure/）
 
-基础设施配置位于 `{layer}/infrastructure/`，共九个固定文件名。由 `ConfigOrchestrator` 按优先级链加载并合并，随后应用 `WF_*` 环境覆盖与程序化覆盖。
+基础设施配置位于 `{layer}/infrastructure/`，共十个固定文件名。由 `ConfigOrchestrator` 按优先级链加载并合并，随后应用 `WF_*` 环境覆盖与程序化覆盖。
 
 | 文件 | 配置类型 | 作用 |
 |---|---|---|
@@ -13,6 +13,7 @@
 | `presets.toml` | `PresetsConfig` | 预定义工具 / 提示词启用 |
 | `tools.toml` | `ToolConfigs` | 文件工具与 shell / code-context 覆盖 |
 | `limits.toml` | `LimitsConfig` | agent / workflow / 执行 / 压缩限制 |
+| `retention.toml` | `RetentionConfig` | 执行历史 / 任务 / 检查点的按时间保留策略 |
 
 ## storage.toml
 
@@ -111,3 +112,12 @@
 - `[compression]`：`max_retries`、`timeout_ms`、`settle_timeout_ms`、`tail_keep`
 - `[compaction]`：`h_target_ratio`、`t_handoff_ratio`、`t_compact_ratio`、`t_hard_ratio`、`r_repress`、`r_min_range`、`k_repress`、`recent_raw_turns`、`tool_distill`、`file_dedup`、`plan_max_items`、`summary_call_budget_tokens`、`strategy`
 - 环境覆盖：`WF_AGENT_*`、`WF_WORKFLOW_*`、`WF_EXEC_*`
+
+## retention.toml
+
+- 全局：`enabled`（默认 false）、`scan_interval_secs`（默认 3600）、`batch_size`（默认 200）、`dry_run`（默认 true）
+- `[checkpoints]`：`max_age_days`（默认 30）、`max_checkpoints`（默认 50）、`protect_favorites`（默认 true）
+- `[file_checkpoints]`：`history_max_age_days`（默认 30）、`keep_recent_heads`（默认 0）
+- `[executions]`：`history_retention_days`（默认 180）、`keep_recent`（默认 20）、`protect_running`（默认 true）
+- `[tasks]`：`retention_days`、`trigger_retention_days`（均默认 30）
+- 初始值来自文件；设置页写入的类型化策略保存在服务端快照 `system:retention`，覆盖文件默认值。删除默认只在 `enabled = true && dry_run = false` 时执行。

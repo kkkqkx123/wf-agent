@@ -187,6 +187,7 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::system::dependencies::routes())
         .merge(api::system::code_context::routes())
         .merge(api::system::directories::routes())
+        .merge(api::system::retention::routes())
         .merge(api::system::server::routes());
 
     #[cfg(feature = "backends")]

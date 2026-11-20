@@ -1,0 +1,28 @@
+# Execution retention configuration.
+#
+# Automatic deletion stays off until explicitly enabled. The first sweep is
+# report-only so operators can inspect the candidates before anything is
+# removed. Durations use explicit units.
+
+enabled = false
+scan_interval_secs = 3600
+batch_size = 200
+dry_run = true
+
+[checkpoints]
+max_age_days = 30
+max_checkpoints = 50
+protect_favorites = true
+
+[file_checkpoints]
+history_max_age_days = 30
+keep_recent_heads = 0
+
+[executions]
+history_retention_days = 180
+keep_recent = 20
+protect_running = true
+
+[tasks]
+retention_days = 30
+trigger_retention_days = 30

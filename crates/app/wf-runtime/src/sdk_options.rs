@@ -4,6 +4,7 @@ use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
+use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::StorageConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::script::sandbox::SandboxGlobalConfig;
@@ -19,6 +20,8 @@ pub struct SdkOptions {
     pub file_checkpoint: Option<FileCheckpointConfig>,
     pub tool_approval: Option<ToolApprovalConfig>,
     pub limits: Option<LimitsConfig>,
+    /// Server-owned retention policy override.
+    pub retention: Option<RetentionConfig>,
     pub graceful_shutdown_timeout: Option<u64>,
     pub enable_recovery: Option<bool>,
     pub log_level: Option<String>,
@@ -74,6 +77,11 @@ impl SdkOptions {
         self
     }
 
+    pub fn with_retention(mut self, config: RetentionConfig) -> Self {
+        self.retention = Some(config);
+        self
+    }
+
     pub fn with_graceful_shutdown_timeout(mut self, timeout_ms: u64) -> Self {
         self.graceful_shutdown_timeout = Some(timeout_ms);
         self
@@ -96,6 +104,7 @@ impl SdkOptions {
             file_checkpoint: self.file_checkpoint,
             tool_approval: self.tool_approval,
             limits: self.limits,
+            retention: self.retention,
         }
     }
 }

@@ -11,6 +11,7 @@ pub use checkpoint_file::watcher;
 
 pub use checkpoint_base::actor::id::{ActorId, ActorIdError, ActorKind};
 pub use checkpoint_base::cache::CheckpointCache;
+pub use checkpoint_base::cleanup_policy::CleanupStrategy;
 pub use checkpoint_base::clock::{CheckpointClock, ManualClock};
 pub use checkpoint_base::common::content::ContentFilter;
 pub use checkpoint_base::common::{

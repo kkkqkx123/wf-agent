@@ -109,6 +109,9 @@ pub struct ApiContext {
     /// context when the caller and definition leave them unset, making the
     /// config the single source instead of the engine's hardcoded fallback.
     pub execution_limits: Option<wf_types::config::limits::LimitsConfig>,
+    /// Server-owned retention policy used by the cleanup scheduler and the
+    /// typed settings API. `None` keeps the conservative built-in default.
+    pub retention: Option<wf_types::config::retention::RetentionConfig>,
     /// In-memory stale marks for formal workflows whose upstream references
     /// failed revalidation after an update. Cleared when the workflow is
     /// re-saved formally. Phase three persists this as a lifecycle state.
@@ -166,6 +169,7 @@ impl ApiContext {
             file_checkpoint_manager: None,
             tool_approval: None,
             execution_limits: None,
+            retention: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
             user_git: None,
             rag_handles: None,
@@ -220,6 +224,7 @@ impl ApiContext {
             file_checkpoint_manager: None,
             tool_approval: None,
             execution_limits: None,
+            retention: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
             user_git: None,
             rag_handles: None,
@@ -243,6 +248,15 @@ impl ApiContext {
     /// through this context inherit the configured execution defaults.
     pub fn with_execution_limits(mut self, limits: wf_types::config::limits::LimitsConfig) -> Self {
         self.execution_limits = Some(limits);
+        self
+    }
+
+    /// Attach the server-owned retention policy resolved by the host runtime.
+    pub fn with_retention(
+        mut self,
+        retention: wf_types::config::retention::RetentionConfig,
+    ) -> Self {
+        self.retention = Some(retention);
         self
     }
 

@@ -24,6 +24,14 @@
 	} from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
 	import {
+		archiveExecution,
+		favoriteExecution,
+		getExecutionLifecycle,
+		restorePreservedExecution,
+		unfavoriteExecution,
+		type ExecutionLifecycle,
+	} from '#lib/services/retention';
+	import {
 		appendAgentLoopInput,
 		cancelAgentLoop,
 		convertPendingToSteering,
@@ -47,6 +55,9 @@
 	let appendMode = $state<'steering' | 'followup'>('followup');
 	let appendBusy = $state(false);
 	let rerunning = $state(false);
+	let lifecycle = $state<ExecutionLifecycle | null>(null);
+	let lifecycleBusy = $state(false);
+	let archiveButtonArmed = $state(false);
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab ?? null;
 	let tab = $state<ExecutionTab>(isExecutionTab(requestedTab) ? requestedTab : 'overview');
@@ -57,7 +68,58 @@
 		});
 	});
 
+	async function loadLifecycle(id: string): Promise<void> {
+		try {
+			lifecycle = await getExecutionLifecycle(id);
+		} catch {
+			lifecycle = null;
+		}
+	}
+
+	async function toggleFavorite(id: string): Promise<void> {
+		lifecycleBusy = true;
+		try {
+			if (lifecycle?.state === 'preserved') {
+				await unfavoriteExecution(id);
+			} else {
+				lifecycle = await favoriteExecution(id);
+			}
+			await loadLifecycle(id);
+			toasts.success(t('common.saved'));
+		} catch (error) {
+			toasts.error(t('common.saveFailed'), error instanceof Error ? error.message : String(error));
+		} finally {
+			lifecycleBusy = false;
+		}
+	}
+
+	async function runArchive(id: string): Promise<void> {
+		lifecycleBusy = true;
+		try {
+			lifecycle = await archiveExecution(id);
+			archiveButtonArmed = false;
+			toasts.success(t('common.saved'));
+		} catch (error) {
+			toasts.error(t('common.saveFailed'), error instanceof Error ? error.message : String(error));
+		} finally {
+			lifecycleBusy = false;
+		}
+	}
+
+	async function runRestore(id: string): Promise<void> {
+		lifecycleBusy = true;
+		try {
+			await restorePreservedExecution(id, { replace: true });
+			toasts.success(t('common.saved'));
+		} catch (error) {
+			toasts.error(t('common.saveFailed'), error instanceof Error ? error.message : String(error));
+		} finally {
+			lifecycleBusy = false;
+		}
+	}
+
 	async function load(id: string): Promise<void> {
+		void loadLifecycle(id);
 		// Control and append actions re-read after the write; keep the old
 		// inspector on screen while the refetch runs.
 		const background = unified !== null;
@@ -360,7 +422,54 @@
 					/>
 				{/if}
 			{/if}
+			{#if lifecycle?.state === 'preserved'}
+				<Badge variant="outline">{t('page.executionDetail.lifecyclePreserved')}</Badge>
+			{:else if lifecycle?.state === 'archived'}
+				<Badge variant="outline">{t('page.executionDetail.lifecycleArchived')}</Badge>
+			{/if}
 			{#if currentId}
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={lifecycleBusy}
+					onclick={() => void toggleFavorite(currentId)}
+				>
+					{t(lifecycle?.state === 'preserved' ? 'page.executionDetail.unfavorite' : 'page.executionDetail.favorite')}
+				</Button>
+				{#if lifecycle?.state === 'preserved' || lifecycle?.state === 'archived'}
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={lifecycleBusy}
+						onclick={() => void runRestore(currentId)}
+					>
+						{t('page.executionDetail.restorePreserved')}
+					</Button>
+				{/if}
+				{#if lifecycle?.state !== 'preserved' && lifecycle?.state !== 'archived'}
+					{#if archiveButtonArmed}
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={lifecycleBusy}
+							onclick={() => void runArchive(currentId)}
+						>
+							{t('page.executionDetail.archiveArmed')}
+						</Button>
+						<Button size="sm" variant="ghost" onclick={() => (archiveButtonArmed = false)}>
+							{t('page.executionDetail.keep')}
+						</Button>
+					{:else}
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={lifecycleBusy}
+							onclick={() => (archiveButtonArmed = true)}
+						>
+							{t('page.executionDetail.archive')}
+						</Button>
+						{/if}
+					{/if}
 				<IconButton
 					icon="copy"
 					label={t('common.copy')}

@@ -26,6 +26,13 @@
 		type ToolOutputDetail,
 	} from '#lib/config/tool-output';
 	import { behavior } from '#lib/stores/behavior.svelte';
+	import {
+		DEFAULT_RETENTION_SETTINGS,
+		loadRetentionSettings,
+		saveRetentionSettings,
+		scanRetention,
+		type RetentionSettings,
+	} from '#lib/services/retention';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { shortcutOverrides } from '#lib/shortcuts/registry';
 	import { saveShortcutOverrides } from '#lib/shortcuts/settings';
@@ -243,8 +250,55 @@
 		refreshWorkspaceInputs();
 	}
 
+	let retention = $state<RetentionSettings>(structuredClone(DEFAULT_RETENTION_SETTINGS));
+	let retentionLoading = $state(false);
+	let retentionBusy = $state(false);
+	let retentionScanResult = $state('');
+
+	async function loadRetention(): Promise<void> {
+		retentionLoading = true;
+		try {
+			retention = await loadRetentionSettings();
+		} catch (error) {
+			toasts.error(t('page.settings.serverPrefsUnavailable'), error instanceof Error ? error.message : String(error));
+		} finally {
+			retentionLoading = false;
+		}
+	}
+
+	async function saveRetention(): Promise<void> {
+		retentionBusy = true;
+		try {
+			retention = await saveRetentionSettings(retention);
+			toasts.success(t('page.settings.retentionSaved'));
+		} catch (error) {
+			toasts.error(t('page.settings.retentionSaveFailed'), error instanceof Error ? error.message : String(error));
+		} finally {
+			retentionBusy = false;
+		}
+	}
+
+	async function previewRetention(): Promise<void> {
+		retentionBusy = true;
+		try {
+			const report = await scanRetention(true);
+			retentionScanResult = t('page.settings.retentionScanResult', {
+				archived: report.executions_archived,
+				deleted: report.executions_deleted,
+				checkpoints: report.checkpoints_removed,
+				tasks: report.tasks_removed,
+				triggers: report.trigger_executions_removed,
+			});
+		} catch (error) {
+			toasts.error(t('page.settings.retentionScanFailed'), error instanceof Error ? error.message : String(error));
+		} finally {
+			retentionBusy = false;
+		}
+	}
+
 	onMount(() => {
 		void behavior.load();
+		void loadRetention();
 		dirPinned = pinnedDirectory();
 		refreshWorkspaceInputs();
 		void loadServerDirectories();
@@ -335,6 +389,7 @@
 				minimapMode: preferences.minimapMode,
 				toolOutputPreviews: preferences.toolOutputPreviews,
 				toolOutputDetail: preferences.toolOutputDetail,
+				reasoningVisible: preferences.reasoningVisible,
 				chatExecutionType: preferences.chatExecutionType,
 			},
 			shortcuts: shortcutOverrides(),
@@ -662,6 +717,100 @@
 									})}
 								</p>
 							{/if}
+							<Card title={t('page.settings.retention')} description={t('page.settings.retentionDesc')}>
+								<Switch
+									checked={retention.enabled}
+									label={t('page.settings.retentionEnabled')}
+									onchange={(value) => (retention.enabled = Boolean(value))}
+								/>
+								<Switch
+									checked={retention.dry_run}
+									label={t('page.settings.retentionDryRun')}
+									class="mt-2"
+									onchange={(value) => (retention.dry_run = Boolean(value))}
+								/>
+								<div class="mt-3 grid gap-3 sm:grid-cols-2">
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionCheckpointDays')}
+										<input
+											type="number"
+											min="1"
+											bind:value={retention.checkpoints.max_age_days}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionCheckpointLimit')}
+										<input
+											type="number"
+											min="1"
+											bind:value={retention.checkpoints.max_checkpoints}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionFileDays')}
+										<input
+											type="number"
+											min="1"
+											bind:value={retention.file_checkpoints.history_max_age_days}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionHistoryDays')}
+										<input
+											type="number"
+											min="1"
+											bind:value={retention.executions.history_retention_days}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionKeepRecent')}
+										<input
+											type="number"
+											min="0"
+											bind:value={retention.executions.keep_recent}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionTaskDays')}
+										<input
+											type="number"
+											min="1"
+											bind:value={retention.tasks.retention_days}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+									<label class="text-caption text-muted-foreground">
+										{t('page.settings.retentionTriggerDays')}
+										<input
+											type="number"
+											min="1"
+											bind:value={retention.tasks.trigger_retention_days}
+											class="mt-1 w-32 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground"
+										/>
+									</label>
+								</div>
+								<div class="mt-3 flex flex-wrap gap-2">
+									<Button size="sm" disabled={retentionBusy || retentionLoading} onclick={() => void saveRetention()}>
+										{t('page.settings.retentionSave')}
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={retentionBusy || retentionLoading}
+										onclick={() => void previewRetention()}
+									>
+										{retentionBusy ? t('page.settings.retentionScanning') : t('page.settings.retentionScan')}
+									</Button>
+								</div>
+								{#if retentionScanResult}
+									<p class="mt-2 text-caption text-muted-foreground">{retentionScanResult}</p>
+								{/if}
+							</Card>
 							<Card title={t('page.settings.paging')} description={t('page.settings.pagingDesc')}>
 								<Select
 									value={pageSize}

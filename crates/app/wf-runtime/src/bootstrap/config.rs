@@ -10,6 +10,7 @@ use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
+use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::StorageConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::llm::LlmProfile;
@@ -164,6 +165,9 @@ pub struct RuntimeConfig {
     /// Resource limits (agent/workflow) resolved from the infrastructure
     /// file layer via `bootstrap_with_source`; defaults otherwise.
     pub limits: LimitsConfig,
+    /// Server-owned retention policy. `None` fills from the infrastructure
+    /// file layer; an explicit value wins.
+    pub retention: Option<RetentionConfig>,
     /// Keyword index configuration. Enabled by default; the database path
     /// derives from the storage configuration unless set explicitly.
     /// Environment overrides apply at open time (see `wf_api::rag`).
@@ -401,6 +405,9 @@ pub async fn resolve_infra_config(
     }
     if config.limits == wf_types::config::limits::LimitsConfig::default() {
         config.limits = assembled.limits;
+    }
+    if infra.overrides.retention.is_some() || config.retention.is_none() {
+        config.retention = Some(assembled.retention);
     }
 
     // Skill settings chain (global -> project). Lenient:

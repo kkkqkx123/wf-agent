@@ -25,6 +25,8 @@
 | 序列化(CheckpointSerializer) | 执行状态信封的统一编码:JSON,外加单层压缩(>`512` 字节且策略为 Auto 时 gzip;读取按魔数透明解压)。文件侧压缩在 `checkpoint-file` 内部完成,不再叠加第三层。 |
 | 缓存(CheckpointCache) | 基于 moka 的 TTL + 容量上限缓存,附单飞(single-flight):同 key 并发 miss 等待首个工厂调用完成后回读,避免重复昂贵加载。 |
 | 清理策略(cleanup_policy) | 执行状态检查点的回收决策:按年龄/数量/大小/分层(RetentionTier)筛选,再施加链保护(链内成员不删)。文件侧回收不在此,见 GC。 |
+| 执行生命周期(ExecutionLifecycle) | 与 `ExecutionStatus` 正交的数据保留状态:`active` / `preserved` / `archived`。收藏实体持有完整 bundle 且永久跳过清理;归档实体已删检查点与文件 ref,但保留执行历史到自己的过期窗口。 |
+| 执行 bundle(ExecutionBundle) | 服务端可校验的完整恢复快照:执行记录、统一历史、artifact、审计、全部检查点 blob 与文件归档。收藏与归档都先落 bundle 再删除运行时数据;恢复只重建历史状态,不复活运行时句柄。 |
 | 依赖图(CheckpointDependencyGraph) | `referenced_by` / `chain_root_map` / `chain_groups` 三个映射,守卫 `wf-storage` 中线性 previous-id 链;与文件 Git DAG 完全分离。 |
 
 ## 2. Actor 与文件分区

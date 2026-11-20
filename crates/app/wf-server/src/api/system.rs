@@ -7,4 +7,5 @@ pub mod events;
 pub mod health;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod retention;
 pub mod server;

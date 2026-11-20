@@ -18,6 +18,7 @@
 /// - `file_scope` — merge/validate/expand execution file scopes
 /// - `node_template` — validate/transform node templates
 /// - `presets` — merge presets with defaults
+/// - `retention` — merge/validate execution history cleanup policy
 /// - `sandbox_global` — validate/transform global sandbox configs
 /// - `script` — validate script executor configs
 /// - `script_flow` — validate/transform script flows
@@ -39,6 +40,7 @@ pub mod node_config;
 pub mod node_template;
 pub mod presets;
 pub mod prompt;
+pub mod retention;
 pub mod sandbox_global;
 pub mod script;
 pub mod script_flow;

@@ -140,6 +140,8 @@ Manager 的行为按文件拆分:
 
 对象库自有可达性即策略:从任何 ref 不可达的松散对象被 prune,被删 commit 的源索引行随之删除;不存在内容表上的独立 mark-sweep(文件字节只活在对象库里)。统计 `GcStats { removed_checkpoints, removed_snapshots, reclaimed_snapshots }`(不可达 commit / 树 / blob)。
 
+`FileCheckpointManager::discard_execution_history(entity_id)` 在归档/过期路径上解除该执行的 edit ref 与 `refs/wf/context/<entity_id>` 归档 ref,随后再由 `run_gc` 回收对象。只跑 GC 不解除 ref 不会释放历史;该操作不改写已合入 main 或审批分区的提交。
+
 ## 分支与命名(branch.rs)
 
 文件分支即 Git refs(edit / review / feature / main / human 五类);`naming` 提供 feature 分支名校验与保留名检查,`feature` 负责确保 feature 分支存在。执行隔离由 ActorId 层次表达,不在文件层维护第二套分支索引。

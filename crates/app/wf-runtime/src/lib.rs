@@ -12,6 +12,7 @@ pub mod plugin_bridge;
 pub mod recovery;
 #[cfg(feature = "plugins")]
 pub mod resource_assembler_adapter;
+pub mod retention;
 pub mod sdk_options;
 pub mod shell_event_bridge;
 pub mod storage_manager;

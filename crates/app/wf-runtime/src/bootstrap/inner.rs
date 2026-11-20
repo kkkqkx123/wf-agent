@@ -522,9 +522,8 @@ impl Runtime {
             gc_timer_handle,
         ) = (None, None, None, None);
 
-        info!("Runtime bootstrap complete");
-
-        Ok(Self {
+        let retention = config.retention.clone().unwrap_or_default();
+        let mut runtime = Self {
             storage_manager,
             mode_info,
             shutdown_handle,
@@ -556,13 +555,19 @@ impl Runtime {
             manual_change_service,
             checkpoint_event_bridge_handle,
             gc_timer_handle,
+            retention_timer_handle: None,
             code_context_sidecar,
             code_context_service: Some(code_context),
             output: config.output.clone(),
             presets: config.presets.clone(),
             tools: config.tools.clone(),
             limits: config.limits.clone(),
+            retention: retention.clone(),
             user_git: config.user_git.clone(),
-        })
+        };
+        runtime.retention_timer_handle =
+            crate::retention::spawn_retention_timer(runtime.api_context_arc(), retention);
+        info!("Runtime bootstrap complete");
+        Ok(runtime)
     }
 }

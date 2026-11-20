@@ -145,6 +145,7 @@ pub struct InfrastructurePresetFiles {
     pub output: Option<String>,
     pub file_checkpoint: Option<String>,
     pub presets: Option<String>,
+    pub retention: Option<String>,
     pub tools: Option<String>,
     pub sandbox: Option<String>,
     pub tool_approval: Option<String>,

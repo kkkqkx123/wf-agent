@@ -61,6 +61,9 @@ impl Runtime {
             // Apply the resolved limits so executions launched through this
             // context seed node/total budgets from `execution_defaults`.
             ctx = ctx.with_execution_limits(self.limits.clone());
+            // Apply the resolved retention policy so typed settings and the
+            // cleanup sweep share one bootstrap default.
+            ctx = ctx.with_retention(self.retention.clone());
             // Attach the user git domain config when enabled with a repo root.
             if let Some(user_git) = &self.user_git {
                 if user_git.enabled {

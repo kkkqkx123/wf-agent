@@ -89,6 +89,8 @@ pub struct Runtime {
     pub presets: wf_types::config::presets::PresetsConfig,
     pub tools: wf_config::orchestrator::ToolConfigs,
     pub limits: wf_types::config::limits::LimitsConfig,
+    /// Effective retention policy for the periodic cleanup sweep.
+    pub retention: wf_types::config::retention::RetentionConfig,
     pub user_git: Option<wf_types::config::user_git::UserGitConfig>,
     /// Manual change service: watches the workspace root and routes
     /// human/external file edits into the manual partition. Started when
@@ -102,6 +104,9 @@ pub struct Runtime {
     /// at the configured `gc_interval_secs` interval. `None` when periodic
     /// GC is disabled (explicit `run_gc` / API only).
     pub(super) gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Optional periodic execution retention sweep. Started only when the
+    /// policy is enabled and not report-only.
+    pub(super) retention_timer_handle: Option<tokio::task::JoinHandle<()>>,
     /// Supervised local code-context service for managed transport. Kept
     /// alive for the runtime lifetime and stopped during shutdown.
     pub(super) code_context_sidecar: Option<wf_integration::RunningSidecar>,

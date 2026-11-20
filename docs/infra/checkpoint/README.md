@@ -38,7 +38,8 @@ checkpoint-state (执行状态管理器 + 层级恢复)      checkpoint-file (�
 | 存储 | `wf-storage` 后端(SQLite 元数据 + 二进制 blob) | 独立 bare Git 库(`<workspace>/.wf-checkpoint-git`)+ 少量 SQLite 元数据 |
 | 增量方式 | Full/Delta 链(差分计算 + 链回放) | Git 对象去重 + commit 链 |
 | 恢复 | 增量链回放得到快照 | 按状态→文件链接检出树到磁盘 |
-| 清理 | `cleanup_policy`(年龄/数量/大小/分层 + 链保护) | `gc`(基于 ref 可达性的对象回收) |
+| 清理 | `cleanup_policy`(年龄/数量/大小/分层 + 链保护) | `gc`(基于 ref 可达性的对象回收) + 执行级 ref 解除 |
+| 生命周期编排 | `wf-api::retention` 周期扫描(收藏保护、归档、过期) | 同左,归档时调用 `discard_execution_history` 后再 GC |
 | 概念图 | 线性 previous-id 链(`CheckpointDependencyGraph`) | 多父内容 DAG(Git commit 图) |
 
 ## 关键不变式(摘自代码)
@@ -47,3 +48,4 @@ checkpoint-state (执行状态管理器 + 层级恢复)      checkpoint-file (�
 - 状态检查点写库失败默认上抛(`CheckpointErrorHandler` 决定),绝不把失败伪装成已保存;文件投影(state→file)是 best-effort,失败不影响状态检查点。
 - `ActorId` 编码(格式 A)必须保持稳定,它是文件分区的 UUIDv5 种子。
 - 两个概念图(状态链 vs Git DAG)绝不共享节点、不合并为通用图。
+- 收藏执行保存完整 bundle 并永久跳过清理;归档只解除执行级 ref 与删除检查点,执行历史保留到自己的过期窗口,生命周期与 `ExecutionStatus` 正交。

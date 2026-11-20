@@ -48,5 +48,7 @@
 	"common.closeMenu": "Close menu",
 	"common.banners": "Banners",
 	"common.sections": "Sections",
-	"common.diffViewOptions": "Diff view options"
+	"common.diffViewOptions": "Diff view options",
+	"common.saved": "Saved",
+	"common.saveFailed": "Save failed"
 }

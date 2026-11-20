@@ -48,5 +48,7 @@
 	"common.closeMenu": "关闭菜单",
 	"common.banners": "横幅",
 	"common.sections": "区块",
-	"common.diffViewOptions": "差异视图选项"
+	"common.diffViewOptions": "差异视图选项",
+	"common.saved": "已保存",
+	"common.saveFailed": "保存失败"
 }

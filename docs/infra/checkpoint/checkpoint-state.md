@@ -29,7 +29,7 @@ restore/
 | `get_latest(entity_id)` | 实体最新检查点元数据 |
 | `load_metadata(id)` | 仅读元数据不加载 blob —— 从各管理器私有实现上提,使共享协调器辅助(描述合并回写、进度门控)可在 trait 上工作 |
 
-另有 `CleanupStrategy` 相关的清理入口与 `CheckpointLoader` 的存储适配。
+另有 `CleanupStrategy` 相关的清理入口与 `CheckpointLoader` 的存储适配。应用层的周期保留扫描复用 `cleanup_with_strategy`(数量 + 时间两种策略),不在上层重写链保护逻辑。
 
 ## 状态信封与具体类型(state/workflow、state/agent)
 

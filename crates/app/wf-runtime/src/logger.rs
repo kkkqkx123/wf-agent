@@ -1,4 +1,7 @@
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use std::sync::OnceLock;
+
+use tracing_subscriber::reload::{self, Handle};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 use crate::error::{RuntimeError, RuntimeResult};
 
@@ -45,6 +48,27 @@ pub enum LogFormat {
     Pretty,
 }
 
+impl LogFormat {
+    pub fn parse(raw: &str) -> RuntimeResult<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "full" => Ok(Self::Full),
+            "compact" => Ok(Self::Compact),
+            "json" => Ok(Self::Json),
+            "pretty" => Ok(Self::Pretty),
+            other => Err(RuntimeError::Logger(format!("invalid log format: {other}"))),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Compact => "compact",
+            Self::Json => "json",
+            Self::Pretty => "pretty",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LogConfig {
     pub level: Option<LogLevel>,
@@ -63,16 +87,22 @@ impl LogConfig {
     }
 }
 
+struct ActiveLogging {
+    filter: Handle<EnvFilter, Registry>,
+    format: LogFormat,
+}
+
+static ACTIVE_LOGGING: OnceLock<Result<ActiveLogging, String>> = OnceLock::new();
+
 /// The tracing subscriber is process-global. Keeping the guard alive documents
-/// that ownership; dropping it cannot uninstall the subscriber.
+/// that ownership; dropping it cannot uninstall the subscriber. The installed
+/// filter is reloaded by a later `init_tracing` call.
 pub struct Guard {
     _inner: (),
 }
 
-pub fn init_tracing(config: &LogConfig) -> RuntimeResult<Guard> {
-    let level = config.level.unwrap_or(LogLevel::Warn).as_str();
-    let filter = EnvFilter::new(level);
-
+fn install_logging(format: LogFormat, filter: EnvFilter) -> Result<ActiveLogging, String> {
+    let (filter_layer, handle) = reload::Layer::<EnvFilter, Registry>::new(filter);
     let fmt = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_thread_ids(false)
@@ -80,28 +110,53 @@ pub fn init_tracing(config: &LogConfig) -> RuntimeResult<Guard> {
         .with_ansi(false)
         .with_writer(std::io::stderr);
 
-    let init_result = match config.format.unwrap_or(LogFormat::Full) {
+    let init_result = match format {
         LogFormat::Full => tracing_subscriber::registry()
-            .with(filter)
+            .with(filter_layer)
             .with(fmt)
             .try_init(),
         LogFormat::Compact => tracing_subscriber::registry()
-            .with(filter)
+            .with(filter_layer)
             .with(fmt.compact())
             .try_init(),
         LogFormat::Json => tracing_subscriber::registry()
-            .with(filter)
+            .with(filter_layer)
             .with(fmt.json())
             .try_init(),
         LogFormat::Pretty => tracing_subscriber::registry()
-            .with(filter)
+            .with(filter_layer)
             .with(fmt.pretty())
             .try_init(),
     };
+    init_result.map_err(|err| format!("tracing subscriber already installed: {err}"))?;
 
-    // A second bootstrap keeps the first subscriber. There is no per-instance
-    // filter to restore, so the result carries no configuration state.
-    let _ = init_result;
+    Ok(ActiveLogging {
+        filter: handle,
+        format,
+    })
+}
+
+pub fn init_tracing(config: &LogConfig) -> RuntimeResult<Guard> {
+    let level = config.level.unwrap_or(LogLevel::Warn);
+    let format = config.format.unwrap_or(LogFormat::Full);
+
+    let active =
+        ACTIVE_LOGGING.get_or_init(|| install_logging(format, EnvFilter::new(level.as_str())));
+    let active = active
+        .as_ref()
+        .map_err(|err| RuntimeError::Logger(err.clone()))?;
+    if active.format != format {
+        return Err(RuntimeError::Logger(format!(
+            "log format {} conflicts with the installed format {}",
+            format.as_str(),
+            active.format.as_str()
+        )));
+    }
+    active
+        .filter
+        .reload(EnvFilter::new(level.as_str()))
+        .map_err(|err| RuntimeError::Logger(format!("failed to reload log filter: {err}")))?;
+
     Ok(Guard { _inner: () })
 }
 
@@ -137,5 +192,27 @@ mod tests {
     fn test_parse_level_rejects_unknown() {
         assert!(LogLevel::parse("verbose").is_err());
         assert!(LogLevel::parse("").is_err());
+    }
+
+    #[test]
+    fn test_parse_format_normalizes_spellings() {
+        assert_eq!(LogFormat::parse(" JSON ").unwrap(), LogFormat::Json);
+        assert_eq!(LogFormat::parse("Compact").unwrap(), LogFormat::Compact);
+        assert_eq!(LogFormat::parse("pretty").unwrap(), LogFormat::Pretty);
+    }
+
+    #[test]
+    fn test_parse_format_rejects_unknown() {
+        assert!(LogFormat::parse("verbose").is_err());
+        assert!(LogFormat::parse("").is_err());
+    }
+
+    #[test]
+    fn test_repeated_init_reloads_level() {
+        let quiet = LogConfig::default().with_level(LogLevel::Off);
+        let verbose = LogConfig::default().with_level(LogLevel::Debug);
+        assert!(init_tracing(&quiet).is_ok());
+        assert!(init_tracing(&verbose).is_ok());
+        assert!(init_tracing(&quiet).is_ok());
     }
 }

@@ -71,6 +71,60 @@ fn test_resolve_log_config_rejects_invalid_file_level() {
     assert!(result.is_err());
 }
 
+#[test]
+fn test_select_log_override_treats_empty_env_as_unset() {
+    assert_eq!(
+        select_log_override(Some(String::new()), Some("debug".to_string())),
+        Some("debug".to_string())
+    );
+    assert_eq!(
+        select_log_override(Some("warn".to_string()), Some("debug".to_string())),
+        Some("warn".to_string())
+    );
+    assert_eq!(select_log_override(None, None), None);
+}
+
+#[test]
+fn test_resolve_log_config_resolves_format() {
+    use crate::logger::LogFormat;
+    use wf_config::file_layer::FileLayerConfig;
+
+    clear_env_vars();
+    let layer = FileLayerConfig {
+        log_format: Some("json".to_string()),
+        ..Default::default()
+    };
+    let mode = super::test_mode_info();
+
+    let from_file = resolve_log_config(RuntimeConfig::default(), Some(&layer), &mode).unwrap();
+    assert_eq!(from_file.log_config.format, Some(LogFormat::Json));
+
+    let explicit = RuntimeConfig {
+        log_config: LogConfig::default().with_format(LogFormat::Compact),
+        ..Default::default()
+    };
+    let resolved = resolve_log_config(explicit, Some(&layer), &mode).unwrap();
+    assert_eq!(resolved.log_config.format, Some(LogFormat::Compact));
+}
+
+#[test]
+fn test_resolve_log_config_rejects_invalid_file_format() {
+    use wf_config::file_layer::FileLayerConfig;
+
+    clear_env_vars();
+    let layer = FileLayerConfig {
+        log_format: Some("verbose".to_string()),
+        ..Default::default()
+    };
+
+    let result = resolve_log_config(
+        RuntimeConfig::default(),
+        Some(&layer),
+        &super::test_mode_info(),
+    );
+    assert!(result.is_err());
+}
+
 #[tokio::test]
 async fn test_bootstrap_registers_mcp_manager_and_use_mcp() {
     clear_env_vars();

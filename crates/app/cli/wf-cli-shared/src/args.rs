@@ -32,7 +32,8 @@ pub struct Cli {
     /// Output format for command and run output.
     #[arg(long, short = 'o', value_enum, global = true, default_value_t = OutputFormat::Text)]
     pub output: OutputFormat,
-    /// Also tee command output into this file (any mode).
+    /// Also tee rendered command output into this file (any mode). This is
+    /// output capture, not runtime tracing logs.
     #[arg(long, global = true)]
     pub log: Option<PathBuf>,
     /// Disable ANSI colors in text output.

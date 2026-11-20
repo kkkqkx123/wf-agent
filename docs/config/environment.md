@@ -18,6 +18,7 @@
 | `WF_EXEC_MAX_EXECUTION_TIME_MS` | 工作流总超时默认值 |
 | `WF_METRICS_ENABLED` | 指标总开关 |
 | `WF_LOG_LEVEL` | 日志级别（`trace`/`debug`/`info`/`warn`/`warning`/`error`/`off`） |
+| `WF_LOG_FORMAT` | 日志格式（`full`/`compact`/`json`/`pretty`） |
 | `WF_FILE_CHECKPOINT_ENABLED` | 文件检查点开关 |
 | `WF_FILE_CHECKPOINT_WORKSPACE_ROOT` | 文件检查点工作区根 |
 | `WF_FILE_CHECKPOINT_MANUAL_WATCH` | 手动 watcher 开关 |
@@ -25,7 +26,7 @@
 | `WF_FILE_CHECKPOINT_GC_INTERVAL_SECS` | GC 自动运行间隔 |
 | `WF_SANDBOX_MODE` | 沙箱模式（disabled/lenient/strict） |
 
-所有 `WF_*` 覆盖 fail-fast：非法值启动失败。日志级别只接受上述枚举值，不解析 EnvFilter 表达式；日志写 stderr，由服务管理器负责捕获与留存。
+所有 `WF_*` 覆盖 fail-fast：非法值启动失败；空字符串按未设置处理，由下一优先级来源填充。日志级别与格式只接受上述枚举值，不解析 EnvFilter 表达式；日志写 stderr，由服务管理器负责捕获与留存。
 
 ## 冻结旧名（无 WF_ 前缀）
 

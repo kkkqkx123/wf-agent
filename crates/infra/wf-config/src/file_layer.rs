@@ -7,7 +7,7 @@
 //! global dir; services pass an explicit `--settings-dir` or `None` to
 //! disable the ambient layer entirely. This layer
 //! covers only the small set of host knobs operators expect in a dotfile
-//! (`storage`, `log_level`, `tool_approval`); fixed infrastructure files stay in
+//! (`storage`, `log_level`, `log_format`, `tool_approval`); fixed infrastructure files stay in
 //! the orchestrator, which applies on top with higher priority. File
 //! checkpoint and sandbox settings are deliberately excluded here so the
 //! dotfile layer can never shadow the fixed infrastructure files with a
@@ -32,6 +32,7 @@ use wf_types::config::tool_approval::ToolApprovalConfig;
 pub struct FileLayerConfig {
     pub storage: Option<StorageConfig>,
     pub log_level: Option<String>,
+    pub log_format: Option<String>,
     pub tool_approval: Option<ToolApprovalConfig>,
 }
 
@@ -133,6 +134,7 @@ mod tests {
         let layer = load_file_layer(Some(global), &dir.path().join("project"));
         assert!(layer.config.storage.is_none());
         assert!(layer.config.log_level.is_none());
+        assert!(layer.config.log_format.is_none());
         assert!(layer.config.tool_approval.is_none());
         assert!(layer.warnings.is_empty());
     }
@@ -150,12 +152,13 @@ mod tests {
         .unwrap();
         std::fs::write(
             project_dir.path().join(".wf").join("config.toml"),
-            "log_level = \"info\"\n",
+            "log_level = \"info\"\nlog_format = \"json\"\n",
         )
         .unwrap();
 
         let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
         assert_eq!(layer.config.log_level.as_deref(), Some("info"));
+        assert_eq!(layer.config.log_format.as_deref(), Some("json"));
         assert!(layer.warnings.is_empty());
     }
 
@@ -182,6 +185,7 @@ mod tests {
 
         let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
         assert!(layer.config.log_level.is_none());
+        assert!(layer.config.log_format.is_none());
         assert_eq!(layer.warnings.len(), 1);
     }
 }

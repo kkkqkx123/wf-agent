@@ -91,7 +91,6 @@ pub fn default_failure_policy_config() -> FailurePolicyConfig {
         retry_policy: Some(default_retry_policy()),
         fallback_policy: Some(default_fallback_policy()),
         non_retryable_errors: None,
-        log_level: Some("info".to_string()),
         metrics_enabled: Some(true),
     }
 }
@@ -117,7 +116,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         });
 
@@ -139,7 +137,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         });
 
@@ -159,7 +156,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         });
 
@@ -182,7 +178,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         });
 
@@ -209,7 +204,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         });
 
@@ -230,7 +224,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         });
 

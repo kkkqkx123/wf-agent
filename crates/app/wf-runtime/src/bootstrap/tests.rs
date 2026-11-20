@@ -1,3 +1,4 @@
+use super::config::select_log_override;
 #[cfg(feature = "plugins")]
 use crate::bootstrap::PluginConfig;
 use crate::bootstrap::{
@@ -30,6 +31,7 @@ fn clear_env_vars() {
     std::env::remove_var("WF_KEYWORD_ES_BATCH_SIZE");
     std::env::remove_var("WF_KEYWORD_ES_EXACT_COUNT");
     std::env::remove_var("WF_LOG_LEVEL");
+    std::env::remove_var("WF_LOG_FORMAT");
 }
 
 fn test_mode_info() -> ModeInfo {

@@ -70,7 +70,8 @@ deploy/
 - `deploy/env/wf-server.env.template`：环境文件模板。`WF_USER_GIT_ENABLED`
   是工作区域总开关（默认开，关则全部工作区路由显式拒绝），
   `WF_STORAGE_SQLITE_DB_PATH` 钉死单全局库位置（相对路径在服务语境下无定义），
-  `WF_LOG_LEVEL` 覆盖日志级别；日志固定写 stderr，由 systemd journal 捕获
+  `WF_LOG_LEVEL` 与 `WF_LOG_FORMAT` 覆盖日志级别和格式，留空按未设置处理；
+  日志固定写 stderr，由 systemd journal 捕获
   （`journalctl -u wf-server`），应用不写文件日志、不配置轮转，
   `WF_DIRECTORY_ROOTS` 列出可被显式请求的目录根（为空则允许任何已校验目录），
   `WF_SERVER_STATIC_DIR` 等静态变量留空即 API 纯接口模式（单机部署由单元显式

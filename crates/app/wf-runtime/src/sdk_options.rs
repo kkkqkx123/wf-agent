@@ -22,7 +22,6 @@ pub struct SdkOptions {
     pub retention: Option<RetentionConfig>,
     pub graceful_shutdown_timeout: Option<u64>,
     pub enable_recovery: Option<bool>,
-    pub log_level: Option<String>,
 }
 
 impl SdkOptions {

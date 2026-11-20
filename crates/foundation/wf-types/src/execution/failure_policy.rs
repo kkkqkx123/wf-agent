@@ -39,7 +39,5 @@ pub struct FailurePolicyConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub non_retryable_errors: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub log_level: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics_enabled: Option<bool>,
 }

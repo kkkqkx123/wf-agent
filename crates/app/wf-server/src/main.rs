@@ -6,11 +6,15 @@ use clap::Parser;
 use tracing::info;
 
 use wf_runtime::bootstrap::{InfraSourceConfig, Runtime, RuntimeConfig};
-use wf_runtime::LogLevel;
+use wf_runtime::{LogFormat, LogLevel};
 use wf_types::config::user_git::UserGitConfig;
 
 fn parse_log_level(raw: &str) -> Result<LogLevel, String> {
     LogLevel::parse(raw).map_err(|err| err.to_string())
+}
+
+fn parse_log_format(raw: &str) -> Result<LogFormat, String> {
+    LogFormat::parse(raw).map_err(|err| err.to_string())
 }
 
 #[derive(Debug, Parser)]
@@ -55,6 +59,10 @@ struct Args {
     #[arg(long, value_parser = parse_log_level)]
     log_level: Option<LogLevel>,
 
+    /// Log format: full|compact|json|pretty
+    #[arg(long, value_parser = parse_log_format)]
+    log_format: Option<LogFormat>,
+
     /// Fixed Tokio worker count. Overrides `WF_SERVER_WORKER_THREADS`.
     #[arg(long)]
     worker_threads: Option<usize>,
@@ -91,6 +99,9 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
 
     if let Some(level) = args.log_level {
         config.log_config = config.log_config.with_level(level);
+    }
+    if let Some(format) = args.log_format {
+        config.log_config = config.log_config.with_format(format);
     }
 
     let source = match args.config.clone() {

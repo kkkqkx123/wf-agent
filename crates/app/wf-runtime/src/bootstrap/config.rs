@@ -17,7 +17,7 @@ use wf_types::llm::LlmProviderDefinition;
 use wf_types::skill::SkillConfig;
 
 use crate::error::RuntimeResult;
-use crate::logger::{LogConfig, LogLevel};
+use crate::logger::{LogConfig, LogFormat, LogLevel};
 use crate::mode::{ExecutionMode, ModeInfo};
 
 #[derive(Debug, Clone)]
@@ -310,6 +310,15 @@ pub fn load_infra_file_layer(infra: &InfraSourceConfig) -> UserFileLayerLoad {
     load_user_file_layer(global, &project_root)
 }
 
+/// Select the higher-priority log override. An empty environment value means
+/// unset so EnvironmentFile templates can leave the key blank.
+pub(super) fn select_log_override(
+    env_value: Option<String>,
+    file_value: Option<String>,
+) -> Option<String> {
+    env_value.filter(|value| !value.is_empty()).or(file_value)
+}
+
 /// Resolve the final log configuration. Dotfile values fill only fields that
 /// the caller left unset; the environment outranks the file layer, and mode
 /// constraints apply last.
@@ -319,11 +328,21 @@ pub fn resolve_log_config(
     mode_info: &ModeInfo,
 ) -> RuntimeResult<RuntimeConfig> {
     if config.log_config.level.is_none() {
-        let raw = std::env::var_os("WF_LOG_LEVEL")
-            .map(|value| value.to_string_lossy().into_owned())
-            .or_else(|| file_layer.and_then(|layer| layer.log_level.clone()));
+        let raw = select_log_override(
+            std::env::var("WF_LOG_LEVEL").ok(),
+            file_layer.and_then(|layer| layer.log_level.clone()),
+        );
         if let Some(raw) = raw {
             config.log_config.level = Some(LogLevel::parse(&raw)?);
+        }
+    }
+    if config.log_config.format.is_none() {
+        let raw = select_log_override(
+            std::env::var("WF_LOG_FORMAT").ok(),
+            file_layer.and_then(|layer| layer.log_format.clone()),
+        );
+        if let Some(raw) = raw {
+            config.log_config.format = Some(LogFormat::parse(&raw)?);
         }
     }
     config.log_config = adjust_log_config(config.log_config, mode_info);

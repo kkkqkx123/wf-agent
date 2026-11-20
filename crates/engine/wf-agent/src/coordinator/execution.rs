@@ -87,7 +87,6 @@ impl AgentExecutionCoordinator {
             retry_policy: Some(default_retry_policy()),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: Some("info".to_string()),
             metrics_enabled: Some(false),
         });
 
@@ -773,7 +772,6 @@ mod tests {
             }),
             fallback_policy: None,
             non_retryable_errors: None,
-            log_level: None,
             metrics_enabled: None,
         })
     }

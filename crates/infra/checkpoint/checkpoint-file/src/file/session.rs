@@ -561,6 +561,8 @@ impl FileCheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file::redo_store::RedoStackStore;
+    use std::sync::Arc;
 
     fn manager() -> FileCheckpointManager {
         FileCheckpointManager::new_in_memory().unwrap()
@@ -612,6 +614,100 @@ mod tests {
         assert!(matches!(err, CheckpointError::Branch(_)));
         // The conflict keeps the redo entry for the caller to retry.
         assert!(manager.can_redo("entity-1").unwrap());
+    }
+
+    #[test]
+    fn undo_redo_and_new_commit_journal_final_redo_snapshots() {
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        let head = manager.apply_agent_edit(&actor, "a.txt", b"v2\n").unwrap();
+        manager.undo_edit("entity-1").unwrap();
+        manager.redo_edit("entity-1").unwrap();
+        manager.apply_agent_edit(&actor, "a.txt", b"v3\n").unwrap();
+
+        let records = manager.list_ref_operations().unwrap();
+        let undo = records
+            .iter()
+            .find(|record| record.kind == crate::storage::RefOperationKind::UndoEdit)
+            .expect("undo record");
+        assert_eq!(undo.status, crate::storage::RefOperationStatus::Applied);
+        assert_eq!(
+            undo.effects
+                .redo_stack
+                .as_ref()
+                .map(|entry| entry.entries.clone()),
+            Some(vec![head.clone()])
+        );
+        let redo = records
+            .iter()
+            .find(|record| record.kind == crate::storage::RefOperationKind::RedoEdit)
+            .expect("redo record");
+        assert_eq!(
+            redo.effects
+                .redo_stack
+                .as_ref()
+                .map(|entry| entry.entries.clone()),
+            Some(Vec::new())
+        );
+        let commit = records
+            .iter()
+            .rev()
+            .find(|record| record.kind == crate::storage::RefOperationKind::FileCommit)
+            .expect("new commit record");
+        assert_eq!(
+            commit
+                .effects
+                .redo_stack
+                .as_ref()
+                .map(|entry| entry.entries.clone()),
+            Some(Vec::new())
+        );
+
+        let reloaded =
+            RedoStackStore::new(Arc::new(manager.storage_ref().unwrap().share())).unwrap();
+        assert!(!reloaded.is_available(actor.as_str()));
+    }
+
+    #[test]
+    fn group_rollback_journals_the_whole_restored_stack() {
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        let base = manager
+            .apply_agent_edit(&actor, "a.txt", b"base\n")
+            .unwrap();
+        let group = manager.begin_edit_group(None).unwrap();
+        manager
+            .apply_agent_edit_in_group(&actor, "a.txt", b"group\n", &group)
+            .unwrap();
+        let group_head = manager.commit_edit_group("entity-1", &group, None).unwrap();
+        manager.undo_edit_group("entity-1", &group).unwrap();
+
+        let record = manager
+            .list_ref_operations()
+            .unwrap()
+            .into_iter()
+            .find(|record| record.kind == crate::storage::RefOperationKind::EditGroupRollback)
+            .expect("group rollback record");
+        assert_eq!(record.status, crate::storage::RefOperationStatus::Applied);
+        assert_eq!(
+            record.effects.redo_stack.map(|entry| entry.entries),
+            Some(vec![group_head.clone()])
+        );
+        assert_eq!(
+            record
+                .effects
+                .latest_checkpoint
+                .and_then(|entry| entry.head),
+            Some(base)
+        );
+
+        let reloaded =
+            RedoStackStore::new(Arc::new(manager.storage_ref().unwrap().share())).unwrap();
+        assert_eq!(
+            reloaded.last(actor.as_str()).as_deref(),
+            Some(group_head.as_str())
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@ fn db_err(e: rusqlite::Error) -> CheckpointError {
 }
 
 /// Kind of managed ref update, used for audit queries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RefOperationKind {
     FileCommit,
@@ -451,11 +451,28 @@ mod tests {
             .unwrap();
         let pending = record(RefOperationKind::UndoEdit, Some("a"), Some("b"));
         storage.insert_ref_operation(&pending).unwrap();
+        let diverged = record(RefOperationKind::UndoEdit, Some("missing"), Some("b"));
+        storage.insert_ref_operation(&diverged).unwrap();
+        storage
+            .set_ref_operation_status(&diverged.op_id, RefOperationStatus::Diverged)
+            .unwrap();
 
         assert_eq!(storage.prune_ref_operations(i64::MAX).unwrap(), 0);
         storage
             .set_ref_operation_status(&pending.op_id, RefOperationStatus::Abandoned)
             .unwrap();
+        // The diverged record still blocks the earlier applied record on the
+        // same ref, but an unrelated settled record can be reclaimed.
+        let mut unrelated = record(RefOperationKind::FileCommit, None, Some("z"));
+        unrelated.ref_name = "refs/wf/edit/unrelated".to_string();
+        storage.insert_ref_operation(&unrelated).unwrap();
+        storage
+            .set_ref_operation_status(&unrelated.op_id, RefOperationStatus::Applied)
+            .unwrap();
         assert_eq!(storage.prune_ref_operations(i64::MAX).unwrap(), 1);
+        let remaining = storage.list_ref_operations().unwrap();
+        assert!(remaining.iter().any(|entry| entry.op_id == diverged.op_id));
+        assert!(remaining.iter().any(|entry| entry.op_id == old.op_id));
+        assert!(!remaining.iter().any(|entry| entry.op_id == unrelated.op_id));
     }
 }

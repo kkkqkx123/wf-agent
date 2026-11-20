@@ -886,11 +886,16 @@ impl FileCheckpointManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::file::FileCheckpointManager;
+    use super::FeatureMergeOptions;
+    use crate::file::{FileCheckpointManager, FileContentEntry};
     use crate::gc::{GcRetention, GcStats};
-    use crate::git_store::{edit_ref_for_actor, MODE_FILE, REF_MAIN, SYSTEM_COMMITTER};
+    use crate::git_store::{
+        edit_ref_for_actor, feat_ref_for_name, MODE_FILE, REF_MAIN, SYSTEM_COMMITTER,
+    };
+    use checkpoint_base::error::CheckpointError;
     use std::collections::HashMap;
     use std::time::Duration;
+    use wf_types::config::file_checkpoint::ConflictBehavior;
 
     fn manager() -> FileCheckpointManager {
         FileCheckpointManager::new_in_memory().expect("in-memory manager")
@@ -901,6 +906,144 @@ mod tests {
             .iter()
             .map(|(p, b)| (p.to_string(), Some((MODE_FILE.to_string(), b.to_vec()))))
             .collect()
+    }
+
+    fn feature_with_change(
+        manager: &FileCheckpointManager,
+        entity: &str,
+        feature: &str,
+        base: &[u8],
+        changed: &[u8],
+    ) {
+        manager
+            .create_checkpoint(entity, &[FileContentEntry::new("a.txt", base.to_vec())])
+            .unwrap();
+        manager
+            .create_checkpoint(entity, &[FileContentEntry::new("a.txt", changed.to_vec())])
+            .unwrap();
+        manager.merge_entity_changes(entity, feature).unwrap();
+    }
+
+    fn staged_main_conflict(manager: &FileCheckpointManager) {
+        feature_with_change(
+            manager,
+            "seed",
+            "feature-a",
+            b"base\nline\n",
+            b"one\nline\n",
+        );
+        manager.merge_features_to_main(&["feature-a"]).unwrap();
+        feature_with_change(
+            manager,
+            "other",
+            "feature-b",
+            b"base\nline\n",
+            b"two\nline\n",
+        );
+    }
+
+    fn ref_head(manager: &FileCheckpointManager, refname: &str) -> Option<String> {
+        manager.git_ref().unwrap().read_ref(refname).unwrap()
+    }
+
+    #[test]
+    fn marker_feature_to_main_conflict_moves_feature_not_main() {
+        let manager = manager();
+        staged_main_conflict(&manager);
+        let main_before = ref_head(&manager, REF_MAIN);
+        let feature_ref = feat_ref_for_name("feature-b");
+        let feature_before = ref_head(&manager, &feature_ref);
+
+        let execution = manager
+            .merge_feature_into_main_with_behavior("feature-b", "merge", ConflictBehavior::Marker)
+            .unwrap();
+        assert!(execution.merged);
+        assert_eq!(execution.outcome.conflict_files, vec!["a.txt".to_string()]);
+        assert_eq!(ref_head(&manager, REF_MAIN), main_before);
+        assert_ne!(ref_head(&manager, &feature_ref), feature_before);
+        assert!(
+            manager
+                .conflict_status_for_ref(&feature_ref)
+                .unwrap()
+                .unresolved
+        );
+    }
+
+    #[test]
+    fn fail_feature_to_main_conflict_leaves_both_refs_untouched() {
+        let manager = manager();
+        staged_main_conflict(&manager);
+        let main_before = ref_head(&manager, REF_MAIN);
+        let feature_ref = feat_ref_for_name("feature-b");
+        let feature_before = ref_head(&manager, &feature_ref);
+
+        let err = manager
+            .merge_feature_into_main_with_behavior("feature-b", "merge", ConflictBehavior::Fail)
+            .unwrap_err();
+        assert!(matches!(err, CheckpointError::MergeConflict { .. }));
+        assert_eq!(ref_head(&manager, REF_MAIN), main_before);
+        assert_eq!(ref_head(&manager, &feature_ref), feature_before);
+        assert!(
+            !manager
+                .conflict_status_for_ref(&feature_ref)
+                .unwrap()
+                .unresolved
+        );
+    }
+
+    #[test]
+    fn approval_feature_to_main_conflict_defers_without_ref_moves() {
+        let manager = manager();
+        staged_main_conflict(&manager);
+        let main_before = ref_head(&manager, REF_MAIN);
+        let feature_ref = feat_ref_for_name("feature-b");
+        let feature_before = ref_head(&manager, &feature_ref);
+
+        let execution = manager
+            .merge_feature_into_main_with_behavior("feature-b", "merge", ConflictBehavior::Approval)
+            .unwrap();
+        assert!(!execution.merged);
+        assert_eq!(execution.outcome.conflict_files, vec!["a.txt".to_string()]);
+        assert_eq!(ref_head(&manager, REF_MAIN), main_before);
+        assert_eq!(ref_head(&manager, &feature_ref), feature_before);
+    }
+
+    #[test]
+    fn atomic_preflight_aborts_before_any_main_merge() {
+        let manager = manager();
+        staged_main_conflict(&manager);
+        manager
+            .create_checkpoint(
+                "clean",
+                &[FileContentEntry::new("b.txt", b"base-c\n".to_vec())],
+            )
+            .unwrap();
+        manager
+            .create_checkpoint(
+                "clean",
+                &[FileContentEntry::new("b.txt", b"clean-c\n".to_vec())],
+            )
+            .unwrap();
+        manager.merge_entity_changes("clean", "feature-c").unwrap();
+        let main_before = ref_head(&manager, REF_MAIN);
+        let clean_before = ref_head(&manager, &feat_ref_for_name("feature-c"));
+
+        let err = manager
+            .merge_features_to_main_with_behavior(
+                &["feature-c", "feature-b"],
+                &FeatureMergeOptions {
+                    atomic: true,
+                    confirm_order: true,
+                },
+                ConflictBehavior::Marker,
+            )
+            .unwrap_err();
+        assert!(matches!(err, CheckpointError::MergeConflict { .. }));
+        assert_eq!(ref_head(&manager, REF_MAIN), main_before);
+        assert_eq!(
+            ref_head(&manager, &feat_ref_for_name("feature-c")),
+            clean_before
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@ use super::*;
 use crate::file::util::sha256_hex;
 use checkpoint_base::error::CheckpointError;
 use std::collections::HashMap;
-use wf_types::config::file_checkpoint::ConflictBehavior;
+use wf_types::config::file_checkpoint::{ApprovalPolicy, ConflictBehavior};
 
 fn manager() -> FileCheckpointManager {
     FileCheckpointManager::new_in_memory().unwrap()
@@ -522,6 +522,77 @@ fn oversized_files_are_opaque_to_capture_and_restore() {
     );
 }
 
+fn stage_conflict_on_feature(manager: &FileCheckpointManager, target: &str) -> String {
+    manager
+        .create_checkpoint("seed", &[entry("a.txt", b"base\nline2\n")])
+        .unwrap();
+    manager
+        .create_checkpoint("seed", &[entry("a.txt", b"one\nline2\n")])
+        .unwrap();
+    manager.merge_entity_changes("seed", target).unwrap();
+    manager
+        .create_checkpoint("exec-2", &[entry("a.txt", b"base\nline2\n")])
+        .unwrap();
+    manager
+        .create_checkpoint("exec-2", &[entry("a.txt", b"two\nline2\n")])
+        .unwrap();
+    manager
+        .git_ref()
+        .unwrap()
+        .read_ref(&crate::git_store::feat_ref_for_name(target))
+        .unwrap()
+        .expect("seeded feature head")
+}
+
+#[test]
+fn auto_fail_does_not_create_a_conflict_commit() {
+    let mut manager = manager();
+    manager.policy.approval_policy = ApprovalPolicy::Auto;
+    manager.policy.conflict_behavior = ConflictBehavior::Fail;
+    let target = FileCheckpointManager::default_feature_name("exec-2");
+    let before = stage_conflict_on_feature(&manager, &target);
+    let feature_ref = crate::git_store::feat_ref_for_name(&target);
+
+    assert!(manager.on_agent_complete("exec-2").unwrap().is_none());
+    assert_eq!(
+        manager.git_ref().unwrap().read_ref(&feature_ref).unwrap(),
+        Some(before)
+    );
+    assert!(
+        !manager
+            .conflict_status_for_ref(&feature_ref)
+            .unwrap()
+            .unresolved
+    );
+}
+
+#[test]
+fn auto_approval_keeps_the_submission_pending() {
+    let mut manager = manager();
+    manager.policy.approval_policy = ApprovalPolicy::Auto;
+    manager.policy.conflict_behavior = ConflictBehavior::Approval;
+    let target = FileCheckpointManager::default_feature_name("exec-2");
+    let before = stage_conflict_on_feature(&manager, &target);
+    let feature_ref = crate::git_store::feat_ref_for_name(&target);
+
+    assert!(manager.on_agent_complete("exec-2").unwrap().is_none());
+    assert_eq!(
+        manager.git_ref().unwrap().read_ref(&feature_ref).unwrap(),
+        Some(before)
+    );
+    let actor = manager.actor_id_for("exec-2");
+    assert!(manager
+        .newest_pending_review(actor.as_str())
+        .unwrap()
+        .is_some());
+    assert!(
+        !manager
+            .conflict_status_for_ref(&feature_ref)
+            .unwrap()
+            .unresolved
+    );
+}
+
 fn conflicting_feature(manager: &FileCheckpointManager) -> String {
     // Agent 1 merges cleanly; agent 2 edits the same line differently.
     manager
@@ -596,6 +667,36 @@ fn fail_behavior_aborts_full_batch_conflict() {
             .as_deref(),
         Some(before.as_str())
     );
+}
+
+#[test]
+fn approval_behavior_keeps_full_batch_submission_pending() {
+    let manager = manager();
+    let before = conflicting_feature(&manager);
+    let outcome = manager
+        .approve_changes(
+            "exec-2",
+            "feature-1",
+            None,
+            ConflictBehavior::Approval,
+            None,
+        )
+        .unwrap();
+    assert!(!outcome.merged);
+    assert_eq!(
+        manager
+            .git_ref()
+            .unwrap()
+            .read_ref(&crate::git_store::feat_ref_for_name("feature-1"))
+            .unwrap()
+            .as_deref(),
+        Some(before.as_str())
+    );
+    let actor = manager.actor_id_for("exec-2");
+    assert!(manager
+        .newest_pending_review(actor.as_str())
+        .unwrap()
+        .is_some());
 }
 
 #[test]

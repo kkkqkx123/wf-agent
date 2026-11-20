@@ -42,11 +42,14 @@ pub(crate) struct RefUpdateIntent {
 impl RefUpdateIntent {
     /// Point the same record at a fresh CAS attempt after a conflict.
     pub(crate) fn refresh(
-        &self,
+        &mut self,
         old_id: Option<&str>,
         new_id: Option<&str>,
         effects: Option<&JournalEffects>,
     ) -> Result<(), CheckpointError> {
+        if let Some(effects) = effects {
+            self.effects = effects.clone();
+        }
         self.storage
             .refresh_ref_operation_with(&self.op_id, old_id, new_id, effects)
     }
@@ -132,7 +135,7 @@ impl FileCheckpointManager {
     where
         F: FnMut(&mut RefUpdateSpec) -> Result<(), GitStoreError>,
     {
-        let intent = self.begin_ref_operation(&spec)?;
+        let mut intent = self.begin_ref_operation(&spec)?;
         for _ in 0..MAX_COMMIT_CAS_RETRIES {
             match cas(&mut spec) {
                 Ok(()) => {
@@ -224,10 +227,7 @@ impl FileCheckpointManager {
                 effects: effects.clone(),
             };
             match intent.as_mut() {
-                Some(current) => {
-                    current.effects = effects.clone();
-                    current.refresh(head.as_deref(), Some(&id), Some(&effects))?;
-                }
+                Some(current) => current.refresh(head.as_deref(), Some(&id), Some(&effects))?,
                 None => intent = Some(self.begin_ref_operation(&update)?),
             }
             match git.compare_and_swap(refname, head.as_deref(), &id) {
@@ -487,6 +487,36 @@ pub(crate) fn index_effects(entry: SourceIndexEntry) -> JournalEffects {
 mod tests {
     use super::*;
 
+    fn insert_intent(
+        storage: &SqliteStorage,
+        refname: &str,
+        old_id: Option<&str>,
+        new_id: Option<&str>,
+        effects: JournalEffects,
+    ) -> String {
+        let op_id = wf_common::generate_id();
+        storage
+            .insert_ref_operation(&RefOperationRecord {
+                seq: 0,
+                op_id: op_id.clone(),
+                kind: RefOperationKind::FeatureMerge,
+                reason: String::new(),
+                actor: String::new(),
+                session: String::new(),
+                tool: String::new(),
+                ref_name: refname.to_string(),
+                old_id: old_id.map(str::to_string),
+                new_id: new_id.map(str::to_string),
+                related_refs: Vec::new(),
+                effects,
+                status: RefOperationStatus::Intent,
+                created_at: 1,
+                completed_at: None,
+            })
+            .unwrap();
+        op_id
+    }
+
     #[test]
     fn reconcile_splits_unlanded_landed_and_diverged_records() {
         let manager = FileCheckpointManager::new_in_memory().unwrap();
@@ -554,7 +584,7 @@ mod tests {
         let actor = manager.actor_id_for("entity-1");
         manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
         let head = manager.apply_agent_edit(&actor, "a.txt", b"v2\n").unwrap();
-        manager.undo_edit("entity-1").unwrap();
+        let parent = manager.undo_edit("entity-1").unwrap();
         let records = manager.list_ref_operations().unwrap();
         let undo = records
             .iter()
@@ -581,10 +611,99 @@ mod tests {
         let report = manager.reconcile_ref_operations().unwrap();
         assert_eq!(report.applied, 1);
         assert_eq!(
-            manager.redo_stacks.last(actor.as_str()).as_deref(),
-            Some(head.as_str())
+            manager.redo_stacks.entries(actor.as_str()),
+            vec![head.clone()]
         );
-        assert_eq!(manager.reconcile_ref_operations().unwrap().applied, 0);
+        assert_eq!(
+            manager
+                .store
+                .latest_checkpoints
+                .get(actor.as_str())
+                .map(|entry| entry.clone())
+                .as_deref(),
+            Some(parent.as_str())
+        );
+        let second = manager.reconcile_ref_operations().unwrap();
+        assert_eq!(second.applied, 0);
+        assert_eq!(manager.redo_stacks.entries(actor.as_str()), vec![head]);
+    }
+
+    #[test]
+    fn reconcile_only_completes_status_when_state_already_landed() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        let head = manager.apply_agent_edit(&actor, "a.txt", b"v2\n").unwrap();
+        let parent = manager.undo_edit("entity-1").unwrap();
+        let record = manager
+            .list_ref_operations()
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.kind == RefOperationKind::UndoEdit)
+            .expect("undo record");
+
+        // Crash after both the ref CAS and the redo write, before the
+        // completion marker: replay must not append a second redo entry.
+        manager
+            .storage_ref()
+            .unwrap()
+            .set_ref_operation_status(&record.op_id, RefOperationStatus::Intent)
+            .unwrap();
+        let report = manager.reconcile_ref_operations().unwrap();
+        assert_eq!(report.applied, 1);
+        assert_eq!(report.abandoned, 0);
+        assert_eq!(manager.redo_stacks.entries(actor.as_str()), vec![head]);
+        assert_eq!(
+            manager
+                .store
+                .latest_checkpoints
+                .get(actor.as_str())
+                .map(|entry| entry.clone())
+                .as_deref(),
+            Some(parent.as_str())
+        );
+    }
+
+    #[test]
+    fn managed_ref_updates_are_auditable() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"one\n").unwrap();
+        manager.move_agent_to_approval("entity-1").unwrap();
+        manager
+            .merge_entity_changes("entity-1", "feature-1")
+            .unwrap();
+        manager.merge_features_to_main(&["feature-1"]).unwrap();
+        manager
+            .archive_write_files(
+                "entity-1",
+                &std::collections::HashMap::from([("ctx.txt".to_string(), b"context".to_vec())]),
+            )
+            .unwrap();
+        manager.apply_agent_edit(&actor, "a.txt", b"two\n").unwrap();
+        manager.undo_edit("entity-1").unwrap();
+
+        let kinds: std::collections::HashSet<RefOperationKind> = manager
+            .list_ref_operations()
+            .unwrap()
+            .into_iter()
+            .map(|record| record.kind)
+            .collect();
+        for expected in [
+            RefOperationKind::FileCommit,
+            RefOperationKind::ReviewSubmit,
+            RefOperationKind::ReviewApprove,
+            RefOperationKind::FeatureMerge,
+            RefOperationKind::ContextArchive,
+            RefOperationKind::UndoEdit,
+        ] {
+            assert!(kinds.contains(&expected), "missing audit kind {expected:?}");
+        }
+        assert!(manager
+            .list_ref_operations()
+            .unwrap()
+            .iter()
+            .all(|record| record.status == RefOperationStatus::Applied));
     }
 
     #[test]
@@ -625,6 +744,149 @@ mod tests {
                 .as_deref(),
             Some(head.as_str())
         );
+    }
+
+    #[test]
+    fn reconcile_abandoned_intent_keeps_attached_state_unchanged() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        let head = manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        manager
+            .redo_stacks
+            .set_snapshot(actor.as_str(), &["local".to_string()])
+            .unwrap();
+        manager
+            .store
+            .latest_checkpoints
+            .insert(actor.as_str().to_string(), "local".to_string());
+        let refname = crate::git_store::edit_ref_for_actor(actor.as_str());
+        insert_intent(
+            manager.storage_ref().unwrap(),
+            &refname,
+            Some(&head),
+            Some("never-landed"),
+            JournalEffects {
+                redo_stack: Some(crate::storage::JournalRedoStack {
+                    actor: actor.as_str().to_string(),
+                    entries: vec!["from-intent".to_string()],
+                }),
+                latest_checkpoint: Some(crate::storage::JournalLatestCheckpoint {
+                    actor: actor.as_str().to_string(),
+                    head: Some("never-landed".to_string()),
+                }),
+                ..JournalEffects::default()
+            },
+        );
+
+        let report = manager.reconcile_ref_operations().unwrap();
+        assert_eq!(report.abandoned, 1);
+        assert_eq!(report.applied, 0);
+        assert_eq!(
+            manager.redo_stacks.entries(actor.as_str()),
+            vec!["local".to_string()]
+        );
+        assert_eq!(
+            manager
+                .store
+                .latest_checkpoints
+                .get(actor.as_str())
+                .map(|entry| entry.clone())
+                .as_deref(),
+            Some("local")
+        );
+    }
+
+    #[test]
+    fn reconcile_replays_chained_snapshots_in_sequence_order() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let git = manager.git_ref().unwrap();
+        let tree = git
+            .build_tree_from_parent(None, &Default::default())
+            .unwrap();
+        let first = git
+            .write_commit(&tree, &[], "a", crate::git_store::SYSTEM_COMMITTER, 1, "c1")
+            .unwrap();
+        let second = git
+            .write_commit(
+                &tree,
+                &[first.clone()],
+                "a",
+                crate::git_store::SYSTEM_COMMITTER,
+                2,
+                "c2",
+            )
+            .unwrap();
+        let third = git
+            .write_commit(
+                &tree,
+                &[second.clone()],
+                "a",
+                crate::git_store::SYSTEM_COMMITTER,
+                3,
+                "c3",
+            )
+            .unwrap();
+        let refname = "refs/wf/edit/chained";
+        git.write_ref(refname, &first).unwrap();
+        let storage = manager.storage_ref().unwrap();
+        insert_intent(
+            storage,
+            refname,
+            Some(&third),
+            Some(&second),
+            redo_effects_with_head("agent:a", vec![third.clone()], Some(second.clone())),
+        );
+        insert_intent(
+            storage,
+            refname,
+            Some(&second),
+            Some(&first),
+            redo_effects_with_head(
+                "agent:a",
+                vec![third.clone(), second.clone()],
+                Some(first.clone()),
+            ),
+        );
+        manager.redo_stacks.set_snapshot("agent:a", &[]).unwrap();
+
+        let report = manager.reconcile_ref_operations().unwrap();
+        assert_eq!(report.applied, 2);
+        assert_eq!(manager.redo_stacks.entries("agent:a"), vec![third, second]);
+        assert_eq!(
+            manager
+                .store
+                .latest_checkpoints
+                .get("agent:a")
+                .map(|entry| entry.clone())
+                .as_deref(),
+            Some(first.as_str())
+        );
+    }
+
+    #[test]
+    fn diverged_reconcile_is_observable() {
+        let bus = crate::event::CheckpointEventBus::new();
+        let mut receiver = bus.subscribe();
+        let manager = FileCheckpointManager::new_in_memory()
+            .unwrap()
+            .with_event_bus(bus);
+        insert_intent(
+            manager.storage_ref().unwrap(),
+            "refs/wf/feat/diverged",
+            Some("old-head"),
+            Some("new-head"),
+            JournalEffects::default(),
+        );
+
+        let report = manager.reconcile_ref_operations().unwrap();
+        assert_eq!(report.diverged, 1);
+        let event = receiver.try_recv().expect("diverged event");
+        match event {
+            crate::event::CheckpointEvent::Failed { data, .. } => {
+                assert_eq!(data.operation.as_deref(), Some("ref_operation_reconcile"));
+            }
+            other => panic!("expected Failed event, got {other:?}"),
+        }
     }
 
     #[test]

@@ -82,10 +82,8 @@ pub struct Runtime {
     pub(super) tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
     /// Resolved infrastructure values retained from bootstrap for downstream
     /// readers. `limits` drives the agent executor and trigger subsystem;
-    /// `output`, `presets` and `tools` are resolved (file layer or
-    /// programmatic) and retained here so hosts can observe the effective
-    /// configuration.
-    pub output: wf_types::config::output::OutputConfig,
+    /// `presets` and `tools` are resolved (file layer or programmatic) and
+    /// retained here so hosts can observe the effective configuration.
     pub presets: wf_types::config::presets::PresetsConfig,
     pub tools: wf_config::orchestrator::ToolConfigs,
     pub limits: wf_types::config::limits::LimitsConfig,

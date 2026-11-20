@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use wf_config::file_layer::{load_user_file_layer, FileLayerConfig};
+use wf_config::file_layer::{load_user_file_layer, FileLayerConfig, UserFileLayerLoad};
 use wf_config::orchestrator::{ConfigOrchestratorBuilder, ConfigOverrides};
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::keyword::KeywordIndexConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
-use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::StorageConfig;
@@ -18,7 +17,7 @@ use wf_types::llm::LlmProviderDefinition;
 use wf_types::skill::SkillConfig;
 
 use crate::error::RuntimeResult;
-use crate::logger::LogConfig;
+use crate::logger::{LogConfig, LogLevel};
 use crate::mode::{ExecutionMode, ModeInfo};
 
 #[derive(Debug, Clone)]
@@ -142,9 +141,6 @@ pub struct RuntimeConfig {
     /// exposed via [`crate::Runtime::sandbox_runtime`] and injected into every
     /// script handler. `None` uses the sandbox defaults.
     pub sandbox: Option<wf_types::script::sandbox::SandboxGlobalConfig>,
-    /// Output redirection defaults (resolved from the infrastructure file
-    /// layer via `bootstrap_with_source`).
-    pub output: OutputConfig,
     /// Runtime presets (context compression / predefined tools / prompts).
     pub presets: PresetsConfig,
     /// Tool-specific configuration sections (read_file / glob / list_files
@@ -273,7 +269,7 @@ fn apply_shell_tool_config(
 /// file values only fill in defaults, so programmatic parameters (already
 /// present in `config` when this runs) always win. Loading itself lives in
 /// `wf_config::file_layer`; this only maps the loaded values onto runtime
-/// fields (log level needs the runtime-owned `LogConfig`).
+/// fields. Log level is resolved separately by `resolve_log_config`.
 ///
 /// Precedence across the whole resolution (highest first): programmatic
 /// `RuntimeConfig` (including `ConfigOverrides`) > `WF_*` environment >
@@ -292,11 +288,6 @@ fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
             config.storage = storage.clone();
         }
     }
-    if let Some(level) = &layer.log_level {
-        if config.log_config == LogConfig::default() {
-            config.log_config.level = level.clone();
-        }
-    }
     if let Some(approval) = &layer.tool_approval {
         if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
             config.tool_approval = approval.clone();
@@ -304,9 +295,45 @@ fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
     }
 }
 
+/// Load the host dotfile layer once, before logging is installed. The caller
+/// emits the returned warnings after installation so configuration diagnostics
+/// are not dropped.
+pub fn load_infra_file_layer(infra: &InfraSourceConfig) -> UserFileLayerLoad {
+    let project_root = infra.project_root.clone().unwrap_or_default();
+    let global = infra.settings_dir.clone().or_else(|| {
+        if infra.allow_ambient {
+            wf_config::file_layer::user_config_dir()
+        } else {
+            None
+        }
+    });
+    load_user_file_layer(global, &project_root)
+}
+
+/// Resolve the final log configuration. Dotfile values fill only fields that
+/// the caller left unset; the environment outranks the file layer, and mode
+/// constraints apply last.
+pub fn resolve_log_config(
+    mut config: RuntimeConfig,
+    file_layer: Option<&FileLayerConfig>,
+    mode_info: &ModeInfo,
+) -> RuntimeResult<RuntimeConfig> {
+    if config.log_config.level.is_none() {
+        let raw = std::env::var_os("WF_LOG_LEVEL")
+            .map(|value| value.to_string_lossy().into_owned())
+            .or_else(|| file_layer.and_then(|layer| layer.log_level.clone()));
+        if let Some(raw) = raw {
+            config.log_config.level = Some(LogLevel::parse(&raw)?);
+        }
+    }
+    config.log_config = adjust_log_config(config.log_config, mode_info);
+    Ok(config)
+}
+
 pub async fn resolve_infra_config(
     mut config: RuntimeConfig,
     infra: &InfraSourceConfig,
+    file_layer: FileLayerConfig,
     config_metrics: Option<&Arc<wf_metrics::ConfigMetricsCollector>>,
 ) -> RuntimeResult<RuntimeConfig> {
     let project_root = infra.project_root.clone().unwrap_or_default();
@@ -321,21 +348,8 @@ pub async fn resolve_infra_config(
         }
     }
 
-    // User/project config-file layer fills unset fields first, so the
-    // fixed infrastructure files below and any caller-supplied values
-    // (CLI parameters) keep their higher priority. `WF_*` environment
-    // overrides beat the file layer (see `apply_file_layer`). The global
-    // side is the explicit settings dir; ambient workstation state only
-    // joins when the caller opts in, so services never read the daemon
-    // home directory by default.
-    let file_global = infra.settings_dir.clone().or_else(|| {
-        if infra.allow_ambient {
-            wf_config::file_layer::user_config_dir()
-        } else {
-            None
-        }
-    });
-    let file_layer = load_user_file_layer(file_global, &project_root);
+    // The user/project dotfile layer was loaded before logging was installed;
+    // it fills only fields the caller left unset.
     apply_file_layer(&mut config, &file_layer);
 
     let mut builder = ConfigOrchestratorBuilder::new(&project_root).runtime_env(
@@ -360,9 +374,6 @@ pub async fn resolve_infra_config(
 
     if config.storage == StorageConfig::default() {
         config.storage = assembled.storage;
-    }
-    if config.output == wf_types::config::output::OutputConfig::default() {
-        config.output = assembled.output;
     }
     if config.metrics.is_none() {
         config.metrics = Some(assembled.metrics);
@@ -514,12 +525,12 @@ pub async fn resolve_infra_config(
 }
 
 pub fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConfig {
-    if mode_info.is_json_mode() && matches!(config.format, crate::logger::LogFormat::Full) {
-        config.format = crate::logger::LogFormat::Json;
+    if mode_info.is_json_mode() && config.format.is_none() {
+        config.format = Some(crate::logger::LogFormat::Json);
     }
 
     if mode_info.is_silent_mode() {
-        config.level = "off".to_string();
+        config.level = Some(crate::logger::LogLevel::Off);
     }
 
     config

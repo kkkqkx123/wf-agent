@@ -103,7 +103,6 @@ pub(crate) fn build_infra_env_mapping() -> HashMap<String, crate::env::EnvMappin
             Box::new(env_parse_bool),
             None,
         )
-        .string("output_dir", "WF_OUTPUT_DIR", None)
         .custom(
             "file_checkpoint_enabled",
             "WF_FILE_CHECKPOINT_ENABLED",

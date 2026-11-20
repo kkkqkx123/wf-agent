@@ -4,7 +4,7 @@ pub use crate::lifecycle::{
     graceful_shutdown, setup_signal_handler, wait_for_signal, ShutdownHandle, ShutdownSignal,
     ShutdownWaiter,
 };
-pub use crate::logger::{init_tracing, LogConfig, LogFormat, LogOutput};
+pub use crate::logger::{init_tracing, LogConfig, LogFormat, LogLevel};
 pub use crate::mode::{
     detect_all, detect_color_enabled, detect_mode, detect_output_format, is_color_enabled,
     is_headless, is_interactive, is_json_mode, is_silent_mode, is_test, ExecutionMode, ModeInfo,

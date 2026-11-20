@@ -13,9 +13,6 @@ fn setup_test_project(dir: &Path) {
 
     let mut f = std::fs::File::create(infra.join("metrics.toml")).unwrap();
     writeln!(f, "enabled = true\nreporting_interval = 5000").unwrap();
-
-    let mut f = std::fs::File::create(infra.join("output.toml")).unwrap();
-    writeln!(f, "dir = \"./test-outputs\"\nlog_file_pattern = \"test.log\"\nenable_log_terminal = false\nenable_sdk_logs = false\nsdk_log_level = \"info\"").unwrap();
 }
 
 fn clear_wf_env_vars() {
@@ -23,7 +20,6 @@ fn clear_wf_env_vars() {
         "WF_STORAGE_TYPE",
         "WF_STORAGE_SQLITE_DB_PATH",
         "WF_METRICS_ENABLED",
-        "WF_OUTPUT_DIR",
         "WF_AGENT_MAX_ITERATIONS_CAP",
         "WF_AGENT_DEFAULT_MAX_ITERATIONS",
         "WF_AGENT_MAX_CONCURRENT",
@@ -60,7 +56,6 @@ fn test_assemble_from_project_dir() {
     let sqlite = config.storage.sqlite.as_ref().unwrap();
     assert_eq!(sqlite.db_path, "./test.db");
     assert_eq!(config.metrics.reporting_interval, Some(5000));
-    assert_eq!(config.output.dir, "./test-outputs");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -284,11 +279,6 @@ fn test_full_bundle_assembly_from_layers() {
     )
     .unwrap();
     std::fs::write(
-        settings_infra.join("output.toml"),
-        "dir = \"./settings-outputs\"\n",
-    )
-    .unwrap();
-    std::fs::write(
         project_infra.join("tools.toml"),
         "[read_file]\nmax_file_size = 500000\n",
     )
@@ -313,7 +303,6 @@ fn test_full_bundle_assembly_from_layers() {
         "./project.db"
     );
     // Settings layer fills domains the project leaves unset.
-    assert_eq!(config.output.dir, "./settings-outputs");
     assert!(
         config.tools.read_file.is_some(),
         "project tools.toml [read_file] must load"

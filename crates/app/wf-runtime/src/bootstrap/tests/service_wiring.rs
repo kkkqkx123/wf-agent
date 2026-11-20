@@ -10,10 +10,10 @@ fn test_adjust_log_config_json_mode() {
         color_enabled: false,
     };
 
-    let config = LogConfig::default().with_format(LogFormat::Full);
+    let config = LogConfig::default();
     let adjusted = adjust_log_config(config, &mode);
 
-    assert_eq!(adjusted.format, LogFormat::Json);
+    assert_eq!(adjusted.format, Some(LogFormat::Json));
 }
 
 #[test]
@@ -24,10 +24,51 @@ fn test_adjust_log_config_silent_mode() {
         color_enabled: false,
     };
 
-    let config = LogConfig::default().with_level("info");
+    let config = LogConfig::default().with_level(crate::logger::LogLevel::Info);
     let adjusted = adjust_log_config(config, &mode);
 
-    assert_eq!(adjusted.level, "off");
+    assert_eq!(adjusted.level, Some(crate::logger::LogLevel::Off));
+}
+
+#[test]
+fn test_resolve_log_config_respects_explicit_level() {
+    use crate::logger::LogLevel;
+    use wf_config::file_layer::FileLayerConfig;
+
+    clear_env_vars();
+    let layer = FileLayerConfig {
+        log_level: Some("debug".to_string()),
+        ..Default::default()
+    };
+    let mode = super::test_mode_info();
+
+    let from_file = resolve_log_config(RuntimeConfig::default(), Some(&layer), &mode).unwrap();
+    assert_eq!(from_file.log_config.level, Some(LogLevel::Debug));
+
+    let explicit = RuntimeConfig {
+        log_config: LogConfig::default().with_level(LogLevel::Error),
+        ..Default::default()
+    };
+    let resolved = resolve_log_config(explicit, Some(&layer), &mode).unwrap();
+    assert_eq!(resolved.log_config.level, Some(LogLevel::Error));
+}
+
+#[test]
+fn test_resolve_log_config_rejects_invalid_file_level() {
+    use wf_config::file_layer::FileLayerConfig;
+
+    clear_env_vars();
+    let layer = FileLayerConfig {
+        log_level: Some("verbose".to_string()),
+        ..Default::default()
+    };
+
+    let result = resolve_log_config(
+        RuntimeConfig::default(),
+        Some(&layer),
+        &super::test_mode_info(),
+    );
+    assert!(result.is_err());
 }
 
 #[tokio::test]

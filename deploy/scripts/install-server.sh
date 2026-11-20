@@ -6,9 +6,9 @@
 #
 # Configuration is initialized exclusively through render-config.sh
 # (--to managed); this script never writes business values itself.
-# Only a newly rendered env file gets path anchors filled in
-# (WF_STORAGE_SQLITE_DB_PATH, WF_OUTPUT_DIR); an existing env file is
-# never touched, and secret keys stay empty for ops to fill in.
+# Only a newly rendered env file gets the database path anchor filled in
+# (WF_STORAGE_SQLITE_DB_PATH); an existing env file is never touched, and
+# secret keys stay empty for ops to fill in.
 #
 # Usage: sudo ./install-server.sh (see env knobs below)
 
@@ -17,7 +17,6 @@ set -euo pipefail
 PREFIX="${PREFIX:-/usr/local}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/wf}"
 DATA_DIR="${DATA_DIR:-/var/lib/wf}"
-LOG_DIR="${LOG_DIR:-/var/log/wf}"
 STATIC_DIR="${STATIC_DIR:-/usr/share/wf/web}"
 SERVICE_NAME="${SERVICE_NAME:-wf-server}"
 SERVICE_USER="${SERVICE_USER:-wf}"
@@ -54,7 +53,6 @@ normalize() {
 PREFIX="$(normalize "$PREFIX")"
 CONFIG_DIR="$(normalize "$CONFIG_DIR")"
 DATA_DIR="$(normalize "$DATA_DIR")"
-LOG_DIR="$(normalize "$LOG_DIR")"
 STATIC_DIR="$(normalize "$STATIC_DIR")"
 BIN_PATH="${PREFIX}/bin/wf-server"
 
@@ -113,7 +111,7 @@ if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 \
-    "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+    "$CONFIG_DIR" "$DATA_DIR"
 
 # Resolve the artifact source: explicit dir, ./bin, repo target dir, cwd.
 if [[ -z "$BIN_SRC_DIR" ]]; then
@@ -196,7 +194,7 @@ if [[ "$SKIP_CONFIG" != "yes" ]]; then
         exit 1
     fi
     if [[ "$env_is_new" == "1" ]]; then
-        sed -i "s|^WF_STORAGE_SQLITE_DB_PATH=$|WF_STORAGE_SQLITE_DB_PATH=$DATA_DIR/workflow.db|; s|^WF_OUTPUT_DIR=$|WF_OUTPUT_DIR=$LOG_DIR|" "$CONFIG_DIR/wf-server.env"
+        sed -i "s|^WF_STORAGE_SQLITE_DB_PATH=$|WF_STORAGE_SQLITE_DB_PATH=$DATA_DIR/workflow.db|" "$CONFIG_DIR/wf-server.env"
         echo "Pinned path anchors in $CONFIG_DIR/wf-server.env"
     fi
 fi
@@ -208,11 +206,11 @@ if [[ "$SKIP_UNIT" != "yes" ]]; then
         -e "s|/usr/local/bin/wf-server|$BIN_PATH|g" \
         "$UNIT_TEMPLATE" > "$tmp"
     if [[ -n "$PROJECT_ROOT" ]]; then
-        sed -i "s|@@PROJECT_ROOT@@|$PROJECT_ROOT|g; s|ReadWritePaths=\(.*\)|ReadWritePaths=\1 $DATA_DIR $LOG_DIR|" "$tmp"
+        sed -i "s|@@PROJECT_ROOT@@|$PROJECT_ROOT|g; s|ReadWritePaths=\(.*\)|ReadWritePaths=\1 $DATA_DIR|" "$tmp"
     else
         # No default workspace: run without --config so directory-less
         # requests keep failing loud instead of binding somewhere silently.
-        sed -i "s| --config @@PROJECT_ROOT@@||; s|ReadWritePaths=\(.*\) @@PROJECT_ROOT@@|ReadWritePaths=\1 $DATA_DIR $LOG_DIR|" "$tmp"
+        sed -i "s| --config @@PROJECT_ROOT@@||; s|ReadWritePaths=\(.*\) @@PROJECT_ROOT@@|ReadWritePaths=\1 $DATA_DIR|" "$tmp"
     fi
     if [[ -n "$UNIT_STATIC_DIR" ]]; then
         sed -i "s|--settings-dir $CONFIG_DIR|--settings-dir $CONFIG_DIR --static-dir $UNIT_STATIC_DIR|" "$tmp"

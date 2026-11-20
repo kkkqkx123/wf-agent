@@ -45,7 +45,7 @@ async fn test_runtime_registries_populated() {
     clear_env_vars();
 
     let config = RuntimeConfig {
-        log_config: LogConfig::default().with_level("off"),
+        log_config: LogConfig::default().with_level(crate::logger::LogLevel::Off),
         resource: ResourceConfig::default(),
         metrics: None,
         ..Default::default()
@@ -69,7 +69,7 @@ async fn test_runtime_api_context_shared_and_cached() {
     clear_env_vars();
 
     let config = RuntimeConfig {
-        log_config: LogConfig::default().with_level("off"),
+        log_config: LogConfig::default().with_level(crate::logger::LogLevel::Off),
         resource: ResourceConfig::default(),
         metrics: None,
         ..Default::default()
@@ -98,7 +98,7 @@ async fn test_runtime_goal_review_resource_assembler_activation() {
     use wf_workflow::validation::GraphValidator;
 
     let config = RuntimeConfig {
-        log_config: LogConfig::default().with_level("off"),
+        log_config: LogConfig::default().with_level(crate::logger::LogLevel::Off),
         resource: ResourceConfig {
             options: ResourceOptions {
                 resource_assembler_activation: vec![ResourceAssemblerActivation {

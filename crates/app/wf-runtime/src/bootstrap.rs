@@ -20,7 +20,9 @@ mod trigger;
 pub use code_context::resolve_code_context_service;
 #[cfg(feature = "plugins")]
 pub use config::PluginConfig;
-pub use config::{adjust_log_config, resolve_infra_config};
+pub use config::{
+    adjust_log_config, load_infra_file_layer, resolve_infra_config, resolve_log_config,
+};
 pub use config::{InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, RuntimeConfig};
 #[cfg(feature = "file-checkpoint")]
 pub use file_checkpoint::{

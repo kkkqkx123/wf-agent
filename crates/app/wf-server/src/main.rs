@@ -6,7 +6,12 @@ use clap::Parser;
 use tracing::info;
 
 use wf_runtime::bootstrap::{InfraSourceConfig, Runtime, RuntimeConfig};
+use wf_runtime::LogLevel;
 use wf_types::config::user_git::UserGitConfig;
+
+fn parse_log_level(raw: &str) -> Result<LogLevel, String> {
+    LogLevel::parse(raw).map_err(|err| err.to_string())
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -46,9 +51,9 @@ struct Args {
     #[arg(long)]
     storage: Option<String>,
 
-    /// Log level: trace|debug|info|warn|error
-    #[arg(long)]
-    log_level: Option<String>,
+    /// Log level: trace|debug|info|warn|warning|error|off
+    #[arg(long, value_parser = parse_log_level)]
+    log_level: Option<LogLevel>,
 
     /// Fixed Tokio worker count. Overrides `WF_SERVER_WORKER_THREADS`.
     #[arg(long)]
@@ -84,13 +89,8 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
         ..Default::default()
     });
 
-    if let Some(level) = args.log_level.as_deref() {
-        let lower = level.to_ascii_lowercase();
-        let normalized = match lower.as_str() {
-            "warning" => "warn",
-            other => other,
-        };
-        config.log_config = config.log_config.with_level(normalized.to_string());
+    if let Some(level) = args.log_level {
+        config.log_config = config.log_config.with_level(level);
     }
 
     let source = match args.config.clone() {
@@ -133,17 +133,6 @@ async fn run(args: Args, worker_threads: Option<usize>) {
             std::process::exit(2);
         }
     }
-    if let Some(level) = args.log_level.as_deref() {
-        let lower = level.to_ascii_lowercase();
-        match lower.as_str() {
-            "trace" | "debug" | "info" | "warn" | "warning" | "error" => {}
-            _ => {
-                eprintln!("invalid --log-level '{level}': expected trace|debug|info|warn|error");
-                std::process::exit(2);
-            }
-        }
-    }
-
     let (mut runtime_config, infra_source) = build_runtime_config(&args);
     if worker_threads.is_some() {
         runtime_config.worker_threads = worker_threads;

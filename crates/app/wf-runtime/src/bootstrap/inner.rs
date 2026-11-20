@@ -19,7 +19,10 @@ use crate::storage_manager::StorageManager;
 use crate::trigger_listener::TriggerExecutionRecorder;
 
 use super::code_context::resolve_code_context_service;
-use super::config::{adjust_log_config, resolve_infra_config, InfraSourceConfig, RuntimeConfig};
+use super::config::{
+    load_infra_file_layer, resolve_infra_config, resolve_log_config, InfraSourceConfig,
+    RuntimeConfig,
+};
 #[cfg(feature = "file-checkpoint")]
 use super::file_checkpoint::init_file_checkpoint_stack;
 use super::llm::{create_auth_registry, create_llm_gateway, register_llm_config};
@@ -54,25 +57,37 @@ impl Runtime {
         mut config: RuntimeConfig,
         source: Option<InfraSourceConfig>,
     ) -> RuntimeResult<Self> {
-        // Stage 1: configuration resolution. The file layer (user dotfiles +
-        // orchestrator-assembled infrastructure preset, plus the skill
-        // settings chain) fills storage / metrics / output /
-        // sandbox / presets / tools / file_checkpoint from disk; values the
-        // caller already set keep their higher priority.
+        // Stage 1: mode detection and logging. The host dotfile layer is read
+        // before installation so its level is part of the final filter; its
+        // diagnostics are emitted once logging is live.
+        let mode_info = detect_all(config.mode_override);
+        let loaded_layer = source.as_ref().map(load_infra_file_layer);
+        config = resolve_log_config(
+            config,
+            loaded_layer.as_ref().map(|load| &load.config),
+            &mode_info,
+        )?;
+        let _guard = init_tracing(&config.log_config)?;
+        if let Some(load) = &loaded_layer {
+            for warning in &load.warnings {
+                warn!(error = %warning, "user config layer load failed");
+            }
+        }
+
+        info!("Bootstrapping runtime in {:?} mode", mode_info.mode);
+
+        // Stage 2: configuration resolution. The orchestrator-assembled
+        // infrastructure preset and the skill settings chain fill storage /
+        // metrics / sandbox / presets / tools / file_checkpoint from disk;
+        // values the caller already set keep their higher priority.
         let config_metrics = std::sync::Arc::new(wf_metrics::ConfigMetricsCollector::new(
             wf_metrics::CollectorConfig::default(),
         ));
-        if let Some(infra) = source {
-            config = resolve_infra_config(config, &infra, Some(&config_metrics)).await?;
+        let loaded_layer = loaded_layer.map(|load| load.config);
+        if let (Some(infra), Some(file_layer)) = (source, loaded_layer) {
+            config =
+                resolve_infra_config(config, &infra, file_layer, Some(&config_metrics)).await?;
         }
-
-        // Stage 2: mode detection, logging and durable backends.
-        let mode_info = detect_all(config.mode_override);
-        let effective_log_config = adjust_log_config(config.log_config, &mode_info);
-
-        let _guard = init_tracing(&effective_log_config)?;
-
-        info!("Bootstrapping runtime in {:?} mode", mode_info.mode);
 
         // Stage 2 (continued): durable event persistence and storage backends.
         // Durable event persistence backend: engine events published
@@ -558,7 +573,6 @@ impl Runtime {
             retention_timer_handle: None,
             code_context_sidecar,
             code_context_service: Some(code_context),
-            output: config.output.clone(),
             presets: config.presets.clone(),
             tools: config.tools.clone(),
             limits: config.limits.clone(),

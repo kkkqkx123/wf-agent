@@ -16,9 +16,8 @@ use crate::processor::file_checkpoint::{
     merge_file_checkpoint_with_defaults, validate_file_checkpoint_config,
 };
 use crate::processor::infrastructure::{
-    get_metrics_environment_defaults, get_output_environment_defaults,
-    get_storage_environment_defaults, merge_metrics_with_defaults, merge_output_with_defaults,
-    merge_storage_with_defaults, RuntimeEnvironment,
+    get_metrics_environment_defaults, get_storage_environment_defaults,
+    merge_metrics_with_defaults, merge_storage_with_defaults, RuntimeEnvironment,
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
 use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
@@ -34,7 +33,6 @@ use wf_integration::CodeContextConfig;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
-use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
@@ -46,7 +44,6 @@ use wf_types::script::sandbox::{SandboxGlobalConfig, SandboxMode};
 pub struct InfrastructurePresetFiles {
     pub storage: String,
     pub metrics: String,
-    pub output: String,
     pub sandbox: String,
     pub file_checkpoint: String,
     pub tool_approval: String,
@@ -63,7 +60,6 @@ impl InfrastructurePresetFiles {
         Self {
             storage: "storage.toml".to_string(),
             metrics: "metrics.toml".to_string(),
-            output: "output.toml".to_string(),
             sandbox: "sandbox.toml".to_string(),
             file_checkpoint: "file-checkpoint.toml".to_string(),
             tool_approval: "tool-approval.toml".to_string(),
@@ -103,7 +99,6 @@ pub struct ToolConfigs {
 pub struct AssembledConfig {
     pub storage: StorageConfig,
     pub metrics: MetricsConfig,
-    pub output: OutputConfig,
     pub sandbox: Option<SandboxGlobalConfig>,
     pub file_checkpoint: FileCheckpointConfig,
     pub tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
@@ -118,13 +113,6 @@ impl Default for AssembledConfig {
         Self {
             storage: StorageConfig::default(),
             metrics: MetricsConfig::default(),
-            output: OutputConfig {
-                dir: "./outputs".to_string(),
-                log_file_pattern: "app-{date}.log".to_string(),
-                enable_log_terminal: true,
-                enable_sdk_logs: true,
-                sdk_log_level: wf_types::config::output::SdkLogLevel::Warn,
-            },
             sandbox: None,
             file_checkpoint: FileCheckpointConfig::default(),
             tool_approval: wf_types::config::tool_approval::ToolApprovalConfig::default(),
@@ -141,7 +129,6 @@ impl Default for AssembledConfig {
 pub struct ConfigOverrides {
     pub storage: Option<StorageConfig>,
     pub metrics: Option<MetricsConfig>,
-    pub output: Option<OutputConfig>,
     pub sandbox: Option<SandboxGlobalConfig>,
     pub file_checkpoint: Option<FileCheckpointConfig>,
     pub tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
@@ -312,11 +299,6 @@ impl ConfigOrchestratorLoaded {
             get_metrics_environment_defaults(runtime_env),
             metrics,
         )?;
-        let output: OutputConfig = load_merged_domain_config_with_metrics(
-            &candidates(&files.output),
-            get_output_environment_defaults(runtime_env),
-            metrics,
-        )?;
         let limits: LimitsConfig = load_merged_domain_config_with_metrics(
             &candidates(&files.limits),
             LimitsConfig::default(),
@@ -373,7 +355,6 @@ impl ConfigOrchestratorLoaded {
 
         let storage = merge_storage_with_defaults(&storage);
         let metrics_config = merge_metrics_with_defaults(&metrics_config);
-        let output = merge_output_with_defaults(&output);
         let file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
         let limits = merge_limits_with_defaults(&limits);
         let retention = merge_retention_with_defaults(&retention);
@@ -399,7 +380,6 @@ impl ConfigOrchestratorLoaded {
         Ok(AssembledConfig {
             storage,
             metrics: metrics_config,
-            output,
             sandbox,
             file_checkpoint,
             tool_approval,
@@ -519,13 +499,6 @@ impl ConfigOrchestratorLoaded {
                         config.metrics.enabled = Some(enabled);
                     }
                 }
-                "output_dir" => {
-                    if let Some(dir) = value.as_string() {
-                        if !dir.is_empty() {
-                            config.output.dir = dir.to_string();
-                        }
-                    }
-                }
                 "file_checkpoint_enabled" => {
                     if let Some(enabled) = value.as_bool() {
                         config.file_checkpoint.enabled = enabled;
@@ -603,9 +576,6 @@ impl ConfigOrchestratorLoaded {
         }
         if let Some(metrics) = overrides.metrics {
             config.metrics = merge_metrics_with_defaults(&metrics);
-        }
-        if let Some(output) = overrides.output {
-            config.output = merge_output_with_defaults(&output);
         }
         if let Some(sandbox) = overrides.sandbox {
             let base = config.sandbox.clone().unwrap_or_default();

@@ -1,5 +1,13 @@
 use super::*;
 
+static XDG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn xdg_lock() -> std::sync::MutexGuard<'static, ()> {
+    XDG_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// programmatic values are absent, while programmatic values keep priority.
 /// Temp fixtures only: tests never depend on repository files.
 #[test]
@@ -20,31 +28,19 @@ fn test_resolve_infra_config_from_file_layers() {
         "type = \"sqlite\"\n[sqlite]\ndb_path = \"./project.db\"\n",
     )
     .unwrap();
-    std::fs::write(
-        project_infra.join("output.toml"),
-        "dir = \"./project-out\"\n",
-    )
-    .unwrap();
-
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let config = runtime
-        .block_on(resolve_infra_config(
-            RuntimeConfig::default(),
-            &InfraSourceConfig {
-                project_root: Some(project_dir.path().to_path_buf()),
-                settings_dir: Some(settings_dir.path().to_path_buf()),
-                ..Default::default()
-            },
-            None,
-        ))
-        .unwrap();
+    let infra = InfraSourceConfig {
+        project_root: Some(project_dir.path().to_path_buf()),
+        settings_dir: Some(settings_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let config = resolve_with_file_layer(RuntimeConfig::default(), &infra, &runtime);
 
     // Project layer wins over the settings layer.
     assert_eq!(
         config.storage.sqlite.as_ref().unwrap().db_path,
         "./project.db"
     );
-    assert_eq!(config.output.dir, "./project-out");
     assert_ne!(config.storage, StorageConfig::default());
     assert!(config.metrics.is_some());
 
@@ -59,17 +55,7 @@ fn test_resolve_infra_config_from_file_layers() {
         metrics: Some(MetricsConfig::default()),
         ..Default::default()
     };
-    let config = runtime
-        .block_on(resolve_infra_config(
-            programmatic,
-            &InfraSourceConfig {
-                project_root: Some(project_dir.path().to_path_buf()),
-                settings_dir: Some(settings_dir.path().to_path_buf()),
-                ..Default::default()
-            },
-            None,
-        ))
-        .unwrap();
+    let config = resolve_with_file_layer(programmatic, &infra, &runtime);
     assert!(config.metrics.is_some());
     // storage was left default -> still filled from the file layer.
     assert_ne!(config.storage, StorageConfig::default());
@@ -80,6 +66,7 @@ fn test_resolve_infra_config_from_file_layers() {
 /// explicit programmatic values (CLI parameters) still take priority.
 #[test]
 fn test_resolve_infra_config_user_file_layer() {
+    let _xdg_guard = xdg_lock();
     let global_dir = tempfile::tempdir().unwrap();
     let project_dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(global_dir.path().join("wf")).unwrap();
@@ -110,34 +97,25 @@ db_path = "./layer-test.db"
     // Project layer wins over the global layer for storage; the unset
     // log level falls through to the global layer.
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let config = runtime.block_on(resolve_infra_config(
-        RuntimeConfig::default(),
-        &InfraSourceConfig {
-            project_root: Some(project_dir.path().to_path_buf()),
-            allow_ambient: true,
-            ..Default::default()
-        },
-        None,
-    ));
-    let config = config.unwrap();
+    let infra = InfraSourceConfig {
+        project_root: Some(project_dir.path().to_path_buf()),
+        allow_ambient: true,
+        ..Default::default()
+    };
+    let config = resolve_with_file_layer(RuntimeConfig::default(), &infra, &runtime);
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
-    assert_eq!(config.log_config.level, "debug");
+    assert_eq!(config.log_config.level, Some(LogLevel::Debug));
 
     // Programmatic values (CLI parameters) win over both file layers.
-    let config = runtime.block_on(resolve_infra_config(
+    let config = resolve_with_file_layer(
         RuntimeConfig {
-            log_config: LogConfig::default().with_level("off"),
+            log_config: LogConfig::default().with_level(LogLevel::Off),
             ..Default::default()
         },
-        &InfraSourceConfig {
-            project_root: Some(project_dir.path().to_path_buf()),
-            allow_ambient: true,
-            ..Default::default()
-        },
-        None,
-    ));
-    let config = config.unwrap();
-    assert_eq!(config.log_config.level, "off");
+        &infra,
+        &runtime,
+    );
+    assert_eq!(config.log_config.level, Some(LogLevel::Off));
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
     std::env::remove_var("XDG_CONFIG_HOME");
@@ -148,6 +126,7 @@ db_path = "./layer-test.db"
 /// resolves next to the project instead of the daemon home directory.
 #[test]
 fn test_resolve_infra_config_ambient_disabled_by_default() {
+    let _xdg_guard = xdg_lock();
     let global_dir = tempfile::tempdir().unwrap();
     let project_dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(global_dir.path().join("wf")).unwrap();
@@ -165,17 +144,12 @@ fn test_resolve_infra_config_ambient_disabled_by_default() {
     .unwrap();
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let config = runtime
-        .block_on(resolve_infra_config(
-            RuntimeConfig::default(),
-            &InfraSourceConfig {
-                project_root: Some(project_dir.path().to_path_buf()),
-                ..Default::default()
-            },
-            None,
-        ))
-        .unwrap();
-    assert_eq!(config.log_config.level, "info");
+    let infra = InfraSourceConfig {
+        project_root: Some(project_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let config = resolve_with_file_layer(RuntimeConfig::default(), &infra, &runtime);
+    assert_eq!(config.log_config.level, Some(LogLevel::Info));
     assert_eq!(
         config.llm.auth.store_path,
         Some(
@@ -218,13 +192,8 @@ fn test_resolve_infra_config_explicit_close_survives() {
         },
         ..Default::default()
     };
-    let config = runtime
-        .block_on(resolve_infra_config(
-            RuntimeConfig::default(),
-            &closed_source(),
-            None,
-        ))
-        .unwrap();
+    let infra = closed_source();
+    let config = resolve_with_file_layer(RuntimeConfig::default(), &infra, &runtime);
     assert!(!config.file_checkpoint.as_ref().unwrap().enabled);
 
     let programmatic = RuntimeConfig {
@@ -235,8 +204,6 @@ fn test_resolve_infra_config_explicit_close_survives() {
         }),
         ..Default::default()
     };
-    let config = runtime
-        .block_on(resolve_infra_config(programmatic, &closed_source(), None))
-        .unwrap();
+    let config = resolve_with_file_layer(programmatic, &infra, &runtime);
     assert!(!config.file_checkpoint.as_ref().unwrap().enabled);
 }

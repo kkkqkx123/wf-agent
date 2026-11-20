@@ -15,7 +15,7 @@ with autonomous LLM agent loops, served over HTTP with local CLIs.
 getent group wf >/dev/null || groupadd --system wf
 getent passwd wf >/dev/null || useradd --system --gid wf \
     --home-dir /var/lib/wf --create-home --shell /usr/sbin/nologin wf
-install -d -o wf -g wf -m 0750 /var/lib/wf /var/log/wf /etc/wf
+install -d -o wf -g wf -m 0750 /var/lib/wf /etc/wf
 exit 0
 
 %post
@@ -34,13 +34,12 @@ fi
 %systemd_postun wf-server.service
 # Only purge data on full erase; plain remove keeps config and data.
 if [ "$1" = "0" ]; then
-    rm -rf /var/lib/wf /var/log/wf /etc/wf
+    rm -rf /var/lib/wf /etc/wf
 fi
 
 %files
 %dir %attr(0750,wf,wf) /etc/wf
 %dir %attr(0750,wf,wf) /var/lib/wf
-%dir %attr(0750,wf,wf) /var/log/wf
 %{_bindir}/wf-server
 %{_bindir}/wf
 %{_bindir}/wf-mini

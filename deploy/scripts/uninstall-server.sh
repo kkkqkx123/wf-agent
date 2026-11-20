@@ -11,9 +11,8 @@ set -euo pipefail
 SERVICE_NAME="${SERVICE_NAME:-wf-server}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/wf}"
 DATA_DIR="${DATA_DIR:-/var/lib/wf}"
-LOG_DIR="${LOG_DIR:-/var/log/wf}"
 PURGE_CONFIG="${PURGE_CONFIG:-no}"   # yes|no: also remove the managed config dir
-PURGE_DATA="${PURGE_DATA:-no}"       # yes|no: also remove data and log dirs
+PURGE_DATA="${PURGE_DATA:-no}"       # yes|no: also remove the data dir
 
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -38,8 +37,8 @@ if [[ "$PURGE_CONFIG" == "yes" ]]; then
 fi
 
 if [[ "$PURGE_DATA" == "yes" ]]; then
-    rm -rf "$DATA_DIR" "$LOG_DIR"
-    echo "Removed data and log directories"
+    rm -rf "$DATA_DIR"
+    echo "Removed data directory"
 fi
 
 echo "Done. Binaries left in place (remove manually if desired)."

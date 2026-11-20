@@ -20,7 +20,8 @@
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use tracing::warn;
+
+use crate::error::ConfigError;
 
 use wf_types::config::storage::StorageConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
@@ -72,30 +73,52 @@ fn layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<P
         .collect()
 }
 
+/// Load result with warnings that the caller emits after installing logging.
+#[derive(Debug, Clone, Default)]
+pub struct UserFileLayerLoad {
+    pub config: FileLayerConfig,
+    pub warnings: Vec<String>,
+}
+
 /// Load the user config-file layer (explicit global then project, project
 /// wins). Returns defaults when no file exists; a malformed file is skipped
-/// with a warning rather than failing the caller. Passing `None` as the
-/// global dir reads the project file only.
+/// and reported through `warnings` instead of failing the caller. Passing
+/// `None` as the global dir reads the project file only.
 pub fn load_user_file_layer(
     global_config_dir: Option<PathBuf>,
     project_root: &Path,
-) -> FileLayerConfig {
+) -> UserFileLayerLoad {
     load_file_layer(global_config_dir, project_root)
 }
 
-fn load_file_layer(global_config_dir: Option<PathBuf>, project_root: &Path) -> FileLayerConfig {
+fn load_file_layer(global_config_dir: Option<PathBuf>, project_root: &Path) -> UserFileLayerLoad {
     let paths = layer_paths(global_config_dir, project_root);
     if paths.is_empty() {
-        return FileLayerConfig::default();
+        return UserFileLayerLoad::default();
     }
     let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
     match crate::layered::load_layered_config_sync::<FileLayerConfig>(&path_refs) {
-        Ok(layer) => layer,
-        Err(e) => {
-            warn!(error = %e, "failed to load user config layer; keeping defaults");
-            FileLayerConfig::default()
-        }
+        Ok(config) => UserFileLayerLoad {
+            config,
+            warnings: Vec::new(),
+        },
+        Err(ConfigError::NotFound(_)) => UserFileLayerLoad::default(),
+        Err(e) => UserFileLayerLoad {
+            config: FileLayerConfig::default(),
+            warnings: vec![format!(
+                "failed to load user config layer from {}; keeping defaults: {e}",
+                display_paths(&paths)
+            )],
+        },
     }
+}
+
+fn display_paths(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]
@@ -108,9 +131,10 @@ mod tests {
         // Explicit global dir with no config.toml: no env read, no cross-test race.
         let global = dir.path().join("config-home");
         let layer = load_file_layer(Some(global), &dir.path().join("project"));
-        assert!(layer.storage.is_none());
-        assert!(layer.log_level.is_none());
-        assert!(layer.tool_approval.is_none());
+        assert!(layer.config.storage.is_none());
+        assert!(layer.config.log_level.is_none());
+        assert!(layer.config.tool_approval.is_none());
+        assert!(layer.warnings.is_empty());
     }
 
     #[test]
@@ -131,7 +155,8 @@ mod tests {
         .unwrap();
 
         let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
-        assert_eq!(layer.log_level.as_deref(), Some("info"));
+        assert_eq!(layer.config.log_level.as_deref(), Some("info"));
+        assert!(layer.warnings.is_empty());
     }
 
     #[test]
@@ -145,6 +170,18 @@ mod tests {
         .unwrap();
 
         let layer = load_user_file_layer(None, project_dir.path());
-        assert_eq!(layer.log_level.as_deref(), Some("info"));
+        assert_eq!(layer.config.log_level.as_deref(), Some("info"));
+        assert!(layer.warnings.is_empty());
+    }
+
+    #[test]
+    fn malformed_layer_reports_warning() {
+        let global_dir = tempfile::tempdir().unwrap();
+        let project_dir = tempfile::tempdir().unwrap();
+        std::fs::write(global_dir.path().join("config.toml"), "log_level = [\n").unwrap();
+
+        let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
+        assert!(layer.config.log_level.is_none());
+        assert_eq!(layer.warnings.len(), 1);
     }
 }

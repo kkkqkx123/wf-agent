@@ -139,7 +139,7 @@ case "$TO" in
         # otherwise the process falls back to Development code defaults.
         if [[ "$DRY_RUN" == "0" ]]; then
             missing=0
-            for domain in storage metrics output sandbox file-checkpoint tool-approval presets tools limits; do
+            for domain in storage metrics sandbox file-checkpoint tool-approval presets tools limits retention; do
                 [[ -f "$MANAGED_DIR/infrastructure/$domain.toml" ]] || { echo "warning: domain not rendered: infrastructure/$domain.toml" >&2; missing=1; }
             done
             [[ "$missing" == "0" ]] || echo "warning: incomplete domain set falls back to Development defaults" >&2

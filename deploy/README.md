@@ -27,7 +27,6 @@ deploy/
 │   ├── gen_metadata.sh       # 从 workspace 版本同步包版本号
 │   ├── postinst/prerm/postrm # DEB 安装后/卸载前/卸载后钩子
 │   └── rpm/wf-agent.spec     # RPM spec（含 systemd scriptlet）
-├── logrotate/wf-server       # 日志轮转（/var/log/wf/*.log）
 └── windows/                  # 暂无。NSSM 方案待产品确认需要后移植。
 ```
 
@@ -71,7 +70,8 @@ deploy/
 - `deploy/env/wf-server.env.template`：环境文件模板。`WF_USER_GIT_ENABLED`
   是工作区域总开关（默认开，关则全部工作区路由显式拒绝），
   `WF_STORAGE_SQLITE_DB_PATH` 钉死单全局库位置（相对路径在服务语境下无定义），
-  `WF_OUTPUT_DIR` 钉死文件日志目录（logrotate 以此目录为轮转对象），
+  `WF_LOG_LEVEL` 覆盖日志级别；日志固定写 stderr，由 systemd journal 捕获
+  （`journalctl -u wf-server`），应用不写文件日志、不配置轮转，
   `WF_DIRECTORY_ROOTS` 列出可被显式请求的目录根（为空则允许任何已校验目录），
   `WF_SERVER_STATIC_DIR` 等静态变量留空即 API 纯接口模式（单机部署由单元显式
   传 `--static-dir`，单机包由示例配置传目录；nginx 部署后端保持留空，
@@ -86,7 +86,7 @@ deploy/
 流程：可选下载 → 产物移动 → 托管配置渲染 → 路径锚定 → 单元安装。
 
 1. 建系统用户/组 `wf`（shell 为 nologin，家目录在数据目录）。
-2. 建目录 `/etc/wf`、`/var/lib/wf`、`/var/log/wf`，属主 `wf:wf`，`0750`；umask 027。
+2. 建目录 `/etc/wf`、`/var/lib/wf`，属主 `wf:wf`，`0750`；umask 027。
 3. 装二进制：`wf-server` 必装；`INSTALL_CLI=yes` 时连带 `wf`、`wf-mini`、
    `wf-headless`、`wf-debug`。来源按 `BIN_SRC_DIR` → `./bin` →
    仓库 `target/release` → 当前目录 → 已安装路径查找；`FETCH=yes` 时先经
@@ -99,11 +99,11 @@ deploy/
    `NGINX_SITE`（默认 `/etc/nginx/sites-available/wf-agent`，存在
    `sites-enabled` 时自动软链），随后 `nginx -t` 校验；缺失则不接线仅警告。
 5. 渲染托管配置：调用 `render-config.sh --to managed`；仅新建的环境文件
-   写入路径锚定（库路径→数据目录、输出目录→日志目录），密钥留空待运维填写，
+   写入路径锚定（库路径→数据目录），密钥留空待运维填写，
    已存在文件一律不动。
 6. 渲染并安装单元到 `/etc/systemd/system/wf-server.service`：替换托管目录
    与二进制路径；`PROJECT_ROOT` 为空时去掉 `--config` 参数（保持无默认
-   工作区语义）；数据与日志目录追加进读写路径；`daemon-reload`。
+   工作区语义）；数据目录追加进读写路径；`daemon-reload`。
 7. 按 `ENABLE_SERVICE`/`START_SERVICE` 决定自启与启动（默认都不做）。
 
 可用环境变量覆盖默认行为：
@@ -111,7 +111,7 @@ deploy/
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `PREFIX` | `/usr/local` | 二进制安装前缀（单元路径同步渲染，改前缀无需手改单元） |
-| `CONFIG_DIR` / `DATA_DIR` / `LOG_DIR` | `/etc/wf`、`/var/lib/wf`、`/var/log/wf` | 托管配置/数据/日志目录 |
+| `CONFIG_DIR` / `DATA_DIR` | `/etc/wf`、`/var/lib/wf` | 托管配置/数据目录 |
 | `STATIC_DIR` | `/usr/share/wf/web` | 前端静态目录安装位置 |
 | `PROJECT_ROOT` | 空 | 项目层配置来源；为空则单元不带 `--config` |
 | `SERVICE_USER` / `SERVICE_GROUP` | `wf` | 服务运行账户 |
@@ -216,13 +216,6 @@ sudo nginx -t && sudo systemctl reload nginx
 路径使用 RPM 宏（`%{_bindir}`、`%{_unitdir}`）。打包文件：五个二进制、
 单元文件、`/usr/share/wf/web`、`/usr/share/wf/deploy`（模板与渲染脚本）、
 数据/日志/托管目录（`%dir`）。
-
-## 日志轮转（logrotate/wf-server）
-
-对 `/var/log/wf/*.log`：每日轮转、保留 7 份、压缩（delaycompress）、
-`copytruncate`（服务端持有文件句柄，截断后无需信号即可继续写新文件）、
-文件不存在不报错、空文件不轮转；新文件权限 `0640 wf wf`。
-前置条件：部署后输出目录已由环境文件锚定到 `/var/log/wf`。
 
 ## 快速开始
 

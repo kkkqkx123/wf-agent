@@ -2,7 +2,6 @@ use wf_config::orchestrator::{ConfigOverrides, ToolConfigs};
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
-use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::StorageConfig;
@@ -13,7 +12,6 @@ use wf_types::script::sandbox::SandboxGlobalConfig;
 pub struct SdkOptions {
     pub storage: Option<StorageConfig>,
     pub metrics: Option<MetricsConfig>,
-    pub output: Option<OutputConfig>,
     pub sandbox: Option<SandboxGlobalConfig>,
     pub presets: Option<PresetsConfig>,
     pub tools: Option<ToolConfigs>,
@@ -39,11 +37,6 @@ impl SdkOptions {
 
     pub fn with_metrics(mut self, config: MetricsConfig) -> Self {
         self.metrics = Some(config);
-        self
-    }
-
-    pub fn with_output(mut self, config: OutputConfig) -> Self {
-        self.output = Some(config);
         self
     }
 
@@ -97,7 +90,6 @@ impl SdkOptions {
         ConfigOverrides {
             storage: self.storage,
             metrics: self.metrics,
-            output: self.output,
             sandbox: self.sandbox,
             presets: self.presets,
             tools: self.tools,
@@ -136,6 +128,5 @@ mod tests {
         let overrides = options.into_overrides();
         assert!(overrides.storage.is_some());
         assert!(overrides.metrics.is_some());
-        assert!(overrides.output.is_none());
     }
 }

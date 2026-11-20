@@ -1,12 +1,11 @@
 # 基础设施配置（infrastructure/）
 
-基础设施配置位于 `{layer}/infrastructure/`，共十个固定文件名。由 `ConfigOrchestrator` 按优先级链加载并合并，随后应用 `WF_*` 环境覆盖与程序化覆盖。
+基础设施配置位于 `{layer}/infrastructure/`，共九个固定文件名。由 `ConfigOrchestrator` 按优先级链加载并合并，随后应用 `WF_*` 环境覆盖与程序化覆盖。
 
 | 文件 | 配置类型 | 作用 |
 |---|---|---|
 | `storage.toml` | `StorageConfig` | 工作流 / 检查点 / 任务持久化后端 |
 | `metrics.toml` | `MetricsConfig` | 指标采集器、保留窗口、异常阈值、导出地址 |
-| `output.toml` | `OutputConfig` | 输出目录、日志文件模式、SDK 日志 |
 | `sandbox.toml` | `SandboxGlobalConfig` | 脚本沙箱 profile 与路由规则 |
 | `file-checkpoint.toml` | `FileCheckpointConfig` | 工作区文件快照与恢复 |
 | `tool-approval.toml` | `ToolApprovalConfig` | 工具级审批策略 |
@@ -30,15 +29,6 @@
 - 每个采集器段（如 `[workflow_metrics]`）：`buffer_size`、`flush_interval`、`enabled`、`retention_ms`、`strict_labels`、`allowed_label_keys`
 - 采集器包括：workflow、node、agent、event、tool、token、config、error、resource、agent_loop、subgraph、template、retry_budget、timeout、checkpoint、compaction、http
 - 环境覆盖：`WF_METRICS_ENABLED`
-
-## output.toml
-
-- `dir`：基础输出目录（默认 `./outputs`）
-- `log_file_pattern`：日志文件命名模式（默认 `app-{date}.log`）
-- `enable_log_terminal`：是否同时写终端
-- `enable_sdk_logs`：是否包含 SDK 内部日志
-- `sdk_log_level`：`silent` | `error` | `warn` | `info` | `debug`
-- 环境覆盖：`WF_OUTPUT_DIR`
 
 ## sandbox.toml
 

@@ -5,7 +5,6 @@ use crate::processor::file_scope::{
 use crate::validator::validate_min;
 
 use wf_types::config::metrics::{AnomalyThresholdsConfig, MetricCollectorConfig, MetricsConfig};
-use wf_types::config::output::OutputConfig;
 use wf_types::config::storage::StorageConfig;
 use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
 
@@ -66,25 +65,6 @@ pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfi
                 ..Default::default()
             }),
             ..Default::default()
-        },
-    }
-}
-
-/// Environment-specific default output config (TS
-/// `getOutputEnvironmentDefaults`).
-pub fn get_output_environment_defaults(env: RuntimeEnvironment) -> OutputConfig {
-    match env {
-        RuntimeEnvironment::Development => OutputConfig {
-            enable_log_terminal: true,
-            enable_sdk_logs: true,
-            sdk_log_level: wf_types::config::output::SdkLogLevel::Debug,
-            ..OutputConfig::default()
-        },
-        RuntimeEnvironment::Production => OutputConfig {
-            enable_log_terminal: false,
-            enable_sdk_logs: false,
-            sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
-            ..OutputConfig::default()
         },
     }
 }
@@ -176,10 +156,6 @@ pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
                 .or(Some(0)),
         }),
     }
-}
-
-pub fn merge_output_with_defaults(user: &OutputConfig) -> OutputConfig {
-    user.clone()
 }
 
 pub fn merge_storage_with_defaults(user: &StorageConfig) -> StorageConfig {
@@ -441,23 +417,6 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_output_with_defaults() {
-        let user = OutputConfig {
-            dir: "/logs".to_string(),
-            log_file_pattern: "app.log".to_string(),
-            enable_log_terminal: true,
-            enable_sdk_logs: true,
-            sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
-        };
-        let merged = merge_output_with_defaults(&user);
-        assert_eq!(merged.dir, "/logs");
-        assert_eq!(
-            merged.sdk_log_level,
-            wf_types::config::output::SdkLogLevel::Info
-        );
-    }
-
-    #[test]
     fn test_merge_storage_with_defaults() {
         let user = StorageConfig {
             storage_type: wf_types::config::storage::StorageType::Sqlite,
@@ -582,14 +541,6 @@ mod tests {
         );
         let prod_storage = get_storage_environment_defaults(RuntimeEnvironment::Production);
         assert!(prod_storage.sqlite.as_ref().unwrap().file_must_exist);
-
-        let dev_output = get_output_environment_defaults(RuntimeEnvironment::Development);
-        assert_eq!(
-            dev_output.sdk_log_level,
-            wf_types::config::output::SdkLogLevel::Debug
-        );
-        let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
-        assert!(!prod_output.enable_log_terminal);
     }
 
     #[test]

@@ -7,5 +7,5 @@ fi
 
 # Only purge data on full purge; plain remove keeps config and data.
 if [ "$1" = "purge" ]; then
-    rm -rf /var/lib/wf /var/log/wf /etc/wf
+    rm -rf /var/lib/wf /etc/wf
 fi

@@ -1,10 +1,11 @@
 #[cfg(feature = "plugins")]
 use crate::bootstrap::PluginConfig;
 use crate::bootstrap::{
-    adjust_log_config, init_llm_gateway, resolve_infra_config, storage_db_path, InfraSourceConfig,
-    LlmConfig, McpRuntimeConfig, ResourceConfig, Runtime, RuntimeConfig,
+    adjust_log_config, init_llm_gateway, load_infra_file_layer, resolve_infra_config,
+    resolve_log_config, storage_db_path, InfraSourceConfig, LlmConfig, McpRuntimeConfig,
+    ResourceConfig, Runtime, RuntimeConfig,
 };
-use crate::logger::LogConfig;
+use crate::logger::{LogConfig, LogLevel};
 use crate::mode::{ExecutionMode, ModeInfo};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,6 +29,28 @@ fn clear_env_vars() {
     std::env::remove_var("WF_KEYWORD_ES_TIMEOUT_SECS");
     std::env::remove_var("WF_KEYWORD_ES_BATCH_SIZE");
     std::env::remove_var("WF_KEYWORD_ES_EXACT_COUNT");
+    std::env::remove_var("WF_LOG_LEVEL");
+}
+
+fn test_mode_info() -> ModeInfo {
+    ModeInfo {
+        mode: ExecutionMode::Test,
+        output_format: crate::mode::OutputFormat::Text,
+        color_enabled: false,
+    }
+}
+
+fn resolve_with_file_layer(
+    config: RuntimeConfig,
+    infra: &InfraSourceConfig,
+    runtime: &tokio::runtime::Runtime,
+) -> RuntimeConfig {
+    std::env::remove_var("WF_LOG_LEVEL");
+    let loaded = load_infra_file_layer(infra);
+    let config = resolve_log_config(config, Some(&loaded.config), &test_mode_info()).unwrap();
+    runtime
+        .block_on(resolve_infra_config(config, infra, loaded.config, None))
+        .unwrap()
 }
 
 fn memory_storage_config() -> StorageConfig {
@@ -40,7 +63,7 @@ fn memory_storage_config() -> StorageConfig {
 fn default_test_config() -> RuntimeConfig {
     RuntimeConfig {
         storage: memory_storage_config(),
-        log_config: LogConfig::default().with_level("off"),
+        log_config: LogConfig::default().with_level(LogLevel::Off),
         mode_override: Some(ExecutionMode::Test),
         resource: ResourceConfig::default(),
         metrics: None,

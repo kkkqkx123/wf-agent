@@ -86,7 +86,7 @@
 - `[shell]`：`workspace_dir`、`max_timeout_ms`、`allowed_commands`、`denied_commands`、`read_commands`、`write_commands`
 - `[code_context]`：代码上下文服务配置（文件折叠与检索工具）。主开关 `enabled`；传输 `transport_mode`（`external` 走 `base_url`，`managed` 拉起 `managed_binary` 并用 `managed_port`/`managed_startup_timeout_ms`/`managed_max_restarts`/`managed_log_level` 托管）、`timeout_ms`、`auth_token_env`（承载 Bearer 令牌的环境变量名，声明不含密钥）；折叠 `fold_min_tokens`/`fold_max_tokens`/`fold_max_items`/`fold_max_retries`/`fold_total_budget_ms`；检索 `default_project_id`/`default_limit`/`max_results`；项目供给 `supply_mode`（`managed` 由运行时解析/创建 workspace 项目并触发首次索引，`external` 由部署方负责；未声明时按 `transport_mode` 派生）、`managed_watch`（托管供给下由服务侧 watch 维护增量索引）、`watch_timeout_ms`。
   - 托管模式的数据目录固定为 `{project_root}/.wf/code-context`，由监督任务持有的单实例锁 `runtime.lock` 保护：锁在监督任务启动时抢占、彻底停止时释放，重试期间保持独占。
-  - 子进程 stdout/stderr 追加写入数据目录的 `cce.log`，失败告警会附带该文件的尾部若干行。日志随数据目录存续、不做自动轮转：需要时直接删除该文件（服务会重新创建）即可，删除数据目录等于重建索引缓存。
+  - 子进程 stdout/stderr 追加写入数据目录的 `cce.log`，失败告警会附带该文件的尾部若干行。日志随数据目录存续、不做自动轮转：需要清理时截断该文件（保留路径与 inode），直接删除只会让运行中的子进程继续写入已删除的 inode，直到监督任务重启后才会重建；删除数据目录等于重建索引缓存。
   - 项目与索引状态（未解析 / 解析中 / 索引中 / 已就绪 / 失败）、健康结论、断路器与子进程相位都可通过 `GET /api/v1/system/code-context` 只读查看；该端点不触发探测、不改变断路器状态。
   - 维护面（会真正访问服务、只由人触发）：`GET /api/v1/system/code-context/dead-letters` 列出被放弃的文件与模块，
     `POST .../dead-letters/retry`（可为空 `files` 表示全部）、`POST .../dead-letters/acknowledge`（可限定 `module`）

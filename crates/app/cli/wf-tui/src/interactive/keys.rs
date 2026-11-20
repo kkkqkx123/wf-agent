@@ -13,7 +13,7 @@ use tui_core::panel_select::Motion;
 use crate::approval_overlay::ApprovalChoice;
 use crate::footer::{FooterRoute, FooterView};
 use crate::interactive::anchors::{first_line_label, AnchorKind};
-use crate::interactive::{InteractiveAction, InteractiveController};
+use crate::interactive::{InteractiveAction, InteractiveController, InteractiveEvent};
 use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
 use crate::question_overlay::QuestionOutcome;
 use crate::terminal::PressOutcome;
@@ -401,6 +401,7 @@ impl InteractiveController {
             return;
         }
         let client = self.client.clone();
+        let tx = self.tx.clone();
         let id = interaction_id.to_string();
         let body = serde_json::json!({"response_data": response});
         tokio::spawn(async move {
@@ -411,7 +412,9 @@ impl InteractiveController {
                 )
                 .await
             {
-                tracing::warn!(target: "wf_cli", error = %err, "question respond failed");
+                let _ = tx.send(InteractiveEvent::Notice(format!(
+                    "question respond failed: {err}"
+                )));
             }
         });
     }

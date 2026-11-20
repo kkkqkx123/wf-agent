@@ -272,11 +272,7 @@ impl InteractiveController {
                         self.pending_scroll.extend(rows);
                     }
                 }
-                InteractiveEvent::NestedTargetsFailed {
-                    execution_id,
-                    error,
-                } => {
-                    tracing::warn!(target: "wf_cli", error = %error, execution_id = %execution_id, "nested target listing failed");
+                InteractiveEvent::NestedTargetsFailed { error, .. } => {
                     self.footer
                         .show_notice(format!("list nested loops failed: {error}"));
                 }
@@ -438,6 +434,7 @@ impl InteractiveController {
             return;
         }
         let client = self.client.clone();
+        let tx = self.tx.clone();
         let id = interaction_id.to_string();
         let body = wf_client::models::RespondBody {
             response_data: Some(answer.into_response_value()),
@@ -455,7 +452,9 @@ impl InteractiveController {
                     )
                 })
             {
-                tracing::warn!(target: "wf_cli", error = %err, "approval respond failed");
+                let _ = tx.send(InteractiveEvent::Notice(format!(
+                    "approval respond failed: {err}"
+                )));
             }
         });
     }

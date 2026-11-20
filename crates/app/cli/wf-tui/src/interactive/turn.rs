@@ -136,7 +136,7 @@ impl InteractiveController {
 
 /// List nested targets in the background. Loud listings report rows via
 /// the loaded event; silent recalibrations only update state. Loud
-/// failures surface as a failed event; silent ones only warn in logs.
+/// failures surface as a failed event; silent ones are ignored.
 fn spawn_nested_list(
     client: wf_client::WfClient,
     tx: tokio::sync::mpsc::UnboundedSender<InteractiveEvent>,
@@ -161,9 +161,7 @@ fn spawn_nested_list(
                 });
             }
             Err(e) => {
-                if silent {
-                    tracing::warn!(target: "wf_cli", error = %e, execution_id = %execution, "nested target recalibration failed");
-                } else {
+                if !silent {
                     let _ = tx.send(InteractiveEvent::NestedTargetsFailed {
                         execution_id: execution,
                         error: e.to_string(),

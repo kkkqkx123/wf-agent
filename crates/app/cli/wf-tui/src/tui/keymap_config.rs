@@ -77,24 +77,17 @@ pub fn load_user_keymap() -> Keymap {
     };
     for (ctx_name, commands) in &settings.bindings {
         let Some(ctx) = parse_context(ctx_name) else {
-            tracing::warn!(context = %ctx_name, "unknown keymap context in keymap settings");
+            eprintln!("[wf] unknown keymap context '{ctx_name}' in keymap settings");
             continue;
         };
         for (command_id, description) in commands {
             let Ok(chord) = config_keymap::parse_chord(description) else {
-                tracing::warn!(
-                    command = %command_id,
-                    chord = %description,
-                    "ignoring invalid keymap binding"
-                );
+                eprintln!("[wf] ignoring invalid keymap binding {command_id} = '{description}'");
                 continue;
             };
             let key = chord_to_key(&chord);
             if !keymap.bind_id(ctx, key, command_id) {
-                tracing::warn!(
-                    command = %command_id,
-                    "unknown command id in keymap settings"
-                );
+                eprintln!("[wf] unknown command id {command_id} in keymap settings");
             }
         }
     }

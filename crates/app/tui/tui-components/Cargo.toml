@@ -14,7 +14,6 @@ unicode-segmentation = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 tui-core = { path = "../tui-core" }

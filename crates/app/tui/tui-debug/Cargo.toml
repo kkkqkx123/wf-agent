@@ -10,7 +10,6 @@ wf-types = { workspace = true }
 wf-core = { workspace = true }
 ratatui = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 tui-core = { path = "../tui-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -29,7 +29,6 @@ pub fn isolated_component_draw(
     let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
     if outcome.is_err() {
         draw_recovered_frame(buf, area);
-        tracing::warn!("tui: isolated component panicked, recovered placeholder drawn");
     }
     FrameMetric::new(
         frame_no,

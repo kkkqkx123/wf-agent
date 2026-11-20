@@ -128,7 +128,7 @@ pub(crate) fn write_failure_envelope(
         _ => None,
     };
     if let Some(Err(err)) = result {
-        tracing::warn!(target: "wf_cli", error = %err, "failed to write failure envelope");
+        eprintln!("wf-cli: failed to write failure envelope: {err}");
     }
 }
 

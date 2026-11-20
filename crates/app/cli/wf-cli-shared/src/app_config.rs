@@ -7,8 +7,9 @@
 //! on bad contents.
 //!
 //! The kernel host layer owns `config.toml` in the same directory
-//! (`storage`, `log_level`, `tool_approval`); this module never reads or
-//! writes that file so frontend toggles cannot drop kernel keys.
+//! (`storage`, `log_level`, `log_format`, `tool_approval`); this module
+//! never reads or writes that file so frontend toggles cannot drop kernel
+//! keys.
 //!
 //! Backup scope is this file only. Keymap settings and theme files live
 //! beside it but are owned by their own loaders; use file copy for those.

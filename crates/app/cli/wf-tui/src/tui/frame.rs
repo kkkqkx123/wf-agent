@@ -298,11 +298,6 @@ impl TuiApp {
             ));
         if elapsed_ms > PROD_FRAME_BUDGET_MS {
             self.over_budget_frames = self.over_budget_frames.wrapping_add(1);
-            tracing::warn!(
-                "tui: frame {} over budget: {elapsed_ms}ms > {PROD_FRAME_BUDGET_MS}ms (total overruns {})",
-                self.prod_frame_no,
-                self.over_budget_frames,
-            );
         }
     }
 

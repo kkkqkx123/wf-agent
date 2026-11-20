@@ -45,8 +45,44 @@ pub(crate) enum ComponentUpdate {
     },
 }
 
-fn encode_canonical<T: Serialize>(value: &T) -> Result<String, StorageError> {
-    serde_json::to_string(value).map_err(StorageError::from)
+/// Serialize one value with every object's keys sorted.
+///
+/// The JSON backend keeps insertion order whenever any dependency enables
+/// that feature, and objects built from hash maps therefore come out in a
+/// different order on each run. A digest over such a document is not a
+/// function of the content, so everything derived from it - inventory
+/// comparisons, backup revision capture, restore verification - would drift
+/// on every read.
+fn canonical_text(value: &Value) -> String {
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let mut text = String::from("{");
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    text.push(',');
+                }
+                text.push_str(&serde_json::to_string(key).expect("object key serializes"));
+                text.push(':');
+                text.push_str(&canonical_text(&map[key]));
+            }
+            text.push('}');
+            text
+        }
+        Value::Array(items) => {
+            let mut text = String::from("[");
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    text.push(',');
+                }
+                text.push_str(&canonical_text(item));
+            }
+            text.push(']');
+            text
+        }
+        scalar => serde_json::to_string(scalar).expect("scalar serializes"),
+    }
 }
 
 fn decode_canonical(data: &[u8], compressed: bool) -> Result<Value, StorageError> {
@@ -58,17 +94,17 @@ fn hash_text(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
-/// Hash one JSON value after canonicalising its key order.
+/// Hash one JSON value after sorting every object's keys, so the digest
+/// depends on content alone.
 pub fn hash_json<T: Serialize>(value: &T) -> Result<String, StorageError> {
-    Ok(hash_text(&encode_canonical(value)?))
+    let value = serde_json::to_value(value).map_err(StorageError::from)?;
+    Ok(hash_text(&canonical_text(&value)))
 }
 
 /// Hash the decoded content of one stored row. Compression is a storage
 /// detail and never participates in the revision digest.
 pub fn hash_stored_row(data: &[u8], compressed: bool) -> Result<String, StorageError> {
-    Ok(hash_text(&encode_canonical(&decode_canonical(
-        data, compressed,
-    )?)?))
+    hash_json(&decode_canonical(data, compressed)?)
 }
 
 /// Hash a checkpoint row from its indexed metadata and decoded blob.
@@ -363,51 +399,46 @@ impl RevisionStore {
         Ok(revision)
     }
 
-    /// Explicit post-restore advance. The new sequence is greater than both
-    /// the current local sequence and the sequence captured in the backup, so
-    /// a restore can never look like a rollback.
+    /// Explicit post-restore advance. The recorded projection is the restored
+    /// bundle's own component set, so the stored digest describes the data a
+    /// later full export produces instead of whatever partial components the
+    /// restore writes happened to advance. This includes the file archive
+    /// component, which the archive import does not advance on its own.
+    ///
+    /// The new sequence is greater than both the current local sequence and
+    /// the sequence captured in the backup, so a restore can never look like
+    /// a rollback.
     pub async fn advance_after_restore(
         &self,
         execution_id: &str,
+        components: Vec<RevisionComponent>,
         backup_sequence: u64,
     ) -> Result<ExecutionRevision, StorageError> {
         let current = self.load(execution_id).await?;
-        let components = current
-            .as_ref()
-            .map(|row| row.components.clone())
-            .unwrap_or_default();
-        let digest = projection_digest(execution_id, &components)?;
-        let revision = ExecutionRevision {
-            execution_id: execution_id.to_string(),
-            sequence: current
-                .as_ref()
-                .map(|row| row.sequence)
-                .unwrap_or(0)
-                .max(backup_sequence)
-                .saturating_add(1),
-            digest,
-            updated_at_ms: now_ms(),
-            source: SOURCE_RESTORE.to_string(),
-            reason: "bundle_restore".to_string(),
-            components,
-        };
-        let write = encode_revision(&revision)?;
+        let current_sequence = current.as_ref().map(|row| row.sequence).unwrap_or(0);
+        let (revision, write) =
+            build_restore_revision(execution_id, components, backup_sequence, current_sequence)?;
         self.backend
             .save(&write.id, &write.data, &write.metadata)
             .await?;
         Ok(revision)
     }
 
-    /// Rebuild one row from a full export after the revision table is lost.
+    /// Rebuild one row from a full export after its revision row was lost.
+    /// The caller passes the sequence it already knows for this target, so a
+    /// rebuild lands on the existing comparison baseline instead of a fresh
+    /// low number that would read as a rollback forever after.
     pub async fn rebuild(
         &self,
         execution_id: &str,
-        components: Vec<RevisionComponent>,
+        mut components: Vec<RevisionComponent>,
+        minimum_sequence: u64,
     ) -> Result<ExecutionRevision, StorageError> {
+        components.sort_by(|left, right| (&left.kind, &left.id).cmp(&(&right.kind, &right.id)));
         let digest = projection_digest(execution_id, &components)?;
         let revision = ExecutionRevision {
             execution_id: execution_id.to_string(),
-            sequence: 1,
+            sequence: minimum_sequence.max(1),
             digest,
             updated_at_ms: now_ms(),
             source: SOURCE_REBUILD.to_string(),
@@ -420,6 +451,36 @@ impl RevisionStore {
             .await?;
         Ok(revision)
     }
+}
+
+/// Build the revision row a restore commits together with its data writes.
+///
+/// The returned row is not written here: the caller commits it inside the
+/// same transaction as the restored rows, so no reader observes a sequence
+/// that describes rows the transaction has not committed.
+///
+/// The sequence is greater than both the current local sequence and the
+/// sequence captured in the backup, so a restore never reads as a rollback
+/// and never reuses a position an earlier restore already published.
+pub fn build_restore_revision(
+    execution_id: &str,
+    mut components: Vec<RevisionComponent>,
+    backup_sequence: u64,
+    current_sequence: u64,
+) -> Result<(ExecutionRevision, BatchItem), StorageError> {
+    components.sort_by(|left, right| (&left.kind, &left.id).cmp(&(&right.kind, &right.id)));
+    let digest = projection_digest(execution_id, &components)?;
+    let revision = ExecutionRevision {
+        execution_id: execution_id.to_string(),
+        sequence: current_sequence.max(backup_sequence).saturating_add(1),
+        digest,
+        updated_at_ms: now_ms(),
+        source: SOURCE_RESTORE.to_string(),
+        reason: "bundle_restore".to_string(),
+        components,
+    };
+    let write = encode_revision(&revision)?;
+    Ok((revision, write))
 }
 
 pub(crate) fn component_from_row(
@@ -499,6 +560,34 @@ mod tests {
     use super::*;
     use crate::context::StorageContext;
     use serde_json::json;
+
+    #[test]
+    fn digest_ignores_object_key_order() {
+        // The JSON backend preserves insertion order, and objects built from
+        // hash maps arrive in a different order on every run. Two documents
+        // with the same content must hash the same regardless.
+        let forward = json!({"alpha": 1, "beta": {"x": [1, 2], "y": null}});
+        let reverse = json!({"beta": {"y": null, "x": [1, 2]}, "alpha": 1});
+        assert_eq!(
+            hash_json(&forward).unwrap(),
+            hash_json(&reverse).unwrap(),
+            "key order must not change the digest"
+        );
+
+        let mut reordered = serde_json::Map::new();
+        reordered.insert("beta".to_string(), json!({"y": null, "x": [1, 2]}));
+        reordered.insert("alpha".to_string(), json!(1));
+        assert_eq!(
+            hash_json(&Value::Object(reordered)).unwrap(),
+            hash_json(&forward).unwrap()
+        );
+
+        // Arrays stay ordered: a different sequence is a different document.
+        assert_ne!(
+            hash_json(&json!({"items": [1, 2]})).unwrap(),
+            hash_json(&json!({"items": [2, 1]})).unwrap()
+        );
+    }
 
     #[tokio::test]
     async fn execution_writes_advance_one_sequence_per_write() {

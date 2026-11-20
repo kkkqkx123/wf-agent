@@ -17,9 +17,9 @@ use crate::backends::{
     apply_server_default_port, collect_backend_candidates, create_server_backend,
     export_server_backup, fetch_server_backends, fetch_server_backups, fetch_server_sync_states,
     import_server_backends, load_registry, management_client, probe_backends,
-    relink_server_backups, remove_server_backend, restore_server_backup, start_server_tunnel,
-    stop_server_tunnel, trigger_server_backup, update_server_backend, verify_server_backup,
-    RemoteHost, ServerBackupRecord,
+    relink_server_backups, remove_server_backend, reset_server_sync_state, restore_server_backup,
+    start_server_tunnel, stop_server_tunnel, trigger_server_backup, update_server_backend,
+    verify_server_backup, RemoteHost, ServerBackupRecord,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -45,15 +45,27 @@ fn needs_recovery(status: &str) -> bool {
     matches!(status, "remote_missing" | "remote_corrupt")
 }
 
-fn latest_backup<'a>(
+/// A corrupted target still holds rows a restore has to overwrite, while a
+/// missing target is expected to be absent. The distinction decides whether
+/// the recovery walk asks for a replace or a plain create.
+fn needs_replace(status: &str) -> bool {
+    status != "remote_missing"
+}
+
+/// Every backup of one target, newest first. Recovery walks the list and
+/// stops at the first snapshot that passes verification, so a damaged newest
+/// file does not make the older retained snapshots unusable.
+fn backups_for<'a>(
     records: &'a [ServerBackupRecord],
     backend: &str,
     execution: &str,
-) -> Option<&'a ServerBackupRecord> {
-    records
+) -> Vec<&'a ServerBackupRecord> {
+    let mut rows: Vec<&ServerBackupRecord> = records
         .iter()
         .filter(|row| row.backend == backend && row.execution == execution)
-        .max_by_key(|row| row.created_ms.unwrap_or(i64::MIN))
+        .collect();
+    rows.sort_by_key(|row| std::cmp::Reverse(row.created_ms.unwrap_or(i64::MIN)));
+    rows
 }
 
 fn read_sync_states(report: &serde_json::Value) -> CliResult<Vec<SyncStateRow>> {
@@ -351,6 +363,14 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 OutputEnvelope::success("remote-sync-state", report),
             )
         }
+        RemoteSub::SyncReset { backend, execution } => {
+            let client = management_client(cli);
+            let result = reset_server_sync_state(&client, backend, execution).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-sync-reset", result),
+            )
+        }
         RemoteSub::Backups {
             backend,
             repairable,
@@ -366,19 +386,19 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                     .collect::<std::collections::HashSet<_>>();
                 let mut selected = Vec::new();
                 for (name, execution) in targets {
-                    let Some(record) = latest_backup(&records, &name, &execution).cloned() else {
-                        continue;
-                    };
-                    let verification = verify_server_backup(&client, &record.id).await;
-                    if verification
-                        .map(|view| {
-                            view.get("verified")
-                                .and_then(|value| value.as_bool())
-                                .unwrap_or(false)
-                        })
-                        .unwrap_or(false)
-                    {
-                        selected.push(record);
+                    for record in backups_for(&records, &name, &execution) {
+                        let verified = verify_server_backup(&client, &record.id)
+                            .await
+                            .map(|view| {
+                                view.get("verified")
+                                    .and_then(|value| value.as_bool())
+                                    .unwrap_or(false)
+                            })
+                            .unwrap_or(false);
+                        if verified {
+                            selected.push((*record).clone());
+                            break;
+                        }
                     }
                 }
                 records = selected;
@@ -428,50 +448,81 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                     "remote_status": state.repair_status.clone(),
                     "dry_run": !*apply,
                 });
-                let Some(record) = latest_backup(&backups, &state.backend, &state.execution) else {
+                // `remote_corrupt` means the target still holds data that has
+                // to be overwritten; `remote_missing` expects it to be absent.
+                let replace = needs_replace(&state.repair_status);
+                let candidates = backups_for(&backups, &state.backend, &state.execution);
+                if candidates.is_empty() {
                     row["skipped_reason"] = serde_json::json!("no local backup for target");
+                    skipped += 1;
+                    targets.push(row);
+                    continue;
+                }
+                // Walk newest to oldest: the newest file is the one most
+                // likely to be damaged, and the retained history may still
+                // hold a snapshot that verifies and restores cleanly.
+                let mut rejected = Vec::new();
+                let mut chosen = None;
+                for candidate in candidates {
+                    match verify_server_backup(&client, &candidate.id).await {
+                        Ok(view)
+                            if view
+                                .get("verified")
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(false) =>
+                        {
+                            match restore_server_backup(&client, &candidate.id, true, replace).await
+                            {
+                                Ok(plan) => {
+                                    chosen = Some((candidate, plan, replace));
+                                    break;
+                                }
+                                Err(e) => {
+                                    // A target flagged missing may have been recreated since
+                                    // the state row was written. Retrying with replace
+                                    // settles which of the two states it is in.
+                                    if !replace {
+                                        if let Ok(plan) = restore_server_backup(
+                                            &client,
+                                            &candidate.id,
+                                            true,
+                                            true,
+                                        )
+                                        .await
+                                        {
+                                            chosen = Some((candidate, plan, true));
+                                            break;
+                                        }
+                                    }
+                                    rejected.push(format!("{}: dry run failed: {e}", candidate.id))
+                                }
+                            }
+                        }
+                        Ok(view) => rejected.push(format!(
+                            "{}: verification status: {}",
+                            candidate.id,
+                            view.get("status")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("unknown")
+                        )),
+                        Err(e) => rejected.push(format!("{}: verify failed: {e}", candidate.id)),
+                    }
+                }
+                let Some((record, plan, use_replace)) = chosen else {
+                    row["skipped_reason"] =
+                        serde_json::json!(format!("no usable backup: {}", rejected.join("; ")));
                     skipped += 1;
                     targets.push(row);
                     continue;
                 };
                 row["backup_id"] = serde_json::json!(record.id);
-                let verification = match verify_server_backup(&client, &record.id).await {
-                    Ok(view) => view,
-                    Err(e) => {
-                        row["skipped_reason"] = serde_json::json!(format!("verify failed: {e}"));
-                        skipped += 1;
-                        targets.push(row);
-                        continue;
-                    }
-                };
-                if !verification
-                    .get("verified")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false)
-                {
-                    row["skipped_reason"] = serde_json::json!(format!(
-                        "backup verification status: {}",
-                        verification
-                            .get("status")
-                            .and_then(|value| value.as_str())
-                            .unwrap_or("unknown")
-                    ));
-                    skipped += 1;
-                    targets.push(row);
-                    continue;
+                row["replace"] = serde_json::json!(use_replace);
+                if !rejected.is_empty() {
+                    row["rejected_backups"] = serde_json::json!(rejected);
                 }
-                let plan = match restore_server_backup(&client, &record.id, true).await {
-                    Ok(plan) => plan,
-                    Err(e) => {
-                        row["skipped_reason"] = serde_json::json!(format!("dry run failed: {e}"));
-                        skipped += 1;
-                        targets.push(row);
-                        continue;
-                    }
-                };
                 row["plan"] = plan;
                 if *apply {
-                    match restore_server_backup(&client, &record.id, false).await {
+                    match restore_server_backup(&client, &record.id, false, use_replace).await {
                         Ok(result) => {
                             row["result"] = result;
                             applied += 1;
@@ -600,14 +651,14 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 OutputEnvelope::success("remote-backup-export", data),
             )
         }
-        RemoteSub::BackupRestore { id, apply } => {
+        RemoteSub::BackupRestore { id, apply, replace } => {
             if id.trim().is_empty() {
                 return Err(CliError::Arguments(
                     "remote backup-restore requires a backup id".to_string(),
                 ));
             }
             let client = management_client(cli);
-            let report = restore_server_backup(&client, id, !*apply).await?;
+            let report = restore_server_backup(&client, id, !*apply, *replace).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("remote-backup-restore", report),
@@ -831,10 +882,24 @@ mod tests {
     }
 
     #[test]
-    fn recovery_selects_newest_backup_for_one_target() {
+    fn corrupt_targets_recover_by_replacement() {
+        // A corrupted target still holds rows the restore has to overwrite;
+        // a missing one is expected to be absent.
+        assert!(needs_replace("remote_corrupt"));
+        assert!(!needs_replace("remote_missing"));
+    }
+
+    #[test]
+    fn recovery_prefers_the_newest_backup_for_one_target() {
         let rows = vec![backup("old", 10), backup("new", 30), backup("mid", 20)];
-        let selected = latest_backup(&rows, "alpha", "exec-1").expect("backup exists");
-        assert_eq!(selected.id, "new");
-        assert!(latest_backup(&rows, "alpha", "other").is_none());
+        let ordered = backups_for(&rows, "alpha", "exec-1");
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["new", "mid", "old"]
+        );
+        assert!(backups_for(&rows, "alpha", "other").is_empty());
     }
 }

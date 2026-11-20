@@ -170,6 +170,54 @@ impl FileCheckpointManager {
             .collect();
         Ok(self.archive_write_files(entity_id, &map)?.commit)
     }
+
+    /// Replace the whole archive of one execution: paths absent from `files`
+    /// are removed in the same commit, so a later export cannot surface
+    /// content the new file set does not contain.
+    ///
+    /// The revision row is deliberately left to the caller. A restore records
+    /// the whole restored projection once, and an extra advance here would
+    /// move that position a second time, which the manager side would read as
+    /// content changing after the restore had already reported success.
+    pub fn archive_replace(
+        &self,
+        entity_id: &str,
+        files: &HashMap<String, Vec<u8>>,
+    ) -> Result<ArchiveWriteOutcome, CheckpointError> {
+        let git = self.git_ref()?;
+        let refname = context_archive_ref(entity_id);
+        let existing = self.archive_export(entity_id)?;
+        let mut changes: HashMap<String, Option<(String, Vec<u8>)>> =
+            HashMap::with_capacity(existing.len() + files.len());
+        for (path, _) in existing {
+            if !files.contains_key(&path) {
+                changes.insert(path, None);
+            }
+        }
+        let mut blobs = Vec::with_capacity(files.len());
+        let mut paths: Vec<String> = files.keys().cloned().collect();
+        paths.sort();
+        for path in &paths {
+            let bytes = files.get(path).cloned().unwrap_or_default();
+            let blob = git
+                .write_blob(&bytes)
+                .map_err(crate::file::git_write::map_git_error)?;
+            blobs.push((path.clone(), blob));
+            changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes)));
+        }
+        let outcome = git
+            .commit_on_ref(
+                &refname,
+                &changes,
+                "context-archive",
+                "context archive replace",
+            )
+            .map_err(crate::file::git_write::map_git_error)?;
+        Ok(ArchiveWriteOutcome {
+            commit: outcome.id,
+            blobs,
+        })
+    }
 }
 
 #[cfg(test)]

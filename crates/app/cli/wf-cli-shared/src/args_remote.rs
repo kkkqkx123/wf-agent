@@ -169,6 +169,18 @@ pub enum RemoteSub {
         #[arg(long, value_name = "NAME")]
         backend: Option<String>,
     },
+    /// Clear one target's durable synchronization position so the next round
+    /// rebuilds its baseline from the newest local backup. Backup files and
+    /// the index are untouched.
+    #[command(name = "sync-reset")]
+    SyncReset {
+        /// Backend that owns the target.
+        #[arg(long, value_name = "NAME")]
+        backend: String,
+        /// Execution id whose position is dropped.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+    },
     /// Recover remote executions from verified local backups. Dry run by
     /// default; `--apply` performs the restore after the same checks.
     #[command(name = "recover")]
@@ -224,6 +236,10 @@ pub enum RemoteSub {
         /// Apply the restore instead of only showing the plan.
         #[arg(long)]
         apply: bool,
+        /// Overwrite a target whose content differs from the backup. Without
+        /// it a mismatching target is reported and left untouched.
+        #[arg(long)]
+        replace: bool,
     },
     /// Rewrite absolute backup index paths to paths relative to the current
     /// server backup directory. Preview by default; `--apply` writes changes.

@@ -5,7 +5,7 @@ use axum::extract::{Extension, State};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
-use wf_api::execution_bundle::{restore_bundle, ExecutionBundle};
+use wf_api::execution_bundle::{restore_bundle, ExecutionBundle, RestoreMode};
 
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
@@ -14,6 +14,10 @@ use crate::router::ApiState;
 pub(crate) struct RestoreRequest {
     pub(crate) bundle: ExecutionBundle,
     pub(crate) dry_run: bool,
+    /// Overwrite permission for a target that already holds different
+    /// content. Defaults to refusing, so a caller must ask for a replace.
+    #[serde(default)]
+    pub(crate) mode: RestoreMode,
 }
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -49,6 +53,7 @@ pub(crate) async fn handle_restore_bundle(
         &request.bundle,
         Some(directory.as_str()),
         request.dry_run,
+        request.mode,
     )
     .await
     {

@@ -95,6 +95,7 @@ type SyncStateRow = (
     Option<String>,
     i64,
     String,
+    String,
     Option<String>,
 );
 
@@ -109,6 +110,7 @@ fn sync_state_view(row: SyncStateRow) -> SyncStateView {
         backup_id,
         failures,
         repair_status,
+        local_status,
         error,
     ) = row;
     SyncStateView {
@@ -121,6 +123,7 @@ fn sync_state_view(row: SyncStateRow) -> SyncStateView {
         backup_id,
         failures: failures.max(0) as u32,
         repair_status,
+        local_status,
         error,
     }
 }
@@ -170,6 +173,7 @@ impl BackendStore {
                         backup_id TEXT,
                         failures INTEGER NOT NULL,
                         repair_status TEXT NOT NULL,
+                        local_status TEXT NOT NULL DEFAULT 'unverified',
                         error TEXT,
                         PRIMARY KEY (backend, execution)
                     )"
@@ -179,6 +183,23 @@ impl BackendStore {
                 .execute(&pool)
                 .await
                 .map_err(|e| format!("cannot init backend table {table}: {e}"))?;
+        }
+        // The sync state table is extended in place: an existing database
+        // keeps its rows and gains the local readback column.
+        let columns: Vec<(String,)> = sqlx::query_as(&format!(
+            "SELECT name FROM pragma_table_info('{SYNC_STATE_TABLE}')"
+        ))
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("cannot inspect sync state columns: {e}"))?;
+        if !columns.iter().any(|(name,)| name == "local_status") {
+            sqlx::query(&format!(
+                "ALTER TABLE {SYNC_STATE_TABLE}
+                 ADD COLUMN local_status TEXT NOT NULL DEFAULT 'unverified'"
+            ))
+            .execute(&pool)
+            .await
+            .map_err(|e| format!("cannot add sync state local column: {e}"))?;
         }
         // Pruning and due-time lookups always filter by (backend, execution),
         // so the same pair is indexed with the sort key pruning needs.
@@ -526,8 +547,8 @@ impl BackendStore {
             }
             Self::Sqlite(inner) => {
                 sqlx::query(&format!(
-                    "INSERT INTO {SYNC_STATE_TABLE} (backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                    "INSERT INTO {SYNC_STATE_TABLE} (backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, local_status, error)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                      ON CONFLICT(backend, execution) DO UPDATE SET
                        last_success_ms = excluded.last_success_ms,
                        last_attempt_ms = excluded.last_attempt_ms,
@@ -536,6 +557,7 @@ impl BackendStore {
                        backup_id = excluded.backup_id,
                        failures = excluded.failures,
                        repair_status = excluded.repair_status,
+                       local_status = excluded.local_status,
                        error = excluded.error"
                 ))
                 .bind(&state.backend)
@@ -547,6 +569,7 @@ impl BackendStore {
                 .bind(&state.backup_id)
                 .bind(state.failures as i64)
                 .bind(&state.repair_status)
+                .bind(&state.local_status)
                 .bind(&state.error)
                 .execute(&inner.pool)
                 .await
@@ -568,7 +591,7 @@ impl BackendStore {
                 .map(|row| row.value().clone())),
             Self::Sqlite(inner) => {
                 let row: Option<SyncStateRow> = sqlx::query_as(&format!(
-                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error
+                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, local_status, error
                      FROM {SYNC_STATE_TABLE} WHERE backend = ?1 AND execution = ?2"
                 ))
                 .bind(backend)
@@ -590,7 +613,7 @@ impl BackendStore {
                 .collect()),
             Self::Sqlite(inner) => {
                 let rows: Vec<SyncStateRow> = sqlx::query_as(&format!(
-                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error
+                    "SELECT backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, local_status, error
                      FROM {SYNC_STATE_TABLE}"
                 ))
                 .fetch_all(&inner.pool)
@@ -729,6 +752,7 @@ mod tests {
             backup_id: Some("backup-1".to_string()),
             failures: 2,
             repair_status: "repair_pending".to_string(),
+            local_status: "missing_file".to_string(),
             error: Some("down".to_string()),
         };
         store.upsert_sync_state(&state).await.unwrap();
@@ -743,6 +767,51 @@ mod tests {
         assert_eq!(store.list_sync_states().await.unwrap().len(), 1);
         store.remove_sync_state("alpha", "exec-1").await.unwrap();
         assert!(store.list_sync_states().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_sync_state_table_gains_the_local_column() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        // Table shape from before the local readback column existed.
+        sqlx::query(
+            "CREATE TABLE wf_sync_state (
+                backend TEXT NOT NULL,
+                execution TEXT NOT NULL,
+                last_success_ms INTEGER,
+                last_attempt_ms INTEGER,
+                revision INTEGER,
+                digest TEXT,
+                backup_id TEXT,
+                failures INTEGER NOT NULL,
+                repair_status TEXT NOT NULL,
+                error TEXT,
+                PRIMARY KEY (backend, execution)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO wf_sync_state (backend, execution, last_success_ms, last_attempt_ms, revision, digest, backup_id, failures, repair_status, error)
+             VALUES ('alpha', 'exec-1', 10, 12, 3, 'rev', 'backup-1', 1, 'remote_rollback', 'moved back')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = BackendStore::new_sqlite(pool).await.unwrap();
+        let state = store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .expect("legacy row survives the migration");
+        assert_eq!(state.revision, Some(3));
+        assert_eq!(state.repair_status, "remote_rollback");
+        assert_eq!(state.local_status, "unverified");
     }
 
     #[tokio::test]

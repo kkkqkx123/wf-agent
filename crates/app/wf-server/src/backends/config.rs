@@ -32,6 +32,8 @@ const DEFAULT_BACKUP_RETENTION_DAYS: u64 = 7;
 const DEFAULT_BACKUP_TIMEOUT_SECS: u64 = 15;
 /// Default upper bound on one decoded sync response, in bytes (64 MiB).
 const DEFAULT_BACKUP_MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
+/// Default cadence of the full remote re-check in seconds (six hours).
+const DEFAULT_BACKUP_RECONCILE_INTERVAL_SECS: u64 = 21_600;
 
 /// Server-owned backend configuration. `enabled == false` keeps every new
 /// backend endpoint at 503 and spawns no background tasks.
@@ -54,6 +56,8 @@ pub struct BackendConfig {
     pub backup_retention_days: u64,
     pub backup_timeout_secs: u64,
     pub backup_max_response_bytes: u64,
+    /// Cadence of the full remote re-check. Zero keeps the startup pass only.
+    pub backup_reconcile_interval_secs: u64,
 }
 
 impl Default for BackendConfig {
@@ -72,6 +76,7 @@ impl Default for BackendConfig {
             backup_retention_days: DEFAULT_BACKUP_RETENTION_DAYS,
             backup_timeout_secs: DEFAULT_BACKUP_TIMEOUT_SECS,
             backup_max_response_bytes: DEFAULT_BACKUP_MAX_RESPONSE_BYTES,
+            backup_reconcile_interval_secs: DEFAULT_BACKUP_RECONCILE_INTERVAL_SECS,
         }
     }
 }
@@ -139,6 +144,9 @@ impl BackendConfig {
         if let Some(max_bytes) = file.backup_max_response_bytes {
             self.backup_max_response_bytes = max_bytes;
         }
+        if let Some(interval) = file.backup_reconcile_interval_secs {
+            self.backup_reconcile_interval_secs = interval;
+        }
         Ok(())
     }
 
@@ -180,8 +188,16 @@ impl BackendConfig {
         if let Some(timeout) = read_env_u64("WF_BACKEND_BACKUP_TIMEOUT_SECS") {
             self.backup_timeout_secs = timeout;
         }
+        // Round cadence, not the per-target period: the loop only re-plans
+        // when this interval elapses, so a test or a busy host needs it short.
+        if let Some(interval) = read_env_u64("WF_BACKEND_BACKUP_INTERVAL_SECS") {
+            self.backup_interval_secs = interval;
+        }
         if let Some(max_bytes) = read_env_u64("WF_BACKEND_BACKUP_MAX_RESPONSE_BYTES") {
             self.backup_max_response_bytes = max_bytes;
+        }
+        if let Some(interval) = read_env_u64("WF_BACKEND_BACKUP_RECONCILE_INTERVAL_SECS") {
+            self.backup_reconcile_interval_secs = interval;
         }
     }
 
@@ -255,6 +271,7 @@ struct BackendFileConfig {
     backup_retention_days: Option<u64>,
     backup_timeout_secs: Option<u64>,
     backup_max_response_bytes: Option<u64>,
+    backup_reconcile_interval_secs: Option<u64>,
 }
 
 fn load_merged_backend_file(

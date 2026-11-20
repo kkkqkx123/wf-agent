@@ -155,13 +155,11 @@ fn normalize_path(path: &Path) -> std::path::PathBuf {
 #[derive(Debug, Deserialize)]
 struct SyncEnvelope {
     success: bool,
-    data: Option<SyncData>,
+    /// The remote sync endpoint answers with the snapshot itself. A wrapping
+    /// `bundle` field is still accepted because older nodes in a mixed fleet
+    /// answered that way, and the caller only cares about the payload.
+    data: Option<serde_json::Value>,
     error: Option<SyncError>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SyncData {
-    bundle: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -415,24 +413,27 @@ fn decode_sync_response(
     let Some(data) = envelope.data else {
         return Err("sync response has no data".to_string());
     };
-    if !data.bundle.is_object() {
+    let bundle = match data.get("bundle") {
+        Some(wrapped) => wrapped.clone(),
+        None => data,
+    };
+    if !bundle.is_object() {
         return Err("sync response has an incomplete bundle".to_string());
     }
-    let bundle_id = data.bundle.get("execution_id").and_then(|v| v.as_str());
+    let bundle_id = bundle.get("execution_id").and_then(|v| v.as_str());
     if bundle_id != Some(execution) {
         return Err(format!(
             "sync response execution mismatch: expected '{execution}', got '{bundle_id:?}'"
         ));
     }
-    if data
-        .bundle
+    if bundle
         .get("payload_digest")
         .and_then(|v| v.as_str())
         .is_none()
     {
         return Err("sync bundle has no payload digest".to_string());
     }
-    Ok(data.bundle)
+    Ok(bundle)
 }
 
 async fn fetch_bundle(
@@ -802,17 +803,36 @@ mod tests {
     fn ok_envelope(execution: &str) -> SyncEnvelope {
         SyncEnvelope {
             success: true,
-            data: Some(SyncData {
-                bundle: serde_json::json!({
-                    "version": 1,
-                    "execution_id": execution,
-                    "source_sequence": 1,
-                    "source_revision": "digest",
-                    "payload_digest": "digest"
-                }),
-            }),
+            data: Some(serde_json::json!({
+                "version": 1,
+                "execution_id": execution,
+                "source_sequence": 1,
+                "source_revision": "digest",
+                "payload_digest": "digest"
+            })),
             error: None,
         }
+    }
+
+    #[test]
+    fn plain_and_wrapped_payloads_both_decode() {
+        let plain = decode_sync_response(reqwest::StatusCode::OK, ok_envelope("e"), "e")
+            .expect("the execution node answers with the snapshot itself");
+        assert_eq!(plain["execution_id"], "e");
+
+        let wrapped = SyncEnvelope {
+            success: true,
+            data: Some(serde_json::json!({
+                "bundle": {
+                    "execution_id": "e",
+                    "payload_digest": "digest"
+                }
+            })),
+            error: None,
+        };
+        let from_wrapper =
+            decode_sync_response(reqwest::StatusCode::OK, wrapped, "e").expect("wrapper accepted");
+        assert_eq!(from_wrapper["payload_digest"], "digest");
     }
 
     #[test]
@@ -841,12 +861,10 @@ mod tests {
 
         let mismatched = SyncEnvelope {
             success: true,
-            data: Some(SyncData {
-                bundle: serde_json::json!({
-                    "execution_id": "other",
-                    "payload_digest": "digest"
-                }),
-            }),
+            data: Some(serde_json::json!({
+                "execution_id": "other",
+                "payload_digest": "digest"
+            })),
             error: None,
         };
         let err = decode_sync_response(reqwest::StatusCode::OK, mismatched, "e")
@@ -1143,8 +1161,7 @@ mod tests {
                 assert_eq!(api_key.as_deref(), Some("key"));
                 assert_eq!(directory.as_deref(), Some("/workspace/alpha"));
                 let envelope = ok_envelope(&execution);
-                let data = envelope.data.expect("test envelope has data");
-                Ok::<_, String>(data.bundle)
+                Ok::<_, String>(envelope.data.expect("test envelope has data"))
             },
         )
         .await

@@ -556,12 +556,34 @@ pub async fn fetch_server_sync_states(
     }
 }
 
+/// Drop one target's durable position on the server. The next backup round
+/// re-establishes a baseline from the newest local backup.
+pub async fn reset_server_sync_state(
+    client: &wf_client::WfClient,
+    backend: &str,
+    execution: &str,
+) -> CliResult<serde_json::Value> {
+    let body = serde_json::json!({"execution": execution});
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json(
+            &format!("/api/v1/system/backends/{backend}/sync-state/reset"),
+            &body,
+        )
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
 pub async fn restore_server_backup(
     client: &wf_client::WfClient,
     id: &str,
     dry_run: bool,
+    replace: bool,
 ) -> CliResult<serde_json::Value> {
-    let body = serde_json::json!({"dry_run": dry_run});
+    let body = serde_json::json!({"dry_run": dry_run, "replace": replace});
     let result: wf_client::ClientResult<serde_json::Value> = client
         .post_json(&format!("/api/v1/system/backups/{id}/restore"), &body)
         .await;

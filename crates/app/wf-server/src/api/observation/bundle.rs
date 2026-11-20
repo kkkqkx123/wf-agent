@@ -293,26 +293,31 @@ pub(crate) async fn handle_remote_sync_reconcile(
             executions.push(entry);
             continue;
         }
-        let Some(revision) = state
+        let revision = state
             .ctx
             .storage
             .revisions
             .load(&execution_id)
             .await
             .ok()
-            .flatten()
-        else {
-            entry.status = "incomplete".to_string();
-            executions.push(entry);
-            continue;
-        };
-        entry.sequence = Some(revision.sequence);
-        entry.recorded_digest = Some(revision.digest.clone());
+            .flatten();
+        match revision.as_ref() {
+            Some(revision) => {
+                entry.sequence = Some(revision.sequence);
+                entry.recorded_digest = Some(revision.digest.clone());
+            }
+            // A missing row still gets a full export: the contents may be
+            // healthy, and the manager needs the exported digest to rebuild
+            // only this row instead of the whole table.
+            None => entry.status = "incomplete".to_string(),
+        }
         match wf_api::execution_bundle::export_bundle(&state.ctx, &execution_id, false).await {
             Ok(bundle) => {
                 entry.exported_digest = Some(bundle.payload_digest.clone());
-                if bundle.payload_digest != revision.digest {
-                    entry.status = "digest_mismatch".to_string();
+                if let Some(revision) = revision.as_ref() {
+                    if bundle.payload_digest != revision.digest {
+                        entry.status = "digest_mismatch".to_string();
+                    }
                 }
             }
             Err(e) => {
@@ -325,28 +330,46 @@ pub(crate) async fn handle_remote_sync_reconcile(
     ok(RemoteReconcileResult { executions }).into_response()
 }
 
-/// Rebuild revision rows from full exports after the revision table is lost.
+/// One revision row to rebuild plus the sequence the manager already tracks
+/// for that target.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub(crate) struct RemoteRebuildTarget {
+    pub execution_id: String,
+    /// Sequence the caller already uses as its comparison baseline. The
+    /// rebuilt row reuses it so a rebuild never reads as a rollback.
+    #[serde(default)]
+    pub minimum_sequence: u64,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub(crate) struct RemoteRebuildRequest {
+    /// Explicit targets. An empty list rebuilds every execution of the
+    /// requested directory from sequence one.
+    #[serde(default)]
+    pub targets: Vec<RemoteRebuildTarget>,
+}
+
+/// Rebuild revision rows from full exports after a row or the table is lost.
 #[utoipa::path(
     post,
     path = "/api/v1/remote-sync/revisions/rebuild",
     operation_id = "post_remote_sync_revisions_rebuild",
     tag = "observation",
-    params(RemoteInventoryQuery),
+    request_body = RemoteRebuildRequest,
     responses((status = 200, description = "Rebuilt revisions", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_remote_sync_rebuild(
     State(state): State<ApiState>,
     Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
-    Query(query): Query<RemoteInventoryQuery>,
+    axum::Json(body): axum::Json<RemoteRebuildRequest>,
 ) -> impl IntoResponse {
-    let wanted = reconcile_ids(&query);
     let directory = crate::directory::scope_dir_string(&scope);
-    let targets = if wanted.is_empty() {
+    let targets: Vec<(String, u64)> = if body.targets.is_empty() {
         match wf_api::execution_listing::list_unified(
             &state.ctx,
             Some(&wf_api::execution_listing::UnifiedExecutionFilter {
-                directory: directory.clone(),
+                directory,
                 ..Default::default()
             }),
             usize::MAX / 2,
@@ -354,17 +377,23 @@ pub(crate) async fn handle_remote_sync_rebuild(
         )
         .await
         {
-            Ok((rows, _)) => rows.into_iter().map(|row| row.execution_id).collect(),
+            Ok((rows, _)) => rows.into_iter().map(|row| (row.execution_id, 0)).collect(),
             Err(e) => return error_response(e),
         }
     } else {
-        wanted
+        body.targets
+            .into_iter()
+            .map(|target| (target.execution_id, target.minimum_sequence))
+            .collect()
     };
     let mut rebuilt = Vec::new();
-    for execution_id in targets {
-        let result = wf_api::execution_bundle::rebuild_revision(&state.ctx, &execution_id).await;
+    for (execution_id, minimum_sequence) in targets {
+        let result =
+            wf_api::execution_bundle::rebuild_revision(&state.ctx, &execution_id, minimum_sequence)
+                .await;
         rebuilt.push(serde_json::json!({
             "execution_id": execution_id,
+            "minimum_sequence": minimum_sequence,
             "sequence": result.as_ref().ok().map(|row| row.sequence),
             "error": result.as_ref().err().map(|e| e.to_string()),
         }));

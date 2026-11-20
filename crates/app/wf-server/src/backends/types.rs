@@ -202,6 +202,9 @@ pub struct SyncStateView {
     pub backup_id: Option<String>,
     pub failures: u32,
     pub repair_status: String,
+    /// Readback state of the newest local snapshot: `ok`, `missing_file`,
+    /// `digest_mismatch` or `unverified` when nothing was checked yet.
+    pub local_status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

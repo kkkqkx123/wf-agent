@@ -12,7 +12,7 @@ use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics, StorageMetricsSnapshot};
 use crate::domain::indexes::EntityIndexes;
-use crate::domain::store::{CrossTableOperation, StoreExt, StoreOperation};
+use crate::domain::store::{BatchItem, CrossTableOperation, Store, StoreExt, StoreOperation};
 use crate::error::StorageError;
 use crate::revision::{RevisionStore, REVISION_TABLE};
 use crate::store::memory::MemoryStorage;
@@ -501,6 +501,93 @@ impl StorageContext {
                 })?;
                 groups.push((store, ops.as_slice()));
             }
+            let start = std::time::Instant::now();
+            let result = MemoryStorage::apply_cross_store(&groups).await;
+            self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
+            result
+        }
+    }
+
+    /// Apply entity writes and one revision row in a single transaction.
+    ///
+    /// The revision row is appended last, so no reader observes a position
+    /// that describes rows the same transaction has not committed. The
+    /// single-store fast path of `apply_atomic` cannot be reused here: the
+    /// revision row lives in a table outside every entity store, so a batch
+    /// that stays inside one entity store still spans two tables.
+    ///
+    /// Passing no revision row behaves exactly like `apply_atomic`.
+    pub async fn apply_atomic_with_revision(
+        &self,
+        operations: &[AtomicOperation],
+        revision: Option<BatchItem>,
+    ) -> Result<(), StorageError> {
+        let Some(revision) = revision else {
+            return self.apply_atomic(operations).await;
+        };
+        if operations.is_empty() {
+            return self
+                .revisions
+                .backend()
+                .save(&revision.id, &revision.data, &revision.metadata)
+                .await;
+        }
+        let revision_write = StoreOperation::Save(revision);
+
+        let mut cross = cross_operations(operations);
+        cross.push(CrossTableOperation {
+            table: REVISION_TABLE,
+            operation: &revision_write,
+        });
+
+        if let Some(pool) = self.sqlite_pool.as_ref() {
+            let start = std::time::Instant::now();
+            let result = SqliteStorage::apply_cross_table(pool, &cross).await;
+            self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
+            result?;
+            self.invalidate_after_atomic(operations);
+            return Ok(());
+        }
+
+        if let Some(pool) = self.pg_pool.as_ref() {
+            let start = std::time::Instant::now();
+            let result = PostgresStorage::apply_cross_table(pool, &cross).await;
+            self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
+            result?;
+            self.invalidate_after_atomic(operations);
+            return Ok(());
+        }
+
+        {
+            use std::collections::BTreeMap;
+            let mut grouped: BTreeMap<EntityStoreId, Vec<StoreOperation>> = BTreeMap::new();
+            for op in operations {
+                grouped
+                    .entry(op.target)
+                    .or_default()
+                    .push(op.operation.clone());
+            }
+            let revision_store =
+                self.revisions
+                    .backend()
+                    .memory_storage()
+                    .ok_or_else(|| StorageError::General {
+                        operation: "apply_atomic_with_revision".into(),
+                        message: "revision store is not memory-backed".into(),
+                        source: None,
+                    })?;
+            let mut groups = Vec::with_capacity(grouped.len() + 1);
+            for (target, ops) in &grouped {
+                let store = self.backend_of(*target).memory_storage().ok_or_else(|| {
+                    StorageError::General {
+                        operation: "apply_atomic_with_revision".into(),
+                        message: "entity store is not memory-backed".into(),
+                        source: None,
+                    }
+                })?;
+                groups.push((store, ops.as_slice()));
+            }
+            groups.push((revision_store, std::slice::from_ref(&revision_write)));
             let start = std::time::Instant::now();
             let result = MemoryStorage::apply_cross_store(&groups).await;
             self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);

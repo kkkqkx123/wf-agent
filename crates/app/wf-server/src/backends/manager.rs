@@ -53,11 +53,14 @@ struct RemoteRevision {
     digest: String,
     #[serde(rename = "updated_at_ms")]
     _updated_at_ms: i64,
-    status: String,
 }
 
 #[derive(Debug, Clone, Default)]
 struct InventoryEntry {
+    /// Status reported for the target, independent of whether a revision row
+    /// exists. A missing execution and a lost ledger carry no revision, so the
+    /// status has to be read before the revision is required.
+    status: String,
     revision: Option<RemoteRevision>,
     error: Option<String>,
 }
@@ -110,6 +113,10 @@ struct RestoreEnvelope {
 /// Central backend state. Disabled managers reject every mutation with
 /// the service-unavailable message; the HTTP layer maps that to 503.
 const INVENTORY_CHUNK_SIZE: usize = 64;
+
+/// Repair status of a target whose next round must pull one fresh bundle and
+/// adopt its position, ignoring both the persisted and the local baseline.
+const REBASING_STATUS: &str = "rebasing";
 
 pub struct BackendManager {
     config: BackendConfig,
@@ -303,13 +310,13 @@ impl BackendManager {
             .executions
             .into_iter()
             .map(|row| {
+                let status = row.status.clone();
                 let revision = if row.found {
                     row.revision.zip(row.digest).zip(row.updated_at_ms).map(
                         |((sequence, digest), updated_at_ms)| RemoteRevision {
                             sequence,
                             digest,
                             _updated_at_ms: updated_at_ms,
-                            status: row.status.clone(),
                         },
                     )
                 } else {
@@ -318,6 +325,7 @@ impl BackendManager {
                 (
                     row.execution_id,
                     InventoryEntry {
+                        status,
                         revision,
                         error: row.error,
                     },
@@ -400,17 +408,25 @@ impl BackendManager {
     async fn remote_rebuild(
         &self,
         entry: &BackendEntry,
-        executions: &[String],
+        targets: &[(String, u64)],
     ) -> Result<(), String> {
         let client = self.remote_http_client()?;
         let base_url = entry.local_base_url(self.config.default_local_port);
-        let ids = executions.join(",");
-        let request = self.apply_remote_headers(
-            client.post(format!(
-                "{base_url}/api/v1/remote-sync/revisions/rebuild?ids={ids}"
-            )),
-            entry,
-        );
+        let body = serde_json::json!({
+            "targets": targets
+                .iter()
+                .map(|(execution_id, minimum_sequence)| serde_json::json!({
+                    "execution_id": execution_id,
+                    "minimum_sequence": minimum_sequence,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        let request = self
+            .apply_remote_headers(
+                client.post(format!("{base_url}/api/v1/remote-sync/revisions/rebuild")),
+                entry,
+            )
+            .json(&body);
         let status = request
             .send()
             .await
@@ -445,7 +461,7 @@ impl BackendManager {
                     continue;
                 }
             };
-            let mut rebuild_ids = Vec::new();
+            let mut rebuild_ids: Vec<(String, u64)> = Vec::new();
             let now_ms = wf_common::epoch_ms();
             for row in rows {
                 let state = self
@@ -453,12 +469,32 @@ impl BackendManager {
                     .get_sync_state(&name, &row.execution_id)
                     .await
                     .unwrap_or(None);
+                let local = self
+                    .latest_local_backup(&name, &row.execution_id)
+                    .await
+                    .unwrap_or(None);
+                let baseline_sequence = Self::known_revision(state.as_ref(), local.as_ref())
+                    .map(|(sequence, _)| sequence)
+                    .unwrap_or(0);
                 let (status, message) = match row.status.as_str() {
                     "ok" => continue,
                     "remote_missing" => ("remote_missing", "execution is absent on the remote"),
-                    "incomplete" => ("remote_corrupt", "execution has no revision row"),
+                    // A missing row whose contents still export cleanly is
+                    // rebuilt on its own, so one lost row does not require
+                    // wiping the whole revision table.
+                    "incomplete" if row.exported_digest.is_some() => {
+                        rebuild_ids.push((row.execution_id.clone(), baseline_sequence));
+                        (
+                            "needs_rebuild",
+                            "execution revision row is being rebuilt from a full export",
+                        )
+                    }
+                    "incomplete" => (
+                        "remote_corrupt",
+                        "execution has no revision row and cannot be exported",
+                    ),
                     "needs_rebuild" => {
-                        rebuild_ids.push(row.execution_id.clone());
+                        rebuild_ids.push((row.execution_id.clone(), baseline_sequence));
                         ("needs_rebuild", "remote revision table is being rebuilt")
                     }
                     "digest_mismatch" => {
@@ -509,19 +545,33 @@ impl BackendManager {
             .next())
     }
 
-    async fn local_backup_is_valid(&self, record: &BackupRecordView) -> bool {
+    /// Readback state of the newest local snapshot: whether it can serve a
+    /// restore, plus the reason when it cannot. One pass feeds both the
+    /// pull decision and the reported sync state.
+    async fn local_backup_state(&self, record: Option<&BackupRecordView>) -> (bool, String) {
+        let Some(record) = record else {
+            return (false, "unverified".to_string());
+        };
         match self.verify_backup(&record.id).await {
-            Ok(view) => view.verified && view.status == "ok",
-            Err(_) => false,
+            Ok(view) if view.verified && view.status == "ok" => (true, "ok".to_string()),
+            Ok(view) => (false, view.status),
+            Err(_) => (false, "unverified".to_string()),
         }
     }
 
     /// The last successful sequence plus its digest is the comparison
     /// baseline. When persisted state is absent, a local backup carries both.
+    /// A target marked for rebasing has no baseline at all, because both
+    /// carriers describe a position the target already failed to match.
     fn known_revision<'a>(
         state: Option<&'a SyncStateView>,
         local: Option<&'a BackupRecordView>,
     ) -> Option<(u64, &'a str)> {
+        if let Some(row) = state {
+            if row.repair_status == REBASING_STATUS {
+                return None;
+            }
+        }
         state
             .and_then(|row| match (row.revision, row.digest.as_deref()) {
                 (Some(sequence), Some(digest)) => Some((sequence, digest)),
@@ -555,6 +605,9 @@ impl BackendManager {
 
     /// Record a remote-side failure without discarding the last successful
     /// position. Observability changes, the resume baseline does not.
+    /// A target marked for rebasing keeps that mark: it is an operator
+    /// intent that only a successfully adopted position can clear, so a
+    /// failed attempt must not send it back to the old baseline.
     async fn write_remote_failure_state(
         &self,
         state: Option<&SyncStateView>,
@@ -565,6 +618,10 @@ impl BackendManager {
         status: &str,
         error: &str,
     ) {
+        let repair_status = match state.map(|row| row.repair_status.as_str()) {
+            Some(REBASING_STATUS) => REBASING_STATUS,
+            _ => status,
+        };
         self.write_sync_state(
             backend,
             execution,
@@ -574,12 +631,51 @@ impl BackendManager {
             state.and_then(|row| row.last_success_ms),
             Some(attempt_ms),
             failures,
-            status,
+            repair_status,
+            state
+                .map(|row| row.local_status.as_str())
+                .unwrap_or("unverified"),
             Some(error),
         )
         .await;
     }
 
+    /// Effective repair status for one write. A reset that recorded `rebasing`
+    /// after this writer took its snapshot keeps the mark; adopting a snapshot
+    /// (a backup id the stored row does not carry) clears it.
+    async fn repair_status_for_write(
+        &self,
+        backend: &str,
+        execution: &str,
+        wanted: &str,
+        backup_id: Option<&str>,
+    ) -> String {
+        if wanted == REBASING_STATUS {
+            return wanted.to_string();
+        }
+        let stored = self
+            .store
+            .get_sync_state(backend, execution)
+            .await
+            .unwrap_or(None);
+        let reset_landed = stored.as_ref().is_some_and(|row| {
+            row.repair_status == REBASING_STATUS
+                && row.backup_id.is_some()
+                && row.backup_id.as_deref() == backup_id
+        });
+        if reset_landed {
+            REBASING_STATUS.to_string()
+        } else {
+            wanted.to_string()
+        }
+    }
+
+    /// Publish one sync position. A round classifies from the state it read at
+    /// the start and writes at the end, so a `sync-reset` that lands inside
+    /// that window is newer than the writer's snapshot. The reset therefore
+    /// outranks the write unless the writer is adopting a snapshot the reset
+    /// never saw: only a different backup id carries a position that replaces
+    /// the dropped baseline, everything else is the position it escaped.
     async fn write_sync_state(
         &self,
         backend: &str,
@@ -591,8 +687,12 @@ impl BackendManager {
         attempt_ms: Option<i64>,
         failures: u32,
         repair_status: &str,
+        local_status: &str,
         error: Option<&str>,
     ) {
+        let repair_status = self
+            .repair_status_for_write(backend, execution, repair_status, backup_id)
+            .await;
         let state = SyncStateView {
             backend: backend.to_string(),
             execution: execution.to_string(),
@@ -602,7 +702,8 @@ impl BackendManager {
             digest: digest.map(str::to_string),
             backup_id: backup_id.map(str::to_string),
             failures,
-            repair_status: repair_status.to_string(),
+            repair_status,
+            local_status: local_status.to_string(),
             error: error.map(str::to_string),
         };
         if let Err(e) = self.store.upsert_sync_state(&state).await {
@@ -637,9 +738,11 @@ impl BackendManager {
             });
             *self.handles.backup.lock().unwrap() = Some(backup_handle);
             let reconcile_manager = Arc::clone(self);
+            let reconcile_token = self.shutdown_token.clone();
             tokio::spawn(async move {
                 reconcile_manager.reconcile_storage().await;
                 reconcile_manager.reconcile_revisions().await;
+                reconcile_manager.run_reconcile_loop(reconcile_token).await;
             });
         }
     }
@@ -721,6 +824,28 @@ impl BackendManager {
                 _ = shutdown.cancelled() => break,
                 _ = interval.tick() => {
                     self.backup_round().await;
+                }
+            }
+        }
+    }
+
+    /// Periodic re-check of remote contents and the local backup directory.
+    /// Revision polling compares recorded digests only, so silent damage stays
+    /// invisible until a full export runs; this loop bounds that window.
+    async fn run_reconcile_loop(self: Arc<Self>, shutdown: CancellationToken) {
+        let interval_secs = self.config.backup_reconcile_interval_secs;
+        if interval_secs == 0 {
+            return;
+        }
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = interval.tick() => {
+                    self.reconcile_storage().await;
+                    self.reconcile_revisions().await;
                 }
             }
         }
@@ -831,22 +956,9 @@ impl BackendManager {
                     .await;
                     continue;
                 }
-                let Some(remote) = inventory.revision else {
-                    let status = "remote_corrupt";
-                    let message = "remote inventory has no revision row";
-                    self.write_remote_failure_state(
-                        state.as_ref(),
-                        &name,
-                        execution,
-                        now_ms,
-                        next_failures,
-                        status,
-                        message,
-                    )
-                    .await;
-                    continue;
-                };
-                let remote_status = match remote.status.as_str() {
+                // Status first: a lost execution and a lost ledger both answer
+                // without a revision row, and neither is corruption.
+                let remote_status = match inventory.status.as_str() {
                     "ok" => None,
                     "remote_missing" => {
                         Some(("remote_missing", "execution is absent on the remote"))
@@ -870,6 +982,21 @@ impl BackendManager {
                     .await;
                     continue;
                 }
+                let Some(remote) = inventory.revision else {
+                    let status = "remote_corrupt";
+                    let message = "remote inventory has no revision row";
+                    self.write_remote_failure_state(
+                        state.as_ref(),
+                        &name,
+                        execution,
+                        now_ms,
+                        next_failures,
+                        status,
+                        message,
+                    )
+                    .await;
+                    continue;
+                };
                 let remote_decision = Self::revision_decision(baseline, &remote);
                 if let Err((status, message)) = remote_decision {
                     self.write_remote_failure_state(
@@ -885,10 +1012,7 @@ impl BackendManager {
                     continue;
                 }
                 let revision_changed = remote_decision.unwrap_or(false);
-                let local_valid = match &local {
-                    Some(record) => self.local_backup_is_valid(record).await,
-                    None => false,
-                };
+                let (local_valid, local_status) = self.local_backup_state(local.as_ref()).await;
                 let mut due = true;
                 if interval > 0 {
                     let last = [
@@ -914,6 +1038,31 @@ impl BackendManager {
                     }
                 }
                 if !due && local_valid && !revision_changed {
+                    // A healthy round still refreshes an abnormal repair state
+                    // so a rebuilt or restored target leaves the repair queue
+                    // without waiting for the next snapshot.
+                    if state.as_ref().map(|row| row.repair_status.as_str()) != Some("ok") {
+                        self.write_sync_state(
+                            &name,
+                            execution,
+                            baseline.map(|(sequence, _)| sequence),
+                            baseline.map(|(_, digest)| digest),
+                            state
+                                .as_ref()
+                                .and_then(|row| row.backup_id.as_deref())
+                                .or_else(|| local.as_ref().map(|row| row.id.as_str())),
+                            state
+                                .as_ref()
+                                .and_then(|row| row.last_success_ms)
+                                .or_else(|| local.as_ref().map(|row| row.created_ms)),
+                            state.as_ref().and_then(|row| row.last_attempt_ms),
+                            0,
+                            "ok",
+                            &local_status,
+                            None,
+                        )
+                        .await;
+                    }
                     continue;
                 }
                 tasks.push((name.clone(), entry.clone(), execution.clone()));
@@ -987,6 +1136,7 @@ impl BackendManager {
                     Some(now_ms),
                     Some(now_ms),
                     0,
+                    "ok",
                     "ok",
                     None,
                 )
@@ -1074,6 +1224,10 @@ impl BackendManager {
             Some(now_ms),
             failures,
             "repair_pending",
+            state
+                .as_ref()
+                .map(|row| row.local_status.as_str())
+                .unwrap_or("unverified"),
             Some(&error),
         )
         .await;
@@ -1355,12 +1509,47 @@ impl BackendManager {
         self.store.list_sync_states().await
     }
 
+    /// Drop the durable position of one target and mark it for rebasing. The
+    /// next round ignores both the persisted position and the newest local
+    /// snapshot's sequence, pulls one fresh bundle and adopts its position.
+    /// Clearing the row alone is not enough: the local backup still carries
+    /// the old sequence, so the comparison would fall back to the very
+    /// rollback it was meant to escape. Backups and the index stay untouched.
+    pub async fn reset_sync_state(&self, backend: &str, execution: &str) -> Result<bool, String> {
+        self.require_enabled()?;
+        if self.store.get_entry(backend).await?.is_none() {
+            return Err(format!("backend '{backend}' not found"));
+        }
+        let existing = self.store.get_sync_state(backend, execution).await?;
+        let state = SyncStateView {
+            backend: backend.to_string(),
+            execution: execution.to_string(),
+            last_success_ms: existing.as_ref().and_then(|row| row.last_success_ms),
+            last_attempt_ms: Some(wf_common::epoch_ms()),
+            revision: None,
+            digest: None,
+            backup_id: existing.as_ref().and_then(|row| row.backup_id.clone()),
+            failures: 0,
+            repair_status: REBASING_STATUS.to_string(),
+            local_status: existing
+                .as_ref()
+                .map(|row| row.local_status.clone())
+                .unwrap_or_else(|| "unverified".to_string()),
+            error: None,
+        };
+        self.store.upsert_sync_state(&state).await?;
+        self.backup_statuses
+            .remove(&Self::backup_key(backend, execution));
+        Ok(existing.is_some())
+    }
+
     /// Push one verified local recovery bundle to its remote node. The
     /// remote owns conflict policy and writes only after its own validation.
     pub async fn restore_backup(
         &self,
         id: &str,
         dry_run: bool,
+        replace: bool,
     ) -> Result<serde_json::Value, String> {
         self.require_enabled()?;
         let record = self
@@ -1383,9 +1572,14 @@ impl BackendManager {
             .ok_or_else(|| format!("backend '{}' not found", record.backend))?;
         let client = self.remote_http_client()?;
         let base_url = entry.local_base_url(self.config.default_local_port);
+        // A mismatching target is only overwritten when the caller asked for
+        // it; without the flag the remote reports the mismatch and changes
+        // nothing.
+        let mode = if replace { "replace" } else { "auto" };
         let body = serde_json::json!({
             "bundle": exported.payload,
             "dry_run": dry_run,
+            "mode": mode,
         });
         let response = self
             .apply_remote_headers(
@@ -1408,9 +1602,45 @@ impl BackendManager {
                 .unwrap_or_else(|| status.to_string());
             return Err(format!("remote restore failed: {message}"));
         }
-        envelope
+        let data = envelope
             .data
-            .ok_or_else(|| "remote restore returned no data".to_string())
+            .ok_or_else(|| "remote restore returned no data".to_string())?;
+        if !dry_run {
+            self.publish_restored_position(&record, &data).await;
+        }
+        Ok(data)
+    }
+
+    /// Adopt the position the remote wrote during a restore. Without this the
+    /// next round sees an advanced sequence with an unchanged digest and
+    /// reports a healthy restored target as corrupted.
+    async fn publish_restored_position(&self, record: &BackupRecordView, plan: &serde_json::Value) {
+        let sequence = plan
+            .get("remote_sequence")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        if sequence == 0 {
+            return;
+        }
+        let digest = plan
+            .get("remote_digest")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(record.source_revision.as_str());
+        let now_ms = wf_common::epoch_ms();
+        self.write_sync_state(
+            &record.backend,
+            &record.execution,
+            Some(sequence),
+            Some(digest),
+            Some(&record.id),
+            Some(now_ms),
+            Some(now_ms),
+            0,
+            "ok",
+            "ok",
+            None,
+        )
+        .await;
     }
 
     /// Re-read one backup file and compare it with its index row. This is the
@@ -1633,11 +1863,11 @@ mod tests {
         let rows = std::collections::BTreeMap::from([(
             "one".to_string(),
             InventoryEntry {
+                status: "ok".to_string(),
                 revision: Some(RemoteRevision {
                     sequence: 7,
                     digest: "digest".to_string(),
                     _updated_at_ms: 1,
-                    status: "ok".to_string(),
                 }),
                 error: None,
             },
@@ -1725,6 +1955,7 @@ mod tests {
             backup_id: Some("backup-2".to_string()),
             failures: 0,
             repair_status: "ok".to_string(),
+            local_status: "ok".to_string(),
             error: None,
         };
 
@@ -1744,7 +1975,6 @@ mod tests {
             sequence,
             digest: digest.to_string(),
             _updated_at_ms: 1,
-            status: "ok".to_string(),
         }
     }
 
@@ -1771,6 +2001,138 @@ mod tests {
             BackendManager::revision_decision(None, &remote_revision(5, "new")),
             Ok(true)
         );
+    }
+
+    fn reset_state(backup_id: Option<&str>) -> SyncStateView {
+        SyncStateView {
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            last_success_ms: Some(10),
+            last_attempt_ms: Some(20),
+            revision: None,
+            digest: None,
+            backup_id: backup_id.map(str::to_string),
+            failures: 0,
+            repair_status: REBASING_STATUS.to_string(),
+            local_status: "ok".to_string(),
+            error: None,
+        }
+    }
+
+    /// A round reads the state at the start and publishes at the end, so a
+    /// reset that lands inside that window is newer than the classification.
+    #[tokio::test]
+    async fn a_stale_status_write_keeps_the_reset_mark() {
+        let manager = enabled_manager();
+        manager
+            .store
+            .upsert_sync_state(&reset_state(Some("backup-1")))
+            .await
+            .unwrap();
+
+        // The failure path of a round that started before the reset: same
+        // snapshot, so it carries the position the reset left behind.
+        manager
+            .write_sync_state(
+                "alpha",
+                "exec-1",
+                Some(4),
+                Some("digest-4"),
+                Some("backup-1"),
+                Some(10),
+                Some(30),
+                1,
+                "remote_corrupt",
+                "ok",
+                Some("content rewritten at the same sequence"),
+            )
+            .await;
+
+        let state = manager
+            .store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.repair_status, REBASING_STATUS);
+        // The diagnostic still lands, so the reset does not hide the error.
+        assert_eq!(
+            state.error.as_deref(),
+            Some("content rewritten at the same sequence")
+        );
+        assert_eq!(state.failures, 1);
+    }
+
+    #[tokio::test]
+    async fn adopting_a_new_snapshot_clears_the_reset_mark() {
+        let manager = enabled_manager();
+        manager
+            .store
+            .upsert_sync_state(&reset_state(Some("backup-1")))
+            .await
+            .unwrap();
+
+        manager
+            .write_sync_state(
+                "alpha",
+                "exec-1",
+                Some(5),
+                Some("digest-5"),
+                Some("backup-2"),
+                Some(40),
+                Some(40),
+                0,
+                "ok",
+                "ok",
+                None,
+            )
+            .await;
+
+        let state = manager
+            .store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.repair_status, "ok");
+        assert_eq!(state.revision, Some(5));
+        assert_eq!(state.backup_id.as_deref(), Some("backup-2"));
+    }
+
+    #[tokio::test]
+    async fn a_target_without_a_position_reports_the_failure() {
+        let manager = enabled_manager();
+        manager
+            .store
+            .upsert_sync_state(&reset_state(None))
+            .await
+            .unwrap();
+
+        manager
+            .write_sync_state(
+                "alpha",
+                "exec-1",
+                None,
+                None,
+                None,
+                None,
+                Some(30),
+                3,
+                "repair_pending",
+                "unverified",
+                Some("backup failed"),
+            )
+            .await;
+
+        // Nothing was adopted, so there is no position to protect: the failed
+        // target must show up as failing instead of hiding behind the reset.
+        let state = manager
+            .store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.repair_status, "repair_pending");
     }
 
     #[test]
@@ -1960,5 +2322,78 @@ mod tests {
         assert_eq!(report.imported, vec!["gamma".to_string()]);
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0].name, "beta");
+    }
+
+    #[tokio::test]
+    async fn reset_sync_state_marks_the_target_for_rebasing() {
+        let manager = enabled_manager();
+        manager.create("alpha", entry()).await.unwrap();
+        let state = SyncStateView {
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            last_success_ms: Some(10),
+            last_attempt_ms: Some(12),
+            revision: Some(3),
+            digest: Some("rev".to_string()),
+            backup_id: Some("backup-1".to_string()),
+            failures: 1,
+            repair_status: "remote_rollback".to_string(),
+            local_status: "ok".to_string(),
+            error: Some("remote sequence moved backwards".to_string()),
+        };
+        manager.store.upsert_sync_state(&state).await.unwrap();
+
+        assert!(manager.reset_sync_state("alpha", "exec-1").await.unwrap());
+        let reset = manager
+            .store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .expect("the row stays so the intent survives a restart");
+        assert_eq!(reset.repair_status, "rebasing");
+        assert_eq!(reset.revision, None);
+        assert_eq!(reset.digest, None);
+        assert_eq!(reset.failures, 0);
+        assert_eq!(reset.backup_id.as_deref(), Some("backup-1"));
+        // No baseline at all, even though the local backup still carries one.
+        let local = BackupRecordView {
+            id: "backup-1".to_string(),
+            backend: "alpha".to_string(),
+            execution: "exec-1".to_string(),
+            created_ms: 10,
+            size_bytes: 1,
+            sha256: "sha".to_string(),
+            path: "alpha/backup-1.json".to_string(),
+            source_sequence: 3,
+            source_revision: "rev".to_string(),
+            payload_digest: "rev".to_string(),
+        };
+        assert_eq!(
+            BackendManager::known_revision(Some(&reset), Some(&local)),
+            None
+        );
+        // A failed attempt keeps the intent instead of restoring the old one.
+        manager
+            .write_remote_failure_state(
+                Some(&reset),
+                "alpha",
+                "exec-1",
+                20,
+                1,
+                "remote_unreachable",
+                "tunnel down",
+            )
+            .await;
+        let kept = manager
+            .store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .expect("row");
+        assert_eq!(kept.repair_status, "rebasing");
+        assert_eq!(kept.error.as_deref(), Some("tunnel down"));
+        // A target that never had a position reports nothing to clear.
+        assert!(!manager.reset_sync_state("alpha", "exec-2").await.unwrap());
+        assert!(manager.reset_sync_state("missing", "exec-1").await.is_err());
     }
 }

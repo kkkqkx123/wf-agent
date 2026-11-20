@@ -46,6 +46,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/system/backends/{name}/backups",
             get(handle_list_backups).post(handle_trigger_backup),
         )
+        .route(
+            "/system/backends/{name}/sync-state/reset",
+            post(handle_reset_sync_state),
+        )
 }
 
 fn disabled() -> axum::response::Response {
@@ -107,6 +111,10 @@ pub(crate) struct BackupTriggerBody {
 pub(crate) struct BackupRestoreBody {
     #[serde(default)]
     dry_run: bool,
+    /// Allow overwriting a target whose content differs from the backup.
+    /// Absent means a mismatching target is reported instead of replaced.
+    #[serde(default)]
+    replace: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, utoipa::ToSchema)]
@@ -376,6 +384,42 @@ pub(crate) async fn handle_list_sync_states(State(state): State<ApiState>) -> im
     }
 }
 
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub(crate) struct SyncStateResetBody {
+    execution: String,
+}
+
+/// Clear one target's durable position so the next round rebuilds the
+/// baseline from the newest local backup. The backup index is untouched;
+/// this only drops a position that can no longer be compared.
+#[utoipa::path(post, path = "/api/v1/system/backends/{name}/sync-state/reset", operation_id = "reset_system_backend_sync_state", tag = "system", params(crate::extract::NamePath), request_body = SyncStateResetBody, responses((status = 200, description = "Sync position cleared", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Backend not found", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_reset_sync_state(
+    State(state): State<ApiState>,
+    Path(path): Path<crate::extract::NamePath>,
+    axum::Json(body): axum::Json<SyncStateResetBody>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.reset_sync_state(&path.name, &body.execution).await {
+        Ok(cleared) => ok(serde_json::json!({
+            "backend": path.name,
+            "execution": body.execution,
+            "cleared": cleared,
+        }))
+        .into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backend".to_string(),
+            id: path.name,
+        })
+        .into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
 #[utoipa::path(get, path = "/api/v1/system/backups/relink", operation_id = "preview_system_backup_relink", tag = "system", responses((status = 200, description = "Preview of absolute-path index relinking", body = crate::envelope::ApiEnvelope<BackupRelinkReport>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_preview_relink_backups(
     State(state): State<ApiState>,
@@ -465,7 +509,10 @@ pub(crate) async fn handle_restore_backup(
     if !backends.is_enabled() {
         return disabled();
     }
-    match backends.restore_backup(&path.id, body.dry_run).await {
+    match backends
+        .restore_backup(&path.id, body.dry_run, body.replace)
+        .await
+    {
         Ok(plan) => ok(plan).into_response(),
         Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
             entity_type: "backup".to_string(),

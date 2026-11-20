@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 
 use wf_checkpoint::CheckpointStateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_storage::context::{AtomicOperation, EntityStoreId};
+use wf_storage::domain::store::StoreOperation;
 use wf_storage::revision::{
-    checkpoint_component, file_archive_component, hash_file_archive, projection_digest,
-    record_component,
+    build_restore_revision, checkpoint_component, file_archive_component, hash_file_archive,
+    projection_digest, record_component,
 };
 use wf_types::execution::ExecutionType;
 use wf_types::{
@@ -88,6 +90,99 @@ pub struct ExecutionBundle {
     pub checkpoint_synced: bool,
 }
 
+/// What a restore may do with a target that already exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RestoreMode {
+    /// Create a missing target and accept one that already matches.
+    #[default]
+    Auto,
+    /// Only create a missing target; refuse a target holding other content.
+    /// A target that already matches still succeeds, so repeating a restore
+    /// of the same snapshot stays idempotent.
+    Create,
+    /// Overwrite a target whose content differs from the snapshot.
+    Replace,
+}
+
+/// The write a restore performs on its target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreAction {
+    Create,
+    Noop,
+    Replace,
+}
+
+impl RestoreAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Noop => "noop",
+            Self::Replace => "replace",
+        }
+    }
+}
+
+/// What the target already holds, observed before any write.
+#[derive(Debug, Default)]
+struct TargetProbe {
+    agent_record: bool,
+    workflow_record: bool,
+    checkpoint_ids: Vec<String>,
+    archive_files: usize,
+    sequence: Option<u64>,
+    digest: Option<String>,
+}
+
+impl TargetProbe {
+    /// A target with no record, no checkpoint row and no archived file holds
+    /// nothing a restore could overwrite.
+    fn is_absent(&self) -> bool {
+        !self.agent_record
+            && !self.workflow_record
+            && self.checkpoint_ids.is_empty()
+            && self.archive_files == 0
+    }
+}
+
+/// Why an existing target does not match the snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DivergenceReason {
+    /// Records, checkpoints or archive survived but the projection cannot be
+    /// exported, so the target is a fragment rather than a whole execution.
+    Partial,
+    /// The target exports cleanly and its digest differs from the snapshot.
+    DigestMismatch,
+    /// The surviving record belongs to the other execution domain.
+    ForeignDomain,
+}
+
+impl DivergenceReason {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Partial => "partial",
+            Self::DigestMismatch => "mismatched",
+            Self::ForeignDomain => "other-domain",
+        }
+    }
+}
+
+enum TargetState {
+    Absent,
+    Identical,
+    Divergent(DivergenceReason),
+}
+
+impl TargetState {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Identical => "identical",
+            Self::Divergent(_) => "divergent",
+        }
+    }
+}
+
 /// Counts reported by a restore plan or an applied restore.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RestorePlan {
@@ -97,6 +192,21 @@ pub struct RestorePlan {
     pub checkpoints: usize,
     pub file_archive: usize,
     pub digest: String,
+    /// Revision sequence written on the execution node. Zero during a dry run
+    /// because the intermediate storage writes decide the final value.
+    pub remote_sequence: u64,
+    /// Revision digest written on the execution node, identical to the bundle
+    /// payload digest because the restore records the restored projection.
+    pub remote_digest: String,
+    /// State observed on the target before the restore: `absent`,
+    /// `identical` or `divergent`.
+    pub target_state: String,
+    /// Write the restore performs: `create`, `noop` or `replace`.
+    pub action: String,
+    /// Sequence the target held before the restore, when it had a revision.
+    pub previous_sequence: Option<u64>,
+    /// Digest the target held before the restore, when it had a revision.
+    pub previous_digest: Option<String>,
 }
 
 fn canonical_components(bundle: &ExecutionBundle) -> ApiResult<Vec<RevisionComponent>> {
@@ -282,17 +392,22 @@ pub async fn export_bundle(
 }
 
 /// Rebuild one revision row from a full export. Used only when the revision
-/// table has been lost; normal inventory and backup rounds never export a
+/// row has been lost; normal inventory and backup rounds never export a
 /// bundle to derive a version.
+///
+/// `minimum_sequence` is the sequence the caller already tracks for this
+/// target. Reusing it keeps the rebuilt row on the existing comparison
+/// baseline, so a rebuild does not read as a rollback.
 pub async fn rebuild_revision(
     ctx: &ApiContext,
     execution_id: &str,
+    minimum_sequence: u64,
 ) -> ApiResult<ExecutionRevision> {
     let bundle = build_bundle(ctx, execution_id, false, false).await?;
     let components = canonical_components(&bundle)?;
     ctx.storage
         .revisions
-        .rebuild(execution_id, components)
+        .rebuild(execution_id, components, minimum_sequence)
         .await
         .map_err(|e| ApiError::execution(format!("execution revision rebuild failed: {e}")))
 }
@@ -336,7 +451,9 @@ enum DecodedCheckpoint {
         id: String,
         checkpoint: wf_checkpoint::AgentCheckpoint,
     },
-    Metadata(Checkpoint),
+    /// A checkpoint row with no state blob. Its metadata already travels in
+    /// the bundle, so only the absence of a blob has to be recorded here.
+    MetadataOnly,
 }
 
 fn decode_checkpoints(bundle: &ExecutionBundle) -> ApiResult<Vec<DecodedCheckpoint>> {
@@ -379,7 +496,7 @@ fn decode_checkpoints(bundle: &ExecutionBundle) -> ApiResult<Vec<DecodedCheckpoi
                     checkpoint,
                 });
             }
-            _ => out.push(DecodedCheckpoint::Metadata(item.metadata.clone())),
+            _ => out.push(DecodedCheckpoint::MetadataOnly),
         }
     }
     Ok(out)
@@ -388,7 +505,7 @@ fn decode_checkpoints(bundle: &ExecutionBundle) -> ApiResult<Vec<DecodedCheckpoi
 fn validate_bundle(
     bundle: &ExecutionBundle,
     expected_directory: Option<&str>,
-) -> ApiResult<(RestorePlan, Vec<DecodedCheckpoint>)> {
+) -> ApiResult<(RestorePlan, Vec<DecodedCheckpoint>, Vec<RevisionComponent>)> {
     if bundle.version != EXECUTION_BUNDLE_VERSION {
         return Err(ApiError::Validation(format!(
             "unsupported recovery bundle version {}",
@@ -400,7 +517,9 @@ fn validate_bundle(
             "recovery bundle has no execution id".to_string(),
         ));
     }
-    let digest = canonical_digest(bundle)?;
+    let components = canonical_components(bundle)?;
+    let digest = projection_digest(&bundle.execution_id, &components)
+        .map_err(|e| ApiError::execution(format!("recovery digest encode failed: {e}")))?;
     if bundle.source_sequence == 0 {
         return Err(ApiError::Validation(
             "recovery bundle has no source sequence".to_string(),
@@ -453,51 +572,95 @@ fn validate_bundle(
             records: bundle.records.len(),
             checkpoints: bundle.checkpoints.len(),
             file_archive: bundle.file_archive.len(),
-            digest,
+            digest: digest.clone(),
+            remote_sequence: 0,
+            remote_digest: digest,
+            ..Default::default()
         },
         decoded,
+        components,
     ))
 }
 
-/// Validate a snapshot and restore it into a target that does not exist yet.
-/// Dry runs perform every check without writing anything.
+/// Validate a snapshot and converge a target onto it.
+///
+/// The restore is a converge operation, not an insert: after a successful
+/// apply the target's restorable projection equals the snapshot's, and
+/// repeating the same bundle leaves the data unchanged. A missing target is
+/// therefore only one of the states handled here; a target holding different
+/// content is replaced, which is the case recovery is actually needed for.
+///
+/// Liveness and directory boundaries are enforced instead of existence: a
+/// running execution must be cancelled first, and a target owned by another
+/// directory is never overwritten.
 pub async fn restore_bundle(
     ctx: &ApiContext,
     bundle: &ExecutionBundle,
     expected_directory: Option<&str>,
     dry_run: bool,
+    mode: RestoreMode,
 ) -> ApiResult<RestorePlan> {
-    let (mut plan, decoded_checkpoints) = validate_bundle(bundle, expected_directory)?;
-    if crate::resolve_execution(ctx, &bundle.execution_id)
-        .await
-        .is_ok()
-    {
-        return Err(ApiError::AlreadyExists {
-            entity_type: "execution".to_string(),
-            id: bundle.execution_id.clone(),
-        });
+    let (mut plan, decoded_checkpoints, components) = validate_bundle(bundle, expected_directory)?;
+    if execution_is_live(ctx, &bundle.execution_id).await {
+        return Err(ApiError::Conflict(format!(
+            "execution '{}' is live on this node; cancel it before restoring",
+            bundle.execution_id
+        )));
     }
     if !bundle.file_archive.is_empty() && ctx.file_checkpoint_manager().is_none() {
         return Err(ApiError::Validation(
             "file checkpointing is disabled but the bundle carries file archive data".to_string(),
         ));
     }
+
+    let probe = probe_target(ctx, &bundle.execution_id).await?;
+    if let Some(expected) = expected_directory {
+        ensure_target_directory(ctx, &bundle.execution_id, expected, &probe).await?;
+    }
+    let state = classify_target(ctx, bundle, &probe).await?;
+    let action = match (&state, mode) {
+        (TargetState::Absent, _) => RestoreAction::Create,
+        (TargetState::Identical, _) => RestoreAction::Noop,
+        (TargetState::Divergent(_), RestoreMode::Replace) => RestoreAction::Replace,
+        (TargetState::Divergent(reason), RestoreMode::Create) => {
+            return Err(ApiError::Conflict(format!(
+                "execution '{}' already exists with {} content; create mode refuses to overwrite it",
+                bundle.execution_id,
+                reason.label()
+            )))
+        }
+        (TargetState::Divergent(reason), RestoreMode::Auto) => {
+            return Err(ApiError::Conflict(format!(
+                "execution '{}' exists with {} content; retry with replace to overwrite it",
+                bundle.execution_id,
+                reason.label()
+            )))
+        }
+    };
+
     plan.dry_run = dry_run;
+    plan.target_state = state.as_str().to_string();
+    plan.action = action.as_str().to_string();
+    plan.previous_sequence = probe.sequence;
+    plan.previous_digest = probe.digest.clone();
+    if action == RestoreAction::Noop {
+        // A target that already matches keeps its position: rewriting it
+        // would move the sequence without changing any content.
+        plan.remote_sequence = probe.sequence.unwrap_or(bundle.source_sequence);
+        plan.remote_digest = probe
+            .digest
+            .clone()
+            .unwrap_or_else(|| bundle.payload_digest.clone());
+        return Ok(plan);
+    }
     if dry_run {
         return Ok(plan);
     }
 
-    for record in &bundle.records {
-        match record {
-            ExecutionRecordSnapshot::Workflow(value) => {
-                ctx.storage.workflow_execution.save(value).await?;
-            }
-            ExecutionRecordSnapshot::Agent(value) => {
-                ctx.storage.agent_execution.save(value).await?;
-            }
-        }
-    }
-
+    // Checkpoint state blobs are written first. They are addressed by
+    // checkpoint id and overwritten in place, so a retry after a later
+    // failure is harmless, and a blob left without a metadata row never
+    // enters the projection digest.
     let workflow = wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let agent = wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     for decoded in decoded_checkpoints {
@@ -518,31 +681,260 @@ pub async fn restore_bundle(
                         ApiError::execution(format!("agent checkpoint save failed: {id}: {e}"))
                     })?;
             }
-            DecodedCheckpoint::Metadata(metadata) => {
-                ctx.storage.checkpoint.save(&metadata).await?;
+            // Metadata-only rows carry no state blob; the row itself is
+            // written inside the transaction below.
+            DecodedCheckpoint::MetadataOnly => {}
+        }
+    }
+
+    let (revision, revision_write) = build_restore_revision(
+        &bundle.execution_id,
+        components,
+        bundle.source_sequence,
+        probe.sequence.unwrap_or(0),
+    )
+    .map_err(|e| ApiError::execution(format!("restore revision build failed: {e}")))?;
+
+    // One transaction covers every row the projection is derived from, so no
+    // reader observes a half-replaced execution and a failure leaves the
+    // previous content untouched.
+    let mut operations: Vec<AtomicOperation> = Vec::new();
+    let keep: std::collections::HashSet<&str> = bundle
+        .checkpoints
+        .iter()
+        .map(|item| item.metadata.id.as_str())
+        .collect();
+    for id in &probe.checkpoint_ids {
+        if !keep.contains(id.as_str()) {
+            operations.push(AtomicOperation::new(
+                EntityStoreId::Checkpoint,
+                StoreOperation::Delete(id.clone()),
+            ));
+        }
+    }
+    let mut writes_agent = false;
+    let mut writes_workflow = false;
+    for record in &bundle.records {
+        match record {
+            ExecutionRecordSnapshot::Workflow(value) => {
+                writes_workflow = true;
+                let row = ctx
+                    .storage
+                    .workflow_execution
+                    .entity_store()
+                    .encode_item(value)
+                    .map_err(|e| ApiError::execution(format!("restore row encode failed: {e}")))?;
+                operations.push(AtomicOperation::new(
+                    EntityStoreId::WorkflowExecution,
+                    StoreOperation::Save(row),
+                ));
+            }
+            ExecutionRecordSnapshot::Agent(value) => {
+                writes_agent = true;
+                let row = ctx
+                    .storage
+                    .agent_execution
+                    .entity_store()
+                    .encode_item(value)
+                    .map_err(|e| ApiError::execution(format!("restore row encode failed: {e}")))?;
+                operations.push(AtomicOperation::new(
+                    EntityStoreId::AgentExecution,
+                    StoreOperation::Save(row),
+                ));
+            }
+        }
+    }
+    // A snapshot of one domain must not leave the other domain's record
+    // behind: the id would then resolve as ambiguous.
+    if writes_agent && probe.workflow_record {
+        operations.push(AtomicOperation::new(
+            EntityStoreId::WorkflowExecution,
+            StoreOperation::Delete(bundle.execution_id.clone()),
+        ));
+    }
+    if writes_workflow && probe.agent_record {
+        operations.push(AtomicOperation::new(
+            EntityStoreId::AgentExecution,
+            StoreOperation::Delete(bundle.execution_id.clone()),
+        ));
+    }
+    for item in &bundle.checkpoints {
+        let row = ctx
+            .storage
+            .checkpoint
+            .entity_store()
+            .encode_item(&item.metadata)
+            .map_err(|e| ApiError::execution(format!("checkpoint row encode failed: {e}")))?;
+        operations.push(AtomicOperation::new(
+            EntityStoreId::Checkpoint,
+            StoreOperation::Save(row),
+        ));
+    }
+    ctx.storage
+        .apply_atomic_with_revision(&operations, Some(revision_write))
+        .await
+        .map_err(|e| ApiError::execution(format!("restore transaction failed: {e}")))?;
+
+    // The archive lives outside the database transaction. Replacing it last
+    // means a failure here leaves a target whose rows are new and whose
+    // archive is old, which the next comparison reports instead of hiding.
+    match ctx.file_checkpoint_manager() {
+        Some(manager) => {
+            let files: std::collections::HashMap<String, Vec<u8>> = bundle
+                .file_archive
+                .iter()
+                .map(decode_hex_file)
+                .collect::<ApiResult<_>>()?;
+            // An empty snapshot archive replaces a non-empty one too,
+            // otherwise stale files survive and the export stops matching.
+            manager
+                .archive_replace(&bundle.execution_id, &files)
+                .map_err(|e| ApiError::execution(format!("file archive replace failed: {e}")))?;
+        }
+        None => {
+            if !bundle.file_archive.is_empty() {
+                return Err(ApiError::Validation(
+                    "file checkpointing is disabled".to_string(),
+                ));
             }
         }
     }
 
-    if !bundle.file_archive.is_empty() {
-        let files: Vec<(String, Vec<u8>)> = bundle
-            .file_archive
-            .iter()
-            .map(decode_hex_file)
-            .collect::<ApiResult<_>>()?;
-        ctx.file_checkpoint_manager()
-            .ok_or_else(|| ApiError::Validation("file checkpointing is disabled".to_string()))?
-            .archive_import(&bundle.execution_id, &files)
-            .map_err(|e| ApiError::execution(format!("file archive import failed: {e}")))?;
-    }
-
-    ctx.storage
-        .revisions
-        .advance_after_restore(&bundle.execution_id, bundle.source_sequence)
-        .await
-        .map_err(|e| ApiError::execution(format!("revision restore failed: {e}")))?;
-
+    plan.remote_sequence = revision.sequence;
+    plan.remote_digest = revision.digest;
     Ok(plan)
+}
+
+/// A live execution owns runtime state a restore cannot reason about, so it
+/// is refused before any other check.
+/// Whether the target is still executing on this node.
+///
+/// A registry entry alone does not mean "running": finished runs keep their
+/// handle until a sweep drops it, and a deleted record can leave one behind.
+/// Only an unsettled status blocks a restore.
+async fn execution_is_live(ctx: &ApiContext, execution_id: &str) -> bool {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        if !entity.state.read().await.status().is_terminal() {
+            return true;
+        }
+    }
+    if let Some(entity) = ctx.agent_loop(execution_id) {
+        if !entity.state.read().await.status().is_terminal() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Observe what a target already holds without writing anything.
+async fn probe_target(ctx: &ApiContext, execution_id: &str) -> ApiResult<TargetProbe> {
+    let mut probe = TargetProbe {
+        agent_record: ctx
+            .storage
+            .agent_execution
+            .load(execution_id)
+            .await?
+            .is_some(),
+        workflow_record: ctx
+            .storage
+            .workflow_execution
+            .load(execution_id)
+            .await?
+            .is_some(),
+        ..Default::default()
+    };
+    let mut checkpoint_ids = Vec::new();
+    for entity_type in ["workflow_execution", "agent_loop"] {
+        if let Ok(rows) =
+            crate::checkpoint::record::list_by_entity_unified(ctx, execution_id, entity_type).await
+        {
+            checkpoint_ids.extend(rows.into_iter().map(|row| row.id.as_str().to_string()));
+        }
+    }
+    probe.checkpoint_ids = checkpoint_ids;
+    probe.archive_files = ctx
+        .file_checkpoint_manager()
+        .and_then(|manager| manager.archive_export(execution_id).ok())
+        .map(|files| files.len())
+        .unwrap_or(0);
+    if let Ok(Some(row)) = ctx.storage.revisions.load(execution_id).await {
+        probe.sequence = Some(row.sequence);
+        probe.digest = Some(row.digest);
+    }
+    Ok(probe)
+}
+
+/// Compare the target with the snapshot. Only a target that exports cleanly
+/// and matches the snapshot digest counts as identical; everything else that
+/// is not empty needs a replacement.
+async fn classify_target(
+    ctx: &ApiContext,
+    bundle: &ExecutionBundle,
+    probe: &TargetProbe,
+) -> ApiResult<TargetState> {
+    if probe.is_absent() {
+        return Ok(TargetState::Absent);
+    }
+    let snapshot_domain = bundle.records.first().map(|record| match record {
+        ExecutionRecordSnapshot::Workflow(_) => ExecutionType::Workflow,
+        ExecutionRecordSnapshot::Agent(_) => ExecutionType::Agent,
+    });
+    let existing_domain = if probe.agent_record {
+        Some(ExecutionType::Agent)
+    } else if probe.workflow_record {
+        Some(ExecutionType::Workflow)
+    } else {
+        None
+    };
+    match (snapshot_domain, existing_domain) {
+        (Some(snapshot), Some(existing)) if snapshot != existing => {
+            return Ok(TargetState::Divergent(DivergenceReason::ForeignDomain));
+        }
+        // Records are gone but checkpoints or the archive survived: the
+        // fragment is exactly what a restore is meant to repair.
+        (_, None) => return Ok(TargetState::Divergent(DivergenceReason::Partial)),
+        _ => {}
+    }
+    match build_bundle(ctx, &bundle.execution_id, false, false).await {
+        Ok(current) if current.payload_digest == bundle.payload_digest => {
+            Ok(TargetState::Identical)
+        }
+        Ok(_) => Ok(TargetState::Divergent(DivergenceReason::DigestMismatch)),
+        Err(_) => Ok(TargetState::Divergent(DivergenceReason::Partial)),
+    }
+}
+
+/// A target owned by another directory is never overwritten, even when the
+/// caller is allowed to replace: the directory is a tenant boundary.
+async fn ensure_target_directory(
+    ctx: &ApiContext,
+    execution_id: &str,
+    expected: &str,
+    probe: &TargetProbe,
+) -> ApiResult<()> {
+    let current = if probe.workflow_record {
+        ctx.storage
+            .workflow_execution
+            .load(execution_id)
+            .await?
+            .and_then(|row| row.directory)
+    } else if probe.agent_record {
+        ctx.storage
+            .agent_execution
+            .load(execution_id)
+            .await?
+            .and_then(|row| row.directory)
+    } else {
+        None
+    };
+    if let Some(directory) = current {
+        if directory != expected {
+            return Err(ApiError::Validation(format!(
+                "target execution '{execution_id}' belongs to another directory and cannot be replaced here"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -610,11 +1002,15 @@ mod tests {
         assert_eq!(bundle.records.len(), 1);
 
         let target = ctx();
-        let plan = restore_bundle(&target, &bundle, None, true).await.unwrap();
+        let plan = restore_bundle(&target, &bundle, None, true, RestoreMode::Auto)
+            .await
+            .unwrap();
         assert!(plan.dry_run);
         assert!(crate::resolve_execution(&target, "exec-1").await.is_err());
 
-        let applied = restore_bundle(&target, &bundle, None, false).await.unwrap();
+        let applied = restore_bundle(&target, &bundle, None, false, RestoreMode::Auto)
+            .await
+            .unwrap();
         assert!(!applied.dry_run);
         let restored = target
             .storage
@@ -628,6 +1024,32 @@ mod tests {
         assert!(restored_revision.sequence > bundle.source_sequence);
         assert_eq!(restored_revision.source, "restore");
         assert_eq!(restored_revision.digest, bundle.payload_digest);
+        // The plan reports the position the remote actually wrote, so the
+        // management side can adopt it instead of keeping a stale baseline.
+        assert_eq!(applied.remote_sequence, restored_revision.sequence);
+        assert_eq!(applied.remote_digest, bundle.payload_digest);
+        assert_eq!(plan.remote_sequence, 0);
+        assert_eq!(plan.remote_digest, bundle.payload_digest);
+    }
+
+    #[tokio::test]
+    async fn rebuild_reuses_the_known_sequence() {
+        let ctx = ctx();
+        ctx.storage
+            .agent_execution
+            .save(&agent("exec-rebuild"))
+            .await
+            .unwrap();
+        // A rebuild lands on the caller's baseline instead of a fresh low
+        // number that would read as a rollback on the next comparison.
+        let rebuilt = rebuild_revision(&ctx, "exec-rebuild", 9).await.unwrap();
+        assert_eq!(rebuilt.sequence, 9);
+        let exported = export_bundle(&ctx, "exec-rebuild", false).await.unwrap();
+        assert_eq!(rebuilt.digest, exported.payload_digest);
+        assert_eq!(exported.source_sequence, 9);
+
+        let floor_one = rebuild_revision(&ctx, "exec-rebuild", 0).await.unwrap();
+        assert_eq!(floor_one.sequence, 1);
     }
 
     #[tokio::test]
@@ -664,7 +1086,7 @@ mod tests {
         bundle.payload_digest = digest;
 
         let target = ctx();
-        let err = restore_bundle(&target, &bundle, None, true)
+        let err = restore_bundle(&target, &bundle, None, true, RestoreMode::Auto)
             .await
             .expect_err("bad checkpoint blob must fail in preflight");
         assert!(err
@@ -703,9 +1125,183 @@ mod tests {
             .unwrap();
         let mut bundle = export_bundle(&source, "exec-2", false).await.unwrap();
         bundle.records.clear();
-        let err = restore_bundle(&ctx(), &bundle, None, true)
+        let err = restore_bundle(&ctx(), &bundle, None, true, RestoreMode::Auto)
             .await
             .expect_err("tampered bundle must fail");
         assert!(err.to_string().contains("digest mismatch"));
+    }
+
+    #[tokio::test]
+    async fn matching_target_restores_without_writing() {
+        let source = ctx();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-same"))
+            .await
+            .unwrap();
+        let bundle = export_bundle(&source, "exec-same", false).await.unwrap();
+        let revision = revision_snapshot(&source, "exec-same").await.unwrap();
+
+        // Restoring a snapshot onto the execution it came from must report a
+        // no-op: bumping the sequence without changing content is exactly the
+        // drift the health check reports as corruption.
+        let plan = restore_bundle(&source, &bundle, None, false, RestoreMode::Replace)
+            .await
+            .unwrap();
+        assert_eq!(plan.target_state, "identical");
+        assert_eq!(plan.action, "noop");
+        assert_eq!(plan.remote_sequence, revision.sequence);
+        let after = revision_snapshot(&source, "exec-same").await.unwrap();
+        assert_eq!(after.sequence, revision.sequence);
+        assert_eq!(after.digest, revision.digest);
+    }
+
+    #[tokio::test]
+    async fn mismatching_target_is_refused_without_replace() {
+        let source = ctx();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-drift"))
+            .await
+            .unwrap();
+        let bundle = export_bundle(&source, "exec-drift", false).await.unwrap();
+
+        let mut drifted = agent("exec-drift");
+        drifted.status = AgentExecutionStatus::Running;
+        source.storage.agent_execution.save(&drifted).await.unwrap();
+
+        let err = restore_bundle(&source, &bundle, None, true, RestoreMode::Auto)
+            .await
+            .expect_err("a mismatching target must not be overwritten by default");
+        assert!(err.to_string().contains("retry with replace"), "{err}");
+        assert!(
+            restore_bundle(&source, &bundle, None, true, RestoreMode::Create)
+                .await
+                .is_err()
+        );
+        // The refused attempt changed nothing.
+        let untouched = source
+            .storage
+            .agent_execution
+            .load("exec-drift")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(untouched.status, AgentExecutionStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn replace_converges_a_mismatching_target() {
+        let source = ctx();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-replace"))
+            .await
+            .unwrap();
+        let bundle = export_bundle(&source, "exec-replace", false).await.unwrap();
+        let before = revision_snapshot(&source, "exec-replace").await.unwrap();
+
+        let mut drifted = agent("exec-replace");
+        drifted.status = AgentExecutionStatus::Failed;
+        source.storage.agent_execution.save(&drifted).await.unwrap();
+
+        let plan = restore_bundle(&source, &bundle, None, true, RestoreMode::Replace)
+            .await
+            .unwrap();
+        assert_eq!(plan.target_state, "divergent");
+        assert_eq!(plan.action, "replace");
+        assert_eq!(plan.previous_sequence, Some(before.sequence + 1));
+        assert!(plan.previous_digest.is_some());
+        assert_ne!(
+            plan.previous_digest.as_deref(),
+            Some(bundle.payload_digest.as_str())
+        );
+
+        let applied = restore_bundle(&source, &bundle, None, false, RestoreMode::Replace)
+            .await
+            .unwrap();
+        assert_eq!(applied.action, "replace");
+        assert!(applied.remote_sequence > before.sequence);
+        let restored = source
+            .storage
+            .agent_execution
+            .load("exec-replace")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.status, AgentExecutionStatus::Completed);
+        // A target that was replaced exports the snapshot projection again,
+        // so the next comparison sees a healthy target instead of drift.
+        let reexported = export_bundle(&source, "exec-replace", false).await.unwrap();
+        assert_eq!(reexported.payload_digest, bundle.payload_digest);
+        assert_eq!(applied.remote_digest, bundle.payload_digest);
+    }
+
+    #[tokio::test]
+    async fn partial_target_is_replaceable() {
+        let source = ctx();
+        source
+            .storage
+            .agent_execution
+            .save(&agent("exec-partial"))
+            .await
+            .unwrap();
+        let bundle = export_bundle(&source, "exec-partial", false).await.unwrap();
+
+        // The record is gone but a checkpoint row survived: a fragment that
+        // cannot be exported and that the old existence check refused.
+        source
+            .storage
+            .agent_execution
+            .delete("exec-partial")
+            .await
+            .unwrap();
+        source
+            .storage
+            .checkpoint
+            .save(&Checkpoint {
+                id: "cp-orphan".into(),
+                entity_type: "agent_loop".into(),
+                entity_id: "exec-partial".into(),
+                parent_entity_id: None,
+                checkpoint_type: CheckpointType::Full,
+                timestamp: 1,
+                status: CheckpointStatus::Active,
+                previous_checkpoint_id: None,
+                base_checkpoint_id: None,
+                chain_root_id: None,
+                chain_position: None,
+                blob_size: None,
+                tags: None,
+                custom_fields: None,
+            })
+            .await
+            .unwrap();
+
+        let plan = restore_bundle(&source, &bundle, None, true, RestoreMode::Replace)
+            .await
+            .unwrap();
+        assert_eq!(plan.target_state, "divergent");
+        assert_eq!(plan.action, "replace");
+
+        restore_bundle(&source, &bundle, None, false, RestoreMode::Replace)
+            .await
+            .unwrap();
+        let restored = source
+            .storage
+            .agent_execution
+            .load("exec-partial")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.id.as_str(), "exec-partial");
+        // The orphan checkpoint row is outside the snapshot, so the replace
+        // removes it; otherwise the export would keep reporting extra content.
+        let exported = export_bundle(&source, "exec-partial", false).await.unwrap();
+        assert_eq!(exported.payload_digest, bundle.payload_digest);
+        assert!(exported.checkpoints.is_empty());
     }
 }

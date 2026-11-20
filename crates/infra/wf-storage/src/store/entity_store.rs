@@ -49,7 +49,11 @@ where
     /// metadata merged with the entity-type marker and compression flag.
     /// Shared by single saves and batch saves so both paths encode rows
     /// identically.
-    fn encode_item(&self, entity: &T) -> Result<BatchItem, StorageError> {
+    ///
+    /// Also used by callers that must commit a row as part of a larger
+    /// atomic batch without routing it through the single-save path, which
+    /// would advance the execution revision once per row.
+    pub fn encode_item(&self, entity: &T) -> Result<BatchItem, StorageError> {
         let metadata_json = serde_json::to_value(entity.metadata())?;
         let data = entity.to_bytes()?;
         let (compressed, was_compressed) =

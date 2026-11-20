@@ -696,6 +696,7 @@ use utoipa::OpenApi;
         crate::api::system::backends::handle_export_backup,
         crate::api::system::backends::handle_restore_backup,
         crate::api::system::backends::handle_list_sync_states,
+        crate::api::system::backends::handle_reset_sync_state,
         crate::api::system::server::handle_server_info,
         crate::api::system::server::handle_server_status,
         crate::api::system::server::handle_server_pair,

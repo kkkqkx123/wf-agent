@@ -28,11 +28,17 @@ backup_retention_days = 7
 backup_timeout_secs = 15
 backup_max_response_bytes = 67108864
 
+# Interval of the periodic full remote re-check in seconds. Revision polling
+# only compares recorded digests, so this pass is what finds silent damage.
+# Zero keeps the startup pass and disables the recurring one.
+backup_reconcile_interval_secs = 21600
+
 # Environment overrides:
 # WF_BACKEND_ENABLED, WF_BACKEND_PROBE_INTERVAL_SECS,
 # WF_BACKEND_PROBE_TIMEOUT_SECS, WF_BACKEND_DEFAULT_LOCAL_PORT,
 # WF_BACKEND_BACKUP_DIR, WF_BACKEND_BACKUP_DIRECTORY,
 # WF_BACKEND_REMOTE_API_KEY, WF_BACKEND_REGISTRY_PATH,
-# WF_BACKEND_BACKUP_TIMEOUT_SECS, WF_BACKEND_BACKUP_MAX_RESPONSE_BYTES,
-# WF_BACKEND_BACKUP_CHECKPOINT_LIMIT.
+# WF_BACKEND_BACKUP_INTERVAL_SECS, WF_BACKEND_BACKUP_TIMEOUT_SECS,
+# WF_BACKEND_BACKUP_MAX_RESPONSE_BYTES,
+# WF_BACKEND_BACKUP_RECONCILE_INTERVAL_SECS.
 # WF_BACKEND_REMOTE_API_KEY is never read from this file.

@@ -1,6 +1,6 @@
 # 服务配置（server/）
 
-服务传输与中间件配置位于 `{layer}/server/`，共四个文件。由 `wf-server` 文件层加载，优先级：环境变量 > 项目 `.wf/server/` > settings `server/` > 内置默认。
+服务传输、中间件与后端注册表配置位于 `{layer}/server/`，共五个文件。由 `wf-server` 解析，优先级：环境变量 > 项目 `.wf/server/` > settings `server/` > 内置默认。
 
 | 文件 | 作用 |
 |---|---|
@@ -8,6 +8,7 @@
 | `auth.toml` | API Key 鉴权中间件 |
 | `cors.toml` | CORS 中间件 |
 | `rate-limit.toml` | 按 IP 滑动窗口限流 |
+| `backends.toml` | 远端后端注册表与定时备份 |
 
 ## server.toml
 
@@ -38,3 +39,9 @@
 - `max_requests`：窗口内最大请求数（默认 100）
 - `excluded_paths`：免限流路径
 - 环境覆盖：`RATE_LIMIT_ENABLED`、`RATE_LIMIT_WINDOW_MS`、`RATE_LIMIT_MAX_REQUESTS`
+
+## backends.toml
+
+- 远端后端注册表与定时备份，默认 `enabled = false`；字段、默认值与环境变量覆盖见 `config-examples/server/backends.toml`
+- 项目 `.wf/server/backends.toml` 覆盖 settings 层 `server/backends.toml`；文件存在但非法时启动失败，不静默回退默认值
+- `WF_BACKEND_REMOTE_API_KEY` 只从环境读取，示例文件不保存密钥

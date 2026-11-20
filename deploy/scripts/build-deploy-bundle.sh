@@ -4,6 +4,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+bash "$ROOT/scripts/sync-deploy.sh" --check
+
 VERSION="${VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)}"
 TARGET="${TARGET:-}"
 OUT="${OUT:-$ROOT/target/deploy-bundle/wf-agent-$VERSION}"

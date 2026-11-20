@@ -17,7 +17,7 @@ infra 层外部服务集成 crate：负责以统一的 HTTP 传输 + 本地托�
 | `probe_health` | 健康探测：GET `/api/health` 并解析子系统结论，绕过断路器（探测是恢复依据），成功即闭合断路器 |
 | `breaker_for` | 按 origin 取断路器，供状态诊断读取相位与剩余冷却 |
 | `pick_loopback_port` | 绑定临时监听器挑一个空闲回环端口（best-effort，仅适合单机回环） |
-| `transport/sidecar.rs` | 托管进程生命周期：`SidecarSpec`（程序、参数、环境、基础地址、启动上限、重启预算、停机宽限期、临时文件、数据目录独占锁、日志捕获文件与尾部行数）→ `start_sidecar` 只建状态与派发监督任务，返回即"启动中"；`wait_ready` 做有界等待，超时不是终态。监督任务持有数据目录锁（重试期间保持独占、彻底停止时释放）、拉起子进程、轮询就绪，并按相位区分处置：`RetryWait`（拉起但不就绪，按预算重试）、`Restarting`（异常退出后退避重启）、`Stopped`（停机、预算耗尽、锁冲突或二进制缺失）。二进制缺失直接终态并提示配置，不做无意义重试；关闭令牌触发时 SIGTERM → 宽限 → SIGKILL。子进程 stdout/stderr 追加写入日志文件，失败原因附带该文件尾部若干行。`RunningSidecar` 显式 `shutdown()` 走优雅路径，`Drop` 取消监督并 abort（子进程随 `kill_on_drop` 结束）且清理临时文件 |
+| `transport/sidecar.rs` | 托管进程生命周期：`SidecarSpec`（程序、参数、环境、基础地址、启动上限、重启预算、停机宽限期、临时文件、数据目录独占锁与内存尾部行数）→ `start_sidecar` 只建状态与派发监督任务，返回即"启动中"；`wait_ready` 做有界等待，超时不是终态。监督任务持有数据目录锁（重试期间保持独占、彻底停止时释放）、拉起子进程、轮询就绪，并按相位区分处置：`RetryWait`（拉起但不就绪，按预算重试）、`Restarting`（异常退出后退避重启）、`Stopped`（停机、预算耗尽、锁冲突或二进制缺失）。二进制缺失直接终态并提示配置，不做无意义重试；关闭令牌触发时 SIGTERM → 宽限 → SIGKILL。子进程 stdout/stderr 走管道，由两个并发读取任务原样转发到宿主 stderr，并按行数与总字节数上限写入监督器持有的环形缓冲；失败原因附带缓冲尾部若干行，读取任务在子进程退出后回收、停机时显式取消。`RunningSidecar` 显式 `shutdown()` 走优雅路径，`Drop` 取消监督并 abort（子进程随 `kill_on_drop` 结束）且清理临时文件 |
 
 sidecar 只负责进程生命周期，不涉及线协议；线契约始终是普通 HTTP。
 
@@ -25,7 +25,7 @@ sidecar 只负责进程生命周期，不涉及线协议；线契约始终是普
 
 | 项 | 职责 |
 |---|---|
-| `code_context.rs` | 配置与策略：`CodeContextConfig`（`tools.toml` 的 `[code_context]` 段，含主开关 `enabled`、传输、fold/retrieval 两个通道策略；整体缺失或 `enabled == false` 表示服务停用，所有消费方报告不可用）。`FoldPolicy`（进入折叠的最小 token 门槛、单条 token 预算、单批条目上限、失败重试轮数、折叠阶段总预算）、`RetrievalPolicy`（默认项目 id、默认条数、调用方上限——服务仍是最终执行者并按自身硬限截断）。托管组装集中在 `prepare_managed_service`：建数据目录 → 抢 `runtime.lock` 单实例锁 → 写服务端配置（回环地址 + SQLite/向量/BM25/日志全部钉成数据目录下的绝对路径）→ 返回完整启动规格；`write_cce_server_config` 与 `cce_server_command` 分别负责配置内容与启动行 |
+| `code_context.rs` | 配置与策略：`CodeContextConfig`（`tools.toml` 的 `[code_context]` 段，含主开关 `enabled`、传输、fold/retrieval 两个通道策略；整体缺失或 `enabled == false` 表示服务停用，所有消费方报告不可用）。`FoldPolicy`（进入折叠的最小 token 门槛、单条 token 预算、单批条目上限、失败重试轮数、折叠阶段总预算）、`RetrievalPolicy`（默认项目 id、默认条数、调用方上限——服务仍是最终执行者并按自身硬限截断）。托管组装集中在 `prepare_managed_service`：建数据目录 → 抢 `runtime.lock` 单实例锁 → 写服务端配置（回环地址 + SQLite/向量/BM25 全部钉成数据目录下的绝对路径，不声明日志文件）→ 返回完整启动规格；`write_cce_server_config` 与 `cce_server_command` 分别负责配置内容与启动行 |
 | `code_context/service.rs` | 活状态：`CodeContextService` 持有配置（可整体替换）、已解析端点、最近健康结论（`HealthReport`：可达 + 向量/BM25/embedding 三个子系统）、凭据解析结果、能力握手结论、项目状态、子进程状态句柄与共享 HTTP 客户端。消费者按 `CallScope`（Fold / Navigation / KeywordSearch / HybridSearch / Operations）要端点：范围决定需要哪些子系统，因此"服务活着但 embedding 挂了"时折叠与导航照常、语义检索快速失败。`availability()` 给出装配期可见性（只读缓存、"仅当确认不可用才隐藏"）；`project_id_for` 按"调用显式 → 运行时解析 → 配置覆盖"给项目 id，未解析时惰性重试一次以便服务恢复后无需重启；`apply_config` 是热重载唯一入口（替换策略与端点、重置健康/握手缓存与断路器，并报告是否需要停旧起新）。维护入口（`dead_letters` / `retry_dead_letters` / `acknowledge_dead_letter` / `retry_index`）走同一条门禁但按 `Operations` 范围判定，失败分为"本地前置条件拒绝"与"服务不可用"两类。`status()` 输出可序列化的 `CodeContextStatus` 供诊断使用；健康结论缓存 15s，过期由下一次调用触发单飞探测 |
 | `code_context/retrieval.rs` | 检索通道：混合搜索（`/api/search`）与 BM25 关键词搜索（`/api/tools/keyword-search`）的请求构造、响应归约与参数校验。归约只暴露对模型导航安全的字段（文件路径、行区间、片段、分数、类型/来源标记），内部连接键（数字实体 id、分段 id）不越服务边界；片段按 `MAX_SNIPPET_CHARS` 截断并逐条标记 `truncated` 而非静默丢弃。`clamp_limit` 依策略预算收敛调用方条数（默认 → 上限 → 服务硬限） |
 | `code_context/navigation.rs` | 符号导航通道：`/api/tools/symbols`、`/api/tools/references`、`/api/tools/definition` 三个端点的请求构造（路径数上限 32、符号树深度 8 / 每层子节点 32）与响应归约（隐藏数字键，剥离内部结构）。提供工具参数校验（`require_path` / `require_line` / `optional_column` / `resolve_paths` 等）与异步调用入口 |
@@ -46,4 +46,4 @@ sidecar 只负责进程生命周期，不涉及线协议；线契约始终是普
 
 ## 测试
 
-各模块内联 `#[cfg(test)]`：服务端配置写入与托管文件准备、检索/导航请求与响应形状、参数校验、候选选择与结果回写、断路器跳闸/半开、健康解析与调用范围判定、服务范围门禁与启动失败短路、项目解码与路径规范化匹配、供给流程（建项目 → 首次索引 → watch → 就绪，且二次供给不重复索引）、索引期间快速失败、凭据缺失阻断、能力握手不兼容、`apply_config` 重置与重启判定、死信解码与动作请求、失败索引后的维护可用性与人工重索引恢复（脚本化服务记录失败次数）、sidecar 启动超时/二进制缺失/数据目录锁独占与释放/子进程日志捕获（用临时 TCP 响应器模拟就绪）。
+各模块内联 `#[cfg(test)]`：服务端配置写入与托管文件准备、检索/导航请求与响应形状、参数校验、候选选择与结果回写、断路器跳闸/半开、健康解析与调用范围判定、服务范围门禁与启动失败短路、项目解码与路径规范化匹配、供给流程（建项目 → 首次索引 → watch → 就绪，且二次供给不重复索引）、索引期间快速失败、凭据缺失阻断、能力握手不兼容、`apply_config` 重置与重启判定、死信解码与动作请求、失败索引后的维护可用性与人工重索引恢复（脚本化服务记录失败次数）、sidecar 启动超时/二进制缺失/数据目录锁独占与释放/双流有界尾部与告警串联/读取任务取消回收（用临时 TCP 响应器模拟就绪）。

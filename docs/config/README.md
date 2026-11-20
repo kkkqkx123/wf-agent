@@ -34,7 +34,7 @@ TOML 合并为字段级递归合并；JSON 家族按记录 `id` 覆盖。缺失�
 |---|---|
 | [priority-and-layout.md](./priority-and-layout.md) | 优先级、布局、易变目录、example 跳过规则 |
 | [infrastructure.md](./infrastructure.md) | 基础设施九域：storage、metrics、sandbox、file-checkpoint、tool-approval、presets、tools、limits、retention |
-| [server.md](./server.md) | 服务传输与中间件：server、auth、cors、rate-limit |
+| [server.md](./server.md) | 服务传输、中间件与后端注册表：server、auth、cors、rate-limit、backends |
 | [llm.md](./llm.md) | LLM provider、profile、auth 声明与索引家族 |
 | [workflow.md](./workflow.md) | 工作流定义、节点模板、提示词模板、脚本家族 |
 | [agent.md](./agent.md) | 智能体循环定义 |

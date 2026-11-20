@@ -7,16 +7,20 @@
 //! lifetime (retries included), spawns the process, waits for readiness and
 //! restarts it on unexpected exits within the configured budget.
 //!
-//! The child's stdout and stderr are appended to the caller's log file
-//! instead of being discarded, so "the process will not start" carries
-//! evidence beyond an exit code.
+//! The child's stdout and stderr are piped into two concurrent reader tasks.
+//! Every line is mirrored to the supervisor's stderr for service-manager
+//! retention and kept in a bounded in-memory tail, so "the process will not
+//! start" carries evidence beyond an exit code without growing a file.
 
+use std::collections::VecDeque;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::Serialize;
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -29,6 +33,16 @@ const READINESS_PROBE_TIMEOUT_MS: u64 = 1_000;
 const RETRY_BASE_MS: u64 = 1_000;
 /// Upper bound of the retry delay.
 const RETRY_MAX_SHIFT: u32 = 4;
+/// Total bytes retained in the in-memory log tail.
+const LOG_TAIL_MAX_BYTES: usize = 64 * 1024;
+/// Bytes retained from one output line; longer lines keep head and tail.
+const LOG_LINE_MAX_BYTES: usize = 4 * 1024;
+/// Time granted to readers to drain a child's pipes before being cancelled.
+const OUTPUT_DRAIN_TIMEOUT_MS: u64 = 1_000;
+/// Separator between retained lines in a failure reason.
+const TAIL_LINE_SEPARATOR: &str = " | ";
+/// Visible marker for a line shortened to fit the tail.
+const TRUNCATION_MARKER: &str = "...[truncated]...";
 
 /// What to start and how to supervise it.
 #[derive(Debug, Clone)]
@@ -51,9 +65,7 @@ pub struct SidecarSpec {
     pub temp_files: Vec<PathBuf>,
     /// Data-directory lock claimed by the supervisor for its whole lifetime.
     pub exclusive_lock: Option<PathBuf>,
-    /// File capturing the child's stdout and stderr (appended).
-    pub log_file: Option<PathBuf>,
-    /// Lines of the log tail included in failure reasons.
+    /// Lines of the in-memory output tail included in failure reasons.
     pub log_tail_lines: usize,
 }
 
@@ -245,7 +257,6 @@ impl ExclusiveLock {
                 ));
             }
         };
-        use std::io::Write;
         let _ = writeln!(file, "{}", std::process::id());
         Ok(Some(Self {
             path: path.to_path_buf(),
@@ -278,6 +289,90 @@ fn update(status: &SidecarStatusHandle, update: impl FnOnce(&mut SidecarStatus))
     }
 }
 
+/// Bounded output tail shared by one supervisor's reader tasks.
+#[derive(Debug)]
+struct LogTail {
+    max_lines: usize,
+    max_bytes: usize,
+    state: Mutex<LogTailState>,
+}
+
+#[derive(Debug, Default)]
+struct LogTailState {
+    lines: VecDeque<String>,
+    bytes: usize,
+}
+
+impl LogTail {
+    fn new(max_lines: usize) -> Self {
+        Self {
+            max_lines: max_lines.max(1),
+            max_bytes: LOG_TAIL_MAX_BYTES,
+            state: Mutex::new(LogTailState::default()),
+        }
+    }
+
+    fn state(&self) -> MutexGuard<'_, LogTailState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn append_line(&self, line: &str) {
+        let line = truncate_line(line, LOG_LINE_MAX_BYTES);
+        let bytes = line.len();
+        let mut state = self.state();
+        state.lines.push_back(line);
+        state.bytes += bytes;
+        while state.lines.len() > self.max_lines || state.bytes > self.max_bytes {
+            let Some(dropped) = state.lines.pop_front() else {
+                break;
+            };
+            state.bytes = state.bytes.saturating_sub(dropped.len());
+        }
+    }
+
+    fn render(&self) -> String {
+        self.state()
+            .lines
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(TAIL_LINE_SEPARATOR)
+    }
+}
+
+fn truncate_line(line: &str, limit: usize) -> String {
+    if line.len() <= limit {
+        return line.to_string();
+    }
+    let body = limit.saturating_sub(TRUNCATION_MARKER.len());
+    let head_len = body / 2;
+    let tail_len = body - head_len;
+    format!(
+        "{}{}{}",
+        prefix_at_char_boundary(line, head_len),
+        TRUNCATION_MARKER,
+        suffix_at_char_boundary(line, tail_len),
+    )
+}
+
+fn prefix_at_char_boundary(text: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+fn suffix_at_char_boundary(text: &str, max_bytes: usize) -> &str {
+    let mut start = text.len().saturating_sub(max_bytes);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
 /// Start supervising a sidecar. Returns immediately with phase `Starting`;
 /// readiness, retries and restarts all happen in the supervisor task, so a
 /// process that cannot start yet is an observable state instead of a
@@ -291,11 +386,13 @@ pub async fn start_sidecar(spec: SidecarSpec) -> Result<RunningSidecar, String> 
         pid: None,
     }));
     let client = http_client(READINESS_PROBE_TIMEOUT_MS, None).map_err(|e| e.to_string())?;
+    let log_tail = Arc::new(LogTail::new(spec.log_tail_lines));
     let supervisor = tokio::spawn(supervise(
         spec.clone(),
         client,
         shutdown.clone(),
         Arc::clone(&status),
+        log_tail,
     ));
     Ok(RunningSidecar {
         base_url: spec.base_url,
@@ -334,27 +431,10 @@ async fn spawn_child(spec: &SidecarSpec) -> Result<Child, SpawnFailure> {
         .args(&spec.args)
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
         .kill_on_drop(true);
-    match spec.log_file.as_deref() {
-        Some(path) => {
-            command.stdout(Stdio::from(open_log(path).map_err(SpawnFailure::Other)?));
-            command.stderr(Stdio::from(open_log(path).map_err(SpawnFailure::Other)?));
-        }
-        None => {
-            command.stdout(Stdio::null());
-            command.stderr(Stdio::inherit());
-        }
-    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     command.spawn().map_err(|e| {
         SpawnFailure::Other(format!("failed to launch sidecar '{}': {e}", spec.program))
     })
-}
-
-fn open_log(path: &Path) -> Result<std::fs::File, String> {
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| format!("sidecar log file not writable at {}: {e}", path.display()))
 }
 
 /// Resolve the sidecar binary: explicit paths launch as-is, bare names
@@ -409,27 +489,94 @@ async fn wait_ready(
     }
 }
 
-/// Tail of the captured log attached to failure reasons.
-fn log_tail(spec: &SidecarSpec) -> String {
-    let Some(path) = spec.log_file.as_deref() else {
-        return String::new();
-    };
-    let lines = spec.log_tail_lines.max(1);
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return String::new();
-    };
-    let tail: Vec<&str> = content
-        .lines()
-        .rev()
-        .take(lines)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    if tail.is_empty() {
-        return String::new();
+/// Reader tasks attached to one child process. They end at pipe EOF, and are
+/// explicitly cancelled when supervision stops before EOF arrives.
+struct ChildOutput {
+    cancel: CancellationToken,
+    readers: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl ChildOutput {
+    fn start(child: &mut Child, tail: Arc<LogTail>, cancel: CancellationToken) -> Self {
+        let stdout = child.stdout.take().expect("child stdout is piped");
+        let stderr = child.stderr.take().expect("child stderr is piped");
+        let readers = vec![
+            tokio::spawn(read_output(stdout, Arc::clone(&tail), cancel.clone())),
+            tokio::spawn(read_output(stderr, tail, cancel.clone())),
+        ];
+        Self { cancel, readers }
     }
-    format!("; log tail: {}", tail.join(" | "))
+
+    fn cancel(&self) {
+        self.cancel.cancel();
+    }
+
+    async fn finish(mut self) {
+        for reader in &mut self.readers {
+            if tokio::time::timeout(Duration::from_millis(OUTPUT_DRAIN_TIMEOUT_MS), &mut *reader)
+                .await
+                .is_err()
+            {
+                reader.abort();
+                let _ = reader.await;
+            }
+        }
+    }
+}
+
+/// A child and the readers draining its pipes.
+struct RunningChild {
+    child: Child,
+    output: ChildOutput,
+}
+
+async fn read_output<R>(stream: R, tail: Arc<LogTail>, cancel: CancellationToken)
+where
+    R: AsyncRead + Unpin,
+{
+    let mut reader = BufReader::new(stream);
+    let mut buffer = Vec::new();
+    loop {
+        buffer.clear();
+        let read = tokio::select! {
+            _ = cancel.cancelled() => return,
+            result = reader.read_until(b'\n', &mut buffer) => match result {
+                Ok(0) => {
+                    if !buffer.is_empty() {
+                        forward_line(&buffer, &tail);
+                    }
+                    return;
+                }
+                Ok(count) => count,
+                Err(_) => return,
+            },
+        };
+        if read > 0 {
+            forward_line(&buffer, &tail);
+        }
+    }
+}
+
+fn forward_line(bytes: &[u8], tail: &LogTail) {
+    let decoded = String::from_utf8_lossy(bytes);
+    let line = decoded.trim_end_matches(['\n', '\r']);
+    if line.is_empty() {
+        return;
+    }
+    {
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "{line}");
+    }
+    tail.append_line(line);
+}
+
+fn failure_reason(reason: String, tail: &LogTail) -> String {
+    let tail = tail.render();
+    if tail.is_empty() {
+        reason
+    } else {
+        format!("{reason}; log tail: {tail}")
+    }
 }
 
 /// Record a retry delay and wait it out. Returns whether supervising should
@@ -441,9 +588,10 @@ async fn backoff_or_stop(
     restarts: &mut u32,
     phase: SidecarPhase,
     reason: String,
+    tail: &LogTail,
     shutdown: &CancellationToken,
 ) -> bool {
-    let reason = format!("{reason}{}", log_tail(spec));
+    let reason = failure_reason(reason, tail);
     if *restarts >= spec.max_restarts {
         warn!(
             "sidecar '{}' leaving it down after {} restarts: {reason}",
@@ -484,6 +632,7 @@ async fn supervise(
     client: reqwest::Client,
     shutdown: CancellationToken,
     status: SidecarStatusHandle,
+    log_tail: Arc<LogTail>,
 ) {
     // The lock is claimed for the whole supervised lifetime, so a retry never
     // overlaps another runtime's process on the same data directory.
@@ -500,11 +649,11 @@ async fn supervise(
         }
     };
     let mut restarts = 0u32;
-    let mut child: Option<Child> = None;
+    let mut current: Option<RunningChild> = None;
     loop {
         if shutdown.is_cancelled() {
-            if let Some(mut running) = child.take() {
-                stop_child(&mut running, spec.shutdown_grace_ms).await;
+            if let Some(running) = current.take() {
+                stop_running(running, spec.shutdown_grace_ms, true).await;
             }
             update(&status, |state| {
                 state.phase = SidecarPhase::Stopped;
@@ -512,32 +661,36 @@ async fn supervise(
             });
             return;
         }
-        if child.is_none() {
+        if current.is_none() {
             match spawn_child(&spec).await {
-                Ok(next) => {
+                Ok(mut child) => {
+                    let output =
+                        ChildOutput::start(&mut child, Arc::clone(&log_tail), shutdown.clone());
+                    let pid = child.id();
                     update(&status, |state| {
                         state.phase = SidecarPhase::Starting;
-                        state.pid = next.id();
+                        state.pid = pid;
                     });
-                    child = Some(next);
-                    let running = child.as_mut().expect("child present");
-                    match wait_ready(&spec, &client, running, &shutdown).await {
+                    let mut running = RunningChild { child, output };
+                    match wait_ready(&spec, &client, &mut running.child, &shutdown).await {
                         Ok(()) => {
                             info!("sidecar '{}' ready at {}", spec.program, spec.base_url);
                             update(&status, |state| {
                                 state.phase = SidecarPhase::Ready;
                                 state.last_error = None;
                             });
+                            current = Some(running);
                         }
                         Err(reason) => {
-                            stop_child(running, spec.shutdown_grace_ms).await;
-                            child = None;
+                            stop_running(running, spec.shutdown_grace_ms, shutdown.is_cancelled())
+                                .await;
                             let keep_going = backoff_or_stop(
                                 &spec,
                                 &status,
                                 &mut restarts,
                                 SidecarPhase::RetryWait,
                                 reason,
+                                &log_tail,
                                 &shutdown,
                             )
                             .await;
@@ -564,6 +717,7 @@ async fn supervise(
                         &mut restarts,
                         SidecarPhase::RetryWait,
                         failure.into_reason(),
+                        &log_tail,
                         &shutdown,
                     )
                     .await;
@@ -574,29 +728,38 @@ async fn supervise(
                 }
             }
         }
-        let running = child.as_mut().expect("child present");
-        tokio::select! {
-            _ = shutdown.cancelled() => {
-                stop_child(running, spec.shutdown_grace_ms).await;
+        let exit = tokio::select! {
+            _ = shutdown.cancelled() => None,
+            result = current.as_mut().expect("child is running").child.wait() => Some(result),
+        };
+        match exit {
+            None => {
+                if let Some(running) = current.take() {
+                    stop_running(running, spec.shutdown_grace_ms, true).await;
+                }
                 update(&status, |state| {
                     state.phase = SidecarPhase::Stopped;
                     state.pid = None;
                 });
                 return;
             }
-            result = running.wait() => {
+            Some(result) => {
+                let running = current.take().expect("child is running");
+                finish_exited(running).await;
                 let exit_reason = match result {
-                    Ok(exit) => format!("sidecar '{}' exited unexpectedly with {exit}", spec.program),
+                    Ok(exit) => {
+                        format!("sidecar '{}' exited unexpectedly with {exit}", spec.program)
+                    }
                     Err(e) => format!("sidecar '{}' wait failed: {e}", spec.program),
                 };
                 warn!("{exit_reason}");
-                child = None;
                 let keep_going = backoff_or_stop(
                     &spec,
                     &status,
                     &mut restarts,
                     SidecarPhase::Restarting,
                     exit_reason,
+                    &log_tail,
                     &shutdown,
                 )
                 .await;
@@ -606,6 +769,20 @@ async fn supervise(
             }
         }
     }
+}
+
+async fn stop_running(mut running: RunningChild, grace_ms: u64, cancel_output: bool) {
+    if cancel_output {
+        running.output.cancel();
+    }
+    stop_child(&mut running.child, grace_ms).await;
+    running.output.finish().await;
+}
+
+async fn finish_exited(running: RunningChild) {
+    let RunningChild { child, output } = running;
+    drop(child);
+    output.finish().await;
 }
 
 /// Ask the child to exit, then force it after the grace period. Sending
@@ -655,7 +832,6 @@ mod tests {
             shutdown_grace_ms: 1_000,
             temp_files: Vec::new(),
             exclusive_lock: None,
-            log_file: None,
             log_tail_lines: 5,
         }
     }
@@ -793,36 +969,133 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn log_tail_enforces_line_and_byte_limits() {
+        let tail = LogTail::new(1000);
+        let line = "z".repeat(512);
+        for _ in 0..200 {
+            tail.append_line(&line);
+        }
+        let state = tail.state();
+        assert!(state.bytes <= LOG_TAIL_MAX_BYTES);
+        assert!(state.bytes > LOG_TAIL_MAX_BYTES - line.len());
+        drop(state);
+
+        let long = format!("{}{}", "a".repeat(LOG_LINE_MAX_BYTES * 2), "SENTINEL");
+        tail.append_line(&long);
+        let state = tail.state();
+        let last = state.lines.back().expect("line retained");
+        assert!(last.len() <= LOG_LINE_MAX_BYTES, "{}", last.len());
+        assert!(last.contains(TRUNCATION_MARKER));
+        assert!(last.ends_with("SENTINEL"));
+    }
+
     #[tokio::test]
-    async fn child_output_is_captured_to_the_log_file() {
-        let dir = std::env::temp_dir().join(format!("wf-sidecar-log-{}", std::process::id()));
+    async fn output_readers_keep_the_tail_bounded_under_load() {
+        use tokio::io::AsyncWriteExt;
+
+        let tail = Arc::new(LogTail::new(5));
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn(read_output(reader, Arc::clone(&tail), cancel));
+
+        for index in 0..500 {
+            let line = format!("line-{index}-{}", "x".repeat(256));
+            writer
+                .write_all(line.as_bytes())
+                .await
+                .expect("write output");
+            writer.write_all(b"\n").await.expect("write newline");
+        }
+        drop(writer);
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("reader drains without blocking")
+            .expect("reader task");
+
+        let state = tail.state();
+        assert_eq!(state.lines.len(), 5);
+        assert!(state.bytes <= LOG_TAIL_MAX_BYTES);
+        drop(state);
+        let rendered = tail.render();
+        assert!(rendered.contains("line-499"), "{rendered}");
+        assert!(!rendered.contains("line-0"), "{rendered}");
+    }
+
+    #[tokio::test]
+    async fn child_output_from_both_streams_reaches_the_failure_tail() {
+        let script = "printf 'out-one\\n'; printf 'err-one\\n' >&2; \
+                      printf 'out-two\\n'; printf 'err-two\\n' >&2; exit 3";
+        let sidecar = start_sidecar(spec(
+            "sh",
+            vec!["-c".into(), script.into()],
+            "http://127.0.0.1:1".into(),
+        ))
+        .await
+        .expect("supervisor dispatched");
+        let error = sidecar
+            .wait_ready(20_000)
+            .await
+            .expect_err("must not be ready");
+        assert!(error.contains("log tail"), "{error}");
+        for line in ["out-one", "err-one", "out-two", "err-two"] {
+            assert!(error.contains(line), "{error}");
+        }
+        let out_one = error.find("out-one").expect("stdout line retained");
+        let out_two = error.find("out-two").expect("stdout line retained");
+        let err_one = error.find("err-one").expect("stderr line retained");
+        let err_two = error.find("err-two").expect("stderr line retained");
+        assert!(out_one < out_two, "{error}");
+        assert!(err_one < err_two, "{error}");
+        sidecar.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn failure_tail_survives_child_restarts() {
+        let dir = std::env::temp_dir().join(format!("wf-sidecar-tail-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create dir");
-        let log = dir.join("cce.log");
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind loopback");
-        let port = listener.local_addr().expect("port").port();
-        let responder = tokio::spawn(run_responder(listener));
-        let mut spec = spec(
-            "sh",
-            vec!["-c".into(), "echo sidecar-log-line; sleep 30".into()],
-            format!("http://127.0.0.1:{port}"),
+        let counter = dir.join("attempt");
+        let script = format!(
+            "n=1; if [ -f '{path}' ]; then n=$(cat '{path}'); fi; \
+             echo attempt-$n; echo failure-$n >&2; echo $((n+1)) > '{path}'; exit 7",
+            path = counter.display()
         );
-        spec.log_file = Some(log.clone());
+        let mut spec = spec("sh", vec!["-c".into(), script], "http://127.0.0.1:1".into());
+        spec.max_restarts = 1;
         let sidecar = start_sidecar(spec).await.expect("supervisor dispatched");
-        let mut captured = String::new();
-        for _ in 0..50 {
-            captured = std::fs::read_to_string(&log).unwrap_or_default();
-            if captured.contains("sidecar-log-line") {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+        let error = sidecar
+            .wait_ready(20_000)
+            .await
+            .expect_err("must not be ready");
+        for line in ["attempt-1", "failure-1", "attempt-2", "failure-2"] {
+            assert!(error.contains(line), "{error}");
         }
-        assert!(captured.contains("sidecar-log-line"), "{captured}");
+        let status = sidecar.status();
+        assert_eq!(status.phase, SidecarPhase::Stopped);
+        assert_eq!(status.restarts, 1);
         sidecar.shutdown().await;
-        responder.abort();
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn output_tasks_end_when_supervision_stops() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn child");
+        let cancel = CancellationToken::new();
+        let output = ChildOutput::start(&mut child, Arc::new(LogTail::new(5)), cancel.clone());
+        assert_eq!(output.readers.len(), 2);
+        output.cancel();
+        tokio::time::timeout(Duration::from_secs(2), output.finish())
+            .await
+            .expect("readers finish after cancellation");
+        let _ = child.kill().await;
+        let _ = child.wait().await;
     }
 
     async fn run_responder(listener: tokio::net::TcpListener) {

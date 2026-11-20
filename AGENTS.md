@@ -65,11 +65,13 @@ tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-cloc
 
 ```shell
 cargo clippy --all-targets --all-features            # full compile check
+bash scripts/sync-deploy.sh --check                  # deploy template drift check
 ```
 
 ## Development Conventions
 
 - Rust standard formatting (`cargo fmt`)
+- `deploy/templates/` is generated: edit the source config, then re-run `scripts/sync-deploy.sh`
 - Modular design following Rust conventions
 - Time unit clarity: model-facing tool parameter descriptions must state the unit explicitly; new duration fields use `_ms` / `_secs` suffix or a unit comment; new code prefers `Duration` over bare numbers
 

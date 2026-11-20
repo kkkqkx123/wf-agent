@@ -50,7 +50,7 @@
 # managed_port = 0                       # 0 picks an ephemeral loopback port
 # managed_startup_timeout_ms = 15000
 # managed_max_restarts = 3               # restarts after unexpected exits
-# managed_log_level = "info"             # passed to the child process environment
+# managed_log_level = "info"             # child RUST_LOG only, not host logging
 # auth_token_env = "CCE_TOKEN"           # env var name holding the bearer token
 # fold_min_tokens = 800
 # fold_max_tokens = 2000

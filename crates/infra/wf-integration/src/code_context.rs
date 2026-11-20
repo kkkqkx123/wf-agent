@@ -138,7 +138,8 @@ pub struct CodeContextConfig {
 
 /// Write a minimal code-context server config: loopback address plus every
 /// store pinned under `data_dir`. The server merges the file over its
-/// defaults, so only the paths that must not float are written here.
+/// defaults, so only the paths that must not float are written here. Child
+/// output stays on stdout/stderr and is captured by the supervisor.
 ///
 /// Paths are written absolute because the server anchors relative paths at
 /// the config file's directory, which lives in the system temp directory.
@@ -158,12 +159,10 @@ pub fn write_cce_server_config(host: &str, port: u16, data_dir: &Path) -> std::i
             "[server]\nhost = \"{host}\"\nport = {port}\n\n\
              [database.sqlite]\npath = \"{sqlite}\"\n\n\
              [database.vector_local]\ndata_dir = \"{vectors}\"\n\n\
-             [database.bm25]\nindex_path = \"{bm25}\"\n\n\
-             [logger]\nfile = \"{log}\"\n",
+             [database.bm25]\nindex_path = \"{bm25}\"\n",
             sqlite = absolute("metadata.db"),
             vectors = absolute("vectors"),
             bm25 = absolute("bm25"),
-            log = absolute("cce.log"),
         ),
     )?;
     Ok(path)
@@ -222,7 +221,6 @@ pub fn prepare_managed_service(
         shutdown_grace_ms: 5_000,
         temp_files: vec![config_path],
         exclusive_lock: Some(data_dir.join("runtime.lock")),
-        log_file: Some(data_dir.join("cce.log")),
         log_tail_lines: 20,
     })
 }
@@ -243,6 +241,7 @@ mod tests {
         assert!(content.contains("9123"));
         assert!(content.contains(&data_dir.join("metadata.db").to_string_lossy().into_owned()));
         assert!(!content.contains("path = \"metadata.db\""));
+        assert!(!content.contains("[logger]"));
         std::fs::remove_file(&path).ok();
         std::fs::remove_dir_all(&data_dir).ok();
     }
@@ -262,10 +261,10 @@ mod tests {
         let spec = prepare_managed_service(&config, 9321, &data_dir).expect("prepare managed");
         assert_eq!(spec.base_url, "http://127.0.0.1:9321");
         // The config file is caller-owned; the data directory lock and the
-        // log belong to the supervisor.
+        // output tail belong to the supervisor.
         assert_eq!(spec.temp_files.len(), 1);
         assert_eq!(spec.exclusive_lock, Some(data_dir.join("runtime.lock")));
-        assert_eq!(spec.log_file, Some(data_dir.join("cce.log")));
+        assert_eq!(spec.log_tail_lines, 20);
         assert!(spec.env.iter().any(|(key, _)| key == "CCE_CONFIG"));
 
         for path in &spec.temp_files {

@@ -43,7 +43,8 @@ deploy/
 
 - `deploy/templates/`：由 `scripts/sync-deploy.sh` 从 `config-examples/`、
   `.wf/`、`.wf-user/` 单向同步生成，可评审、不可手改。模板只含加载器
-  会读的 live 家族与可导入的种子家族，不含其他目录。
+  会读的 live 家族与可导入的种子家族，不含其他目录。发布包构建会先运行
+  `scripts/sync-deploy.sh --check`，模板漂移即失败；改动源配置后须先同步再提交。
 - `deploy/scripts/render-config.sh`：目标机按层渲染
  （`--to managed|settings|project`），部署期占位符用 `@@NAME@@`，
   `${VAR}` 一律透传给进程启动时展开；环境文件 `0600`。
@@ -55,7 +56,7 @@ deploy/
   `templates/project/` 到 `.wf/`（含各资源索引家族的导入起点，加载器
   在此只自动读 `mcp.json/skills.json`），`infrastructure/server` 覆盖
   仅随 `--with-project-overrides` 进入项目。
-- Live 与种子的界限：网域九文件、传输四文件、`config.toml`、
+- Live 与种子的界限：网域九文件、传输五文件（含 `backends.toml`）、`config.toml`、
   `mcp/skill-settings`、`llm-auth` 由加载器自动读，是 live 配置；
   `llm-profiles/llm-providers` 与各资源索引家族（`workflows`、
   `agent-loops`、`node-templates`、`prompt-templates`、`scripts`）只做

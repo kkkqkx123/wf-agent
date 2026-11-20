@@ -1,7 +1,7 @@
 # Server-owned backend registry and scheduled backups.
 #
 # Schema: wf_server::backends::BackendConfig.
-# Priority (high to low): environment > project `.wf/backends.toml` >
+# Priority (high to low): environment > project `.wf/server/backends.toml` >
 # settings-dir `server/backends.toml` > built-in defaults.
 # A present but invalid file fails startup; secrets stay in the environment.
 

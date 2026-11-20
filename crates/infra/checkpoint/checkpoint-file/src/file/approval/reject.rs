@@ -40,8 +40,24 @@ impl FileCheckpointManager {
         }
         let mut deleted: Vec<String> = Vec::new();
         for (review_ref, head) in targets {
-            git.delete_ref(&review_ref).map_err(map_git_error)?;
-            storage.set_review_state(&review_ref, ReviewStatus::Rejected)?;
+            let effects =
+                crate::file::journal::review_effects(&review_ref, Some(ReviewStatus::Rejected));
+            let spec = crate::file::journal::RefUpdateSpec {
+                kind: crate::storage::RefOperationKind::ReviewReject,
+                reason: reason.unwrap_or("reject pending review").to_string(),
+                actor: actor.as_str().to_string(),
+                session: String::new(),
+                tool: "review".to_string(),
+                ref_name: review_ref.clone(),
+                old_id: Some(head.clone()),
+                new_id: None,
+                related_refs: Vec::new(),
+                effects: crate::storage::JournalEffects {
+                    deleted_review_refs: vec![review_ref.clone()],
+                    ..effects
+                },
+            };
+            self.journaled_ref_update(spec, |_| git.delete_ref(&review_ref))?;
             deleted.push(head);
         }
         let last = deleted

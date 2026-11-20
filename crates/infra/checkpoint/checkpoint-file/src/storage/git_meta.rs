@@ -6,7 +6,8 @@ fn db_err(e: rusqlite::Error) -> CheckpointError {
     CheckpointError::Internal(format!("sqlite error: {e}"))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReviewStatus {
     Pending,
     Approved,
@@ -32,7 +33,7 @@ impl ReviewStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourceIndexEntry {
     pub commit_id: String,
     pub actor: String,

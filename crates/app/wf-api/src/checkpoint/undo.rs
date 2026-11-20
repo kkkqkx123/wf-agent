@@ -148,7 +148,9 @@ pub struct UndoPreview {
 /// Scope: rewrites workspace files between the start and end state
 /// checkpoints via selective materialization. It never touches live
 /// execution state, never deletes or rewrites checkpoint records, and never
-/// moves edit refs or the redo stack. Callers needing an audit trail should
+/// moves edit refs or the redo stack. The edit-ref pointer family
+/// (`undo_edit` / `redo_edit`) is a separate mechanism with its own audit
+/// journal. Callers needing an audit trail for this file-only undo should
 /// create an explicit workspace checkpoint around the call.
 pub async fn preview_undo_last_input(
     ctx: &ApiContext,

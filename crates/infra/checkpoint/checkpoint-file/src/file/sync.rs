@@ -841,14 +841,31 @@ impl FileCheckpointManager {
             Some("sync-import"),
             &trailers,
         );
-        let storage = self.storage_ref()?;
-        let outcome = git
-            .commit_on_ref(REF_HUMAN, &changes, "human", &message)
-            .map_err(map_git_error)?;
+        let mut paths: Vec<String> = changes.keys().cloned().collect();
+        paths.sort();
+        let outcome = self.commit_on_ref_journaled(
+            REF_HUMAN,
+            &changes,
+            "human",
+            &message,
+            crate::file::journal::JournalCommitSpec {
+                kind: crate::storage::RefOperationKind::ExternalSync,
+                reason: "import external commit".to_string(),
+                actor: "human".to_string(),
+                session: String::new(),
+                tool: "sync-import".to_string(),
+                source_index: Some((
+                    "human".to_string(),
+                    String::new(),
+                    "sync-import".to_string(),
+                    paths,
+                )),
+                clear_redo_actor: None,
+                latest_actor: None,
+                related_refs: Vec::new(),
+            },
+        )?;
         if outcome.created {
-            let mut paths: Vec<String> = changes.keys().cloned().collect();
-            paths.sort();
-            self.index_commit(storage, &outcome.id, "human", "", "sync-import", &paths)?;
             for (path, change) in &changes {
                 let bytes = change.as_ref().map(|(_, b)| b.as_slice());
                 self.publish_file_event(&outcome.id, path, "human", bytes);

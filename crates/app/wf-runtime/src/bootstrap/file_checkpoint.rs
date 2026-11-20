@@ -19,6 +19,9 @@ pub fn init_file_checkpoint_manager(
     match wf_checkpoint::FileCheckpointManager::open_from_config(config) {
         Ok(manager) => {
             info!("File checkpoint manager initialized (layertwine Sqlite)");
+            let bus = wf_checkpoint::event::CheckpointEventBus::new();
+            let handle = crate::checkpoint_event_bridge::spawn(event_bus, bus.clone());
+            let manager = manager.with_event_bus(bus);
             match manager.retry_pending_state_file_links() {
                 Ok(0) => {}
                 Ok(recovered) => {
@@ -31,9 +34,20 @@ pub fn init_file_checkpoint_manager(
                     tracing::warn!("Failed to recover pending state-to-file links: {err}");
                 }
             }
-            let bus = wf_checkpoint::event::CheckpointEventBus::new();
-            let handle = crate::checkpoint_event_bridge::spawn(event_bus, bus.clone());
-            let manager = manager.with_event_bus(bus);
+            match manager.reconcile_ref_operations() {
+                Ok(report) if report == wf_checkpoint::RefReconcileReport::default() => {}
+                Ok(report) => {
+                    info!(
+                        applied = report.applied,
+                        abandoned = report.abandoned,
+                        diverged = report.diverged,
+                        "Reconciled interrupted ref operations"
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to reconcile ref operations: {err}");
+                }
+            }
             Ok((Some(manager), Some(handle)))
         }
         Err(err) => Err(crate::error::RuntimeError::Config(format!(

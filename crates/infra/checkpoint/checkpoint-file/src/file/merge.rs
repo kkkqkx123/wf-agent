@@ -81,7 +81,9 @@ impl FileCheckpointManager {
             Some(found) => found,
             None => self.submit_for_review(entity_id)?,
         };
-        self.merge_review_into_feature(&review_ref, &review_head, feature_name, actor.as_str())
+        Ok(self
+            .merge_review_into_feature(&review_ref, &review_head, feature_name, actor.as_str())?
+            .outcome)
     }
 
     /// Merge each named feature into main in input order, one independent
@@ -118,6 +120,21 @@ impl FileCheckpointManager {
         &self,
         feature_names: &[&str],
         options: &FeatureMergeOptions,
+    ) -> Result<MergeCommitResult, CheckpointError> {
+        self.merge_features_to_main_with_behavior(
+            feature_names,
+            options,
+            self.policy.conflict_behavior,
+        )
+    }
+
+    /// Merge features into main under an explicit conflict behavior, using
+    /// the same decision point as approvals and agent-completion merges.
+    pub fn merge_features_to_main_with_behavior(
+        &self,
+        feature_names: &[&str],
+        options: &FeatureMergeOptions,
+        behavior: wf_types::config::file_checkpoint::ConflictBehavior,
     ) -> Result<MergeCommitResult, CheckpointError> {
         for feature in feature_names {
             crate::branch::ensure_feature_branch_name(feature)?;
@@ -176,10 +193,33 @@ impl FileCheckpointManager {
             // Sequential merges use the caller's actor label when one is
             // known; merges are content-addressed so the label only feeds
             // the commit trailer.
-            match self.merge_feature_into_main(feature, "merge") {
-                Ok(outcome) => {
-                    completed.push((*feature).to_string());
-                    last = Some(outcome);
+            match self.merge_feature_into_main_with_behavior(feature, "merge", behavior) {
+                Ok(execution) => {
+                    let outcome = execution.outcome;
+                    if !execution.merged {
+                        return Ok(MergeCommitResult {
+                            checkpoint_id: outcome.commit_id.clone(),
+                            merge_result: outcome,
+                        });
+                    }
+                    if !outcome.has_conflicts() {
+                        completed.push((*feature).to_string());
+                        last = Some(outcome);
+                        continue;
+                    }
+                    let mut files = outcome.conflict_files.clone();
+                    files.sort();
+                    if options.atomic && !completed.is_empty() {
+                        return Err(CheckpointError::PartialMerge {
+                            completed,
+                            actor: "merge".to_string(),
+                            files,
+                        });
+                    }
+                    return Err(CheckpointError::MergeConflict {
+                        actor: "merge".to_string(),
+                        files,
+                    });
                 }
                 Err(CheckpointError::MergeConflict { actor, files })
                     if options.atomic && !completed.is_empty() =>
@@ -210,9 +250,7 @@ impl FileCheckpointManager {
         &self,
         feature_names: &[&str],
     ) -> Result<Vec<FeatureMergePreview>, CheckpointError> {
-        use crate::git_store::{
-            merge_file_maps, REF_MAIN, STATE_CONFLICT_UNRESOLVED, TRAILER_STATE,
-        };
+        use crate::git_store::{REF_MAIN, STATE_CONFLICT_UNRESOLVED, TRAILER_STATE};
         for feature in feature_names {
             crate::branch::ensure_feature_branch_name(feature)?;
         }
@@ -281,11 +319,16 @@ impl FileCheckpointManager {
                 },
                 None => std::collections::HashMap::new(),
             };
-            let (_, conflicts) = merge_file_maps(&base_tree, &main_tree, &feature_tree);
+            let plan = crate::file::git_merge::compute_merge_plan(
+                &base_tree,
+                &main_tree,
+                &feature_tree,
+                false,
+            );
             previews.push(FeatureMergePreview {
                 feature: (*feature).to_string(),
-                would_conflict: !conflicts.is_empty(),
-                conflict_files: conflicts,
+                would_conflict: !plan.conflicts.is_empty(),
+                conflict_files: plan.conflicts,
                 reason: None,
             });
         }
@@ -302,8 +345,21 @@ impl FileCheckpointManager {
         let merged = self.merge_features_to_main(feature_names)?;
         let git = self.git_ref()?;
         for name in feature_names {
-            git.delete_ref(&feat_ref_for_name(name))
-                .map_err(map_git_error)?;
+            let refname = feat_ref_for_name(name);
+            let old = git.read_ref(&refname).map_err(map_git_error)?;
+            let spec = crate::file::journal::RefUpdateSpec {
+                kind: crate::storage::RefOperationKind::FeatureMerge,
+                reason: format!("drop merged feature ref '{name}'"),
+                actor: "merge".to_string(),
+                session: String::new(),
+                tool: "merge".to_string(),
+                ref_name: refname.clone(),
+                old_id: old,
+                new_id: None,
+                related_refs: vec![crate::git_store::REF_MAIN.to_string()],
+                effects: crate::storage::JournalEffects::default(),
+            };
+            self.journaled_ref_update(spec, |_| git.delete_ref(&refname))?;
         }
         Ok(merged)
     }
@@ -408,6 +464,10 @@ impl FileCheckpointManager {
             packed_objects: 0,
         };
         stats.removed_edit_refs = self.collect_merged_edit_refs() as u64;
+        let cutoff = chrono::Utc::now().timestamp_millis() - Self::JOURNAL_RETENTION_MS;
+        if let Err(err) = self.compact_ref_operations(cutoff) {
+            tracing::warn!(error = %err, "ref journal compaction failed; unsettled records stay intact");
+        }
         stats.packed_objects = self.pack_loose_objects().unwrap_or(0) as u64;
         self.record_last_gc();
         if let Some(ref metrics) = self.checkpoint_metrics() {
@@ -718,8 +778,32 @@ impl FileCheckpointManager {
                     Ok(equal)
                 })
                 .unwrap_or(false);
-            if merged && git.delete_ref(&name).is_ok() {
-                removed += 1;
+            if merged {
+                let spec = crate::file::journal::RefUpdateSpec {
+                    kind: crate::storage::RefOperationKind::GcRefCleanup,
+                    reason: "drop edit ref fully merged into main".to_string(),
+                    actor: name
+                        .strip_prefix(crate::git_store::REF_EDIT_PREFIX)
+                        .unwrap_or(&name)
+                        .to_string(),
+                    session: String::new(),
+                    tool: "gc".to_string(),
+                    ref_name: name.clone(),
+                    old_id: Some(head.clone()),
+                    new_id: None,
+                    related_refs: Vec::new(),
+                    effects: crate::file::journal::redo_effects(
+                        name.strip_prefix(crate::git_store::REF_EDIT_PREFIX)
+                            .unwrap_or(&name),
+                        Vec::new(),
+                    ),
+                };
+                if self
+                    .journaled_ref_update(spec, |_| git.delete_ref(&name))
+                    .is_ok()
+                {
+                    removed += 1;
+                }
             }
         }
         removed
@@ -728,6 +812,9 @@ impl FileCheckpointManager {
     /// Loose-object count above which a packfile compaction is worth its
     /// cost. Below the threshold the per-object fan-out is harmless and
     /// packing would churn the store on every GC run.
+    /// Settled journal rows older than thirty days are compacted with GC.
+    const JOURNAL_RETENTION_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
     const PACK_THRESHOLD: usize = 1024;
 
     /// Fold loose objects into one packfile to cut inode and directory

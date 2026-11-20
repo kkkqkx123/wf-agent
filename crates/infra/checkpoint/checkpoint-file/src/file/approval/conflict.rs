@@ -119,9 +119,32 @@ impl FileCheckpointManager {
                 &message,
             )
             .map_err(map_git_error)?;
-        git.compare_and_swap(&feature_ref, Some(head.as_str()), &id)
-            .map_err(map_git_error)?;
-        self.index_commit(storage, &id, actor.as_str(), "", "review", &paths)?;
+        let spec = crate::file::journal::RefUpdateSpec {
+            kind: crate::storage::RefOperationKind::ConflictResolve,
+            reason: format!("resolve conflicts on feature '{feature_name}'"),
+            actor: actor.as_str().to_string(),
+            session: String::new(),
+            tool: "review".to_string(),
+            ref_name: feature_ref.clone(),
+            old_id: Some(head.clone()),
+            new_id: Some(id.clone()),
+            related_refs: Vec::new(),
+            effects: crate::file::journal::index_effects(crate::storage::SourceIndexEntry {
+                commit_id: id.clone(),
+                actor: actor.as_str().to_string(),
+                session: String::new(),
+                tool: "review".to_string(),
+                paths: paths.clone(),
+                timestamp: self.creation_timestamp()?,
+            }),
+        };
+        self.journaled_ref_update(spec, |update| {
+            git.compare_and_swap(
+                &update.ref_name,
+                update.old_id.as_deref(),
+                update.new_id.as_deref().unwrap_or_default(),
+            )
+        })?;
         for (path, content) in &resolved_contents {
             self.publish_file_event(&id, path, actor.as_str(), Some(content.as_slice()));
         }

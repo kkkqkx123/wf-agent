@@ -65,6 +65,29 @@ CREATE TABLE IF NOT EXISTS redo_stacks (
     updated_at      INTEGER NOT NULL
 );
 
+-- Auditable ref-pointer operations. The Git ref remains authoritative;
+-- attached state is stored as final values so reconciliation is idempotent.
+CREATE TABLE IF NOT EXISTS ref_operations (
+    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
+    op_id           TEXT NOT NULL UNIQUE,
+    op_type         TEXT NOT NULL,
+    reason          TEXT NOT NULL DEFAULT '',
+    actor           TEXT NOT NULL DEFAULT '',
+    session         TEXT NOT NULL DEFAULT '',
+    tool            TEXT NOT NULL DEFAULT '',
+    ref_name        TEXT NOT NULL,
+    old_id          TEXT,
+    new_id          TEXT,
+    related_refs    BLOB NOT NULL,
+    side_effects    BLOB NOT NULL,
+    status          TEXT NOT NULL,
+    created_at      INTEGER NOT NULL,
+    completed_at    INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_ref_operations_ref_seq ON ref_operations(ref_name, seq);
+CREATE INDEX IF NOT EXISTS idx_ref_operations_status ON ref_operations(status);
+
 DROP TABLE IF EXISTS input_snapshots;
 ";
 
@@ -127,6 +150,7 @@ mod tests {
             "source_index",
             "source_index_paths",
             "redo_stacks",
+            "ref_operations",
         ] {
             assert!(
                 tables.contains(&expected.to_string()),
@@ -146,7 +170,13 @@ mod tests {
         apply_light_migrations(&conn).unwrap();
 
         let tables = table_names(&conn);
-        for expected in ["review_state", "empty_dirs", "source_index", "redo_stacks"] {
+        for expected in [
+            "review_state",
+            "empty_dirs",
+            "source_index",
+            "redo_stacks",
+            "ref_operations",
+        ] {
             assert!(
                 tables.contains(&expected.to_string()),
                 "missing table {expected}"

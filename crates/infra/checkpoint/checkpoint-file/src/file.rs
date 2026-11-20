@@ -4,6 +4,7 @@ pub mod checkpoint;
 pub mod git_merge;
 pub mod git_read;
 pub mod git_write;
+pub(crate) mod journal;
 pub mod manager;
 pub mod merge;
 pub(crate) mod redo_store;

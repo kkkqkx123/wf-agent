@@ -54,14 +54,23 @@ impl FileCheckpointManager {
             blobs.push((path.clone(), blob));
             changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes)));
         }
-        let outcome = git
-            .commit_on_ref(
-                &refname,
-                &changes,
-                "context-archive",
-                "context archive write",
-            )
-            .map_err(crate::file::git_write::map_git_error)?;
+        let outcome = self.commit_on_ref_journaled(
+            &refname,
+            &changes,
+            "context-archive",
+            "context archive write",
+            crate::file::journal::JournalCommitSpec {
+                kind: crate::storage::RefOperationKind::ContextArchive,
+                reason: "context archive write".to_string(),
+                actor: "context-archive".to_string(),
+                session: entity_id.to_string(),
+                tool: String::new(),
+                source_index: None,
+                clear_redo_actor: None,
+                latest_actor: None,
+                related_refs: Vec::new(),
+            },
+        )?;
         if let Ok(files) = self.archive_export(entity_id) {
             match hash_file_archive(&files) {
                 Ok(hash) => self.notify_revision(entity_id, hash),
@@ -205,14 +214,23 @@ impl FileCheckpointManager {
             blobs.push((path.clone(), blob));
             changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes)));
         }
-        let outcome = git
-            .commit_on_ref(
-                &refname,
-                &changes,
-                "context-archive",
-                "context archive replace",
-            )
-            .map_err(crate::file::git_write::map_git_error)?;
+        let outcome = self.commit_on_ref_journaled(
+            &refname,
+            &changes,
+            "context-archive",
+            "context archive replace",
+            crate::file::journal::JournalCommitSpec {
+                kind: crate::storage::RefOperationKind::ContextArchive,
+                reason: "context archive replace".to_string(),
+                actor: "context-archive".to_string(),
+                session: entity_id.to_string(),
+                tool: String::new(),
+                source_index: None,
+                clear_redo_actor: None,
+                latest_actor: None,
+                related_refs: Vec::new(),
+            },
+        )?;
         Ok(ArchiveWriteOutcome {
             commit: outcome.id,
             blobs,

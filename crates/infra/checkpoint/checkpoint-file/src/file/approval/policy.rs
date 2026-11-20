@@ -48,6 +48,14 @@ impl FileCheckpointManager {
             crate::file::ApprovalPolicy::Auto => {
                 let feature = Self::default_feature_name(entity_id);
                 match self.merge_entity_changes(entity_id, &feature) {
+                    // A deferred conflict leaves the review pending; no
+                    // feature commit exists to report as an auto merge.
+                    Ok(merged)
+                        if self.policy.conflict_behavior == ConflictBehavior::Approval
+                            && merged.merge_result.has_conflicts() =>
+                    {
+                        Ok(None)
+                    }
                     Ok(merged) => Ok(Some(merged.merge_result)),
                     Err(err) => {
                         tracing::warn!("auto approval failed after successful execution: {err}");

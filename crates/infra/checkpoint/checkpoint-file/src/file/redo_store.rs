@@ -17,6 +17,13 @@ use checkpoint_base::error::CheckpointError;
 /// metadata database without bound.
 pub(crate) const MAX_REDO_ENTRIES: usize = 50;
 
+fn cap_entries(entries: &mut Vec<String>) {
+    if entries.len() > MAX_REDO_ENTRIES {
+        let excess = entries.len() - MAX_REDO_ENTRIES;
+        entries.drain(0..excess);
+    }
+}
+
 /// Per-actor redo history with a durable mirror.
 pub(crate) struct RedoStackStore {
     stacks: DashMap<String, Vec<String>>,
@@ -42,11 +49,13 @@ impl RedoStackStore {
     /// Record one undone commit id for the actor and persist the stack. The
     /// memory mirror is updated first so it stays consistent with the ref
     /// move even when the durable write fails (the error still surfaces).
+    #[allow(dead_code)]
     pub(crate) fn push(&self, actor: &str, id: String) -> Result<(), CheckpointError> {
         self.push_many(actor, std::iter::once(id))
     }
 
     /// Record a run of undone commit ids (newest last) and persist once.
+    #[allow(dead_code)]
     pub(crate) fn push_many(
         &self,
         actor: &str,
@@ -67,6 +76,62 @@ impl RedoStackStore {
         Ok(())
     }
 
+    /// Final snapshot after appending one id to the actor's stack, without
+    /// mutating it. Journal records carry this absolute value so replay can
+    /// set the stack directly instead of pushing twice.
+    pub(crate) fn snapshot_after_push(&self, actor: &str, id: &str) -> Vec<String> {
+        let mut entries = self.entries(actor);
+        entries.push(id.to_string());
+        cap_entries(&mut entries);
+        entries
+    }
+
+    /// Final snapshot after appending a run of ids (newest last).
+    pub(crate) fn snapshot_after_push_many(
+        &self,
+        actor: &str,
+        ids: impl IntoIterator<Item = String>,
+    ) -> Vec<String> {
+        let mut entries = self.entries(actor);
+        entries.extend(ids);
+        cap_entries(&mut entries);
+        entries
+    }
+
+    /// Final snapshot after removing the most recent id.
+    pub(crate) fn snapshot_after_pop(&self, actor: &str) -> Vec<String> {
+        let mut entries = self.entries(actor);
+        entries.pop();
+        entries
+    }
+
+    /// Current entries for one actor, without changing memory or storage.
+    pub(crate) fn entries(&self, actor: &str) -> Vec<String> {
+        self.stacks
+            .get(actor)
+            .map(|stack| stack.value().clone())
+            .unwrap_or_default()
+    }
+
+    /// Install a complete stack snapshot. Used by both the normal ref path
+    /// and startup reconciliation; setting the same value twice is safe.
+    pub(crate) fn set_snapshot(
+        &self,
+        actor: &str,
+        entries: &[String],
+    ) -> Result<(), CheckpointError> {
+        let mut capped = entries.to_vec();
+        cap_entries(&mut capped);
+        if capped.is_empty() {
+            self.stacks.remove(actor);
+            self.storage.clear_stored_redo_stack(actor)?;
+            return Ok(());
+        }
+        self.stacks.insert(actor.to_string(), capped.clone());
+        self.storage.store_redo_stack(actor, &capped)?;
+        Ok(())
+    }
+
     /// The most recently undone commit id, without removing it.
     pub(crate) fn last(&self, actor: &str) -> Option<String> {
         self.stacks
@@ -77,6 +142,7 @@ impl RedoStackStore {
     /// Remove and return the most recently undone commit id, persisting the
     /// shortened stack. The memory mirror is updated before the durable
     /// write so a store failure never leaves the process out of sync.
+    #[allow(dead_code)]
     pub(crate) fn pop(&self, actor: &str) -> Result<Option<String>, CheckpointError> {
         let (popped, snapshot) = match self.stacks.get_mut(actor) {
             Some(mut entry) => {
@@ -99,6 +165,7 @@ impl RedoStackStore {
     }
 
     /// Discard the actor's redo history (a new commit supersedes it).
+    #[allow(dead_code)]
     pub(crate) fn clear(&self, actor: &str) -> Result<(), CheckpointError> {
         if self.stacks.remove(actor).is_none() {
             return Ok(());

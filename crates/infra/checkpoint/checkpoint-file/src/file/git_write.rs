@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use crate::event::CheckpointEventBus;
+use crate::file::journal::JournalCommitSpec;
 use crate::file::util::{compute_full_hash, sha256_hex, validate_workspace_relative_path};
 use crate::file::{FileCheckpoint, FileState};
 use crate::git_store::{
@@ -74,8 +75,6 @@ impl FileCheckpointManager {
         tool: Option<&str>,
         intent: &str,
     ) -> Result<GitWriteOutcome, CheckpointError> {
-        let git = self.git_ref()?;
-        let storage = self.storage_ref()?;
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> =
             HashMap::with_capacity(files.len());
         let mut paths: Vec<String> = Vec::with_capacity(files.len());
@@ -90,23 +89,32 @@ impl FileCheckpointManager {
         paths.sort();
         let refname = edit_ref_for_actor(actor.as_str());
         let message = commit_message(intent, Some(actor.as_str()), session, tool, &[]);
-        let CommitOnRefOutcome { id, created } = git
-            .commit_on_ref(&refname, &changes, actor.as_str(), &message)
-            .map_err(map_git_error)?;
-        if created {
-            self.index_commit(
-                storage,
-                &id,
-                actor.as_str(),
-                session.unwrap_or(""),
-                tool.unwrap_or(""),
-                &paths,
-            )?;
-            self.store
-                .latest_checkpoints
-                .insert(actor.as_str().to_string(), id.clone());
-            self.redo_stacks.clear(actor.as_str())?;
-        }
+        let CommitOnRefOutcome { id, created } = self.commit_on_ref_journaled(
+            &refname,
+            &changes,
+            actor.as_str(),
+            &message,
+            JournalCommitSpec {
+                kind: if session.is_some() {
+                    crate::storage::RefOperationKind::EditGroupCommit
+                } else {
+                    crate::storage::RefOperationKind::FileCommit
+                },
+                reason: intent.to_string(),
+                actor: actor.as_str().to_string(),
+                session: session.unwrap_or_default().to_string(),
+                tool: tool.unwrap_or_default().to_string(),
+                source_index: Some((
+                    actor.as_str().to_string(),
+                    session.unwrap_or_default().to_string(),
+                    tool.unwrap_or_default().to_string(),
+                    paths.clone(),
+                )),
+                clear_redo_actor: Some(actor.as_str().to_string()),
+                latest_actor: Some(actor.as_str().to_string()),
+                related_refs: Vec::new(),
+            },
+        )?;
         for path in &paths {
             let bytes = files.get(path).and_then(|c| c.as_deref());
             if created {
@@ -114,46 +122,6 @@ impl FileCheckpointManager {
             }
         }
         Ok(GitWriteOutcome { id, created })
-    }
-
-    /// Record the source-index entry plus the empty-dir manifest hook for a
-    /// new commit. The index is acceleration-only and rebuildable. The
-    /// manifest is inherited from the commit's parents so linear history
-    /// keeps the last workspace-observed empty-directory set; worktree
-    /// scans overwrite it with a fresh measurement afterwards.
-    pub(crate) fn index_commit(
-        &self,
-        storage: &crate::storage::SqliteStorage,
-        commit_id: &str,
-        actor: &str,
-        session: &str,
-        tool: &str,
-        paths: &[String],
-    ) -> Result<(), CheckpointError> {
-        let timestamp = self
-            .git_ref()
-            .ok()
-            .and_then(|git| git.read_commit(commit_id).ok())
-            .map(|commit| commit.committer_ts)
-            .unwrap_or_else(|| self.creation_timestamp().unwrap_or(0));
-        storage.record_source_index(&crate::storage::SourceIndexEntry {
-            commit_id: commit_id.to_string(),
-            actor: actor.to_string(),
-            session: session.to_string(),
-            tool: tool.to_string(),
-            paths: paths.to_vec(),
-            timestamp,
-        })?;
-        self.inherit_empty_dirs_manifest(commit_id)?;
-        Ok(())
-    }
-
-    /// Non-scan commits do not inherit empty-dir manifests. Only worktree
-    /// scans observe the true empty set, so inheriting parent manifests here
-    /// would resurrect dirs deleted on disk. Scan paths store the observed
-    /// set explicitly.
-    fn inherit_empty_dirs_manifest(&self, _commit_id: &str) -> Result<(), CheckpointError> {
-        Ok(())
     }
 
     pub(crate) fn publish_file_event(
@@ -415,15 +383,33 @@ impl FileCheckpointManager {
             return Ok(None);
         }
         let message = commit_message("human edit poll", Some("human"), None, Some("watcher"), &[]);
-        let outcome = git
-            .commit_on_ref(REF_HUMAN, &changes, "human", &message)
-            .map_err(map_git_error)?;
+        let mut paths: Vec<String> = changes.keys().cloned().collect();
+        paths.sort();
+        let outcome = self.commit_on_ref_journaled(
+            REF_HUMAN,
+            &changes,
+            "human",
+            &message,
+            JournalCommitSpec {
+                kind: crate::storage::RefOperationKind::FileCommit,
+                reason: "human edit poll".to_string(),
+                actor: "human".to_string(),
+                session: String::new(),
+                tool: "watcher".to_string(),
+                source_index: Some((
+                    "human".to_string(),
+                    String::new(),
+                    "watcher".to_string(),
+                    paths,
+                )),
+                clear_redo_actor: None,
+                latest_actor: None,
+                related_refs: Vec::new(),
+            },
+        )?;
         if !outcome.created {
             return Ok(None);
         }
-        let mut paths: Vec<String> = changes.keys().cloned().collect();
-        paths.sort();
-        self.index_commit(storage, &outcome.id, "human", "", "watcher", &paths)?;
         // The poll just scanned the worktree: its empty-directory set is a
         // fresh measurement and replaces the inherited manifest.
         storage.store_empty_dirs(&outcome.id, &scan.empty_dirs)?;

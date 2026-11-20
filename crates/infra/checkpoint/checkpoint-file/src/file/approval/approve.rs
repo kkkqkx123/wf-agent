@@ -74,7 +74,6 @@ impl FileCheckpointManager {
             validated_paths.sort();
             validated_paths.dedup();
             let git = self.git_ref()?;
-            let storage = self.storage_ref()?;
             let feature_ref = feat_ref_for_name(feature_name);
             // Authoritative gate shared with the merge paths: trailers
             // decide, markers are display-only.
@@ -155,14 +154,15 @@ impl FileCheckpointManager {
                     message: "no approved files; changes remain pending".to_string(),
                 });
             }
-            if !conflict_files.is_empty() && conflict_behavior == ConflictBehavior::Fail {
+            if matches!(
+                crate::file::git_merge::decide_merge_conflict(conflict_behavior, &conflict_files),
+                crate::file::git_merge::MergeConflictDecision::Fail
+            ) {
+                let mut files = conflict_files.clone();
+                files.sort();
                 return Err(CheckpointError::MergeConflict {
                     actor: actor.as_str().to_string(),
-                    files: {
-                        let mut files = conflict_files.clone();
-                        files.sort();
-                        files
-                    },
+                    files,
                 });
             }
             let mut staged: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
@@ -235,16 +235,32 @@ impl FileCheckpointManager {
                     &message,
                 )
                 .map_err(map_git_error)?;
-            git.compare_and_swap(&feature_ref, feature_head.as_deref(), &id)
-                .map_err(map_git_error)?;
-            self.index_commit(
-                storage,
-                &id,
-                actor.as_str(),
-                &review_session,
-                "review",
-                &commit_paths,
-            )?;
+            let spec = crate::file::journal::RefUpdateSpec {
+                kind: crate::storage::RefOperationKind::ReviewMerge,
+                reason: "file-level approval".to_string(),
+                actor: actor.as_str().to_string(),
+                session: review_session.clone(),
+                tool: "review".to_string(),
+                ref_name: feature_ref.clone(),
+                old_id: feature_head.clone(),
+                new_id: Some(id.clone()),
+                related_refs: vec![review_ref.to_string()],
+                effects: crate::file::journal::index_effects(crate::storage::SourceIndexEntry {
+                    commit_id: id.clone(),
+                    actor: actor.as_str().to_string(),
+                    session: review_session.clone(),
+                    tool: "review".to_string(),
+                    paths: commit_paths.clone(),
+                    timestamp: self.creation_timestamp()?,
+                }),
+            };
+            self.journaled_ref_update(spec, |update| {
+                git.compare_and_swap(
+                    &update.ref_name,
+                    update.old_id.as_deref(),
+                    update.new_id.as_deref().unwrap_or_default(),
+                )
+            })?;
             for path in &commit_paths {
                 let bytes = merged_changes.get(path).and_then(|c| c.as_deref());
                 self.publish_file_event(&id, path, actor.as_str(), bytes);
@@ -347,162 +363,95 @@ impl FileCheckpointManager {
             });
         }
 
-        if conflict_behavior == ConflictBehavior::Fail {
-            let git = self.git_ref()?;
-            let feature_ref = feat_ref_for_name(feature_name);
-            // Authoritative gate shared with the merge paths.
-            let status = self.conflict_status_for_ref(&feature_ref)?;
-            if status.unresolved {
-                return Err(CheckpointError::MergeConflict {
-                    actor: actor.as_str().to_string(),
-                    files: status.files,
-                });
-            }
-            let review_commit = git.read_commit(&review_head).map_err(map_git_error)?;
-            let review_tree = git
-                .tree_to_bytes(&review_commit.tree)
-                .map_err(map_git_error)?;
-            let feature_head = git.read_ref(&feature_ref).map_err(map_git_error)?;
-            let feature_tree: std::collections::HashMap<String, Vec<u8>> = match &feature_head {
-                Some(head) => {
-                    let commit = git.read_commit(head).map_err(map_git_error)?;
-                    git.tree_to_bytes(&commit.tree).map_err(map_git_error)?
-                }
-                None => std::collections::HashMap::new(),
-            };
-            let base_tree: std::collections::HashMap<String, Vec<u8>> = match &feature_head {
-                Some(feature) => match git
-                    .merge_base(feature, &review_head)
-                    .map_err(map_git_error)?
-                {
-                    Some(base) => {
-                        let commit = git.read_commit(&base).map_err(map_git_error)?;
-                        git.tree_to_bytes(&commit.tree).map_err(map_git_error)?
-                    }
-                    None => std::collections::HashMap::new(),
-                },
-                None => std::collections::HashMap::new(),
-            };
-            let (_, predicted) =
-                crate::git_store::merge_file_maps(&base_tree, &feature_tree, &review_tree);
-            if !predicted.is_empty() {
-                let mut files = predicted;
-                files.sort();
-                return Err(CheckpointError::MergeConflict {
-                    actor: actor.as_str().to_string(),
-                    files,
-                });
-            }
-        }
-
-        match self.merge_review_into_feature(
+        let execution = self.merge_review_into_feature_with_behavior(
             &review_ref,
             &review_head,
             feature_name,
             actor.as_str(),
-        ) {
-            Ok(merged) => {
-                let conflicts = to_conflict_views(&merged.details);
-                let mut conflict_files = merged.conflict_files.clone();
-                conflict_files.sort();
-                if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Fail {
-                    return Err(CheckpointError::MergeConflict {
-                        actor: actor.as_str().to_string(),
-                        files: conflict_files,
-                    });
-                }
-                if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Marker {
-                    if let Some(root) = workspace_root {
-                        for detail in &merged.details {
-                            let target = match resolve_restore_target(root, &detail.file) {
-                                Ok(v) => v,
-                                Err(err) => {
-                                    tracing::warn!(
-                                        "marker write skipped for '{}': {err}",
-                                        detail.file
-                                    );
-                                    continue;
-                                }
-                            };
-                            if let Some(parent) = target.parent() {
-                                if let Err(err) = std::fs::create_dir_all(parent) {
-                                    tracing::warn!(
-                                        "marker write skipped for '{}': {err}",
-                                        detail.file
-                                    );
-                                    continue;
-                                }
+            conflict_behavior,
+        )?;
+        if !execution.merged {
+            let mut files = execution.outcome.conflict_files.clone();
+            files.sort();
+            return Ok(MergeOutcome {
+                merged: false,
+                snapshot_id: review_head,
+                conflicts: to_conflict_views(&execution.outcome.details),
+                conflict_files: files,
+                message: "changes remain pending on the review ref".to_string(),
+            });
+        }
+        {
+            let merged = execution.outcome;
+            let conflicts = to_conflict_views(&merged.details);
+            let mut conflict_files = merged.conflict_files.clone();
+            conflict_files.sort();
+            if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Marker {
+                if let Some(root) = workspace_root {
+                    for detail in &merged.details {
+                        let target = match resolve_restore_target(root, &detail.file) {
+                            Ok(v) => v,
+                            Err(err) => {
+                                tracing::warn!("marker write skipped for '{}': {err}", detail.file);
+                                continue;
                             }
-                            let Ok(git) = self.git_ref() else {
-                                tracing::warn!(
-                                    "marker write skipped for '{}': store unavailable",
-                                    detail.file
-                                );
+                        };
+                        if let Some(parent) = target.parent() {
+                            if let Err(err) = std::fs::create_dir_all(parent) {
+                                tracing::warn!("marker write skipped for '{}': {err}", detail.file);
                                 continue;
-                            };
-                            let Ok(commit) = git.read_commit(&merged.commit_id) else {
-                                tracing::warn!(
-                                    "marker write skipped for '{}': commit unreadable",
-                                    detail.file
-                                );
-                                continue;
-                            };
-                            let Ok(files) = git.tree_to_bytes(&commit.tree) else {
-                                tracing::warn!(
-                                    "marker write skipped for '{}': tree unreadable",
-                                    detail.file
-                                );
-                                continue;
-                            };
-                            if let Some(bytes) = files.get(&detail.file) {
-                                if let Err(err) = std::fs::write(&target, bytes) {
-                                    tracing::warn!(
-                                        "marker write skipped for '{}': {err}",
-                                        detail.file
-                                    );
-                                }
+                            }
+                        }
+                        let Ok(git) = self.git_ref() else {
+                            tracing::warn!(
+                                "marker write skipped for '{}': store unavailable",
+                                detail.file
+                            );
+                            continue;
+                        };
+                        let Ok(commit) = git.read_commit(&merged.commit_id) else {
+                            tracing::warn!(
+                                "marker write skipped for '{}': commit unreadable",
+                                detail.file
+                            );
+                            continue;
+                        };
+                        let Ok(files) = git.tree_to_bytes(&commit.tree) else {
+                            tracing::warn!(
+                                "marker write skipped for '{}': tree unreadable",
+                                detail.file
+                            );
+                            continue;
+                        };
+                        if let Some(bytes) = files.get(&detail.file) {
+                            if let Err(err) = std::fs::write(&target, bytes) {
+                                tracing::warn!("marker write skipped for '{}': {err}", detail.file);
                             }
                         }
                     }
-                    if let Some(ref bus) = self.event_bus {
-                        bus.publish(CheckpointEventBus::merge_conflicted(
-                            merged.commit_id.clone(),
-                            conflict_files.clone(),
-                            Some(actor.as_str().to_string()),
-                        ));
-                    }
                 }
                 if let Some(ref bus) = self.event_bus {
-                    bus.publish(CheckpointEventBus::approval_resolved(
-                        actor.as_str().to_string(),
-                        ApprovalDecision::Approved,
+                    bus.publish(CheckpointEventBus::merge_conflicted(
                         merged.commit_id.clone(),
+                        conflict_files.clone(),
+                        Some(actor.as_str().to_string()),
                     ));
                 }
-                Ok(MergeOutcome {
-                    merged: true,
-                    snapshot_id: merged.commit_id.clone(),
-                    conflicts,
-                    conflict_files,
-                    message: "merged with conflicts".to_string(),
-                })
             }
-            Err(CheckpointError::MergeConflict { files, .. }) => {
-                if conflict_behavior == ConflictBehavior::Fail {
-                    return Err(CheckpointError::MergeConflict {
-                        actor: actor.as_str().to_string(),
-                        files,
-                    });
-                }
-                Ok(MergeOutcome {
-                    merged: false,
-                    snapshot_id: review_head,
-                    conflicts: vec![],
-                    conflict_files: files,
-                    message: "merge blocked by an unresolved feature conflict".to_string(),
-                })
+            if let Some(ref bus) = self.event_bus {
+                bus.publish(CheckpointEventBus::approval_resolved(
+                    actor.as_str().to_string(),
+                    ApprovalDecision::Approved,
+                    merged.commit_id.clone(),
+                ));
             }
-            Err(err) => Err(err),
+            Ok(MergeOutcome {
+                merged: true,
+                snapshot_id: merged.commit_id.clone(),
+                conflicts,
+                conflict_files,
+                message: "merged with conflicts".to_string(),
+            })
         }
     }
 

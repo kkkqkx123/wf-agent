@@ -9,54 +9,19 @@ use checkpoint_base::error::CheckpointError;
 use super::types::ConflictFile;
 
 /// Parse standard conflict markers from stored bytes into read views.
-/// Handles both diff3 markers (with an `||||||| base` section) and legacy
-/// two-way markers (no base section).
+/// The marker state machine lives in `file::git_merge`; this function only
+/// maps its neutral intervals into the provenance view type.
 pub fn parse_marker_conflicts(path: &str, bytes: &[u8]) -> Vec<ConflictView> {
-    let text = String::from_utf8_lossy(bytes);
-    let mut out = Vec::new();
-    let mut ours: Vec<String> = Vec::new();
-    let mut base: Vec<String> = Vec::new();
-    let mut theirs: Vec<String> = Vec::new();
-    let mut state = 0u8;
-    let mut start_line = 0usize;
-    for (idx, line) in text.lines().enumerate() {
-        match (state, line) {
-            (0, "<<<<<<< ours") => {
-                state = 1;
-                start_line = idx;
-                ours.clear();
-                base.clear();
-                theirs.clear();
-            }
-            (1, l) if l.starts_with("|||||||") => state = 3,
-            (1, "=======") => state = 2,
-            (3, "=======") => state = 2,
-            (2, l) if l.starts_with(">>>>>>>") => {
-                state = 0;
-                out.push(ConflictView {
-                    file: path.to_string(),
-                    start_line,
-                    base: std::mem::take(&mut base),
-                    ours: std::mem::take(&mut ours),
-                    theirs: std::mem::take(&mut theirs),
-                });
-            }
-            (1, l) => ours.push(l.to_string()),
-            (3, l) => base.push(l.to_string()),
-            (2, l) => theirs.push(l.to_string()),
-            _ => {}
-        }
-    }
-    if state != 0 {
-        out.push(ConflictView {
+    crate::file::git_merge::parse_conflict_regions(bytes)
+        .into_iter()
+        .map(|region| ConflictView {
             file: path.to_string(),
-            start_line,
-            base: std::mem::take(&mut base),
-            ours: std::mem::take(&mut ours),
-            theirs: std::mem::take(&mut theirs),
-        });
-    }
-    out
+            start_line: region.start_line,
+            base: region.base_lines,
+            ours: region.ours_lines,
+            theirs: region.theirs_lines,
+        })
+        .collect()
 }
 
 /// List files with unresolved merge conflicts across main, every feature

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::file::git_write::{map_git_error, PendingEditBatch};
 use crate::file::FileCheckpointManager;
-use crate::git_store::edit_ref_for_actor;
+use crate::git_store::{edit_ref_for_actor, GitStoreError};
 use checkpoint_base::actor::id::ActorId;
 use checkpoint_base::error::CheckpointError;
 
@@ -282,22 +282,51 @@ impl FileCheckpointManager {
         let git = self.git_ref()?;
         let refname = edit_ref_for_actor(actor.as_str());
         let target = group_id.to_string();
-        // Bounded read-verify-swap loop: a concurrent writer moving the ref
-        // between our read and our swap retries with a fresh head instead of
-        // failing outright. Business outcomes (group not at head) return
-        // immediately and never retry; only version conflicts loop.
-        for _ in 0..=crate::git_store::MAX_COMMIT_CAS_RETRIES {
-            let head = git
-                .read_ref(&refname)
-                .map_err(map_git_error)?
-                .ok_or_else(|| CheckpointError::NotFound {
-                    id: format!("no commits for actor '{}'", actor.as_str()),
-                })?;
-            let mut cursor = head.clone();
-            let mut stepped = false;
-            let mut visited: Vec<String> = Vec::new();
+        let head = git
+            .read_ref(&refname)
+            .map_err(map_git_error)?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: format!("no commits for actor '{}'", actor.as_str()),
+            })?;
+        let head_commit = git.read_commit(&head).map_err(map_git_error)?;
+        if head_commit
+            .trailer(crate::git_store::TRAILER_SESSION)
+            .as_deref()
+            != Some(target.as_str())
+        {
+            return Err(CheckpointError::Validation {
+                reason: format!(
+                    "edit group {group_id} is not at the head of '{}' (head is '{head}'); retry after the head moves or escalate",
+                    actor.as_str()
+                ),
+            });
+        }
+        let deleted = std::cell::Cell::new(false);
+        let spec = crate::file::journal::RefUpdateSpec {
+            kind: crate::storage::RefOperationKind::EditGroupRollback,
+            reason: format!("roll back edit group {group_id}"),
+            actor: actor.as_str().to_string(),
+            session: target.clone(),
+            tool: "undo".to_string(),
+            ref_name: refname.clone(),
+            old_id: Some(head.clone()),
+            new_id: Some(head.clone()),
+            related_refs: Vec::new(),
+            effects: crate::file::journal::redo_effects_with_head(
+                actor.as_str(),
+                self.redo_stacks.entries(actor.as_str()),
+                Some(head.clone()),
+            ),
+        };
+        self.journaled_ref_update(spec, |update| {
+            let current = update
+                .old_id
+                .as_deref()
+                .ok_or_else(|| GitStoreError::InvalidInput("edit ref disappeared".to_string()))?;
+            let mut cursor = current.to_string();
+            let mut visited = Vec::new();
             loop {
-                let commit = git.read_commit(&cursor).map_err(map_git_error)?;
+                let commit = git.read_commit(&cursor)?;
                 if commit.trailer(crate::git_store::TRAILER_SESSION).as_deref()
                     != Some(target.as_str())
                 {
@@ -305,61 +334,43 @@ impl FileCheckpointManager {
                 }
                 visited.push(cursor.clone());
                 let Some(parent) = commit.parents.first().cloned() else {
-                    // Re-verify before the unconditional delete so a
-                    // concurrent writer's ref is never dropped silently; a
-                    // mismatch retries with the fresh head.
-                    let current = git.read_ref(&refname).map_err(map_git_error)?;
-                    if current.as_deref() != Some(head.as_str()) {
-                        break;
-                    }
-                    git.delete_ref(&refname).map_err(map_git_error)?;
-                    self.redo_stacks.push_many(actor.as_str(), visited)?;
-                    self.store.latest_checkpoints.remove(actor.as_str());
-                    return Err(CheckpointError::NotFound {
-                        id: format!("no commits for actor '{}'", actor.as_str()),
-                    });
+                    deleted.set(true);
+                    update.new_id = None;
+                    update.effects = crate::file::journal::redo_effects_with_head(
+                        actor.as_str(),
+                        self.redo_stacks
+                            .snapshot_after_push_many(actor.as_str(), visited),
+                        None,
+                    );
+                    return git.delete_ref(&update.ref_name);
                 };
                 cursor = parent;
-                stepped = true;
             }
-            if !stepped {
-                // Either the group is not at the head (business outcome, no
-                // retry) or the parentless pre-delete check raced (retry by
-                // falling through to the swap, which re-verifies).
-                let commit = git.read_commit(&head).map_err(map_git_error)?;
-                if commit.trailer(crate::git_store::TRAILER_SESSION).as_deref()
-                    != Some(target.as_str())
-                {
-                    // Report the current head so the caller can retry
-                    // later or escalate; see `edit_group_head_status` for
-                    // the non-moving query form.
-                    return Err(CheckpointError::Validation {
-                        reason: format!(
-                            "edit group {group_id} is not at the head of '{}' (head is '{head}'); retry after the head moves or escalate",
-                            actor.as_str()
-                        ),
-                    });
-                }
-                continue;
+            if cursor == current {
+                return Err(GitStoreError::RefConflict(refname.clone()));
             }
-            if cursor == head {
-                return Ok(head);
-            }
-            match git.compare_and_swap(&refname, Some(head.as_str()), &cursor) {
-                Ok(()) => {
-                    self.redo_stacks.push_many(actor.as_str(), visited)?;
-                    self.store
-                        .latest_checkpoints
-                        .insert(actor.as_str().to_string(), cursor.clone());
-                    return Ok(cursor);
-                }
-                Err(crate::git_store::GitStoreError::RefConflict(_)) => continue,
-                Err(other) => return Err(map_git_error(other)),
-            }
+            update.new_id = Some(cursor.clone());
+            update.effects = crate::file::journal::redo_effects_with_head(
+                actor.as_str(),
+                self.redo_stacks
+                    .snapshot_after_push_many(actor.as_str(), visited),
+                Some(cursor.clone()),
+            );
+            git.compare_and_swap(
+                &update.ref_name,
+                update.old_id.as_deref(),
+                update.new_id.as_deref().unwrap_or_default(),
+            )
+        })?;
+        if deleted.get() {
+            return Err(CheckpointError::NotFound {
+                id: format!("no commits for actor '{}'", actor.as_str()),
+            });
         }
-        Err(CheckpointError::Branch(format!(
-            "concurrent ref update conflict on '{refname}'"
-        )))
+        let result = git.read_ref(&refname).map_err(map_git_error)?;
+        result.ok_or_else(|| CheckpointError::NotFound {
+            id: format!("no commits for actor '{}'", actor.as_str()),
+        })
     }
 
     /// Canonical pointer-move name for rolling back an edit group.
@@ -426,37 +437,62 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;
         let refname = edit_ref_for_actor(actor.as_str());
-        for _ in 0..=crate::git_store::MAX_COMMIT_CAS_RETRIES {
-            let head = git
-                .read_ref(&refname)
-                .map_err(map_git_error)?
-                .ok_or_else(|| CheckpointError::NotFound {
-                    id: format!("no commits for actor '{}'", actor.as_str()),
+        let head = git
+            .read_ref(&refname)
+            .map_err(map_git_error)?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: format!("no commits for actor '{}'", actor.as_str()),
+            })?;
+        let commit = git.read_commit(&head).map_err(map_git_error)?;
+        let parent =
+            commit
+                .parents
+                .first()
+                .cloned()
+                .ok_or_else(|| CheckpointError::Validation {
+                    reason: format!("actor '{}' has only the initial commit", actor.as_str()),
                 })?;
-            let commit = git.read_commit(&head).map_err(map_git_error)?;
-            let parent =
-                commit
-                    .parents
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| CheckpointError::Validation {
-                        reason: format!("actor '{}' has only the initial commit", actor.as_str()),
-                    })?;
-            match git.compare_and_swap(&refname, Some(head.as_str()), &parent) {
-                Ok(()) => {
-                    self.redo_stacks.push(actor.as_str(), head)?;
-                    self.store
-                        .latest_checkpoints
-                        .insert(actor.as_str().to_string(), parent.clone());
-                    return Ok(parent);
-                }
-                Err(crate::git_store::GitStoreError::RefConflict(_)) => continue,
-                Err(other) => return Err(map_git_error(other)),
-            }
-        }
-        Err(CheckpointError::Branch(format!(
-            "concurrent ref update conflict on '{refname}'"
-        )))
+        let redo = self.redo_stacks.snapshot_after_push(actor.as_str(), &head);
+        let spec = crate::file::journal::RefUpdateSpec {
+            kind: crate::storage::RefOperationKind::UndoEdit,
+            reason: "undo last edit".to_string(),
+            actor: actor.as_str().to_string(),
+            session: String::new(),
+            tool: "undo".to_string(),
+            ref_name: refname.clone(),
+            old_id: Some(head.clone()),
+            new_id: Some(parent.clone()),
+            related_refs: Vec::new(),
+            effects: crate::file::journal::redo_effects_with_head(
+                actor.as_str(),
+                redo,
+                Some(parent.clone()),
+            ),
+        };
+        self.journaled_ref_update(spec, |update| {
+            let current = update.old_id.as_deref().ok_or_else(|| {
+                crate::git_store::GitStoreError::InvalidInput("edit ref disappeared".to_string())
+            })?;
+            let commit = git.read_commit(current)?;
+            let target = commit.parents.first().cloned().ok_or_else(|| {
+                crate::git_store::GitStoreError::InvalidInput(
+                    "actor has only the initial commit".to_string(),
+                )
+            })?;
+            update.new_id = Some(target.clone());
+            update.effects = crate::file::journal::redo_effects_with_head(
+                actor.as_str(),
+                self.redo_stacks
+                    .snapshot_after_push(actor.as_str(), current),
+                Some(target.clone()),
+            );
+            git.compare_and_swap(
+                &update.ref_name,
+                update.old_id.as_deref(),
+                update.new_id.as_deref().unwrap_or_default(),
+            )
+        })?;
+        Ok(parent)
     }
 
     /// Redo the most recently undone commit on an actor's edit ref.
@@ -485,12 +521,33 @@ impl FileCheckpointManager {
                 current.as_deref().unwrap_or("<deleted>"),
             )));
         }
-        git.compare_and_swap(&refname, current.as_deref(), &next)
-            .map_err(map_git_error)?;
-        self.redo_stacks.pop(actor.as_str())?;
-        self.store
-            .latest_checkpoints
-            .insert(actor.as_str().to_string(), next.clone());
+        let redo = self.redo_stacks.snapshot_after_pop(actor.as_str());
+        let spec = crate::file::journal::RefUpdateSpec {
+            kind: crate::storage::RefOperationKind::RedoEdit,
+            reason: "redo last undone edit".to_string(),
+            actor: actor.as_str().to_string(),
+            session: String::new(),
+            tool: "redo".to_string(),
+            ref_name: refname.clone(),
+            old_id: current.clone(),
+            new_id: Some(next.clone()),
+            related_refs: Vec::new(),
+            effects: crate::file::journal::redo_effects_with_head(
+                actor.as_str(),
+                redo,
+                Some(next.clone()),
+            ),
+        };
+        self.journaled_ref_update(spec, |update| {
+            if update.old_id.as_ref() != expected_parent {
+                return Err(GitStoreError::RefConflict(refname.clone()));
+            }
+            git.compare_and_swap(
+                &update.ref_name,
+                update.old_id.as_deref(),
+                update.new_id.as_deref().unwrap_or_default(),
+            )
+        })?;
         Ok(next)
     }
 

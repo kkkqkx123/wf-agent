@@ -16,15 +16,16 @@ impl FileCheckpointManager {
         crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
         let (review_ref, review_head) = self.reuse_or_submit_review(entity_id)?;
-        let merge_result = self.merge_review_into_feature(
+        let execution = self.merge_review_into_feature_with_behavior(
             &review_ref,
             &review_head,
             feature_name,
             actor.as_str(),
+            self.policy.conflict_behavior,
         )?;
         Ok(MergeCommitResult {
-            checkpoint_id: merge_result.commit_id.clone(),
-            merge_result,
+            checkpoint_id: execution.outcome.commit_id.clone(),
+            merge_result: execution.outcome,
         })
     }
 }

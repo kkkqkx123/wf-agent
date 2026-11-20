@@ -41,7 +41,19 @@
 
 Git 无法廉价表达的数据存 SQLite(子模块:`repository`、`migrations`、`connection`、`meta`、`git_meta`、`redo`):
 
-- 审批状态、空目录清单、源索引缓存(source index)、状态→文件链接、KV 元数据。
+- 审批状态、空目录清单、源索引缓存(source index)、状态→文件链接、KV 元数据、ref 操作账本（`ref_operations`）。
+
+### ref 操作账本
+
+所有管理器发起的 `refs/wf/*` 指针变化都按“写 intent → ref CAS → 写附带状态 → 标记 applied”的顺序记录。账本保存操作序号、全局操作标识、actor/session/tool、目标 ref、CAS 期望旧值与新值、关联 ref、附带状态最终值、状态（intent/applied/abandoned/diverged）和时间戳。Git ref 与提交图仍是内容与当前 head 的唯一事实来源；账本只用于审计和幂等补偿。
+
+附带状态以最终值表达(例如 undo 记录回退后 redo 栈的完整内容),因此重复补偿不会重复追加或弹出。`RedoStackStore` 的完整快照写入供正常路径与启动对账共用。启动时在 manager 创建后、GC 启动前对账：CAS 未落地记 abandoned；已落地则重放附带状态并记 applied；无法连接当前 ref 链则记 diverged 并发事件，绝不自动改 ref。GC 只压缩超过保留期且已 applied 的记录，intent 与 diverged 永不自动删除。
+
+### 冲突策略与标记解析
+
+三方合并先从 base/ours/theirs 计算无副作用的合并计划(内容、冲突路径、真实标记区间),再由统一决策点按 `ConflictBehavior` 决定:`Marker` 创建冲突提交并移动 feature ref、`Fail` 在任何 ref 更新前失败、`Approval` 保持 pending 不进入合并执行。`merge_entity_changes`、`on_agent_complete` 的自动路径、整批/文件级审批和 feature→main 合入共用该决策。
+
+冲突标记只有一份区间解析器(`file/git_merge.rs`),`provenance` 的冲突视图直接映射其区间；`ConflictView::to_conflict_marker` 与 `inject_conflict_markers` 只负责展示与人工编辑，不参与门禁判定。
 
 ## Manager(file/manager 组合)
 
@@ -113,6 +125,16 @@ Manager 的行为按文件拆分:
 - 流程:Actor 把变更提交进审批层(`refs/wf/review/<id>`),人工批准或拒绝后合并进 feature 分支;手动审批模式下历史长度 > 1 即视为有待审批项。
 - 读模型(`PendingApproval`):Actor id(如 `agent:{loop_id}`)、审批快照 id(hex)、提交时间(Unix ms)、按文件分块的时序变更(`Vec<DeltaSummary>`)。
 - 冲突视图(`ConflictView`):三路合并冲突的读视图,`GitConflictDetail` / `GitConflictRegion` 从合并后的字节解析真实标记区间;二进制冲突只有文件级,不产生区间。
+
+## 回退机制边界
+
+| 机制 | 作用对象 | 是否移动 ref | 是否写工作区 | 是否可 redo | 是否新增历史 |
+| --- | --- | --- | --- | --- | --- |
+| `undo_edit` | 单个 Actor 的 edit ref | 是 | 否 | 是 | 否，指针回退 |
+| `apply_undo_last_input` | 工作区文件 | 否 | 是 | 否 | 否，不创建 checkpoint |
+| `revert_feature_on_main` | main 内容 | 是，追加提交 | 否 | 否 | 是，revert commit |
+| `resolve_conflicts` | feature 冲突内容 | 是，追加提交 | 可选 | 否 | 是，解决提交 |
+| 操作账本 | 操作事实与附带状态 | 否 | 否 | 否 | 是，仅审计记录 |
 
 ## 回收(gc.rs)
 

@@ -36,6 +36,7 @@ pub mod watcher;
 pub use approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
+pub use file::journal::RefReconcileReport;
 pub use file::merge::{FeatureMergeOptions, FeatureMergePreview, MergeCommitResult};
 pub use file::sync::{
     BaselineRebaseOutcome, BaselineSeedOutcome, BaselineStatus, ExportOptions, ExportOutcome,
@@ -58,4 +59,8 @@ pub use scope::ShellWindowGuard;
 pub use scope::ShellWindowOutcome;
 pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};
 pub use session::CheckpointSession;
+pub use storage::journal::{
+    JournalEffects, JournalRedoStack, JournalReviewState, RefOperationKind, RefOperationRecord,
+    RefOperationStatus,
+};
 pub use watcher::{normalize_absolute_path, FileChangeKind, FileChangeRecord, ManualChangeService};

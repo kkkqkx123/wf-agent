@@ -230,8 +230,6 @@ impl FileCheckpointManager {
     /// id (hex).
     pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
-        let git = self.git_ref()?;
-        let storage = self.storage_ref()?;
         let mut changes = HashMap::new();
         changes.insert(
             path.clone(),
@@ -244,18 +242,29 @@ impl FileCheckpointManager {
             Some("manual"),
             &[],
         );
-        let outcome = git
-            .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
-            .map_err(map_git_error)?;
+        let outcome = self.commit_on_ref_journaled(
+            crate::git_store::REF_HUMAN,
+            &changes,
+            "human",
+            &message,
+            crate::file::journal::JournalCommitSpec {
+                kind: crate::storage::RefOperationKind::FileCommit,
+                reason: "manual edit".to_string(),
+                actor: "human".to_string(),
+                session: String::new(),
+                tool: "manual".to_string(),
+                source_index: Some((
+                    "human".to_string(),
+                    String::new(),
+                    "manual".to_string(),
+                    vec![path.clone()],
+                )),
+                clear_redo_actor: None,
+                latest_actor: None,
+                related_refs: Vec::new(),
+            },
+        )?;
         if outcome.created {
-            self.index_commit(
-                storage,
-                &outcome.id,
-                "human",
-                "",
-                "manual",
-                std::slice::from_ref(&path),
-            )?;
             self.publish_file_event(&outcome.id, &path, "manual", Some(content));
         }
         Ok(outcome.id)
@@ -265,8 +274,6 @@ impl FileCheckpointManager {
     /// Returns the new commit id (hex).
     pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
-        let git = self.git_ref()?;
-        let storage = self.storage_ref()?;
         let mut changes = HashMap::new();
         changes.insert(path.clone(), None);
         let message = crate::git_store::commit_message(
@@ -276,18 +283,29 @@ impl FileCheckpointManager {
             Some("manual"),
             &[],
         );
-        let outcome = git
-            .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
-            .map_err(map_git_error)?;
+        let outcome = self.commit_on_ref_journaled(
+            crate::git_store::REF_HUMAN,
+            &changes,
+            "human",
+            &message,
+            crate::file::journal::JournalCommitSpec {
+                kind: crate::storage::RefOperationKind::FileCommit,
+                reason: "manual delete".to_string(),
+                actor: "human".to_string(),
+                session: String::new(),
+                tool: "manual".to_string(),
+                source_index: Some((
+                    "human".to_string(),
+                    String::new(),
+                    "manual".to_string(),
+                    vec![path.clone()],
+                )),
+                clear_redo_actor: None,
+                latest_actor: None,
+                related_refs: Vec::new(),
+            },
+        )?;
         if outcome.created {
-            self.index_commit(
-                storage,
-                &outcome.id,
-                "human",
-                "",
-                "manual",
-                std::slice::from_ref(&path),
-            )?;
             self.publish_file_event(&outcome.id, &path, "manual", None);
         }
         Ok(outcome.id)
@@ -301,11 +319,20 @@ impl FileCheckpointManager {
     pub fn discard_execution(&self, entity_id: &str) -> Result<(), CheckpointError> {
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;
-        git.delete_ref(&crate::git_store::edit_ref_for_actor(actor.as_str()))
-            .map_err(map_git_error)?;
-        self.store.latest_checkpoints.remove(actor.as_str());
-        self.redo_stacks.clear(actor.as_str())?;
-        Ok(())
+        let refname = crate::git_store::edit_ref_for_actor(actor.as_str());
+        let spec = crate::file::journal::RefUpdateSpec {
+            kind: crate::storage::RefOperationKind::GcRefCleanup,
+            reason: "discard execution edits".to_string(),
+            actor: actor.as_str().to_string(),
+            session: String::new(),
+            tool: "discard".to_string(),
+            ref_name: refname.clone(),
+            old_id: git.read_ref(&refname).map_err(map_git_error)?,
+            new_id: None,
+            related_refs: Vec::new(),
+            effects: crate::file::journal::redo_effects(actor.as_str(), Vec::new()),
+        };
+        self.journaled_ref_update(spec, |_| git.delete_ref(&refname))
     }
 
     /// Explicit rename entry point: delete the old path and write the new

@@ -230,7 +230,10 @@ pub fn rollback_edit_group(ctx: &ApiContext, actor: &str, group_id: &str) -> Api
         .map_err(ApiError::execution_with_source)
 }
 
-/// Undo the last edit on an actor's partition.
+/// Undo the last edit on an actor's partition: moves the actor's edit ref
+/// one commit back and records a redo snapshot in the ref operation journal.
+/// This is distinct from file-only `apply_undo_last_input`, which rewrites
+/// workspace files without moving refs or touching the redo stack.
 pub fn undo_edit(ctx: &ApiContext, actor: &str) -> ApiResult<String> {
     manager(ctx)?
         .undo_edit(actor)

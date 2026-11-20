@@ -41,6 +41,10 @@ pub enum AgentStreamEvent {
         /// available.
         #[serde(default)]
         error: Option<String>,
+        /// Stable machine-readable failure class, the same value the model
+        /// sees under `error.code`. `None` on success and on older servers.
+        #[serde(default)]
+        error_code: Option<String>,
         /// Frontend-facing summary produced alongside the full result.
         #[serde(default)]
         display: Option<wf_types::tool::DisplayPayload>,

@@ -45,6 +45,11 @@ pub enum ExecutionStreamEvent {
         /// available.
         #[serde(default)]
         error: Option<String>,
+        /// Stable machine-readable failure class, the same value the model
+        /// sees under `error.code`. `None` on success and on older servers;
+        /// frontends must branch on this instead of matching prose.
+        #[serde(default)]
+        error_code: Option<String>,
         /// Frontend-facing summary produced alongside the full result.
         /// `None` on older servers; frontends fall back to name-based
         /// inference and generic truncation.

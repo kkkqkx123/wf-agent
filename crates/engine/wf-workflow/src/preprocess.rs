@@ -1178,29 +1178,61 @@ mod tests {
 
     #[test]
     fn duplicate_fork_path_ids_emit_warning_but_stay_valid() {
-        let fork = |id: &str| WorkflowNode {
+        // Both definitions are valid standalone workflows on their own (every
+        // FORK is paired with a JOIN and points at an existing branch entry),
+        // yet they reuse the same fork `path_id`. Each definition validates
+        // independently, so the collision is only detectable — and only
+        // reported — on the flattened execution graph.
+        let fork = |id: &str, child: &str| WorkflowNode {
             id: id.to_string(),
             name: Some(id.to_string()),
             node_type: "FORK".to_string(),
-            inner: serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": "body"}]}),
+            inner: serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": child}]}),
+        };
+        let join = |id: &str| WorkflowNode {
+            id: id.to_string(),
+            name: Some(id.to_string()),
+            node_type: "JOIN".to_string(),
+            inner: serde_json::json!({"fork_path_ids": ["p1"]}),
         };
         let sub = graph(
-            vec![node("s2", "START"), fork("f2"), node("e2", "END")],
-            vec![edge("s2", "f2"), edge("f2", "e2")],
+            vec![
+                node("s2", "START"),
+                fork("f2", "b2"),
+                node("b2", "TOOL"),
+                join("j2"),
+                node("e2", "END"),
+            ],
+            vec![
+                edge("s2", "f2"),
+                edge("f2", "b2"),
+                edge("b2", "j2"),
+                edge("j2", "e2"),
+            ],
             Some("s2"),
             vec!["e2"],
+        );
+        // Guard the fixture itself: the embedded definition must be a valid
+        // standalone workflow, otherwise the collision warning below would be
+        // masked by real validation errors.
+        assert!(
+            GraphValidator::validate(sub.clone()).is_ok(),
+            "the embedded definition must be valid on its own: {:?}",
+            GraphValidator::validate(sub.clone()).err()
         );
         let g = graph(
             vec![
                 node("start", "START"),
-                fork("f1"),
+                fork("f1", "embed"),
                 embed_node("embed", &sub),
+                join("j1"),
                 node("end", "END"),
             ],
             vec![
                 edge("start", "f1"),
                 edge("f1", "embed"),
-                edge("embed", "end"),
+                edge("embed", "j1"),
+                edge("j1", "end"),
             ],
             Some("start"),
             vec!["end"],

@@ -702,6 +702,50 @@ mod tests {
         assert_eq!(analysis.kind, ErrorKind::AgentCheckpoint);
     }
 
+    /// The envelope's provisional retryability (used by carriers without an
+    /// engine) must agree with the engine classification for every variant:
+    /// one decision, two readers.
+    #[test]
+    fn test_envelope_retryability_matches_engine_classification() {
+        let samples = vec![
+            ToolError::NotFound("missing".to_string()),
+            ToolError::ValidationFailed("bad".to_string()),
+            ToolError::Timeout {
+                tool_id: "t".to_string(),
+                timeout_ms: 1,
+            },
+            ToolError::Cancelled {
+                tool_id: "t".to_string(),
+            },
+            ToolError::ExecutionFailed {
+                tool_id: "t".to_string(),
+                reason: "boom".to_string(),
+            },
+            ToolError::McpError("down".to_string()),
+            ToolError::TransportError("pipe".to_string()),
+            ToolError::ConnectionFailed {
+                server: "s".to_string(),
+                reason: "refused".to_string(),
+            },
+            ToolError::RestError {
+                url: "u".to_string(),
+                status: 429,
+            },
+            ToolError::RestError {
+                url: "u".to_string(),
+                status: 404,
+            },
+            ToolError::scope_violation("t", "outside".to_string()),
+        ];
+        for err in samples {
+            assert_eq!(
+                wf_tools::tool_failure::default_retryable(&err),
+                tool_error_analysis(&err).retryable,
+                "retryability drift for {err:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_to_error_record() {
         let analysis = analyze_error(&AgentError::LlmError(LlmError::Timeout(30_000)));

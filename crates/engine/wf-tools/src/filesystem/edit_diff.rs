@@ -267,6 +267,90 @@ pub fn apply_edits_to_content(content: &str, edits: &[EditPair]) -> Result<Strin
     Ok(result)
 }
 
+impl EditApplyError {
+    /// Index of the entry the error points at (the first of an overlapping
+    /// pair).
+    pub fn index(&self) -> usize {
+        match self {
+            EditApplyError::Empty { index }
+            | EditApplyError::Duplicate { index, .. }
+            | EditApplyError::NotFound { index } => *index,
+            EditApplyError::Overlap { first, .. } => *first,
+        }
+    }
+
+    /// Short machine-ish description used inside aggregated messages.
+    pub fn describe(&self) -> String {
+        match self {
+            EditApplyError::Empty { .. } => "old_string is empty".to_string(),
+            EditApplyError::Duplicate { count, .. } => {
+                format!("old_string matches {count} places")
+            }
+            EditApplyError::NotFound { .. } => "old_string not found".to_string(),
+            EditApplyError::Overlap { first, second } => {
+                format!("edits[{first}] and edits[{second}] overlap")
+            }
+        }
+    }
+}
+
+/// Resolve every replacement and report all failures at once.
+///
+/// The single-pair path stays fail-fast; a batch reports every unusable
+/// entry so the model can repair the whole call in one turn instead of
+/// discovering the problems one failure at a time.
+pub fn apply_edits_collecting(
+    content: &str,
+    edits: &[EditPair],
+) -> Result<String, Vec<EditApplyError>> {
+    let mut spans: Vec<(usize, EditSpan)> = Vec::with_capacity(edits.len());
+    let mut errors: Vec<EditApplyError> = Vec::new();
+    for (index, edit) in edits.iter().enumerate() {
+        match resolve_edit_span(content, &edit.old_text) {
+            Ok(span) => spans.push((index, span)),
+            Err(SpanError::Empty) => errors.push(EditApplyError::Empty { index }),
+            Err(SpanError::Duplicate(count)) => {
+                errors.push(EditApplyError::Duplicate { index, count })
+            }
+            Err(SpanError::NotFound) => errors.push(EditApplyError::NotFound { index }),
+        }
+    }
+    if !errors.is_empty() {
+        errors.sort_by_key(|error| error.index());
+        return Err(errors);
+    }
+    spans.sort_by_key(|(_, span)| span.start);
+    for window in spans.windows(2) {
+        let (first_index, first) = window[0];
+        let (second_index, second) = window[1];
+        if second.start < first.start + first.len {
+            return Err(vec![EditApplyError::Overlap {
+                first: first_index,
+                second: second_index,
+            }]);
+        }
+    }
+    let mut result = content.to_string();
+    for (index, span) in spans.iter().rev() {
+        result.replace_range(span.start..span.start + span.len, &edits[*index].new_text);
+    }
+    Ok(result)
+}
+
+/// Nearest line carrying the first non-empty line of `old_text`, used to
+/// point the model at a stale anchor instead of only saying "not found".
+pub fn nearest_line(content: &str, old_text: &str) -> Option<(usize, String)> {
+    let needle = old_text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    content
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.trim() == needle)
+        .map(|(index, line)| (index + 1, line.trim().to_string()))
+}
+
 /// Read-only application of edits: returns the would-be content plus
 /// both diff views without touching the disk. Execution previews and
 /// approval flows use this so the preview cannot drift from the write.

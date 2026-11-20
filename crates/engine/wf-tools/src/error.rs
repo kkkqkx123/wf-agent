@@ -61,11 +61,12 @@ pub type ToolResult<T> = Result<T, ToolError>;
 /// text so violation rounds stay countable without string sniffing.
 pub const SCOPE_VIOLATION_METADATA_KEY: &str = "scope_violation";
 
-/// Stable machine-readable tags heading model-visible error text. Scope
-/// rejections and missing files share the same shape (a failed tool call
-/// with a path in it), so each class carries its own tag and readers never
-/// have to guess from prose. The metadata marker stays the counting signal
-/// for engines; the tag is the human and test signal.
+/// Producer-side class tags. Scope rejections and missing files share the
+/// same shape (a failed tool call with a path in it), so each producer
+/// encodes its class as a leading tag. The tag is an internal encoding: the
+/// failure envelope strips it into a stable `code` before anything reaches
+/// the model, and readers never guess a class from prose. The metadata
+/// marker stays the counting signal for engines.
 pub const SCOPE_VIOLATION_TAG: &str = "scope_violation";
 pub const NOT_FOUND_TAG: &str = "not_found";
 

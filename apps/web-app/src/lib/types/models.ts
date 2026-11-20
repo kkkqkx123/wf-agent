@@ -776,6 +776,8 @@ export interface ToolCallEntry {
 	approvalId?: string;
 	/** Short failure reason; the full text stays in `output`. */
 	error?: string;
+	/** Stable failure class from the server (`error.code` in the envelope). */
+	errorCode?: string;
 	/** Presentation kind for the output body. Absent on persisted records;
 	 * views fall back to name-based inference. */
 	displayKind?: DisplayKind;

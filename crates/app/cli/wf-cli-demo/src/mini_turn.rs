@@ -304,6 +304,7 @@ pub fn demo_script() -> Vec<ExecutionStreamEvent> {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: None,
         },

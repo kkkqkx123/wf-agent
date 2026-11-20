@@ -8,6 +8,7 @@ use wf_types::message::{LlmToolCall, Message};
 use super::events::publish_forced_compression;
 use super::messages::tool_result_message;
 use crate::error::{WorkflowError, WorkflowResult};
+use wf_tools::tool_failure::{ToolFailure, ToolFailureCode};
 
 /// Single LLM call. Returns the model response.
 ///
@@ -131,6 +132,10 @@ pub async fn execute_tool_call(
     file_checkpoint: Option<&wf_checkpoint::FileCheckpointManager>,
     batch: Option<&LlmToolCallBatch>,
 ) -> Message {
+    let workdir = ctx
+        .file_scope
+        .as_ref()
+        .and_then(|scope| scope.workdir.as_deref());
     let tool_name = call.function.name.clone();
     // Malformed arguments fail the call visibly instead of silently
     // executing the tool with null parameters; an absent argument string
@@ -141,11 +146,15 @@ pub async fn execute_tool_call(
         match serde_json::from_str(&call.function.arguments) {
             Ok(args) => args,
             Err(e) => {
-                return tool_result_message(
-                    &call.id,
+                return failure_message(
+                    call,
                     &tool_name,
-                    format!("malformed tool arguments: {e}"),
-                    true,
+                    ToolFailure::new(
+                        ToolFailureCode::ParamInvalid,
+                        format!("malformed tool arguments: {e}"),
+                    )
+                    .with_hint("Re-send the call with valid JSON arguments."),
+                    workdir,
                 )
             }
         }
@@ -158,11 +167,15 @@ pub async fn execute_tool_call(
     // calls are intercepted at execution time only.
     let visibility_store = VariableBackedVisibilityStore::new(ctx.variables.clone());
     if visibility_store.is_blocked(&tool_name) {
-        return tool_result_message(
-            &call.id,
+        return failure_message(
+            call,
             &tool_name,
-            format!("Tool \"{tool_name}\" is not visible in this execution"),
-            true,
+            ToolFailure::new(
+                ToolFailureCode::ToolBlocked,
+                format!("tool '{tool_name}' is not visible in this execution"),
+            )
+            .with_hint("Do not retry it; use another tool or ask for activation."),
+            workdir,
         );
     }
 
@@ -199,11 +212,15 @@ pub async fn execute_tool_call(
             ) {
                 Ok(session) => tool_ctx = tool_ctx.with_checkpoint_session(Some(session)),
                 Err(e) => {
-                    return tool_result_message(
-                        &call.id,
+                    return failure_message(
+                        call,
                         &tool_name,
-                        format!("failed to build checkpoint session: {e}"),
-                        true,
+                        ToolFailure::new(
+                            ToolFailureCode::Internal,
+                            format!("failed to build the file checkpoint session: {e}"),
+                        )
+                        .with_hint("Report this as an environment fault; retrying repeats it."),
+                        workdir,
                     )
                 }
             }
@@ -367,28 +384,48 @@ pub async fn execute_tool_call(
     };
 
     match result {
-        Ok(exec_result) => {
-            let is_error = !exec_result.success;
+        Ok(exec_result) if exec_result.success => {
             let content = exec_result
                 .result
                 .as_ref()
                 .map(|v| v.to_string())
-                .unwrap_or_else(|| "".to_string());
-            let mut message = tool_result_message(&call.id, &tool_name, content, is_error);
+                .unwrap_or_default();
+            let mut message = tool_result_message(&call.id, &tool_name, content, false);
             wf_tools::tool_output::apply_overflow_message_metadata(
                 &mut message.metadata,
                 &exec_result,
             );
             message
         }
+        // A failed result carries its reason in `error`; dropping it left the
+        // model with an empty tool message and no way to recover. Both the
+        // payload failure and the typed failure render through the same
+        // envelope as the agent loop.
+        Ok(exec_result) => {
+            let failure = ToolFailure::from_result(Some(&tool_name), &exec_result);
+            failure_message(call, &tool_name, failure, workdir)
+        }
         Err(e) => {
-            if e.is_scope_violation() {
-                super::messages::scope_violation_message(&call.id, &tool_name, e.to_string())
-            } else {
-                tool_result_message(&call.id, &tool_name, format!("Error: {}", e), true)
-            }
+            let failure = ToolFailure::from_tool_error(Some(&tool_name), &e);
+            failure_message(call, &tool_name, failure, workdir)
         }
     }
+}
+
+/// Render one failure into the single tool message shape used by this
+/// engine: same envelope, same metadata bits as the agent loop.
+fn failure_message(
+    call: &wf_types::message::LlmToolCall,
+    tool_name: &str,
+    failure: ToolFailure,
+    workdir: Option<&str>,
+) -> Message {
+    let rendered = failure.render(workdir);
+    let mut metadata = None;
+    rendered.apply_message_metadata(&mut metadata, &failure);
+    let mut message = tool_result_message(&call.id, tool_name, rendered.text, true);
+    message.metadata = metadata;
+    message
 }
 
 #[cfg(test)]

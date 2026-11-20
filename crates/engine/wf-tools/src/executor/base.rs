@@ -379,11 +379,74 @@ impl BaseExecutor {
             success,
             result,
             error,
+            error_code: None,
             execution_time: execution_time_ms,
             retry_count,
             retryable: None,
             truncated: None,
             output_path: None,
+        }
+    }
+
+    /// Build a failed result from a typed execution error.
+    ///
+    /// The `error` field carries the producer reason with its class tag but
+    /// without any display prefix: the model-facing envelope is rendered
+    /// once, downstream, from this structured pair. Callers must not wrap
+    /// the text in their own prose.
+    pub fn build_failure(
+        err: &crate::error::ToolError,
+        execution_time_ms: i64,
+        retry_count: u32,
+    ) -> ToolExecutionResult {
+        let (code, reason) = crate::tool_failure::classify(err);
+        ToolExecutionResult {
+            success: false,
+            result: None,
+            error: Some(reason),
+            error_code: Some(code.as_str().to_string()),
+            execution_time: execution_time_ms,
+            retry_count,
+            retryable: Some(crate::tool_failure::default_retryable(err)),
+            truncated: None,
+            output_path: None,
+        }
+    }
+
+    /// Normalize a handler's returned payload into a result.
+    ///
+    /// Handlers report domain-level failure through their own payload, most
+    /// notably partial success where some operations landed and some did
+    /// not. A top-level `success: false` therefore decides the result's
+    /// success bit here, once, instead of leaving every engine to sniff the
+    /// payload (or, worse, to trust the wrapper and call it a success).
+    pub fn from_handler_outcome(
+        value: Option<Value>,
+        execution_time_ms: i64,
+    ) -> ToolExecutionResult {
+        let failure = value
+            .as_ref()
+            .and_then(|payload| crate::tool_failure::ToolFailure::from_payload(None, payload));
+        match (value, failure) {
+            (Some(payload), Some(failure)) => {
+                let reason = payload
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| failure.message.clone());
+                ToolExecutionResult {
+                    success: false,
+                    result: Some(payload),
+                    error: Some(reason),
+                    error_code: Some(failure.code.as_str().to_string()),
+                    execution_time: execution_time_ms,
+                    retry_count: 0,
+                    retryable: Some(failure.retryable),
+                    truncated: None,
+                    output_path: None,
+                }
+            }
+            (value, _) => BaseExecutor::build_result(true, value, None, execution_time_ms, 0),
         }
     }
 }

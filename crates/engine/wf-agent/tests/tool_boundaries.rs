@@ -401,3 +401,67 @@ async fn streaming_tool_events_match_blocking_conversation() {
         Some(start_name.as_str())
     );
 }
+
+/// A partial failure must reach the model as the single envelope, with the
+/// failed item indexes and the machine-readable metadata, and must not be
+/// counted as a clean call.
+#[tokio::test]
+async fn partial_failure_enters_the_unified_envelope() {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_stateless_handler(
+        "patcher",
+        Arc::new(|_params, _ctx| {
+            Ok(serde_json::json!({
+                "success": false,
+                "error_code": "partial_failure",
+                "error": "1 of 2 patch operations failed",
+                "display": "Failed to update 'b.rs': could not find chunk",
+                "failed_indices": [1],
+            }))
+        }),
+    );
+    registry.register_tool(tool_def("patcher", None));
+
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
+        "call_1", "patcher", "{}",
+    )]));
+    mock.script(LlmResponseSpec::text("done"));
+
+    let coordinator = AgentLoopCoordinator::new(gateway_with(mock.clone()), registry);
+    let output = coordinator
+        .execute(config("patcher"), input("run"))
+        .await
+        .unwrap();
+
+    let texts = tool_texts(&output.conversation);
+    assert_eq!(texts.len(), 1);
+    let envelope: serde_json::Value =
+        serde_json::from_str(&texts[0]).expect("failure renders as JSON");
+    let error = &envelope["error"];
+    assert_eq!(error["code"], serde_json::json!("partial_failure"));
+    assert_eq!(
+        error["message"],
+        serde_json::json!("1 of 2 patch operations failed")
+    );
+    assert_eq!(error["retryable"], serde_json::json!(false));
+    assert_eq!(error["context"]["failed_indices"], serde_json::json!([1]));
+    assert!(
+        error["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("could not find chunk")),
+        "per-item detail stays reachable: {envelope}"
+    );
+    // No internal engine prefix survives into the model text.
+    assert!(!texts[0].contains("Tool execution failed"));
+    assert!(!texts[0].contains("Execution error"));
+
+    let tool_message = output
+        .conversation
+        .iter()
+        .find(|m| m.role == MessageRole::Tool)
+        .expect("tool message");
+    let metadata = tool_message.metadata.as_ref().expect("failure metadata");
+    assert_eq!(metadata["is_error"], serde_json::json!(true));
+    assert_eq!(metadata["error_code"], serde_json::json!("partial_failure"));
+}

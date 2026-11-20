@@ -74,7 +74,7 @@ pub(crate) enum TaskOutcome {
     /// sequential path), not an execution failure: it never triggers the
     /// batch abort of sibling tasks.
     Rejected(Message),
-    Failed(wf_tools::error::ToolError),
+    Failed(wf_tools::tool_failure::ToolFailure),
 }
 
 /// Immutable execution context shared by sequential and parallel tool runs.

@@ -429,6 +429,7 @@ mod tests {
             success: true,
             result: big,
             error: None,
+            error_code: None,
             display: None,
             background: None,
         });

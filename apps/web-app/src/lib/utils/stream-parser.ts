@@ -9,6 +9,10 @@ export interface ToolLifecycle {
 	success: boolean;
 	result: string;
 	error: string | null;
+	/** Stable machine-readable failure class, mirroring `error.code` in the
+	 * failure envelope the model receives. Null on success and on older
+	 * servers; views branch on this instead of matching message prose. */
+	errorCode: string | null;
 	/** Frontend-facing summary produced alongside the full result. Null on
 	 * older servers; consumers fall back to name-based inference. */
 	display: DisplayPayload | null;
@@ -387,6 +391,7 @@ export function handleExecutionFrame(
 				success: frame.success !== false,
 				result: asString(frame.result),
 				error: asOptionalString(frame.error),
+				errorCode: asOptionalString(frame.error_code),
 				display: parseDisplayPayload(frame.display),
 				background: parseBackgroundMarker(frame.background),
 			});

@@ -22,6 +22,7 @@
 		hidesBody,
 		inferDisplayKind,
 		limitBodyLines,
+		parseFailureEnvelope,
 		previewFor,
 	} from '#lib/utils/tool-output';
 	import type { DisplayPayload } from '#lib/utils/tool-output';
@@ -48,6 +49,12 @@
 		'max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground';
 
 	const failed = $derived(entry.status === 'failed');
+	/** Failure envelope carried in the result body: the class, the suggested
+	 * next action and the per-item detail. Absent for successes and for
+	 * records written before the envelope existed. */
+	const failure = $derived(failed ? parseFailureEnvelope(entry.output) : null);
+	const failureCode = $derived(entry.errorCode ?? failure?.code ?? null);
+	const failureHint = $derived(failure?.hint ?? null);
 	const previews = $derived(preferences.toolOutputPreviews);
 	const budgets = $derived(resolveToolOutputBudgets(preferences.toolOutputDetail));
 	const displayKind = $derived(entry.displayKind ?? inferDisplayKind(entry.name));
@@ -280,9 +287,21 @@
 				</p>
 				<JsonViewer value={entry.input} collapsed />
 			</div>
+			{#if failureHint}
+				<p class="rounded-md bg-muted px-2 py-1.5 text-micro text-foreground">
+					{failureHint}
+				</p>
+			{/if}
 			<div>
 				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{t('domain.nodeTrace.output')}
+					{#if failureCode}
+						<span
+							class="ml-1 rounded bg-destructive/10 px-1.5 py-0.5 font-mono normal-case tracking-normal text-destructive"
+						>
+							{failureCode}
+						</span>
+					{/if}
 					{#if previews && !hiddenBody && preview.overflow}
 						<span class="ml-1 font-mono normal-case tabular-nums">
 							{#if preview.hiddenLines > 0}

@@ -323,6 +323,7 @@ mod tests {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: None,
         });
@@ -334,6 +335,7 @@ mod tests {
             success: false,
             result: String::new(),
             error: Some("permission denied".into()),
+            error_code: None,
             display: None,
             background: None,
         });

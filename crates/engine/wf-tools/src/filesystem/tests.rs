@@ -1003,3 +1003,66 @@ fn relative_paths_execute_against_workdir() {
         "new"
     );
 }
+
+#[test]
+fn batch_edit_reports_every_unusable_entry() {
+    let root = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = ToolExecutionContext::new("exec-batch-edit".into());
+
+    let target = root.path().join("batch.txt");
+    std::fs::write(&target, "alpha\nbeta\ngamma\n").unwrap();
+    let err = handlers
+        .edit_file(
+            &serde_json::json!({
+                "path": target.to_str().unwrap(),
+                "edits": [
+                    { "old_string": "alpha", "new_string": "ALPHA" },
+                    { "old_string": "missing-one", "new_string": "X" },
+                    { "old_string": "missing-two", "new_string": "Y" }
+                ]
+            }),
+            &ctx,
+        )
+        .expect_err("batch with unusable entries must fail");
+    let text = err.to_string();
+    assert!(text.contains("2 of 3 edits could not be applied"), "{text}");
+    assert!(text.contains("edits[1]"), "{text}");
+    assert!(text.contains("edits[2]"), "{text}");
+    // Nothing was written: the batch stays atomic.
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "alpha\nbeta\ngamma\n"
+    );
+}
+
+#[test]
+fn stale_anchor_points_at_the_nearest_line() {
+    let root = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = ToolExecutionContext::new("exec-stale-anchor".into());
+
+    let target = root.path().join("stale.txt");
+    std::fs::write(&target, "line one\nlet value = 1;\nline three\n").unwrap();
+    let err = handlers
+        .edit_file(
+            &serde_json::json!({
+                "path": target.to_str().unwrap(),
+                "old_string": "let value = 1;\nlet other = 2;",
+                "new_string": "let value = 2;"
+            }),
+            &ctx,
+        )
+        .expect_err("stale anchor must fail");
+    let text = err.to_string();
+    assert!(text.contains("nearest line 2"), "{text}");
+    assert!(text.contains("let value = 1;"), "{text}");
+}

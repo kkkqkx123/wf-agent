@@ -256,6 +256,10 @@ impl ToolExecutor for McpExecutor {
                 .and_then(|scope| scope.workdir.as_deref()),
         );
 
+        // Server-reported tool errors travel as a failure result, not as a
+        // successful payload with an `Error:` prefix: the success bit, the
+        // breaker and the model-visible envelope must agree.
+        let mut upstream_error: Option<String> = None;
         let result = if let Some(manager) = &self.connection_manager {
             if let Some(uri) = uri {
                 match manager.read_resource(&server_name, uri, timeout_ms).await {
@@ -270,28 +274,54 @@ impl ToolExecutor for McpExecutor {
                     .call_tool_on_server(&server_name, &resolved_tool_name, &args, timeout_ms)
                     .await
                     .map(|value| {
-                        let is_error = value
-                            .get("isError")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
                         let text = process_tool_result(&value);
-                        Value::String(if is_error {
-                            format!("Error:\n{}", text)
-                        } else {
-                            text
-                        })
+                        if is_error_value(&value) {
+                            upstream_error = Some(text.clone());
+                        }
+                        Value::String(text)
                     })
             } else {
                 manager
                     .call_tool_on_server(&server_name, &resolved_tool_name, parameters, timeout_ms)
                     .await
-                    .map(process_result_value)
+                    .map(|value| {
+                        let text = process_tool_result(&value);
+                        if is_error_value(&value) {
+                            upstream_error = Some(text.clone());
+                        }
+                        Value::String(text)
+                    })
             }
         } else {
             Err(ToolError::McpError(format!(
                 "No connection manager for MCP server '{server_name}'"
             )))
         };
+
+        if let Some(text) = upstream_error.clone() {
+            let execution_time = start.elapsed().as_millis() as i64;
+            let mut built =
+                BaseExecutor::build_result(false, None, Some(text.clone()), execution_time, 0);
+            built.error_code = Some(
+                crate::tool_failure::ToolFailureCode::UpstreamError
+                    .as_str()
+                    .to_string(),
+            );
+            // The server ran the tool and reported a domain failure: the same
+            // call reproduces it, so it is not retryable.
+            built.retryable = Some(false);
+            if let Some(analytics) = &self.analytics {
+                analytics.record_execution(
+                    &server_name,
+                    &resolved_tool_name,
+                    execution_time.max(0) as u64,
+                    false,
+                    Some(text),
+                    None,
+                );
+            }
+            return Ok(built);
+        }
 
         // Overflow policy runs after shaping: the inline result keeps a
         // bounded prefix plus a spill pointer, the full text stays readable.
@@ -309,16 +339,12 @@ impl ToolExecutor for McpExecutor {
         let execution_time = start.elapsed().as_millis() as i64;
         if let Some(analytics) = &self.analytics {
             match &result {
-                Ok(value) => {
-                    let is_error = value
-                        .get("isError")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
+                Ok(_) => {
                     analytics.record_execution(
                         &server_name,
                         &resolved_tool_name,
                         execution_time.max(0) as u64,
-                        !is_error,
+                        true,
                         None,
                         None,
                     );
@@ -358,17 +384,12 @@ impl ToolExecutor for McpExecutor {
     }
 }
 
-fn process_result_value(value: Value) -> Value {
-    let is_error = value
+/// Whether the server flagged the tool result as an error.
+fn is_error_value(value: &Value) -> bool {
+    value
         .get("isError")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let text = process_tool_result(&value);
-    Value::String(if is_error {
-        format!("Error:\n{}", text)
-    } else {
-        text
-    })
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

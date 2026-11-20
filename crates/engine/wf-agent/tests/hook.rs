@@ -41,7 +41,21 @@ fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
     Arc::new(gateway)
 }
 
+/// Compaction tuning is a process-wide install performed by runtime
+/// bootstrap. These tests build the loop directly, so they install the
+/// built-in limits first: a missing install panics loudly by design rather
+/// than silently falling back to defaults.
+fn install_compaction_limits() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        wf_execution_shared::set_process_compaction_limits(
+            wf_execution_shared::builtin_compaction_limits(),
+        );
+    });
+}
+
 fn config(max_iterations: u32) -> AgentLoopConfig {
+    install_compaction_limits();
     AgentLoopConfig {
         file_scope: None,
         agent_id: "agent1".to_string(),

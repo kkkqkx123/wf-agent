@@ -127,6 +127,12 @@ impl FsToolHandlers {
 
         let total = results.len();
         let failed = total - succeeded;
+        let failed_indices: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r["success"] != Value::Bool(true))
+            .map(|(index, _)| index)
+            .collect();
         // A capture-ignored target lands on disk but can never be restored;
         // one shared note covers every affected hunk.
         let unrestorable = results
@@ -172,12 +178,31 @@ impl FsToolHandlers {
             })
             .collect();
 
-        Ok(serde_json::json!({
+        // A patch that left some operations unapplied is a failure with a
+        // partial result, not a success with a warning: the model has to
+        // repair it and the pipeline must not count it as a clean call.
+        let error_code = if failed == 0 {
+            None
+        } else if succeeded == 0 {
+            Some("patch_failed")
+        } else {
+            Some("partial_failure")
+        };
+        let summary_line = format!("{}/{} operations succeeded", succeeded, total);
+        let mut payload = serde_json::json!({
             "success": failed == 0,
             "summary": { "total": total, "succeeded": succeeded, "failed": failed },
             "results": results,
-            "display": format!("{}\nSummary: {}/{} operations succeeded{}", display.join("\n"), succeeded, total, unrestorable_note),
-        }))
+            "display": format!("{}\nSummary: {}{}", display.join("\n"), summary_line, unrestorable_note),
+        });
+        if let Some(code) = error_code {
+            payload["error_code"] = Value::String(code.to_string());
+            payload["error"] = Value::String(format!(
+                "{failed} of {total} patch operations failed ({summary_line})"
+            ));
+            payload["failed_indices"] = serde_json::json!(failed_indices);
+        }
+        Ok(payload)
     }
 
     fn apply_patch_add(&self, hunk: &crate::patch::PatchHunk, path: &Path) -> Value {
@@ -385,21 +410,28 @@ impl FsToolHandlers {
         let mut delta: isize = 0;
         let mut applied = 0usize;
         let mut failures: Vec<String> = Vec::new();
-        for block in &sorted {
+        let mut failed_indices: Vec<usize> = Vec::new();
+        for (index, block) in sorted.iter().enumerate() {
             match crate::patch::apply_block(&result_lines, block, delta) {
                 Ok((new_lines, new_delta)) => {
                     result_lines = new_lines;
                     delta = new_delta;
                     applied += 1;
                 }
-                Err(e) => failures.push(e),
+                Err(e) => {
+                    failures.push(e);
+                    failed_indices.push(index);
+                }
             }
         }
 
         if applied == 0 {
-            return Err(ToolError::ExecutionError(format!(
-                "Failed to apply any changes.\n\nFailures:\n{}",
-                failures.join("\n")
+            return Err(ToolError::ExecutionError(tag_detail(
+                "patch_failed",
+                format!(
+                    "Failed to apply any changes.\n\nFailures:\n{}",
+                    failures.join("\n")
+                ),
             )));
         }
 
@@ -415,25 +447,28 @@ impl FsToolHandlers {
 
         notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified);
 
+        let total = sorted.len();
         let partial_hint = if failures.is_empty() {
             String::new()
         } else {
             format!(
-                "\nWarning: {} block(s) failed to apply. Use read_file to verify changes.",
-                failures.len()
+                "\nWarning: {} of {} block(s) failed to apply. Use read_file to verify changes.",
+                failures.len(),
+                total
             )
         };
         let display = format!(
-            "Diff applied successfully to {}\n{} block(s) processed{}{}",
+            "Diff applied to {}: {} of {} block(s) processed{}{}",
             path.display(),
             applied,
+            total,
             partial_hint,
             self.unrestorable_note(ctx, &path).unwrap_or("")
         );
         let edit_diff = compute_edit_diff(&content, &joined);
 
-        Ok(serde_json::json!({
-            "success": true,
+        let mut payload = serde_json::json!({
+            "success": failures.is_empty(),
             "applied": applied,
             "failed": failures.len(),
             "display": display,
@@ -442,7 +477,17 @@ impl FsToolHandlers {
             "deletions": edit_diff.deletions,
             "first_changed_line": edit_diff.first_changed_line,
             "binary": edit_diff.binary,
-        }))
+        });
+        if !failures.is_empty() {
+            payload["error_code"] = Value::String("partial_failure".to_string());
+            payload["error"] = Value::String(format!(
+                "{} of {total} diff blocks failed to apply",
+                failures.len()
+            ));
+            payload["failed_indices"] = serde_json::json!(failed_indices);
+            payload["detail"] = Value::String(format!("Failures:\n{}", failures.join("\n")));
+        }
+        Ok(payload)
     }
 }
 

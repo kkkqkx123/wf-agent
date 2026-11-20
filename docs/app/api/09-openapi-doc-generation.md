@@ -20,8 +20,8 @@
 `ApiDoc` 为空结构体，仅承载 `openapi` 属性，主要部分：
 
 - 基本信息：标题 `wf-server API`，版本 `v1`，描述覆盖 agent 循环、工作流、checkpoint、模板与 LLM 集成。
-- 路径列表：按 agent、workflow、checkpoint、trigger、template、llm、entity、observation、system、web 等域分组登记，当前 **511 个操作**（含 health/metrics/Prometheus `/metrics`）。登记的是 handler 函数，不是 URL 字符串。
-- 类型组件：登记响应体与请求体引用的具体类型；当前快照 221 个 component schema。
+- 路径列表：按 agent、workflow、checkpoint、trigger、template、llm、entity、observation、system、web 等域分组登记，当前 **691 个操作**（含 health/metrics/Prometheus `/metrics`），`operationId` 同样 691 个、两两不重。登记的是 handler 函数，不是 URL 字符串。
+- 类型组件：登记响应体与请求体引用的具体类型；当前快照 390 个 component schema。
 - 标签：十个域标签，每个标签带一句话说明，供文档工具分组。
 - 服务器：`url = "/"`，路径字符串自带完整前缀（业务面带 `/api/v1`，根级路由写绝对路径），因此根级健康检查与 `/api/v1/*` 可出现在同一文档中。
 - 全局鉴权：声明全部操作默认使用 `api_key`；方案定义由 `SecurityAddon` 在文档生成后注入（API key，请求头 `x-api-key`，兼容查询参数 `api_key`，与 `middleware.rs` 一致）。
@@ -55,9 +55,10 @@
 **离线快照（codegen 唯一输入）**
 
 - 路径：`crates/app/wf-server/openapi.json`（已提交）。
-- 刷新（轻量命令，仓库根目录）：`WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document`。
+- 刷新（仓库根目录）：`WF_REFRESH_OPENAPI=1 cargo test -p wf-server --lib openapi::tests::committed_snapshot_matches_document`。
 - 校验：去掉 `WF_REFRESH_OPENAPI=1` 跑同一命令，序列化结果与仓库文件逐字节比对，漂移即失败。
-- 轻量原因：快照测试不需要插件后端，`--no-default-features` 跳过 wasmtime 等后端编译，`--lib` 跳过二进制与集成测试目标。
+- 必须用默认特性：`openapi` 模块的编译条件是 `file-checkpoint`、`git-fs`、`pty`、`rag-vector`、`backends`、`metrics` 全部开启，`--no-default-features` 会把模块本身裁掉，测试因此收集不到（表现为 `0 passed; N filtered out`，容易被误读为通过）。用 `--lib` 只跳过二进制与集成测试目标，仍省下大半编译时间。
+- 前置条件：默认特性包含 `native` 插件后端，需要系统 luajit 开发包；缺它时该 crate 无法编译。
 
 **运行中调试**
 
@@ -101,7 +102,7 @@
 3. `components(schemas(...))` 中新响应/请求类型的登记（本地类型需 `ToSchema`）。
 4. 用 `annotations_are_registered_in_document` 守卫确认登记未漏（无需手改计数断言）。
 
-随后刷新快照并按需重跑 codegen：第五章的轻量刷新命令 → `tools/openapi-codegen` 执行 `npm run gen` → 将本目录 `schema.d.ts` 复制到 `apps/web-app/src/lib/api/`。响应形态特殊（流或下载）时按第三章类别声明，错误保持 `ErrorResponse`。
+随后刷新快照并按需重跑 codegen：第五章的刷新命令 → `tools/openapi-codegen` 执行 `npm run gen`（脚本已把输出路径指向 `apps/web-app/src/lib/api/schema.d.ts`，无手工复制步骤；`npm run gen:check` 比对两个文件的修改时间，漏跑即报）。响应形态特殊（流或下载）时按第三章类别声明，错误保持 `ErrorResponse`。
 
 ## 9. 已知限制与后续
 

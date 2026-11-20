@@ -65,6 +65,7 @@ fn tool_end(success: bool) -> ExecutionStreamEvent {
         success,
         result: String::new(),
         error: None,
+        error_code: None,
         display: None,
         background: None,
     }
@@ -163,6 +164,7 @@ fn background_tool_end_prints_a_follow_up_hint() {
         success: true,
         result: String::new(),
         error: None,
+        error_code: None,
         display: None,
         background: Some(wf_types::tool::BackgroundMarker {
             session_id: "sess-1".to_string(),
@@ -185,6 +187,7 @@ fn completed_prints_background_aggregate() {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: Some(wf_types::tool::BackgroundMarker {
                 session_id: "sess-1".to_string(),
@@ -197,6 +200,7 @@ fn completed_prints_background_aggregate() {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: Some(wf_types::tool::BackgroundMarker {
                 session_id: "sess-2".to_string(),
@@ -469,6 +473,7 @@ fn high_detail_shows_success_preview_for_text_tools() {
             success: true,
             result: "line one\nline two".to_string(),
             error: None,
+            error_code: None,
             display: None,
             background: None,
         }],
@@ -487,6 +492,7 @@ fn high_detail_counts_retrieval_tools_without_body() {
             success: true,
             result: "a\nb\nc".to_string(),
             error: None,
+            error_code: None,
             display: None,
             background: None,
         }],
@@ -505,6 +511,7 @@ fn tool_failure_always_carries_error_preview() {
             success: false,
             result: String::new(),
             error: Some("disk full".to_string()),
+            error_code: None,
             display: None,
             background: None,
         }],

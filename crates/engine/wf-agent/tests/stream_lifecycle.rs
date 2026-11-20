@@ -174,6 +174,7 @@ async fn bus_mirror_maps_every_stream_variant() {
                 success: true,
                 result: "ok".to_string(),
                 error: None,
+                error_code: None,
                 display: None,
                 background: None,
             },

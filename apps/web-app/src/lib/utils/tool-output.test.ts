@@ -11,6 +11,7 @@ import {
 	inferDisplayKind,
 	limitBodyLines,
 	parseDisplayPayload,
+	parseFailureEnvelope,
 	previewFor,
 	previewSource,
 } from '#lib/utils/tool-output';
@@ -149,6 +150,62 @@ describe('previewSource', () => {
 
 	it('falls back to the output', () => {
 		expect(previewSource({ output: 'full', success: true })).toBe('full');
+	});
+
+	it('recovers the headline from the envelope when no summary survives', () => {
+		const output = JSON.stringify({
+			error: {
+				code: 'patch_failed',
+				message: "old_string not found in '/work/a.rs'.",
+				hint: 'Provide more context in old_string.',
+			},
+		});
+		expect(previewSource({ output, success: false })).toBe(
+			"old_string not found in '/work/a.rs'.\nProvide more context in old_string.",
+		);
+	});
+});
+
+describe('parseFailureEnvelope', () => {
+	const envelope = JSON.stringify({
+		error: {
+			code: 'partial_failure',
+			message: '1 of 3 patch operations failed',
+			hint: 'Repair the listed entries and re-run the call.',
+			detail: 'Failed to update a.rs: could not find chunk',
+			retryable: false,
+			context: { failed_indices: [2] },
+		},
+	});
+
+	it('splits the headline from the detail', () => {
+		expect(parseFailureEnvelope(envelope)).toEqual({
+			code: 'partial_failure',
+			message: '1 of 3 patch operations failed',
+			hint: 'Repair the listed entries and re-run the call.',
+			detail: 'Failed to update a.rs: could not find chunk',
+			failedIndices: [2],
+		});
+	});
+
+	it('ignores success payloads and plain text', () => {
+		expect(parseFailureEnvelope('{"content":"all good"}')).toBeNull();
+		expect(parseFailureEnvelope('timed out after 30s')).toBeNull();
+		expect(parseFailureEnvelope('')).toBeNull();
+	});
+
+	it('treats the pre-envelope string shape as absent', () => {
+		expect(parseFailureEnvelope('{"error":"Tool execution failed: boom"}')).toBeNull();
+	});
+
+	it('keeps a code-only envelope usable', () => {
+		expect(parseFailureEnvelope('{"error":{"code":"internal"}}')).toEqual({
+			code: 'internal',
+			message: '',
+			hint: undefined,
+			detail: undefined,
+			failedIndices: undefined,
+		});
 	});
 });
 

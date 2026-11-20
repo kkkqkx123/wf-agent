@@ -214,6 +214,7 @@ mod tests {
             success: false,
             result: "out".into(),
             error: Some("boom".into()),
+            error_code: None,
             display: None,
             background: None,
         };

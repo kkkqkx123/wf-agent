@@ -112,24 +112,17 @@ impl ToolExecutor for StatelessExecutor {
 
         let execution_time = start.elapsed().as_millis() as i64;
         match result {
-            Ok(value) => Ok(BaseExecutor::build_result(
-                true,
+            // A payload-level `success: false` (partial success) is a
+            // failure here, once, so downstream never has to sniff it.
+            Ok(value) => Ok(BaseExecutor::from_handler_outcome(
                 Some(value),
-                None,
                 execution_time,
-                0,
             )),
             // Scope violations keep their type so engines can count them
             // and mark the model-visible message; every other handler
-            // error stays a failure payload.
+            // error becomes a structured failure result.
             Err(e) if e.is_scope_violation() => Err(e),
-            Err(e) => Ok(BaseExecutor::build_result(
-                false,
-                None,
-                Some(e.to_string()),
-                execution_time,
-                0,
-            )),
+            Err(e) => Ok(BaseExecutor::build_failure(&e, execution_time, 0)),
         }
     }
 

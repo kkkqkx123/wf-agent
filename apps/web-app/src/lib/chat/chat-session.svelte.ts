@@ -412,6 +412,7 @@ export class ChatSessionController {
 			input: '',
 			output: tool.result,
 			error: tool.error,
+			errorCode: tool.errorCode ?? undefined,
 			displayKind: tool.display?.kind,
 			displayPreview: tool.display?.preview,
 			displayTruncated: tool.display?.truncated,
@@ -976,17 +977,7 @@ export class ChatSessionController {
 				},
 				onToolStart: (toolCallId, toolName, toolKind) =>
 					chatStream.toolStart(toolCallId, toolName, toolKind),
-				onToolEnd: (tool) =>
-					chatStream.toolEnd(
-						tool.toolCallId,
-						tool.toolName,
-						tool.success,
-						tool.result,
-						tool.toolKind,
-						tool.error,
-						tool.display,
-						tool.background,
-					),
+				onToolEnd: (tool) => chatStream.toolEnd(tool),
 				onSubAgent: (id, name, success, details) =>
 					chatStream.noteSubAgent(id, name, success, details),
 			},

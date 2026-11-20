@@ -186,9 +186,10 @@ pub trait ToolExecutorExt: ToolExecutor {
                     success: false,
                     result: None,
                     error: Some(format!(
-                        "Tool '{}' timed out after {}ms",
+                        "tool '{}' timed out after {}ms",
                         tool.name, timeout_ms
                     )),
+                    error_code: Some("timeout".to_string()),
                     execution_time: start.elapsed().as_millis() as i64,
                     retry_count: 0,
                     // An executor-level timeout is transient by nature.

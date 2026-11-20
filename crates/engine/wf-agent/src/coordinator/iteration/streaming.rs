@@ -320,6 +320,17 @@ impl AgentIterationCoordinator {
                 Err(err) => {
                     let (rejection, reason) = *err;
                     let failure = Some(reason);
+                    // The gate already rendered the rejection through the
+                    // failure envelope, so the class travels on its metadata
+                    // instead of being re-derived from the text here.
+                    let error_code = rejection
+                        .metadata
+                        .as_ref()
+                        .and_then(|metadata| {
+                            metadata.get(wf_tools::tool_failure::ERROR_CODE_METADATA_KEY)
+                        })
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string);
                     let result_text = text_of(&rejection.content);
                     if let Some(ref sink) = self.event_sink {
                         sink.emit(
@@ -330,6 +341,7 @@ impl AgentIterationCoordinator {
                                 success: false,
                                 result: result_text.clone(),
                                 error: failure,
+                                error_code,
                                 display: Some(wf_tools::predefined::display::display_for(
                                     Some(tc.function.name.as_str()),
                                     Some(tc.function.arguments.as_str()),
@@ -378,6 +390,14 @@ impl AgentIterationCoordinator {
                     self.checkpoint.as_deref(),
                 )
                 .await;
+                let error_code = msg
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| {
+                        metadata.get(wf_tools::tool_failure::ERROR_CODE_METADATA_KEY)
+                    })
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
                 let result_text = text_of(&msg.content);
                 if let Some(ref sink) = self.event_sink {
                     sink.emit(
@@ -388,6 +408,7 @@ impl AgentIterationCoordinator {
                             success: false,
                             result: result_text.clone(),
                             error: Some(reason),
+                            error_code,
                             display: Some(wf_tools::predefined::display::display_for(
                                 Some(effective_tc.function.name.as_str()),
                                 Some(effective_tc.function.arguments.as_str()),
@@ -418,7 +439,10 @@ impl AgentIterationCoordinator {
                 self.checkpoint.as_deref(),
             )
             .await;
-            let failure = error.map(|e| e.to_string());
+            let error_code = error
+                .as_ref()
+                .map(|failure| failure.code.as_str().to_string());
+            let failure = error.map(|failure| failure.message.clone());
             let result_text = text_of(&msg.content);
 
             if let Some(ref sink) = self.event_sink {
@@ -430,6 +454,7 @@ impl AgentIterationCoordinator {
                         success: failure.is_none(),
                         result: result_text.clone(),
                         error: failure,
+                        error_code,
                         display: Some(wf_tools::predefined::display::display_for(
                             Some(effective_tc.function.name.as_str()),
                             Some(effective_tc.function.arguments.as_str()),

@@ -198,12 +198,71 @@ export interface PreviewInput {
 	display?: DisplayPayload | null;
 }
 
+/** Machine-readable failure envelope carried in a failed tool message. */
+export interface FailureEnvelope {
+	code: string;
+	message: string;
+	/** Suggested next action, when the server produced one. */
+	hint?: string;
+	/** Raw producer detail: io/serde text or the per-item failure list. */
+	detail?: string;
+	/** Indexes of the failed entries in a batch call. */
+	failedIndices?: number[];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+/**
+ * Parse the `{"error": {...}}` envelope out of a failed tool message.
+ *
+ * Returns null for success payloads and for text that is not an envelope at
+ * all, so callers can fall back to showing the raw output. Older servers
+ * emitted `{"error": "some text"}`, which has no class and is treated as
+ * absent here.
+ */
+export function parseFailureEnvelope(output: string): FailureEnvelope | null {
+	const trimmed = output.trim();
+	if (!trimmed.startsWith('{')) return null;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(trimmed);
+	} catch {
+		return null;
+	}
+	const error = asRecord(asRecord(parsed)?.error);
+	if (!error) return null;
+	const code = typeof error.code === 'string' ? error.code : '';
+	const message = typeof error.message === 'string' ? error.message : '';
+	if (!code && !message) return null;
+	const context = asRecord(error.context);
+	const indices = context?.failed_indices;
+	return {
+		code,
+		message,
+		hint: typeof error.hint === 'string' ? error.hint : undefined,
+		detail: typeof error.detail === 'string' ? error.detail : undefined,
+		failedIndices: Array.isArray(indices)
+			? indices.filter((value): value is number => typeof value === 'number')
+			: undefined,
+	};
+}
+
 /** Preview source: the error wins on failure, the display preview or the
  * output otherwise. */
 export function previewSource(input: PreviewInput): string {
 	if (input.success === false) {
 		const error = (input.error ?? '').trim();
 		if (error) return input.error as string;
+		// Persisted records keep only the message body; recover the headline
+		// from the envelope instead of rendering raw JSON as the summary.
+		const envelope = parseFailureEnvelope(input.output);
+		if (envelope) {
+			return [envelope.message, envelope.hint].filter(Boolean).join('\n');
+		}
 	}
 	const preview = (input.display?.preview ?? '').trim();
 	if (preview) return input.display?.preview as string;

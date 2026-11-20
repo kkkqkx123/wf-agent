@@ -67,7 +67,7 @@ pub fn build_format_error() -> ToolError {
          {\"tool\": \"tool_name\", \"parameters\": {...}} (or an array of such objects) inside \
          the <request> parameter of a <tool_use> call, e.g.:\n\
          <tool_use>\n  <tool_name>general</tool_name>\n  <parameters>\n    \
-         <request>{\"tool\": \"web_search\", \"parameters\": {\"query\": \"rust 异步\"}}</request>\n  \
+         <request>{\"tool\": \"web_search\", \"parameters\": {\"query\": \"rust async\"}}</request>\n  \
          </parameters>\n</tool_use>"
             .to_string(),
     )

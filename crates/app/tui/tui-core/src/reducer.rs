@@ -626,6 +626,7 @@ mod tests {
             success: ok,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: None,
         }
@@ -638,6 +639,7 @@ mod tests {
             success: true,
             result: result.to_string(),
             error: None,
+            error_code: None,
             display: None,
             background: None,
         }
@@ -828,6 +830,7 @@ mod tests {
             success: false,
             result: "partial output".to_string(),
             error: Some("permission denied".to_string()),
+            error_code: None,
             display: None,
             background: None,
         };
@@ -1053,6 +1056,7 @@ mod tests {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: Some(wf_types::tool::BackgroundMarker {
                 session_id: "sess-1".to_string(),
@@ -1065,6 +1069,7 @@ mod tests {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: Some(wf_types::tool::BackgroundMarker {
                 session_id: "sess-2".to_string(),
@@ -1080,6 +1085,7 @@ mod tests {
             success: true,
             result: String::new(),
             error: None,
+            error_code: None,
             display: None,
             background: Some(wf_types::tool::BackgroundMarker {
                 session_id: "sess-1".to_string(),
@@ -1094,6 +1100,7 @@ mod tests {
             success: false,
             result: String::new(),
             error: Some("boom".to_string()),
+            error_code: None,
             display: None,
             background: Some(wf_types::tool::BackgroundMarker {
                 session_id: "sess-3".to_string(),

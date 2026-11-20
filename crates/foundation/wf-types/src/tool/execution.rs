@@ -36,6 +36,11 @@ pub struct ToolExecutionResult {
     pub result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Stable failure class of a failed result, mirroring the model-visible
+    /// failure envelope. `None` on success and on results produced before
+    /// classification existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     pub execution_time: i64,
     pub retry_count: u32,
     /// Structured retry hint for a failed result. The human-readable

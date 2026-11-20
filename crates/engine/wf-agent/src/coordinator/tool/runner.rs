@@ -4,6 +4,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use wf_tools::error::ToolError;
+use wf_tools::tool_failure::ToolFailure;
 use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 use wf_types::tool::ToolRiskLevel;
 use wf_types::tool::{ToolCheckpointTiming, ToolExecutionOptions};
@@ -23,12 +24,16 @@ const TOOL_TIMEOUT_SAFETY_MARGIN_MS: u64 = 30_000;
 /// paths and by the `general` tool invoker. Failures are returned as typed
 /// `ToolError` so callers can classify them (error message to the model,
 /// batch abort, audit) without string sniffing.
+// The failure payload carries the whole envelope (message, hint, detail,
+// context); boxing it would add an allocation on every failure for a struct
+// the success path never touches.
+#[allow(clippy::result_large_err)]
 pub(crate) async fn run_tool(
     ctx: &ToolRunCtx,
     tc: &LlmToolCall,
     entity_id: &str,
     entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
-) -> Result<Message, ToolError> {
+) -> Result<Message, ToolFailure> {
     let tool_name = tc.function.name.clone();
 
     // replay idempotency: a tool call id that already produced a
@@ -65,8 +70,9 @@ pub(crate) async fn run_tool(
                 let error = ToolError::ValidationFailed(format!(
                     "arguments for tool '{tool_name}' are not valid JSON: {e}"
                 ));
-                note_permanent_tool_failure(entity_state, &tool_name, &error).await;
-                return Err(error);
+                let failure = classify_failure(&error, &tool_name);
+                note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+                return Err(failure);
             }
         }
     };
@@ -94,8 +100,9 @@ pub(crate) async fn run_tool(
                     "tool '{tool_name}' is blocked in this execution; do not retry it, use other tools or ask for activation"
                 ),
             };
-            note_permanent_tool_failure(entity_state, &tool_name, &error).await;
-            return Err(error);
+            let failure = classify_failure(&error, &tool_name);
+            note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+            return Err(failure);
         }
     }
 
@@ -115,8 +122,9 @@ pub(crate) async fn run_tool(
         }
         emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
         let error = ToolError::NotFound(tool_name.clone());
-        note_permanent_tool_failure(entity_state, &tool_name, &error).await;
-        return Err(error);
+        let failure = classify_failure(&error, &tool_name);
+        note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+        return Err(failure);
     };
 
     // Failure protection gate.
@@ -132,8 +140,9 @@ pub(crate) async fn run_tool(
                 tool_id: tool_name.clone(),
                 reason,
             };
-            note_permanent_tool_failure(entity_state, &tool_name, &error).await;
-            return Err(error);
+            let failure = classify_failure(&error, &tool_name);
+            note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+            return Err(failure);
         }
     }
 
@@ -163,8 +172,9 @@ pub(crate) async fn run_tool(
                     tool_id: tool_name.clone(),
                     reason: format!("checkpoint failed before execution: {e}"),
                 };
-                note_permanent_tool_failure(entity_state, &tool_name, &error).await;
-                return Err(error);
+                let failure = classify_failure(&error, &tool_name);
+                note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+                return Err(failure);
             }
         }
     }
@@ -217,7 +227,10 @@ pub(crate) async fn run_tool(
                     _ = token.cancelled() => {
                         entity_state.write().await.finish_tool_call(&tc.id, None);
                         emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-                        return Err(ToolError::Cancelled { tool_id: tool_name });
+                        let cancelled = ToolError::Cancelled {
+                            tool_id: tool_name.clone(),
+                        };
+                        return Err(classify_failure(&cancelled, &tool_name));
                     }
                 }
             }
@@ -235,11 +248,17 @@ pub(crate) async fn run_tool(
         if matches!(&attempt, Ok(Ok(r)) if r.success) {
             break attempt;
         }
-        // Budget-gated retry: each failed attempt consumes the shared
-        // retry budget; when exhausted the failure is reported as-is.
+        // Retryability gate first: a deterministic failure (bad path, stale
+        // anchor, rejected arguments) reproduces on every attempt, so it must
+        // not spend the shared budget. Only transient classes get a retry.
         let Some(budget) = ctx.retry_budget.as_ref() else {
             break attempt;
         };
+        if !attempt_retryable(&attempt) {
+            break attempt;
+        }
+        // Budget-gated retry: each failed attempt consumes the shared
+        // retry budget; when exhausted the failure is reported as-is.
         let check = budget.consume_retry(0, None, duration_ms as u64);
         if !check.allowed {
             break attempt;
@@ -247,25 +266,32 @@ pub(crate) async fn run_tool(
         tracing::debug!(tool = %tool_name, "retrying tool call under retry budget");
     };
     let success = matches!(&result, Ok(Ok(r)) if r.success);
+    // Classify once: the audit record, the metric label and the model-facing
+    // envelope all read this single value instead of re-deriving the class
+    // from prose.
+    let failure: Option<ToolFailure> = match &result {
+        Ok(Ok(r)) if !r.success => Some(ToolFailure::from_result(Some(&tool_name), r)),
+        Ok(Err(e)) => Some(classify_failure(e, &tool_name)),
+        Err(_) => Some(
+            ToolFailure::new(
+                wf_tools::tool_failure::ToolFailureCode::Timeout,
+                format!("tool '{tool_name}' timed out after {timeout_ms}ms"),
+            )
+            .with_tool(tool_name.clone())
+            .with_retryable(true),
+        ),
+        _ => None,
+    };
 
-    // Audit payload for the persisted tool-call record: arguments as
-    // passed, result payload on success, raw error otherwise.
+    // Audit payload for the persisted tool-call record: arguments as passed,
+    // result payload on success, class plus message otherwise.
     let call_result: Option<Value> = match &result {
         Ok(Ok(r)) if r.success => r.result.clone(),
         _ => None,
     };
-    let call_error: Option<String> = match &result {
-        Ok(Ok(r)) if !r.success => r
-            .error
-            .clone()
-            .or_else(|| Some(format!("Tool '{}' reported failure", tool_name))),
-        Ok(Err(e)) => Some(e.to_string()),
-        Err(_) => Some(format!(
-            "Tool '{}' timed out after {}ms",
-            tool_name, timeout_ms
-        )),
-        _ => None,
-    };
+    let call_error: Option<String> = failure
+        .as_ref()
+        .map(|failure| format!("{}: {}", failure.code.as_str(), failure.message));
 
     let record = ToolCallRecord {
         name: tool_name.clone(),
@@ -310,7 +336,10 @@ pub(crate) async fn run_tool(
                     metrics.tool().record_tool_call_error(
                         &tool_name,
                         entity_id,
-                        "execution_failed",
+                        failure
+                            .as_ref()
+                            .map(|failure| failure.code.as_str())
+                            .unwrap_or("tool_reported_failure"),
                     );
                     tracing::warn!(tool = %tool_name, "tool call reported failure");
                 }
@@ -326,7 +355,10 @@ pub(crate) async fn run_tool(
                     metrics.tool().record_tool_call_error(
                         &tool_name,
                         entity_id,
-                        "execution_failed",
+                        failure
+                            .as_ref()
+                            .map(|failure| failure.code.as_str())
+                            .unwrap_or("internal"),
                     );
                     tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
                 }
@@ -403,45 +435,65 @@ pub(crate) async fn run_tool(
             );
             Ok(msg)
         }
-        Ok(Ok(tool_result)) => {
-            // Tool reported failure through its result payload.
-            let reason = tool_result
-                .error
-                .clone()
-                .unwrap_or_else(|| format!("Tool '{}' reported failure", tool_name));
+        Ok(Ok(_)) => {
+            // The tool reported failure through its own result: the payload
+            // keeps whatever per-item detail it produced, the class comes
+            // from the result's error code.
+            let failure = failure.expect("a failed result carries a failure");
             entity_state.write().await.finish_tool_call(&tc.id, None);
             if let Some(ref fp) = ctx.failure_protection {
-                fp.record_failure(&tool_name, reason.clone());
+                if !failure.code.is_partial() {
+                    fp.record_failure(&tool_name, failure.message.clone());
+                }
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            let error = ToolError::ExecutionFailed {
-                tool_id: tool_name.clone(),
-                reason,
-            };
-            note_permanent_tool_failure(entity_state, &tool_name, &error).await;
-            Err(error)
+            note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+            Err(failure)
         }
-        Ok(Err(e)) => {
+        Ok(Err(_)) => {
+            let failure = failure.expect("a failed call carries a failure");
             entity_state.write().await.finish_tool_call(&tc.id, None);
             if let Some(ref fp) = ctx.failure_protection {
-                fp.record_failure(&tool_name, e.to_string());
+                fp.record_failure(&tool_name, failure.message.clone());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            note_permanent_tool_failure(entity_state, &tool_name, &e).await;
-            Err(e)
+            note_permanent_tool_failure(entity_state, &tool_name, &failure).await;
+            Err(failure)
         }
         Err(_) => {
-            let reason = format!("timeout after {timeout_ms}ms");
+            let failure = failure.expect("a timed-out call carries a failure");
             entity_state.write().await.finish_tool_call(&tc.id, None);
             if let Some(ref fp) = ctx.failure_protection {
-                fp.record_failure(&tool_name, reason.clone());
+                fp.record_failure(&tool_name, failure.message.clone());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            Err(ToolError::Timeout {
-                tool_id: tool_name,
-                timeout_ms,
-            })
+            Err(failure)
         }
+    }
+}
+
+/// Whether one failed attempt deserves another try, decided by the same
+/// classification the failure envelope reports.
+fn attempt_retryable(
+    attempt: &Result<
+        Result<wf_types::tool::ToolExecutionResult, ToolError>,
+        tokio::time::error::Elapsed,
+    >,
+) -> bool {
+    match attempt {
+        Ok(Ok(result)) => {
+            let code = result
+                .error_code
+                .as_deref()
+                .and_then(wf_tools::tool_failure::ToolFailureCode::from_tag);
+            result
+                .retryable
+                .unwrap_or_else(|| code.map(|code| code.default_retryable()).unwrap_or(false))
+        }
+        Ok(Err(err)) => crate::error_analysis::tool_error_analysis(err).retryable,
+        // The wall-clock deadline is an outer guard, not the tool's own
+        // failure: a transient stall keeps the historical retry behavior.
+        Err(_) => true,
     }
 }
 
@@ -486,9 +538,9 @@ pub(crate) fn emit_progress(
 async fn note_permanent_tool_failure(
     entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
     tool_name: &str,
-    error: &ToolError,
+    failure: &ToolFailure,
 ) {
-    if !crate::error_analysis::tool_error_analysis(error).retryable {
+    if !failure.retryable && !failure.code.is_partial() {
         entity_state
             .write()
             .await
@@ -496,36 +548,38 @@ async fn note_permanent_tool_failure(
     }
 }
 
-/// Build an error-carrying tool message. Used for rejections, execution
-/// failures and batch aborts so the model always sees one tool result per
-/// tool call.
-pub(crate) fn error_message(
-    error: &str,
+/// Classify a typed execution error for the model, taking the retryability
+/// bit from the engine's single classification so the envelope and the
+/// retry loop cannot disagree.
+pub(crate) fn classify_failure(err: &ToolError, tool_name: &str) -> ToolFailure {
+    let mut failure = ToolFailure::from_tool_error(Some(tool_name), err);
+    failure.retryable = crate::error_analysis::tool_error_analysis(err).retryable;
+    failure
+}
+
+/// Render the single model-facing failure envelope into a tool message and
+/// stamp its machine-readable bits onto the metadata.
+pub(crate) fn failure_message(
+    failure: &ToolFailure,
     tool_call_id: Option<&str>,
     tool_name: Option<&str>,
+    workdir: Option<&str>,
 ) -> Message {
+    let rendered = failure.render(workdir);
+    let mut metadata = None;
+    rendered.apply_message_metadata(&mut metadata, failure);
     Message {
         id: wf_types::Id::new(),
         role: MessageRole::Tool,
-        content: MessageContentValue::Text(serde_json::json!({"error": error}).to_string()),
+        content: MessageContentValue::Text(rendered.text),
         timestamp: wf_common::now(),
         tool_call_id: tool_call_id.map(String::from),
         tool_name: tool_name.map(String::from),
         tool_calls: None,
         thinking: None,
         thinking_signature: None,
-        metadata: None,
+        metadata,
     }
-}
-
-/// Mark a tool message as carrying a scope violation so later stages can
-/// count violation rounds without string sniffing. The human-readable
-/// guidance stays in the content; this flag is the machine-readable bit.
-pub(crate) fn mark_scope_violation(msg: &mut Message) {
-    msg.metadata.get_or_insert_with(Default::default).insert(
-        wf_tools::error::SCOPE_VIOLATION_METADATA_KEY.to_string(),
-        Value::Bool(true),
-    );
 }
 
 /// True when a tool message was marked as a scope violation.
@@ -541,11 +595,20 @@ pub(crate) fn rejection_message(
     tc: &LlmToolCall,
     reason: &str,
 ) -> Message {
-    error_message(
-        &builder.build_rejection_message(&tc.function.name, Some(reason)),
-        Some(&tc.id),
-        Some(&tc.function.name),
+    let failure = ToolFailure::new(
+        wf_tools::tool_failure::ToolFailureCode::ApprovalDenied,
+        builder.build_rejection_message(&tc.function.name, Some(reason)),
     )
+    .with_tool(tc.function.name.clone());
+    failure_message(&failure, Some(&tc.id), Some(&tc.function.name), None)
+}
+
+/// Workdir used for spilling failure detail: the execution scope when
+/// known, so the model can read the spilled text back with the file tools.
+pub(crate) fn workdir_of(
+    scope: &wf_types::config::file_scope::ResolvedExecutionScope,
+) -> Option<&str> {
+    scope.as_ref().and_then(|scope| scope.workdir.as_deref())
 }
 
 pub(crate) fn build_hook_data(tc: &LlmToolCall) -> HashMap<String, Value> {

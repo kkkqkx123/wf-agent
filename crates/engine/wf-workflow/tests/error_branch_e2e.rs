@@ -79,6 +79,20 @@ fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraphStr
     }
 }
 
+/// Compaction tuning is a process-wide install performed by runtime
+/// bootstrap. The AGENT_LOOP tests below build the agent loop directly, so
+/// they install the built-in limits first: a missing install panics loudly by
+/// design (`compaction/strategy.rs:108-117`) instead of silently falling back
+/// to defaults.
+fn install_compaction_limits() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        wf_execution_shared::set_process_compaction_limits(
+            wf_execution_shared::builtin_compaction_limits(),
+        );
+    });
+}
+
 fn options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
         file_scope: None,
@@ -342,6 +356,7 @@ async fn unmatched_failure_uses_workflow_default() {
 /// explicit `TransportTimeout` route wins over the workflow default.
 #[tokio::test]
 async fn agent_node_timeout_routes_as_transport_timeout() {
+    install_compaction_limits();
     let runs = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = Arc::new(std::sync::Mutex::new(HashMap::new()));
     let mut handlers = base_handlers(&runs, &seen);

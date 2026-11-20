@@ -24,13 +24,13 @@ mod test;
 mod types;
 
 use approval::ToolApprovalGate;
-use runner::{build_hook_data, error_message, rejection_message, run_tool};
+use runner::{build_hook_data, failure_message, rejection_message, run_tool, workdir_of};
 use types::{ApprovalOutcome, TaskOutcome, ToolRunCtx};
 
 // Facade re-exports: `coordinator::tool` stays the single public path for
 // tool-execution types consumed by sibling modules and external crates.
 pub use general::GeneralToolContext;
-pub(crate) use runner::{is_scope_violation_message, mark_scope_violation};
+pub(crate) use runner::is_scope_violation_message;
 pub use types::{
     ToolCheckpointHandler, ToolExecutionMode, ToolProgressEvent, ToolProgressStatus,
     ToolVisibilityStore,
@@ -693,9 +693,12 @@ impl ToolExecutionCoordinator {
                                 &entity_state,
                             ) => res,
                             _ = task_cancellation.cancelled() => Err(
-                                wf_tools::error::ToolError::Cancelled {
-                                    tool_id: tool_call.function.name.clone(),
-                                }
+                                wf_tools::tool_failure::ToolFailure::new(
+                                    wf_tools::tool_failure::ToolFailureCode::Cancelled,
+                                    "tool execution was cancelled before it finished",
+                                )
+                                .with_tool(tool_call.function.name.clone())
+                                .with_hint("Re-issue the call if the operation is still needed."),
                             ),
                         };
 
@@ -742,15 +745,13 @@ impl ToolExecutionCoordinator {
                         TaskOutcome::Ok(msg) | TaskOutcome::Rejected(msg) => {
                             messages[idx] = Some(msg);
                         }
-                        TaskOutcome::Failed(reason) => {
-                            let mut msg = error_message(
-                                &reason.to_string(),
+                        TaskOutcome::Failed(failure) => {
+                            let msg = failure_message(
+                                &failure,
                                 Some(&tool_calls[idx].id),
                                 Some(&tool_calls[idx].function.name),
+                                workdir_of(&self.file_scope),
                             );
-                            if reason.is_scope_violation() {
-                                mark_scope_violation(&mut msg);
-                            }
                             messages[idx] = Some(msg);
                             if self.cancel_on_failure {
                                 set.abort_all();
@@ -778,10 +779,17 @@ impl ToolExecutionCoordinator {
             for (idx, slot) in messages.iter_mut().enumerate() {
                 if slot.is_none() {
                     let tc = &tool_calls[idx];
-                    *slot = Some(error_message(
-                        "Tool execution did not complete (batch aborted, cancelled or panicked)",
+                    let failure = wf_tools::tool_failure::ToolFailure::new(
+                        wf_tools::tool_failure::ToolFailureCode::Cancelled,
+                        "tool execution did not complete: the batch was aborted, cancelled or its task panicked",
+                    )
+                    .with_tool(tc.function.name.clone())
+                    .with_hint("Re-issue the call if the operation is still needed.");
+                    *slot = Some(failure_message(
+                        &failure,
                         Some(&tc.id),
                         Some(&tc.function.name),
+                        workdir_of(&self.file_scope),
                     ));
                 }
             }
@@ -827,14 +835,17 @@ impl ToolExecutionCoordinator {
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
-    ) -> (Message, Option<wf_tools::error::ToolError>) {
+    ) -> (Message, Option<wf_tools::tool_failure::ToolFailure>) {
         if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
             return (
                 self.build_rejection_message(tc, &reason),
-                Some(wf_tools::error::ToolError::ExecutionFailed {
-                    tool_id: tc.function.name.clone(),
-                    reason,
-                }),
+                Some(
+                    wf_tools::tool_failure::ToolFailure::new(
+                        wf_tools::tool_failure::ToolFailureCode::ApprovalDenied,
+                        reason.clone(),
+                    )
+                    .with_tool(tc.function.name.clone()),
+                ),
             );
         }
         let mut ctx = self.run_ctx();
@@ -849,12 +860,14 @@ impl ToolExecutionCoordinator {
         });
         match run_tool(&ctx, tc, entity.id(), &entity.state).await {
             Ok(msg) => (msg, None),
-            Err(e) => {
-                let mut msg = error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name));
-                if e.is_scope_violation() {
-                    mark_scope_violation(&mut msg);
-                }
-                (msg, Some(e))
+            Err(failure) => {
+                let msg = failure_message(
+                    &failure,
+                    Some(&tc.id),
+                    Some(&tc.function.name),
+                    workdir_of(&self.file_scope),
+                );
+                (msg, Some(failure))
             }
         }
     }
@@ -876,12 +889,13 @@ impl ToolExecutionCoordinator {
         });
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
-            .unwrap_or_else(|e| {
-                let mut msg = error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name));
-                if e.is_scope_violation() {
-                    mark_scope_violation(&mut msg);
-                }
-                msg
+            .unwrap_or_else(|failure| {
+                failure_message(
+                    &failure,
+                    Some(&tc.id),
+                    Some(&tc.function.name),
+                    workdir_of(&self.file_scope),
+                )
             }))
     }
 

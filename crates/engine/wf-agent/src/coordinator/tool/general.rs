@@ -36,6 +36,12 @@ impl GeneralToolContext {
         }
     }
 
+    /// Workdir used to spill oversized failure detail, so the model can read
+    /// it back through the file tools under the same scope.
+    fn workdir(&self) -> Option<&str> {
+        super::runner::workdir_of(&self.ctx.file_scope)
+    }
+
     /// Validate the inner tool against the run's exposure state using the
     /// same resolution the schema assembly consumes (single decision
     /// source): hidden tools are always rejected, gated (not yet activated)
@@ -179,7 +185,9 @@ impl GeneralToolContext {
 
         match outcome {
             Ok(msg) => content_to_value(&msg.content),
-            Err(e) => serde_json::json!({"error": e.to_string()}),
+            // Failures keep the envelope so a batch item stays attributable
+            // to its tool and carries the same shape as a direct call.
+            Err(failure) => failure.to_value(self.workdir()),
         }
     }
 

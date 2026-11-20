@@ -1081,10 +1081,22 @@ async fn test_general_blocked_tool_rejected_by_pipeline() {
         .invoke_request("{\"tool\": \"web_search\", \"parameters\": {\"query\": \"x\"}}")
         .await
         .expect("visibility denial must resolve to an error value");
+    let error = denied.get("error").expect("failure envelope");
+    assert_eq!(
+        error.get("code").and_then(|c| c.as_str()),
+        Some("tool_blocked"),
+        "visibility denial: {denied}"
+    );
+    assert_eq!(
+        error.get("tool").and_then(|t| t.as_str()),
+        Some("web_search"),
+        "batch item stays attributable: {denied}"
+    );
     assert!(
-        denied
-            .get("error")
-            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("do not retry"))),
+        error
+            .get("message")
+            .and_then(|m| m.as_str())
+            .is_some_and(|message| message.contains("blocked in this execution")),
         "visibility denial: {denied}"
     );
 }
@@ -1117,18 +1129,31 @@ fn test_approval_gate_config_roundtrip() {
     assert!(Arc::strong_count(&handler.expect("handler present")) >= 1);
 }
 
-// Missing-file text must never count as a scope violation: no marker is set
-// on plain error messages, so the violation streak ignores them.
+// Missing-file failures must never count as a scope violation: only the
+// scope class carries the violation marker, so the violation streak ignores
+// everything else.
 #[test]
-fn test_missing_file_text_is_never_a_scope_violation() {
-    let plain = super::runner::error_message(
-        "not_found: file '/work/missing.txt' does not exist. Use list_files to confirm the path or write_file to create it.",
-        Some("call-1"),
-        Some("read_file"),
-    );
+fn test_missing_file_failure_is_never_a_scope_violation() {
+    use wf_tools::tool_failure::ToolFailure;
+    let not_found = wf_tools::ToolError::ExecutionError(wf_tools::error::tag_detail(
+        wf_tools::error::NOT_FOUND_TAG,
+        "file '/work/missing.txt' does not exist. Use list_files to confirm the path or write_file to create it."
+            .to_string(),
+    ));
+    let failure = ToolFailure::from_tool_error(Some("read_file"), &not_found);
+    let plain = super::runner::failure_message(&failure, Some("call-1"), Some("read_file"), None);
     assert!(!super::runner::is_scope_violation_message(&plain));
-    assert!(!text_of(&plain).contains("outside allowed"));
-    let mut marked = plain.clone();
-    super::runner::mark_scope_violation(&mut marked);
+    let text = text_of(&plain);
+    assert!(!text.contains("outside allowed"));
+    assert!(text.contains("\"code\":\"not_found\""));
+
+    let denied = ToolFailure::from_tool_error(
+        Some("read_file"),
+        &wf_tools::ToolError::scope_violation(
+            "read_file",
+            "path '/etc/passwd' is outside read prefixes.".to_string(),
+        ),
+    );
+    let marked = super::runner::failure_message(&denied, Some("call-2"), Some("read_file"), None);
     assert!(super::runner::is_scope_violation_message(&marked));
 }

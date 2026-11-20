@@ -80,6 +80,7 @@ impl ExecutionEventStream {
                         success,
                         result,
                         error,
+                        error_code,
                         display,
                         background,
                     } => ExecutionStreamEvent::ToolEnd {
@@ -88,6 +89,7 @@ impl ExecutionEventStream {
                         success,
                         result,
                         error,
+                        error_code,
                         display,
                         background,
                     },

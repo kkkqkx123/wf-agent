@@ -11,8 +11,9 @@ use wf_types::config::file_scope::scope_path_contains;
 
 use super::{
     edit_diff::{
-        apply_edits_to_content, compute_edit_diff, detect_line_ending, normalize_to_lf,
-        restore_line_endings, strip_bom, EditApplyError, EditPair, UTF8_BOM,
+        apply_edits_collecting, apply_edits_to_content, compute_edit_diff, detect_line_ending,
+        nearest_line, normalize_to_lf, restore_line_endings, strip_bom, EditApplyError, EditPair,
+        UTF8_BOM,
     },
     mutation_queue::lock_for_file,
     require_string, FsToolHandlers,
@@ -81,9 +82,12 @@ impl FsToolHandlers {
         let path = self.ensure_in_scope("write_file", &resolved, ctx, true)?;
 
         if self.is_write_protected(&path) {
-            return Err(ToolError::ExecutionError(format!(
-                "Write operation blocked: '{}' requires explicit approval",
-                path.display()
+            return Err(ToolError::ExecutionError(tag_detail(
+                "write_protected",
+                format!(
+                    "write blocked: '{}' is protected. Ask for approval or target another path.",
+                    path.display()
+                ),
             )));
         }
 
@@ -230,9 +234,12 @@ impl FsToolHandlers {
         let path = self.ensure_in_scope("edit_file", &resolved, ctx, true)?;
 
         if self.is_write_protected(&path) {
-            return Err(ToolError::ExecutionError(format!(
-                "Write operation blocked: '{}' requires explicit approval",
-                path.display()
+            return Err(ToolError::ExecutionError(tag_detail(
+                "write_protected",
+                format!(
+                    "write blocked: '{}' is protected. Ask for approval or target another path.",
+                    path.display()
+                ),
             )));
         }
 
@@ -269,48 +276,54 @@ impl FsToolHandlers {
         let original_ending = detect_line_ending(content);
         let normalized_content = normalize_to_lf(content);
 
-        // Resolution and application share the preview kernel; only the
-        // error messages are shaped for single versus batch calls here.
-        let new_normalized_content = match apply_edits_to_content(&normalized_content, &pending) {
-            Ok(applied) => applied,
-            Err(EditApplyError::Empty { index }) => {
-                return Err(ToolError::ValidationFailed(if batch {
-                    format!("edits[{index}].old_string must not be empty")
-                } else {
-                    "old_string must not be empty".to_string()
-                }));
+        // Resolution and application share the preview kernel. A batch
+        // reports every unusable entry at once so one repair round covers
+        // them all; a single replacement keeps its focused message.
+        let new_normalized_content = if batch {
+            match apply_edits_collecting(&normalized_content, &pending) {
+                Ok(applied) => applied,
+                Err(errors) => {
+                    return Err(aggregate_edit_error(
+                        &path,
+                        &normalized_content,
+                        &pending,
+                        &errors,
+                    ))
+                }
             }
-            Err(EditApplyError::Duplicate { index, count }) => {
-                return Err(ToolError::ExecutionError(if batch {
-                    format!(
-                            "Found {count} occurrences of edits[{index}] in '{}'. Each old_string must be unique. Provide more context to make it unique.",
+        } else {
+            match apply_edits_to_content(&normalized_content, &pending) {
+                Ok(applied) => applied,
+                Err(EditApplyError::Empty { .. }) => {
+                    return Err(ToolError::ValidationFailed(
+                        "old_string must not be empty".to_string(),
+                    ));
+                }
+                Err(EditApplyError::Duplicate { count, .. }) => {
+                    return Err(ToolError::ExecutionError(tag_detail(
+                        "patch_failed",
+                        format!(
+                            "old_string matches {count} places in '{}'. Add more context to old_string to make it unique.",
                             path.display()
-                        )
-                } else {
-                    format!(
-                            "old_string found {count} times in '{}'. Add more context to old_string to make it unique.",
-                            path.display()
-                        )
-                }));
-            }
-            Err(EditApplyError::NotFound { index }) => {
-                return Err(ToolError::ExecutionError(if batch {
-                    format!(
-                            "Could not find edits[{index}] in '{}'. The old text must match exactly including all whitespace and newlines.",
-                            path.display()
-                        )
-                } else {
-                    format!(
-                            "old_string not found in '{}'. Provide more context in old_string to make it unique, or use apply_diff for complex edits.",
-                            path.display()
-                        )
-                }));
-            }
-            Err(EditApplyError::Overlap { first, second }) => {
-                return Err(ToolError::ExecutionError(format!(
+                        ),
+                    )));
+                }
+                Err(EditApplyError::NotFound { .. }) => {
+                    return Err(ToolError::ExecutionError(tag_detail(
+                        "patch_failed",
+                        format!(
+                            "old_string not found in '{}'{}. Provide more context in old_string to make it unique, or use apply_diff for complex edits.",
+                            path.display(),
+                            nearest_hint(&normalized_content, &pending[0].old_text)
+                        ),
+                    )));
+                }
+                Err(EditApplyError::Overlap { first, second }) => {
+                    return Err(ToolError::ExecutionError(format!(
                         "edits[{first}] and edits[{second}] overlap in '{}'. Merge them into one edit or target disjoint regions.",
                         path.display()
                     )));
+                }
             }
         };
         if new_normalized_content == normalized_content {
@@ -380,4 +393,54 @@ pub(super) fn notify_precise(
             );
         }
     }
+}
+
+/// Render the "nearest line" pointer for a stale anchor, if the anchor's
+/// first meaningful line still exists somewhere in the file.
+fn nearest_hint(content: &str, old_text: &str) -> String {
+    match nearest_line(content, old_text) {
+        Some((line, text)) => format!(" (nearest line {line}: `{}`)", clip_inline(&text, 80)),
+        None => String::new(),
+    }
+}
+
+fn clip_inline(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(limit).collect();
+    out.push('…');
+    out
+}
+
+/// One failure listing every unusable replacement, each with the line the
+/// anchor still lives on when it moved.
+fn aggregate_edit_error(
+    path: &Path,
+    content: &str,
+    pending: &[EditPair],
+    errors: &[EditApplyError],
+) -> ToolError {
+    let mut lines: Vec<String> = Vec::with_capacity(errors.len());
+    for error in errors {
+        let index = error.index();
+        let hint = match error {
+            EditApplyError::NotFound { .. } => pending
+                .get(index)
+                .map(|pair| nearest_hint(content, &pair.old_text))
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        lines.push(format!("edits[{index}]: {}{hint}", error.describe()));
+    }
+    ToolError::ExecutionError(tag_detail(
+        "patch_failed",
+        format!(
+            "{} of {} edits could not be applied in '{}'. Fix the listed entries and re-run the call.\n{}",
+            errors.len(),
+            pending.len(),
+            path.display(),
+            lines.join("\n")
+        ),
+    ))
 }

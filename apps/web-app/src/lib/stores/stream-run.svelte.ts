@@ -1,7 +1,7 @@
 import type { UsageSnapshot } from '#lib/services/streaming';
 import type { SessionExecutorType } from '#lib/types/models';
 import type { DisplayPayload } from '#lib/utils/tool-output';
-import type { BackgroundMarker } from '#lib/utils/stream-parser';
+import type { BackgroundMarker, ToolLifecycle } from '#lib/utils/stream-parser';
 
 /** Milliseconds between buffer flushes into the rendered answer. */
 export const STREAM_FLUSH_MS = 80;
@@ -30,6 +30,8 @@ export interface LiveToolCall {
 	status: 'pending' | 'running' | 'completed' | 'failed';
 	result: string;
 	error?: string;
+	/** Stable failure class from the server (`error.code` in the envelope). */
+	errorCode?: string;
 	/** Frontend-facing summary produced alongside the full result. Absent
 	 * on older servers; views fall back to name-based inference. */
 	display?: DisplayPayload | null;
@@ -142,39 +144,32 @@ export class StreamRunStore {
 		];
 	}
 
-	toolEnd(
-		toolCallId: string,
-		toolName: string,
-		success: boolean,
-		result: string,
-		toolKind?: string,
-		error?: string | null,
-		display?: DisplayPayload | null,
-		background?: BackgroundMarker | null,
-	): void {
-		const existing = this.tools.find((tool) => tool.id === toolCallId);
-		const status = success ? 'completed' : 'failed';
+	toolEnd(tool: ToolLifecycle): void {
+		const status = tool.success ? 'completed' : 'failed';
+		const existing = this.tools.find((entry) => entry.id === tool.toolCallId);
 		if (existing) {
 			existing.status = status;
-			existing.result = result;
-			if (toolKind) existing.kind = toolKind;
-			if (error) existing.error = error;
-			if (display !== undefined) existing.display = display;
-			if (background !== undefined) existing.background = background;
+			existing.result = tool.result;
+			if (tool.toolKind) existing.kind = tool.toolKind;
+			if (tool.error) existing.error = tool.error;
+			if (tool.errorCode) existing.errorCode = tool.errorCode;
+			if (tool.display !== undefined) existing.display = tool.display;
+			if (tool.background !== undefined) existing.background = tool.background;
 			this.tools = [...this.tools];
 			return;
 		}
 		this.tools = [
 			...this.tools,
 			{
-				id: toolCallId,
-				name: toolName || toolCallId,
-				kind: toolKind,
+				id: tool.toolCallId,
+				name: tool.toolName || tool.toolCallId,
+				kind: tool.toolKind,
 				status,
-				result,
-				error: error ?? undefined,
-				display: display ?? null,
-				background: background ?? null,
+				result: tool.result,
+				error: tool.error ?? undefined,
+				errorCode: tool.errorCode ?? undefined,
+				display: tool.display ?? null,
+				background: tool.background ?? null,
 			},
 		];
 	}

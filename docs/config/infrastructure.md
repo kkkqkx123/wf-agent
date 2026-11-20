@@ -92,7 +92,7 @@
     `POST .../dead-letters/retry`（可为空 `files` 表示全部）、`POST .../dead-letters/acknowledge`（可限定 `module`）
     执行重试与确认，`POST /api/v1/system/code-context/reindex` 重新跑当前 workspace 的全量索引——索引失败不会自动重试，
     这个动作是唯一的人工恢复入口（外部供给模式下被拒绝，重索引归属在部署方）。
-- 其他表：作为 passthrough 原样保留，但必须是 table
+- 未知段：启动失败；`tools.toml` 只接受 `read_file`、`glob`、`list_files`、`shell`、`code_context` 五个段，段名拼写错误不会被静默忽略
 
 ## limits.toml
 

@@ -6,10 +6,9 @@
 //! mirroring the `llm-auth` family. The settings layer is low priority,
 //! the project `.wf/` layer wins by record `id`.
 //!
-//! Error policy has two tiers: an unreadable or unparsable file is skipped
-//! with a warning so one bad record cannot hide every other profile,
-//! while a parsed record that fails validation fails the whole load so
-//! a typoed profile cannot silently run with defaults.
+//! Every declared file must be readable, parsable and valid. A bad index or
+//! record aborts the load so a typo cannot silently remove a profile from a
+//! running configuration.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -21,7 +20,7 @@ use crate::index::{expand_index_paths, load_index_file};
 /// ambient workstation state, explicit settings directory, project override.
 /// Ambient joins only on explicit opt-in; services keep it disabled.
 pub fn candidate_llm_profile_dirs(
-    project_root: &Path,
+    project_root: Option<&Path>,
     settings_dir: Option<&Path>,
     include_ambient: bool,
 ) -> Vec<PathBuf> {
@@ -35,7 +34,7 @@ pub fn candidate_llm_profile_dirs(
 
 /// Candidate roots for the `llm-providers` family, lowest precedence first.
 pub fn candidate_llm_provider_dirs(
-    project_root: &Path,
+    project_root: Option<&Path>,
     settings_dir: Option<&Path>,
     include_ambient: bool,
 ) -> Vec<PathBuf> {
@@ -48,7 +47,7 @@ pub fn candidate_llm_provider_dirs(
 }
 
 fn candidate_family_dirs(
-    project_root: &Path,
+    project_root: Option<&Path>,
     settings_dir: Option<&Path>,
     family: &str,
     include_ambient: bool,
@@ -65,12 +64,8 @@ fn candidate_family_dirs(
     if let Some(settings) = settings_dir {
         dirs.push(settings.join(family));
     }
-    if !project_root.as_os_str().is_empty() {
-        dirs.push(
-            project_root
-                .join(crate::layout::PROJECT_WF_DIR)
-                .join(family),
-        );
+    if let Some(project) = project_root {
+        dirs.push(project.join(crate::layout::PROJECT_WF_DIR).join(family));
     }
     dirs
 }
@@ -116,45 +111,67 @@ pub fn load_llm_provider_file(path: &Path) -> ConfigResult<wf_types::llm::LlmPro
     Ok(definition)
 }
 
+/// Merge two record families by id. Values in `base` win so explicit host
+/// records keep priority over file declarations.
+fn merge_records_by_id<T>(base: Vec<T>, overlay: Vec<T>, record_id: impl Fn(&T) -> &str) -> Vec<T> {
+    let mut merged: BTreeMap<String, T> = base
+        .into_iter()
+        .map(|value| (record_id(&value).to_string(), value))
+        .collect();
+    for value in overlay {
+        merged.entry(record_id(&value).to_string()).or_insert(value);
+    }
+    merged.into_values().collect()
+}
+
+/// Merge explicit profiles with file declarations by id, explicit first.
+pub fn merge_llm_profiles(
+    explicit: Vec<wf_types::llm::LlmProfile>,
+    file: Vec<wf_types::llm::LlmProfile>,
+) -> Vec<wf_types::llm::LlmProfile> {
+    merge_records_by_id(explicit, file, |profile| &profile.id)
+}
+
+/// Merge explicit provider definitions with file declarations by id.
+pub fn merge_llm_provider_definitions(
+    explicit: Vec<wf_types::llm::LlmProviderDefinition>,
+    file: Vec<wf_types::llm::LlmProviderDefinition>,
+) -> Vec<wf_types::llm::LlmProviderDefinition> {
+    merge_records_by_id(explicit, file, |provider| &provider.id)
+}
+
 /// List candidate files inside one family directory: `index.json` wins when
 /// present, otherwise a flat `*.toml` / `*.json` glob. Sample files
 /// (`*.example.*`) never match.
-fn family_candidate_files(dir: &Path) -> Vec<PathBuf> {
+fn family_candidate_files(dir: &Path) -> ConfigResult<Vec<PathBuf>> {
     let index_path = dir.join(crate::layout::INDEX_FILE_NAME);
     if index_path.exists() {
-        match load_index_file(dir) {
-            Ok(index) => expand_index_paths(&index, dir)
-                .into_iter()
-                .map(PathBuf::from)
-                .filter(|path| !crate::layout::is_example_path(path))
-                .filter(|path| {
-                    !path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .map(|name| name.eq_ignore_ascii_case(crate::layout::INDEX_FILE_NAME))
-                        .unwrap_or(false)
-                })
-                .collect(),
-            Err(e) => {
-                tracing::warn!(error = %e, path = %dir.display(), "skipping invalid llm index");
-                Vec::new()
-            }
-        }
-    } else {
-        let mut out = Vec::new();
-        for ext in ["toml", "json"] {
-            let pattern = dir.join(format!("*.{ext}"));
-            if let Ok(paths) = crate::loader::expand_glob_paths(&pattern.to_string_lossy()) {
-                out.extend(
-                    paths
-                        .into_iter()
-                        .filter(|p| !crate::layout::is_example_path(p)),
-                );
-            }
-        }
-        out.sort();
-        out
+        let index = load_index_file(dir)?;
+        return Ok(expand_index_paths(&index, dir)?
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|path| !crate::layout::is_example_path(path))
+            .filter(|path| {
+                !path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.eq_ignore_ascii_case(crate::layout::INDEX_FILE_NAME))
+                    .unwrap_or(false)
+            })
+            .collect());
     }
+    let mut out = Vec::new();
+    for ext in ["toml", "json"] {
+        let pattern = dir.join(format!("*.{ext}"));
+        let paths = crate::loader::expand_glob_paths(&pattern.to_string_lossy())?;
+        out.extend(
+            paths
+                .into_iter()
+                .filter(|p| !crate::layout::is_example_path(p)),
+        );
+    }
+    out.sort();
+    Ok(out)
 }
 
 /// Reject files whose raw content leaves `${VAR}` placeholders without a
@@ -179,22 +196,12 @@ fn load_family_records<T: Clone>(
         if !dir.exists() {
             continue;
         }
-        for path in family_candidate_files(dir) {
+        for path in family_candidate_files(dir)? {
             ensure_strict_env(&path, strict_env)?;
-            match load_one(&path) {
-                Ok(record) => {
-                    merged.insert(record_id(&record).to_string(), record);
-                }
-                Err(ConfigError::Validation(message)) => {
-                    return Err(ConfigError::Validation(format!(
-                        "invalid llm config {}: {message}",
-                        path.display()
-                    )));
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, path = %path.display(), "skipping llm config file");
-                }
-            }
+            let record = load_one(&path).map_err(|e| {
+                ConfigError::Validation(format!("invalid llm config {}: {e}", path.display()))
+            })?;
+            merged.insert(record_id(&record).to_string(), record);
         }
     }
     Ok(merged.into_values().collect())
@@ -203,7 +210,7 @@ fn load_family_records<T: Clone>(
 /// Load merged profiles from settings (low) and project (high) layers.
 /// Returns an empty vector when no family directory yields records.
 pub fn load_llm_profiles_config(
-    project_root: &Path,
+    project_root: Option<&Path>,
     settings_dir: Option<&Path>,
     include_ambient: bool,
     strict_env: bool,
@@ -214,7 +221,7 @@ pub fn load_llm_profiles_config(
 
 /// Load merged provider definitions from settings (low) and project layers.
 pub fn load_llm_provider_definitions_config(
-    project_root: &Path,
+    project_root: Option<&Path>,
     settings_dir: Option<&Path>,
     include_ambient: bool,
     strict_env: bool,
@@ -257,7 +264,8 @@ mod tests {
         );
 
         let profiles =
-            load_llm_profiles_config(&project, Some(settings.as_path()), false, false).unwrap();
+            load_llm_profiles_config(Some(&project), Some(settings.as_path()), false, false)
+                .unwrap();
         assert_eq!(profiles.len(), 2);
         let by_id: BTreeMap<_, _> = profiles.into_iter().map(|p| (p.id.clone(), p)).collect();
         assert_eq!(by_id["a"].model, "project-model");
@@ -275,12 +283,23 @@ mod tests {
                 .join("demo.profile.example.toml"),
             &profile_toml("demo", "m"),
         );
-        let profiles = load_llm_profiles_config(&project, None, false, false).unwrap();
+        let profiles = load_llm_profiles_config(Some(&project), None, false, false).unwrap();
         assert!(profiles.is_empty());
     }
 
     #[test]
-    fn unparsable_file_is_skipped_with_warning() {
+    fn invalid_index_fails_fast() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("proj");
+        write(
+            &project.join(".wf").join("llm-profiles").join("index.json"),
+            r#"{"version": "2.0", "type": "llm_profiles", "paths": ["./*.toml"]}"#,
+        );
+        assert!(load_llm_profiles_config(Some(&project), None, false, false).is_err());
+    }
+
+    #[test]
+    fn unparsable_file_fails_fast() {
         let root = tempfile::tempdir().unwrap();
         let project = root.path().join("proj");
         write(
@@ -291,9 +310,8 @@ mod tests {
             &project.join(".wf").join("llm-profiles").join("good.toml"),
             &profile_toml("good", "m"),
         );
-        let profiles = load_llm_profiles_config(&project, None, false, false).unwrap();
-        assert_eq!(profiles.len(), 1);
-        assert_eq!(profiles[0].id, "good");
+        let error = load_llm_profiles_config(Some(&project), None, false, false).unwrap_err();
+        assert!(error.to_string().contains("bad.toml"));
     }
 
     #[test]
@@ -304,7 +322,7 @@ mod tests {
             &project.join(".wf").join("llm-profiles").join("bad.toml"),
             "id = \"\"\nname = \"x\"\nformat = \"openai_chat\"\nmodel = \"m\"\n",
         );
-        assert!(load_llm_profiles_config(&project, None, false, false).is_err());
+        assert!(load_llm_profiles_config(Some(&project), None, false, false).is_err());
     }
 
     #[test]
@@ -316,8 +334,23 @@ mod tests {
             &project.join(".wf").join("llm-profiles").join("a.toml"),
             "id = \"a\"\nname = \"a\"\nformat = \"openai_chat\"\nmodel = \"m\"\napi_key = \"${WF_TEST_LLM_STRICT_MISSING}\"\n",
         );
-        assert!(load_llm_profiles_config(&project, None, false, false).is_ok());
-        assert!(load_llm_profiles_config(&project, None, false, true).is_err());
+        assert!(load_llm_profiles_config(Some(&project), None, false, false).is_ok());
+        assert!(load_llm_profiles_config(Some(&project), None, false, true).is_err());
+    }
+
+    #[test]
+    fn explicit_profiles_win_and_file_records_survive() {
+        let explicit: wf_types::llm::LlmProfile =
+            crate::parser::parse_toml(&profile_toml("a", "explicit")).unwrap();
+        let file_a: wf_types::llm::LlmProfile =
+            crate::parser::parse_toml(&profile_toml("a", "file")).unwrap();
+        let file_b: wf_types::llm::LlmProfile =
+            crate::parser::parse_toml(&profile_toml("b", "file-b")).unwrap();
+
+        let merged = merge_llm_profiles(vec![explicit], vec![file_a, file_b]);
+        let by_id: BTreeMap<_, _> = merged.into_iter().map(|p| (p.id.clone(), p)).collect();
+        assert_eq!(by_id["a"].model, "explicit");
+        assert_eq!(by_id["b"].model, "file-b");
     }
 
     #[test]
@@ -333,9 +366,13 @@ mod tests {
             &project.join(".wf").join("llm-providers").join("p.toml"),
             "id = \"p\"\nformat = \"openai_chat\"\nbase_url = \"https://project.test\"\n",
         );
-        let providers =
-            load_llm_provider_definitions_config(&project, Some(settings.as_path()), false, false)
-                .unwrap();
+        let providers = load_llm_provider_definitions_config(
+            Some(&project),
+            Some(settings.as_path()),
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(providers.len(), 1);
         assert_eq!(
             providers[0].base_url.as_deref(),

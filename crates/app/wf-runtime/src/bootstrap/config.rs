@@ -267,7 +267,6 @@ fn apply_shell_tool_config(
 /// emits the returned warnings after installation so configuration diagnostics
 /// are not dropped.
 pub fn load_infra_file_layer(infra: &InfraSourceConfig) -> UserFileLayerLoad {
-    let project_root = infra.project_root.clone().unwrap_or_default();
     let global = infra.settings_dir.clone().or_else(|| {
         if infra.allow_ambient {
             wf_config::file_layer::user_config_dir()
@@ -275,7 +274,7 @@ pub fn load_infra_file_layer(infra: &InfraSourceConfig) -> UserFileLayerLoad {
             None
         }
     });
-    load_user_file_layer(global, &project_root)
+    load_user_file_layer(global, infra.project_root.as_deref())
 }
 
 /// Select the higher-priority log override. An empty environment value means
@@ -323,14 +322,14 @@ pub async fn resolve_infra_config(
     file_layer: FileLayerConfig,
     config_metrics: Option<&Arc<wf_metrics::ConfigMetricsCollector>>,
 ) -> RuntimeResult<RuntimeConfig> {
-    let project_root = infra.project_root.clone().unwrap_or_default();
+    let project_root = infra.project_root.as_deref();
 
     // Volatile `.wf` subdirectories (meta/tmp with internal ignores) are
     // ensured before any layer reads the project: only files inside
     // `.wf/{meta,tmp}` are created, the outer workspace `.gitignore` is
     // never touched. Best effort: a failure warns and bootstrap continues.
-    if !project_root.as_os_str().is_empty() {
-        if let Err(e) = wf_config::layout::ensure_project_wf_volatile_dirs(&project_root) {
+    if let Some(root) = project_root {
+        if let Err(e) = wf_config::layout::ensure_project_wf_volatile_dirs(root) {
             warn!(error = %e, "failed to ensure volatile .wf directories; continuing");
         }
     }
@@ -345,7 +344,7 @@ pub async fn resolve_infra_config(
         ..Default::default()
     };
 
-    let mut builder = ConfigOrchestratorBuilder::new(&project_root).runtime_env(
+    let mut builder = ConfigOrchestratorBuilder::new(project_root).runtime_env(
         infra
             .runtime_env
             .unwrap_or(wf_config::processor::infrastructure::RuntimeEnvironment::Development),
@@ -392,7 +391,7 @@ pub async fn resolve_infra_config(
     if config.skills == wf_types::skill::SkillConfig::default() {
         match wf_config::skill::load_and_merge_skill_config(
             infra.settings_dir.as_deref(),
-            &project_root,
+            project_root,
         ) {
             Ok(skills) => config.skills = skills,
             Err(e) => warn!(error = %e, "failed to load skill settings chain; keeping defaults"),
@@ -407,74 +406,58 @@ pub async fn resolve_infra_config(
         config.mcp.project_root = infra.project_root.clone();
     }
 
-    // Load declarative LLM auth surfaces from the explicit project and
-    // settings-dir `llm-auth` families so `LlmConfig.auth` can be driven
-    // by config files instead of programmatic defaults. Ambient
-    // home-directory sources only join when the caller opts in. An
-    // explicitly populated auth config keeps its higher priority.
-    // Settings-only hosts without a project root still load the settings
-    // layer; the project layer joins when a project root is known.
-    if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default()
-        && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
-    {
-        let auth = wf_config::llm_auth::load_llm_auth_config(
-            &project_root,
+    // LLM file families merge with programmatic values by id. Explicit host
+    // records win on duplicate ids; file records fill the rest. Ambient
+    // home-directory sources join only when the caller opts in.
+    let has_llm_sources = project_root.is_some() || infra.settings_dir.is_some();
+    if has_llm_sources {
+        let file_auth = wf_config::llm_auth::load_llm_auth_config(
+            project_root,
             infra.settings_dir.as_deref(),
             infra.allow_ambient,
         )
         .map_err(|e| RuntimeError::Config(format!("Invalid llm-auth config: {e}")))?;
-        if !auth.providers.is_empty() {
-            config.llm.auth = auth;
-        }
-    }
-    // File-driven LLM profiles and provider definitions fill only empty
-    // programmatic values; explicit profiles keep the highest priority.
-    // Invalid files fail bootstrap so a typo cannot surface later as a
-    // missing reference at call time.
-    if config.llm.profiles.is_empty()
-        && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
-    {
-        let profiles = wf_config::llm::load_llm_profiles_config(
-            &project_root,
+        config.llm.auth = wf_config::llm_auth::merge_auth_configs(
+            file_auth,
+            std::mem::take(&mut config.llm.auth),
+        );
+
+        let file_profiles = wf_config::llm::load_llm_profiles_config(
+            project_root,
             infra.settings_dir.as_deref(),
             infra.allow_ambient,
             infra.strict_env,
         )
         .map_err(|e| RuntimeError::Config(format!("Invalid llm-profiles config: {e}")))?;
-        if !profiles.is_empty() {
-            config.llm.profiles = profiles;
-        }
-    }
-    if config.llm.provider_definitions.is_empty()
-        && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
-    {
-        let definitions = wf_config::llm::load_llm_provider_definitions_config(
-            &project_root,
+        config.llm.profiles = wf_config::llm::merge_llm_profiles(
+            file_profiles,
+            std::mem::take(&mut config.llm.profiles),
+        );
+
+        let file_definitions = wf_config::llm::load_llm_provider_definitions_config(
+            project_root,
             infra.settings_dir.as_deref(),
             infra.allow_ambient,
             infra.strict_env,
         )
         .map_err(|e| RuntimeError::Config(format!("Invalid llm-providers config: {e}")))?;
-        if !definitions.is_empty() {
-            config.llm.provider_definitions = definitions;
-        }
+        config.llm.provider_definitions = wf_config::llm::merge_llm_provider_definitions(
+            file_definitions,
+            std::mem::take(&mut config.llm.provider_definitions),
+        );
     }
     // Credential store placement: with ambient disabled the store resolves
-    // next to the project so tenants never share the daemon home
-    // directory. Workstation CLIs keep the home-directory default by
-    // leaving ambient enabled. An explicitly configured store path always
-    // wins.
-    if !infra.allow_ambient
-        && config.llm.auth.store_path.is_none()
-        && !project_root.as_os_str().is_empty()
-    {
-        config.llm.auth.store_path = Some(
-            project_root
-                .join(wf_config::layout::PROJECT_WF_DIR)
-                .join("auth.json")
-                .to_string_lossy()
-                .into_owned(),
-        );
+    // under the project root, or under the settings directory when no project
+    // root is declared, so tenants never share the daemon home directory.
+    // Workstation CLIs keep the home-directory default by leaving ambient
+    // enabled. An explicitly configured store path always wins.
+    if !infra.allow_ambient && config.llm.auth.store_path.is_none() {
+        let store_dir = project_root
+            .map(|root| root.join(wf_config::layout::PROJECT_WF_DIR))
+            .or_else(|| infra.settings_dir.clone());
+        if let Some(dir) = store_dir {
+            config.llm.auth.store_path = Some(dir.join("auth.json").to_string_lossy().into_owned());
+        }
     }
 
     Ok(config)

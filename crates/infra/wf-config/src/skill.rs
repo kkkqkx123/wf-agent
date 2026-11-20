@@ -135,14 +135,16 @@ pub fn merge_skill_configs(
 /// still honor their project file.
 pub fn load_and_merge_skill_config(
     settings_dir: Option<&Path>,
-    project_root: &Path,
+    project_root: Option<&Path>,
 ) -> ConfigResult<SkillConfig> {
-    let project_path = get_project_skill_path(project_root);
     let global_config = settings_dir
         .map(get_global_skill_settings_path)
         .and_then(|path| load_skill_config(&path).transpose())
         .transpose()?;
-    let wf_config = load_skill_config(&project_path)?;
+    let wf_config = match project_root {
+        Some(root) => load_skill_config(&get_project_skill_path(root))?,
+        None => None,
+    };
 
     Ok(merge_skill_configs(
         global_config.as_ref(),
@@ -241,6 +243,20 @@ mod tests {
     }
 
     #[test]
+    fn settings_only_loads_without_project_root() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join(DEFAULT_SKILL_SETTINGS_FILE),
+            r#"{"paths": ["/skills"], "autoScan": false}"#,
+        )
+        .unwrap();
+
+        let merged = load_and_merge_skill_config(Some(root.path()), None).unwrap();
+        assert_eq!(merged.paths, vec!["/skills".to_string()]);
+        assert_eq!(merged.auto_scan, Some(false));
+    }
+
+    #[test]
     fn test_load_and_merge_skill_config() {
         let root = std::env::temp_dir().join(format!("wf-skill-merge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -255,7 +271,7 @@ mod tests {
             r#"{"paths": ["w1", "shared", "a1"], "autoScan": true}"#,
         );
 
-        let merged = load_and_merge_skill_config(Some(&root), &project).unwrap();
+        let merged = load_and_merge_skill_config(Some(&root), Some(&project)).unwrap();
         assert_eq!(merged.paths, vec!["w1", "shared", "a1", "g1"]);
         assert_eq!(merged.auto_scan, Some(true));
         let _ = std::fs::remove_dir_all(&root);

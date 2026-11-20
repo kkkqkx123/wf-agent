@@ -58,7 +58,7 @@ mod tests {
         write_json(&path.join("custom.auth.toml"), "id = \"x\"\n");
         write_json(&path.join("sample.auth.example.toml"), "id = \"y\"\n");
         let index = load_index_file(&path).unwrap();
-        let expanded = expand_index_paths(&index, &path);
+        let expanded = expand_index_paths(&index, &path).unwrap();
         assert_eq!(expanded.len(), 1);
         assert!(expanded[0].ends_with("custom.auth.toml"));
         let _ = std::fs::remove_dir_all(&path);
@@ -71,7 +71,7 @@ mod tests {
             index_type: IndexType::LlmProfiles,
             paths: vec!["profiles/openai.toml".to_string()],
         };
-        let expanded = expand_index_paths(&index, Path::new("/config"));
+        let expanded = expand_index_paths(&index, Path::new("/config")).unwrap();
         assert_eq!(expanded, vec!["/config/profiles/openai.toml".to_string()]);
     }
 }

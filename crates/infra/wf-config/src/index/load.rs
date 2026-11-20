@@ -2,7 +2,7 @@ use std::path::Path;
 
 use wf_types::config::ConfigIndexFile;
 
-use crate::error::ConfigResult;
+use crate::error::{ConfigError, ConfigResult};
 
 /// Load an index file. Accepts the file path or a directory (the directory's
 /// `index.json` is used).
@@ -41,19 +41,20 @@ pub fn index_file_exists(path: &Path) -> bool {
 /// Expand all glob patterns in the index file into absolute file paths
 /// (deduplicated). Documentation samples (`*.example.*`) never match:
 /// they describe schemas and must not leak into a running configuration.
-pub fn expand_index_paths(index: &ConfigIndexFile, base_dir: &Path) -> Vec<String> {
+pub fn expand_index_paths(index: &ConfigIndexFile, base_dir: &Path) -> ConfigResult<Vec<String>> {
     let mut result = Vec::new();
     for pattern in &index.paths {
         let full = base_dir.join(pattern);
         let full_str = full.to_string_lossy().to_string();
         if full_str.contains('*') {
-            if let Ok(entries) = crate::loader::expand_glob_paths(&full_str) {
-                for entry in entries {
-                    if crate::layout::is_example_path(&entry) {
-                        continue;
-                    }
-                    result.push(entry.to_string_lossy().to_string());
+            let entries = crate::loader::expand_glob_paths(&full_str).map_err(|e| {
+                ConfigError::Parse(format!("invalid path pattern '{}' in index: {e}", pattern))
+            })?;
+            for entry in entries {
+                if crate::layout::is_example_path(&entry) {
+                    continue;
                 }
+                result.push(entry.to_string_lossy().to_string());
             }
         } else {
             result.push(full.to_string_lossy().to_string());
@@ -61,5 +62,5 @@ pub fn expand_index_paths(index: &ConfigIndexFile, base_dir: &Path) -> Vec<Strin
     }
     result.sort();
     result.dedup();
-    result
+    Ok(result)
 }

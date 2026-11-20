@@ -13,7 +13,7 @@
 ## server.toml
 
 - `bind_addr`：监听地址，默认 `127.0.0.1:3000`
-- 环境覆盖：`WF_SERVER_BIND_ADDR`（冻结旧名也接受 `--addr` flag）
+- 环境覆盖：`WF_SERVER_BIND_ADDR`（也接受 `--addr` flag）；非法地址启动失败，空字符串按未设置处理
 
 ## auth.toml
 

@@ -5,7 +5,6 @@
 //! overrides, and producing a fully assembled configuration. Missing files
 //! fall back to code defaults; overrides and environment win over files.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::env::{apply_env_overrides, EnvValue};
@@ -77,7 +76,7 @@ pub fn default_infra_file_mapping() -> InfrastructurePresetFiles {
 }
 
 /// Tool-specific configuration sections (read_file / glob / list_files /
-/// shell and raw pass-through sections).
+/// shell / code_context).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ToolConfigs {
     pub glob: Option<GlobConfig>,
@@ -89,9 +88,6 @@ pub struct ToolConfigs {
     /// Code-context service config backing file folding and the retrieval
     /// tools. `None` (the default) disables the service.
     pub code_context: Option<CodeContextConfig>,
-    /// Sections without a dedicated processor, passed through verbatim
-    /// (e.g. `writeFile`, `editFile`, `runShell`, ...).
-    pub passthrough: HashMap<String, serde_json::Value>,
 }
 
 /// Fully assembled configuration produced by the orchestrator.
@@ -143,7 +139,7 @@ pub struct ConfigOrchestrator;
 impl ConfigOrchestrator {
     /// Assemble configuration using default paths.
     pub fn assemble(
-        project_dir: &Path,
+        project_dir: Option<&Path>,
         overrides: Option<ConfigOverrides>,
     ) -> ConfigResult<AssembledConfig> {
         ConfigOrchestratorBuilder::new(project_dir)
@@ -154,7 +150,7 @@ impl ConfigOrchestrator {
 
 /// Builder for [`ConfigOrchestrator`] with non-default paths.
 pub struct ConfigOrchestratorBuilder {
-    project_dir: PathBuf,
+    project_dir: Option<PathBuf>,
     settings_dir: Option<PathBuf>,
     explicit_infra_dir: Option<PathBuf>,
     runtime_env: RuntimeEnvironment,
@@ -163,9 +159,9 @@ pub struct ConfigOrchestratorBuilder {
 }
 
 impl ConfigOrchestratorBuilder {
-    pub fn new(project_dir: &Path) -> Self {
+    pub fn new(project_dir: Option<&Path>) -> Self {
         Self {
-            project_dir: project_dir.to_path_buf(),
+            project_dir: project_dir.map(Path::to_path_buf),
             settings_dir: None,
             explicit_infra_dir: None,
             runtime_env: RuntimeEnvironment::Development,
@@ -224,7 +220,7 @@ impl ConfigOrchestratorBuilder {
 
 /// Orchestrator with resolved paths, ready to assemble.
 pub struct ConfigOrchestratorLoaded {
-    project_dir: PathBuf,
+    project_dir: Option<PathBuf>,
     settings_dir: Option<PathBuf>,
     explicit_infra_dir: Option<PathBuf>,
     runtime_env: RuntimeEnvironment,
@@ -260,7 +256,7 @@ impl ConfigOrchestratorLoaded {
         let mut config = Self::load_infrastructure_configs(
             self.explicit_infra_dir.as_deref(),
             self.settings_dir.as_deref(),
-            &self.project_dir,
+            self.project_dir.as_deref(),
             &files,
             self.runtime_env,
             &self.defaults,
@@ -281,7 +277,7 @@ impl ConfigOrchestratorLoaded {
     fn load_infrastructure_configs(
         explicit_infra_dir: Option<&Path>,
         settings_dir: Option<&Path>,
-        project_dir: &Path,
+        project_dir: Option<&Path>,
         files: &InfrastructurePresetFiles,
         runtime_env: RuntimeEnvironment,
         defaults: &ConfigDefaults,
@@ -295,7 +291,9 @@ impl ConfigOrchestratorLoaded {
                     if let Some(settings) = settings_dir {
                         paths.push(crate::layout::settings_infra_dir(settings).join(file));
                     }
-                    paths.push(crate::layout::project_infra_dir(project_dir).join(file));
+                    if let Some(project) = project_dir {
+                        paths.push(crate::layout::project_infra_dir(project).join(file));
+                    }
                     paths
                 }
             }
@@ -672,8 +670,8 @@ fn set_exec_default(
 
 /// Load tool-specific sections from candidate `tools.toml` files in
 /// precedence order (low to high). Missing files yield defaults; a present
-/// file with invalid sections fails. Unknown sections are kept verbatim but
-/// must be tables so mistyped scalars cannot hide as opaque tool config.
+/// file with invalid or unknown sections fails so a mistyped section name
+/// cannot silently disappear.
 pub fn load_tool_configs(
     paths: &[PathBuf],
     defaults: Option<ToolConfigs>,
@@ -752,12 +750,9 @@ pub fn load_tool_configs(
                 tools.shell = Some(config);
             }
             _ => {
-                if !json.is_object() {
-                    return Err(ConfigError::Validation(format!(
-                        "invalid [{section}] section in {sources}: passthrough tool config must be a table",
-                    )));
-                }
-                tools.passthrough.insert(section.clone(), json);
+                return Err(ConfigError::Validation(format!(
+                    "unknown [{section}] section in {sources}: expected read_file, glob, list_files, shell or code_context",
+                )));
             }
         }
     }
@@ -765,9 +760,10 @@ pub fn load_tool_configs(
 }
 
 /// Load infrastructure configs from the fixed domain filenames, falling back
-/// to code defaults per domain. Reads the explicit override when the builder
-/// sets one, otherwise the settings layer and the project layer.
-pub fn load_default_infrastructure_configs(project_dir: &Path) -> ConfigResult<AssembledConfig> {
+/// to code defaults per domain. A missing project root skips the project layer.
+pub fn load_default_infrastructure_configs(
+    project_dir: Option<&Path>,
+) -> ConfigResult<AssembledConfig> {
     ConfigOrchestrator::assemble(project_dir, None)
 }
 

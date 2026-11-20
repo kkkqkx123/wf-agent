@@ -56,19 +56,20 @@ fn load_mcp_settings_warn(file_path: &Path) -> Option<McpSettings> {
 /// and are skipped.
 pub fn load_and_merge_mcp_settings(
     settings_dir: Option<&Path>,
-    project_root: &Path,
+    project_root: Option<&Path>,
 ) -> ConfigResult<McpSettings> {
-    let project_path = get_project_mcp_path(project_root);
-
     let mut merged: std::collections::HashMap<String, McpServerConfig> = settings_dir
         .and_then(|dir| load_mcp_settings_warn(&get_global_mcp_settings_path(dir)))
         .map(|settings| settings.mcp_servers)
         .unwrap_or_default();
 
     // The project layer overrides the global layer for the same key.
-    if let Some(settings) = load_mcp_settings_warn(&project_path) {
-        for (name, config) in settings.mcp_servers {
-            merged.insert(name, config);
+    if let Some(root) = project_root {
+        let project_path = get_project_mcp_path(root);
+        if let Some(settings) = load_mcp_settings_warn(&project_path) {
+            for (name, config) in settings.mcp_servers {
+                merged.insert(name, config);
+            }
         }
     }
 
@@ -81,7 +82,7 @@ pub fn load_and_merge_mcp_settings(
 /// file exists (used at bootstrap when MCP is not configured).
 pub fn try_load_and_merge_mcp_settings(
     settings_dir: Option<&Path>,
-    project_root: &Path,
+    project_root: Option<&Path>,
 ) -> McpSettings {
     load_and_merge_mcp_settings(settings_dir, project_root).unwrap_or_default()
 }
@@ -135,7 +136,7 @@ mod tests {
             r#"{"mcpServers": {"b": {"type": "stdio", "command": "wf-b"}, "c": {"type": "stdio", "command": "wf-c"}}}"#,
         );
 
-        let settings = load_and_merge_mcp_settings(Some(root.as_path()), &project).unwrap();
+        let settings = load_and_merge_mcp_settings(Some(root.as_path()), Some(&project)).unwrap();
         assert_eq!(settings.mcp_servers.len(), 3);
         // .wf overrides global for the same key.
         let b = match &settings.mcp_servers["b"] {
@@ -161,9 +162,22 @@ mod tests {
     fn test_missing_sources_yield_empty_settings() {
         let root = std::env::temp_dir().join(format!("wf-mcp-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let settings = try_load_and_merge_mcp_settings(Some(root.as_path()), &root);
+        let settings = try_load_and_merge_mcp_settings(Some(root.as_path()), Some(&root));
         assert!(settings.mcp_servers.is_empty());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn settings_only_loads_without_project_root() {
+        let root = tempfile::tempdir().unwrap();
+        write_json(
+            &root.path().join(DEFAULT_MCP_SETTINGS_FILE),
+            r#"{"mcpServers": {"global": {"type": "stdio", "command": "global-cmd"}}}"#,
+        );
+
+        let settings = load_and_merge_mcp_settings(Some(root.path()), None).unwrap();
+        assert_eq!(settings.mcp_servers.len(), 1);
+        assert!(settings.mcp_servers.contains_key("global"));
     }
 
     #[test]
@@ -177,7 +191,7 @@ mod tests {
             r#"{"mcpServers": {"p": {"type": "stdio", "command": "proj-cmd"}}}"#,
         );
 
-        let settings = load_and_merge_mcp_settings(None, &project).unwrap();
+        let settings = load_and_merge_mcp_settings(None, Some(&project)).unwrap();
         assert_eq!(settings.mcp_servers.len(), 1);
         assert!(settings.mcp_servers.contains_key("p"));
 

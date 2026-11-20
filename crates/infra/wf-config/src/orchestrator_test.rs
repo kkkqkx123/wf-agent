@@ -50,7 +50,7 @@ fn test_assemble_from_project_dir() {
     let _ = std::fs::remove_dir_all(&dir);
     setup_test_project(&dir);
 
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
 
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
     let sqlite = config.storage.sqlite.as_ref().unwrap();
@@ -79,7 +79,7 @@ fn project_metrics_toml_matches_schema() {
     .unwrap();
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
     let metrics = config.metrics;
     assert_eq!(metrics.enabled, Some(true));
     assert_eq!(metrics.retention_ms, Some(3_600_000));
@@ -99,7 +99,7 @@ fn test_assemble_defaults_when_no_files() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
 
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
@@ -123,7 +123,7 @@ fn test_assemble_with_overrides() {
         ..Default::default()
     };
 
-    let config = ConfigOrchestrator::assemble(&dir, Some(overrides)).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), Some(overrides)).unwrap();
     assert_eq!(config.metrics.enabled, Some(false));
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
@@ -140,7 +140,7 @@ fn test_assemble_env_override() {
     setup_test_project(&dir);
 
     std::env::set_var("WF_STORAGE_TYPE", "memory");
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
     assert_eq!(config.storage.storage_type, StorageType::Memory);
     clear_wf_env_vars();
 
@@ -160,7 +160,7 @@ fn test_assemble_limits_env_override() {
     std::env::set_var("WF_WORKFLOW_LOOP_MAX_ITERATIONS_CAP", "3000");
     std::env::set_var("WF_EXEC_NODE_TIMEOUT_MS", "15000");
     std::env::set_var("WF_EXEC_MAX_EXECUTION_TIME_MS", "120000");
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
     let agent = config.limits.agent.as_ref().unwrap();
     let workflow = config.limits.workflow.as_ref().unwrap();
     let defaults = config.limits.execution_defaults.as_ref().unwrap();
@@ -187,7 +187,7 @@ fn test_builder_custom_infra_dir() {
     let mut f = std::fs::File::create(custom_infra.join("storage.toml")).unwrap();
     writeln!(f, "type = \"postgres\"\n[postgres]\nhost = \"localhost\"\nport = 5432\nusername = \"user\"\npassword = \"pass\"\ndatabase = \"test\"").unwrap();
 
-    let config = ConfigOrchestratorBuilder::new(&dir)
+    let config = ConfigOrchestratorBuilder::new(Some(&dir))
         .infra_dir(&custom_infra)
         .build()
         .assemble(None)
@@ -207,7 +207,7 @@ fn test_load_default_infrastructure_configs_uses_fixed_filenames() {
     let _ = std::fs::remove_dir_all(&dir);
     setup_test_project(&dir);
 
-    let config = load_default_infrastructure_configs(&dir).unwrap();
+    let config = load_default_infrastructure_configs(Some(&dir)).unwrap();
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -250,7 +250,7 @@ fn test_assemble_new_domain_overrides() {
         ..Default::default()
     };
 
-    let config = ConfigOrchestrator::assemble(&dir, Some(overrides)).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), Some(overrides)).unwrap();
     assert!(config.tools.read_file.is_some());
     assert_eq!(config.tools.read_file.as_ref().unwrap().max_file_size, 1000);
     assert!(config.file_checkpoint.enabled);
@@ -291,7 +291,7 @@ fn test_full_bundle_assembly_from_layers() {
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
 
-    let config = ConfigOrchestratorBuilder::new(&dir.join("project"))
+    let config = ConfigOrchestratorBuilder::new(Some(&dir.join("project")))
         .settings_dir(dir.join("settings"))
         .build()
         .assemble(None)
@@ -342,7 +342,7 @@ fn test_assemble_file_checkpoint_env_overrides() {
     std::env::set_var("WF_FILE_CHECKPOINT_MANUAL_WATCH", "true");
     std::env::set_var("WF_FILE_CHECKPOINT_MANUAL_POLL_MS", "5000");
     std::env::set_var("WF_FILE_CHECKPOINT_GC_INTERVAL_SECS", "3600");
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
     assert!(config.file_checkpoint.enabled);
     assert_eq!(
         config.file_checkpoint.workspace_root.as_deref(),
@@ -357,6 +357,22 @@ fn test_assemble_file_checkpoint_env_overrides() {
 }
 
 #[test]
+fn test_unknown_tool_section_fails() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    clear_wf_env_vars();
+
+    let dir = std::env::temp_dir().join(format!("wf-orch-tools-unknown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    setup_test_project(&dir);
+    let infra_dir = dir.join(".wf").join("infrastructure");
+    std::fs::write(infra_dir.join("tools.toml"), "[sheell]\nenabled = true\n").unwrap();
+
+    let error = ConfigOrchestrator::assemble(Some(&dir), None).unwrap_err();
+    assert!(error.to_string().contains("unknown [sheell] section"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_assemble_rejects_zero_poll_ms_from_env() {
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
@@ -366,11 +382,11 @@ fn test_assemble_rejects_zero_poll_ms_from_env() {
     setup_test_project(&dir);
 
     std::env::set_var("WF_FILE_CHECKPOINT_MANUAL_POLL_MS", "0");
-    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), None).is_err());
     clear_wf_env_vars();
 
     std::env::set_var("WF_SANDBOX_MODE", "permissive-typo");
-    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), None).is_err());
     clear_wf_env_vars();
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -386,19 +402,19 @@ fn test_assemble_rejects_invalid_env_values() {
     setup_test_project(&dir);
 
     std::env::set_var("WF_STORAGE_TYPE", "redis");
-    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), None).is_err());
     clear_wf_env_vars();
 
     std::env::set_var("WF_AGENT_MAX_CONCURRENT", "-1");
-    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), None).is_err());
     clear_wf_env_vars();
 
     std::env::set_var("WF_METRICS_ENABLED", "tru");
-    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), None).is_err());
     clear_wf_env_vars();
 
     std::env::set_var("WF_AGENT_DEFAULT_MAX_ITERATIONS", "2000");
-    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), None).is_err());
     clear_wf_env_vars();
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -414,7 +430,7 @@ fn test_assemble_sandbox_mode_env_override() {
     setup_test_project(&dir);
 
     std::env::set_var("WF_SANDBOX_MODE", "lenient");
-    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), None).unwrap();
     let sandbox = config
         .sandbox
         .expect("env mode materializes a sandbox config");
@@ -446,7 +462,7 @@ fn test_assemble_sandbox_override_merges_and_revalidates() {
         }),
         ..Default::default()
     };
-    let config = ConfigOrchestrator::assemble(&dir, Some(overrides)).unwrap();
+    let config = ConfigOrchestrator::assemble(Some(&dir), Some(overrides)).unwrap();
     let sandbox = config.sandbox.expect("override yields a sandbox config");
     assert_eq!(
         sandbox.mode,
@@ -468,7 +484,7 @@ fn test_assemble_sandbox_override_merges_and_revalidates() {
         }),
         ..Default::default()
     };
-    assert!(ConfigOrchestrator::assemble(&dir, Some(bad)).is_err());
+    assert!(ConfigOrchestrator::assemble(Some(&dir), Some(bad)).is_err());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

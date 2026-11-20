@@ -72,7 +72,7 @@ fn env_usize(name: &str) -> Option<usize> {
     std::env::var(name).ok()?.parse().ok()
 }
 
-fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig>) {
+fn build_runtime_config(args: &Args) -> (RuntimeConfig, InfraSourceConfig) {
     let mut config = RuntimeConfig::default();
     let storage_override = args
         .storage
@@ -105,14 +105,10 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
     let mut source = InfraSourceConfig {
         project_root: args.config.clone(),
         settings_dir: args.settings_dir.clone(),
+        runtime_env: Some(wf_config::processor::infrastructure::RuntimeEnvironment::Production),
         ..Default::default()
     };
     source.overrides.storage = storage_override;
-    let source = if args.config.is_some() || source.overrides.storage.is_some() {
-        Some(source)
-    } else {
-        None
-    };
 
     (config, source)
 }
@@ -173,10 +169,7 @@ async fn run(args: Args, worker_threads: Option<usize>) {
             std::process::exit(1);
         }
     };
-    let runtime = match infra_source {
-        Some(source) => Runtime::bootstrap_with_source(runtime_config, source).await,
-        None => Runtime::bootstrap(runtime_config).await,
-    };
+    let runtime = Runtime::bootstrap_with_source(runtime_config, infra_source).await;
     let runtime = match runtime {
         Ok(rt) => rt,
         Err(e) => {

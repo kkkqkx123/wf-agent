@@ -169,6 +169,53 @@ fn test_resolve_infra_config_ambient_disabled_by_default() {
     std::env::remove_var("XDG_CONFIG_HOME");
 }
 
+/// File profiles and explicit host profiles share one id space; explicit
+/// values win while file-only records remain available.
+#[test]
+fn test_llm_profiles_merge_with_programmatic_values_by_id() {
+    let settings_dir = tempfile::tempdir().unwrap();
+    let profiles = settings_dir.path().join("llm-profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    std::fs::write(
+        profiles.join("a.toml"),
+        "id = \"a\"\nname = \"a\"\nformat = \"openai_chat\"\nmodel = \"file-a\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        profiles.join("b.toml"),
+        "id = \"b\"\nname = \"b\"\nformat = \"openai_chat\"\nmodel = \"file-b\"\n",
+    )
+    .unwrap();
+
+    let explicit: wf_types::llm::LlmProfile = wf_config::parser::parse_toml(
+        "id = \"a\"\nname = \"a\"\nformat = \"openai_chat\"\nmodel = \"explicit-a\"\n",
+    )
+    .unwrap();
+    let base = RuntimeConfig {
+        llm: LlmConfig {
+            profiles: vec![explicit],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let infra = InfraSourceConfig {
+        settings_dir: Some(settings_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let config = resolve_with_file_layer(base, &infra, &runtime);
+
+    assert_eq!(config.llm.profiles.len(), 2);
+    let models: std::collections::BTreeMap<_, _> = config
+        .llm
+        .profiles
+        .iter()
+        .map(|profile| (profile.id.as_str(), profile.model.as_str()))
+        .collect();
+    assert_eq!(models["a"], "explicit-a");
+    assert_eq!(models["b"], "file-b");
+}
+
 /// Invalid LLM declarations fail bootstrap instead of leaving a missing
 /// reference for a later tool call to discover.
 #[test]

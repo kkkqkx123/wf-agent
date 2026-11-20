@@ -58,20 +58,19 @@ pub fn user_config_dir() -> Option<PathBuf> {
 /// Callers resolve the global dir themselves (`user_config_dir` for
 /// workstation CLIs, an explicit `--settings-dir` for services) so loaders
 /// never read process environment on their own.
-pub fn user_layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<PathBuf> {
+pub fn user_layer_paths(
+    global_config_dir: Option<PathBuf>,
+    project_root: Option<&Path>,
+) -> Vec<PathBuf> {
     layer_paths(global_config_dir, project_root)
 }
 
-fn layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<PathBuf> {
-    let project_file = project_root
-        .join(crate::layout::PROJECT_WF_DIR)
-        .join("config.toml");
+fn layer_paths(global_config_dir: Option<PathBuf>, project_root: Option<&Path>) -> Vec<PathBuf> {
+    let project_file =
+        project_root.map(|root| root.join(crate::layout::PROJECT_WF_DIR).join("config.toml"));
     let global_file = global_config_dir.map(|dir| dir.join("config.toml"));
 
-    [global_file, Some(project_file)]
-        .into_iter()
-        .flatten()
-        .collect()
+    [global_file, project_file].into_iter().flatten().collect()
 }
 
 /// Load result with warnings that the caller emits after installing logging.
@@ -87,12 +86,15 @@ pub struct UserFileLayerLoad {
 /// `None` as the global dir reads the project file only.
 pub fn load_user_file_layer(
     global_config_dir: Option<PathBuf>,
-    project_root: &Path,
+    project_root: Option<&Path>,
 ) -> UserFileLayerLoad {
     load_file_layer(global_config_dir, project_root)
 }
 
-fn load_file_layer(global_config_dir: Option<PathBuf>, project_root: &Path) -> UserFileLayerLoad {
+fn load_file_layer(
+    global_config_dir: Option<PathBuf>,
+    project_root: Option<&Path>,
+) -> UserFileLayerLoad {
     let paths = layer_paths(global_config_dir, project_root);
     if paths.is_empty() {
         return UserFileLayerLoad::default();
@@ -131,7 +133,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Explicit global dir with no config.toml: no env read, no cross-test race.
         let global = dir.path().join("config-home");
-        let layer = load_file_layer(Some(global), &dir.path().join("project"));
+        let layer = load_file_layer(Some(global), Some(&dir.path().join("project")));
         assert!(layer.config.storage.is_none());
         assert!(layer.config.log_level.is_none());
         assert!(layer.config.log_format.is_none());
@@ -156,7 +158,10 @@ mod tests {
         )
         .unwrap();
 
-        let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
+        let layer = load_file_layer(
+            Some(global_dir.path().to_path_buf()),
+            Some(project_dir.path()),
+        );
         assert_eq!(layer.config.log_level.as_deref(), Some("info"));
         assert_eq!(layer.config.log_format.as_deref(), Some("json"));
         assert!(layer.warnings.is_empty());
@@ -172,8 +177,22 @@ mod tests {
         )
         .unwrap();
 
-        let layer = load_user_file_layer(None, project_dir.path());
+        let layer = load_user_file_layer(None, Some(project_dir.path()));
         assert_eq!(layer.config.log_level.as_deref(), Some("info"));
+        assert!(layer.warnings.is_empty());
+    }
+
+    #[test]
+    fn absent_project_root_reads_global_only() {
+        let global_dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            global_dir.path().join("config.toml"),
+            "log_level = \"debug\"\n",
+        )
+        .unwrap();
+
+        let layer = load_user_file_layer(Some(global_dir.path().to_path_buf()), None);
+        assert_eq!(layer.config.log_level.as_deref(), Some("debug"));
         assert!(layer.warnings.is_empty());
     }
 
@@ -183,7 +202,10 @@ mod tests {
         let project_dir = tempfile::tempdir().unwrap();
         std::fs::write(global_dir.path().join("config.toml"), "log_level = [\n").unwrap();
 
-        let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
+        let layer = load_file_layer(
+            Some(global_dir.path().to_path_buf()),
+            Some(project_dir.path()),
+        );
         assert!(layer.config.log_level.is_none());
         assert!(layer.config.log_format.is_none());
         assert_eq!(layer.warnings.len(), 1);

@@ -107,47 +107,43 @@ impl ServerConfig {
             }
             None => None,
         };
+        let file = load_merged_server_file(settings_layer, project_layer)?;
         Ok(Self {
-            bind_addr: Self::resolve_bind_addr(settings_layer, project_layer, cli_addr)?,
+            bind_addr: Self::resolve_bind_addr(cli_addr, file.as_ref())?,
             middleware: ServerMiddlewareConfig::resolve(settings_layer, project_layer)?,
-            static_config: Self::resolve_static(settings_layer, project_layer, cli_static_dir)?,
-            directory: Self::resolve_directory(settings_layer, project_layer)?,
+            static_config: Self::resolve_static(cli_static_dir, file.as_ref())?,
+            directory: Self::resolve_directory(file.as_ref())?,
             backends: BackendConfig::resolve(settings_layer, project_layer)?,
         })
     }
 
     fn resolve_bind_addr(
-        settings_layer: Option<&Path>,
-        project_layer: Option<&Path>,
         cli_addr: Option<SocketAddr>,
+        file: Option<&ServerFileConfig>,
     ) -> ConfigResult<SocketAddr> {
         if let Some(addr) = cli_addr {
             return Ok(addr);
         }
         if let Ok(raw) = std::env::var(BIND_ADDR_ENV_VAR) {
-            match raw.parse::<SocketAddr>() {
-                Ok(addr) => return Ok(addr),
-                Err(e) => {
-                    tracing::warn!(error = %e, value = %raw, "invalid WF_SERVER_BIND_ADDR; ignoring");
-                }
+            if !raw.trim().is_empty() {
+                return raw
+                    .trim()
+                    .parse::<SocketAddr>()
+                    .map_err(|e| ConfigError::Parse(format!("invalid {BIND_ADDR_ENV_VAR}: {e}")));
             }
         }
-        if let Some(file) = load_merged_server_file(settings_layer, project_layer)? {
-            if let Some(raw) = file.bind_addr {
-                return raw.parse::<SocketAddr>().map_err(|e| {
-                    ConfigError::Parse(format!("invalid bind_addr in server config: {e}"))
-                });
-            }
+        if let Some(raw) = file.and_then(|file| file.bind_addr.as_deref()) {
+            return raw.parse::<SocketAddr>().map_err(|e| {
+                ConfigError::Parse(format!("invalid bind_addr in server config: {e}"))
+            });
         }
         Ok(default_bind_addr())
     }
 
     fn resolve_static(
-        settings_layer: Option<&Path>,
-        project_layer: Option<&Path>,
         cli_static_dir: Option<PathBuf>,
+        file: Option<&ServerFileConfig>,
     ) -> ConfigResult<Option<StaticConfig>> {
-        let file = load_merged_server_file(settings_layer, project_layer)?;
         let raw_dir = cli_static_dir
             .map(|dir| dir.display().to_string())
             .or_else(|| {
@@ -155,8 +151,7 @@ impl ServerConfig {
                     .ok()
                     .filter(|raw| !raw.trim().is_empty())
                     .or_else(|| {
-                        file.as_ref()
-                            .and_then(|file| file.static_dir.clone())
+                        file.and_then(|file| file.static_dir.clone())
                             .filter(|raw| !raw.trim().is_empty())
                     })
             });
@@ -167,8 +162,7 @@ impl ServerConfig {
             .ok()
             .filter(|raw| !raw.trim().is_empty())
             .or_else(|| {
-                file.as_ref()
-                    .and_then(|file| file.static_index.clone())
+                file.and_then(|file| file.static_index.clone())
                     .filter(|raw| !raw.trim().is_empty())
             })
             .unwrap_or_else(|| DEFAULT_STATIC_INDEX.to_string());
@@ -189,10 +183,7 @@ impl ServerConfig {
                     )))
                 }
             },
-            None => file
-                .as_ref()
-                .and_then(|file| file.static_fallback)
-                .unwrap_or(true),
+            None => file.and_then(|file| file.static_fallback).unwrap_or(true),
         };
         let immutable_max_age_secs = match std::env::var(STATIC_IMMUTABLE_MAX_AGE_ENV_VAR)
             .ok()
@@ -204,7 +195,6 @@ impl ServerConfig {
                 ))
             })?,
             None => file
-                .as_ref()
                 .and_then(|file| file.static_immutable_max_age_secs)
                 .unwrap_or(DEFAULT_STATIC_IMMUTABLE_MAX_AGE_SECS),
         };
@@ -215,13 +205,9 @@ impl ServerConfig {
     /// settings file layer, then the environment wins over both. A present
     /// but invalid file fails startup so a typo cannot silently close off
     /// served directories.
-    fn resolve_directory(
-        settings_layer: Option<&Path>,
-        project_layer: Option<&Path>,
-    ) -> ConfigResult<DirectoryConfig> {
-        let file = load_merged_server_file(settings_layer, project_layer)?;
+    fn resolve_directory(file: Option<&ServerFileConfig>) -> ConfigResult<DirectoryConfig> {
         let (allowed, trusted) = match file {
-            Some(file) => (file.allowed_roots, file.trusted_roots),
+            Some(file) => (file.allowed_roots.clone(), file.trusted_roots.clone()),
             None => (None, None),
         };
         Ok(DirectoryConfig::resolve(allowed, trusted))
@@ -376,6 +362,15 @@ mod tests {
         let cli: SocketAddr = "127.0.0.1:8080".parse().unwrap();
         let config = ServerConfig::resolve(None, None, Some(cli), None).unwrap();
         assert_eq!(config.bind_addr, cli);
+    }
+
+    #[test]
+    fn invalid_bind_addr_env_fails_startup() {
+        std::env::set_var(BIND_ADDR_ENV_VAR, "not-an-addr");
+        let result = ServerConfig::resolve(None, None, None, None);
+        std::env::remove_var(BIND_ADDR_ENV_VAR);
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains(BIND_ADDR_ENV_VAR));
     }
 
     #[test]

@@ -7,8 +7,9 @@
 补充：
 
 - CLI flags / SDK `ConfigOverrides` / 程序化覆盖最高。
-- 显式托管目录（ops 渲染）在有传入时替代 settings 与 project 层的基础设施文件。
-- 服务进程默认不读 ambient 个人目录；必须显式传 `--settings-dir`。
+- `--settings-dir` 提供 settings 层，`--config` 提供项目层；未传入的根完全跳过，不会读取进程工作目录下的 `.wf`。
+- 服务进程默认不读 ambient 个人目录；需要共享默认配置时显式传 `--settings-dir`。
+- 服务端固定使用 Production 环境默认值；缺失基础设施域文件时会回退到该环境的默认值。
 
 ## 布局
 
@@ -23,7 +24,8 @@
 - 基础设施九域文件：缺失回退环境优化默认值；存在但解析失败报错。
 - Sandbox：任一来源存在时 fail-fast 校验；无来源时为 `None`。
 - 用户层 `config.toml`：宽松加载，坏文件告警跳过。
-- MCP / Skill / Keymap：项目文件优先，全局文件补充；缺失跳过，坏文件告警跳过。
+- MCP / Skill / Keymap：项目文件优先，全局文件补充；只有 settings 目录时仍能加载全局文件；缺失跳过，坏文件告警跳过。
+- LLM 文件族：非法索引或记录直接失败；程序化记录与文件记录按 `id` 合并，程序化优先。
 
 ## Example 跳过规则
 

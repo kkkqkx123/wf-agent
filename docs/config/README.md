@@ -8,11 +8,13 @@
 
 1. 代码默认值（Development / Production 两套环境默认）
 2. 宿主 `config.toml` 提供的领域默认值（显式 settings 目录优先于 XDG / `~/.wf`，项目 `.wf/config.toml` 再优先）
-3. 固定域文件：显式托管目录（`--infra-dir` / `--settings-dir`）替代 settings 与项目层；否则 settings 层低于项目 `.wf/infrastructure/`
+3. 固定域文件：`--settings-dir` 提供 settings 层，`--config` 提供项目层；缺少某个根时该层完全跳过，否则项目 `.wf/infrastructure/` 高于 settings 层
 4. `WF_*` 环境变量
 5. CLI flags / SDK `ConfigOverrides` / 程序化覆盖
 
-TOML 合并为字段级递归合并；JSON 家族按记录 `id` 覆盖。基础设施文件缺失时回退领域默认值，存在但损坏的文件启动失败；用户级 `config.toml` 层采用宽松策略（坏文件告警跳过），有效值进入装配器作为领域默认值。LLM 文件族声明非法时在 bootstrap 直接失败，不降级为默认配置。
+TOML 合并为字段级递归合并（数组整体替换）；JSON 家族按记录 `id` 覆盖。基础设施文件缺失时回退领域默认值，存在但损坏的文件启动失败；用户级 `config.toml` 层采用宽松策略（坏文件告警跳过），有效值进入装配器作为领域默认值。LLM 文件族的索引、读取与解析错误均在 bootstrap 直接失败；程序化 LLM 记录与文件记录按 `id` 合并，程序化值优先。
+
+`${VAR}` 仍是解析前的文本插值，支持字符串及裸数字/布尔标量；含引号、反斜杠或换行的值应通过凭据库或专用字段传入，不要作为裸 TOML 字符串插入。
 
 ## 文件系统布局
 

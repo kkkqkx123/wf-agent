@@ -1,6 +1,8 @@
 # LLM 配置（llm-providers / llm-profiles / llm-auth）
 
-LLM 相关配置均为"一记录一文件"家族，支持 `index.json` 清单或扁平 glob；项目层按记录 `id` 覆盖 settings 层。样例文件（`*.example.*`）永不加载。
+LLM 相关配置均为"一记录一文件"家族，支持 `index.json` 清单或扁平 glob；项目层按记录 `id` 覆盖 settings 层。样例文件（`*.example.*`）永不加载。索引非法、文件无法读取或记录无法解析时启动失败，不跳过坏记录。
+
+宿主程序化提供的 profile / provider / auth provider 与文件族按 `id` 合并：程序化值优先，文件族补充缺失记录；显式 `store_path` 优先。`llm-auth` 的三个来源也是按 `id` 合并，项目层高于 settings 层，ambient 层仅在显式开启时加入。
 
 ## llm-providers/
 

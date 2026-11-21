@@ -80,18 +80,18 @@ crates/app/debugger/src/
 | 子命令 | 参数 | 功能 | 退出码 |
 |--------|------|------|--------|
 | `replay` | `--trace` | 只读回放：逐步输出 input/result、变量/消息 diff、时长、错误，末尾聚合 summary | 恒 0 |
-| `check` | `--trace [--agent]` | 综合检查：回放 + 九维度分析 + 断言 + agent 策略核对，统一报告 | 失败/违例为 1 |
+| `check` | `--trace [--agent]` | 综合检查：回放 + 九维度分析 + 断言 + agent 策略核对，统一报告 | 失败/违例为 65 |
 | `branches` | `--decision [--variables]` | 路由决策点分支求值（复用 ConditionEvaluator）、死分支与覆盖率 | 恒 0 |
 | `hooks` | `--trace` | hook 点解释：逐条 enabled/condition 过滤，汇总 veto 与 gate_blocked | 恒 0 |
 | `triggers` | `--trace [--event-type --event-name]` | 模板 dry-run：候选、逐条落选原因、dry-run permits；或统计已见事件 | 恒 0 |
-| `assert` | `--trace` | 仅执行 16 种断言 | 失败数 > 0 为 1 |
+| `assert` | `--trace` | 仅执行 16 种断言 | 失败数 > 0 为 65 |
 | `timeline` | `--trace` | 扁平事件时间线（node→loop→hook→trigger→llm→compression→interruption→checkpoint→interaction→merge） | 恒 0 |
-| `agents` | `--trace [--agent]` | 内置模板策略核对：unexpected_success / unexpected_denial_text / discoverable 越权 / approval 缺失 | 有违规为 1 |
-| `compression` | `--trace` | 压缩五阶段生命周期审计（见下） | errors > 0 为 1 |
+| `agents` | `--trace [--agent]` | 内置模板策略核对：unexpected_success / unexpected_denial_text / discoverable 越权 / approval 缺失 | 有违规为 65 |
+| `compression` | `--trace` | 压缩五阶段生命周期审计（见下） | errors > 0 为 65 |
 | `import` | `--snapshot [--out]` | 引擎快照 → 规范 trace（`--out` 写文件否则 stdout） | 恒 0 |
-| `spec` | `--trace` | spec-workflow 流水线阶段顺序与 gate 审批校验 | errors > 0 为 1 |
+| `spec` | `--trace` | spec-workflow 流水线阶段顺序与 gate 审批校验 | errors > 0 为 65 |
 
-退出码约定：**信息展示类恒 0；校验类以失败/违规数决定 0 或 1**；加载/IO 错误经 anyhow 返回非 0。该约定使 `check` / `assert` / `agents` / `compression` / `spec` 可直接用作 CI 门禁。
+退出码约定：调试器已纳入统一契约 `docs/app/cli/00-exit-codes.md`，与全部 wf 工具共享 `wf_common::exit_code` 常量。**信息展示类恒 0（`EX_OK`）；校验类违规为 65（`EX_DATAERR`，数据校验失败）；输入文件缺失/解析失败为 66（`EX_NOINPUT`）；用法错误为 64（`EX_USAGE`）**。违规计数与结论仍保留在 JSON 包络字段中。该约定使 `check` / `assert` / `agents` / `compression` / `spec` 可直接用作 CI 门禁。
 
 ## 五、维度分析器
 

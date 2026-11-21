@@ -265,11 +265,11 @@ wf run "<prompt>" [--agent <name>] [--model <profile>] [--session <id>] [--outpu
 | 敏感工具审批（approve_changes 等） | **默认拒绝**（deny）并打印拒绝原因 | 对齐 opencode 非交互 deny 语义 |
 | 低危工具 | 允许 | 白名单（config 配置） |
 | 预授权 | `--approve-prefix <cmd>` / config `approval` 规则 | 可选，明确授权时放行 |
-| 追问（UserInteractionHandler） | 无 TTY 无法交互 → **拒绝该工具调用**并报错退出（exit code 1） | 或 config 预设答案 |
+| 追问（UserInteractionHandler） | 无 TTY 无法交互 → **拒绝该工具调用**并报错退出（业务校验失败，见退出码契约） | 或 config 预设答案 |
 
 ### 5.4 退出码
 
-对齐 01 文档 4.4：0 成功、1 业务失败（agent Failed）、2 参数错误、3 配置错误、4 执行中被打断（SIGINT）。
+对齐 sysexits.h 的统一契约，权威码表见 `docs/app/cli/00-exit-codes.md`：服务不可达（69）、内部故障（70）为独立码，中断沿用 130（128+SIGINT）。无 TTY 无法交互导致的追问拒绝按业务校验失败（65）退出。
 
 ### 5.5 与既有 headless 管理命令面的关系
 

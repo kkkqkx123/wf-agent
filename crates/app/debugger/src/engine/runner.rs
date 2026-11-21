@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use wf_common::exit_code as exit;
+
 use crate::dimensions::analyze_all;
 use crate::engine::assert::run_assertions;
 use crate::engine::format::{format_json, format_text};
@@ -24,12 +26,16 @@ pub fn run_check(trace: &Trace, agent_override: Option<&str>) -> CheckOutcome {
     let report = unify(analyze_all(trace));
     let assertions = run_assertions(trace);
     let agent = analyze_agent_trace(trace, agent_override);
-    let mut exit_code = 0;
+    // Gate failures are data-validation failures: they share the CLI-wide
+    // sysexits contract (EX_DATAERR) instead of a bare 1, so the code means
+    // the same thing across every wf tool. Violation counts stay in the
+    // report payload for machine consumers.
+    let mut exit_code = exit::OK as i32;
     if assertions.failed() || report.failed() {
-        exit_code = 1;
+        exit_code = exit::DATAERR as i32;
     }
     if agent.known_template && !agent.violations.is_empty() {
-        exit_code = 1;
+        exit_code = exit::DATAERR as i32;
     }
     CheckOutcome {
         replay,
@@ -128,11 +134,12 @@ pub fn render_check_json(trace: &Trace, outcome: &CheckOutcome) -> String {
 /// Render the replay command: read-only display, always zero exit.
 pub fn render_replay(trace: &Trace, json: bool, no_color: bool) -> (String, i32) {
     let replay = replay_trace(trace);
+    // Read-only display always succeeds and carries no gate result.
     if json {
         let assertions = run_assertions(trace);
-        (format_json(trace, &replay, &assertions), 0)
+        (format_json(trace, &replay, &assertions), exit::OK as i32)
     } else {
-        (format_text(trace, &replay, no_color), 0)
+        (format_text(trace, &replay, no_color), exit::OK as i32)
     }
 }
 
@@ -176,7 +183,7 @@ mod tests {
     fn empty_trace_check_is_clean() {
         let trace = empty_trace();
         let outcome = run_check(&trace, None);
-        assert_eq!(outcome.exit_code, 0);
+        assert_eq!(outcome.exit_code, exit::OK as i32);
         assert_eq!(outcome.report.sections.len(), 9);
     }
 

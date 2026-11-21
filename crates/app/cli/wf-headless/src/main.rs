@@ -2,23 +2,20 @@
 
 use clap::{CommandFactory, FromArgMatches};
 
-use wf_cli_shared::Cli;
+use wf_cli_shared::{exit_with_error, parse_cli_or_exit, Cli};
 
 /// Parse CLI arguments with this binary's display name, so version
 /// attribution matches the invoked frontend instead of the shared default.
+/// Usage errors funnel through the shared sysexits contract.
 fn parse_cli() -> Cli {
-    let matches = Cli::command().display_name("wf-headless").get_matches();
-    match Cli::from_arg_matches(&matches) {
-        Ok(cli) => cli,
-        Err(err) => err.exit(),
-    }
+    let command = Cli::command().display_name("wf-headless");
+    parse_cli_or_exit(command, "wf-headless", Cli::from_arg_matches)
 }
 
 #[tokio::main]
 async fn main() {
     let cli = parse_cli();
     if let Err(err) = wf_cli_shared::run_headless_only(cli).await {
-        eprintln!("wf-headless: {err}");
-        std::process::exit(i32::from(err.exit_code()));
+        exit_with_error("wf-headless", &err);
     }
 }

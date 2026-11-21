@@ -1,6 +1,7 @@
 pub mod error;
 pub mod error_chain;
 pub mod exec;
+pub mod exit_code;
 pub mod fs;
 pub mod gate;
 pub mod id;

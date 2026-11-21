@@ -41,7 +41,7 @@ pub mod workspace;
 pub use args::{Cli, Command};
 pub use backends::{collect_backend_candidates, probe_backends, BackendCandidate, BackendStatus};
 pub use connection::ClientHandle;
-pub use error::{CliError, CliResult};
+pub use error::{exit_with_error, parse_cli_or_exit, CliError, CliResult};
 pub use output::{
     HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
 };

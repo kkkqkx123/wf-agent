@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 
+use wf_common::exit_code as exit;
+
 use super::args::{
     AgentsArgs, AssertArgs, BranchesArgs, CheckArgs, CompressionArgs, DebuggerCli, DebuggerCommand,
     HooksArgs, ImportArgs, ReplayArgs, SpecArgs, TimelineArgs, TriggersArgs,
@@ -68,7 +70,7 @@ fn cmd_branches(args: BranchesArgs) -> Result<i32> {
         }
         println!("coverage {:.2}", summary.coverage_ratio);
     }
-    Ok(0)
+    Ok(exit::OK as i32)
 }
 
 fn cmd_hooks(args: HooksArgs) -> Result<i32> {
@@ -91,7 +93,7 @@ fn cmd_hooks(args: HooksArgs) -> Result<i32> {
             );
         }
     }
-    Ok(0)
+    Ok(exit::OK as i32)
 }
 
 fn cmd_triggers(args: TriggersArgs) -> Result<i32> {
@@ -111,7 +113,7 @@ fn cmd_triggers(args: TriggersArgs) -> Result<i32> {
                 println!("  drop {}: {}", drop.template_name, drop.reason);
             }
         }
-        return Ok(0);
+        return Ok(exit::OK as i32);
     }
     let mut matched = 0;
     let mut total = 0;
@@ -132,7 +134,7 @@ fn cmd_triggers(args: TriggersArgs) -> Result<i32> {
     } else {
         println!("triggers matched={matched}/{total}");
     }
-    Ok(0)
+    Ok(exit::OK as i32)
 }
 
 fn cmd_assert(args: AssertArgs) -> Result<i32> {
@@ -157,7 +159,11 @@ fn cmd_assert(args: AssertArgs) -> Result<i32> {
         }
         println!("passed={} failed={}", outcome.passed, outcome.failed);
     }
-    Ok(if outcome.failed() { 1 } else { 0 })
+    Ok(if outcome.failed() {
+        exit::DATAERR as i32
+    } else {
+        exit::OK as i32
+    })
 }
 
 fn cmd_timeline(args: TimelineArgs) -> Result<i32> {
@@ -173,7 +179,7 @@ fn cmd_timeline(args: TimelineArgs) -> Result<i32> {
             println!("{} [{}] {}", entry.at, entry.kind, entry.label);
         }
     }
-    Ok(0)
+    Ok(exit::OK as i32)
 }
 
 fn cmd_agents(args: AgentsArgs) -> Result<i32> {
@@ -201,7 +207,11 @@ fn cmd_agents(args: AgentsArgs) -> Result<i32> {
             );
         }
     }
-    Ok(if analysis.violations.is_empty() { 0 } else { 1 })
+    Ok(if analysis.violations.is_empty() {
+        exit::OK as i32
+    } else {
+        exit::DATAERR as i32
+    })
 }
 
 fn cmd_compression(args: CompressionArgs) -> Result<i32> {
@@ -231,7 +241,11 @@ fn cmd_compression(args: CompressionArgs) -> Result<i32> {
             );
         }
     }
-    Ok(if report.errors() > 0 { 1 } else { 0 })
+    Ok(if report.errors() > 0 {
+        exit::DATAERR as i32
+    } else {
+        exit::OK as i32
+    })
 }
 
 fn cmd_spec(args: SpecArgs) -> Result<i32> {
@@ -261,7 +275,11 @@ fn cmd_spec(args: SpecArgs) -> Result<i32> {
             );
         }
     }
-    Ok(if report.errors() > 0 { 1 } else { 0 })
+    Ok(if report.errors() > 0 {
+        exit::DATAERR as i32
+    } else {
+        exit::OK as i32
+    })
 }
 
 fn cmd_import(args: ImportArgs) -> Result<i32> {
@@ -275,5 +293,5 @@ fn cmd_import(args: ImportArgs) -> Result<i32> {
     } else {
         println!("{rendered}");
     }
-    Ok(0)
+    Ok(exit::OK as i32)
 }

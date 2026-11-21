@@ -114,10 +114,13 @@ impl ClientHandle {
             return Ok(());
         };
         let identity = self.client.backend_identity().await.map_err(|e| {
-            CliError::Configuration(format!(
-                "backend affinity probe failed at {}: {e}; check --remote and --directory",
-                self.client.base_url()
-            ))
+            probe_error(
+                &format!(
+                    "backend affinity probe failed at {}; check --remote and --directory",
+                    self.client.base_url()
+                ),
+                e,
+            )
         })?;
         let workspace = std::path::PathBuf::from(directory);
         let local_project = wf_common::workspace::discover_project_root(&workspace);
@@ -157,10 +160,13 @@ impl ClientHandle {
     /// `/api/v1/info`, so a mismatch means an incompatible wire contract.
     async fn check_api_version(&self) -> CliResult<()> {
         let info = self.client.info_typed().await.map_err(|e| {
-            CliError::Configuration(format!(
-                "cannot read API version from {}: {e}; check the server version",
-                self.client.base_url()
-            ))
+            probe_error(
+                &format!(
+                    "cannot read API version from {}; check the server version",
+                    self.client.base_url()
+                ),
+                e,
+            )
         })?;
         if !wf_client::api_version_compatible(&info.api_version) {
             return Err(CliError::Configuration(format!(
@@ -191,10 +197,23 @@ impl ClientHandle {
                              re-establish it (`wf remote tunnel <name>`) and retry",
                         );
                     }
-                    CliError::Configuration(hint)
+                    CliError::Unavailable(hint)
                 }
                 other => CliError::from(other),
             })
+    }
+}
+
+/// Map a probe failure to an error, keeping transport outages distinct from
+/// configuration problems. A local relay and a remote service are equivalent:
+/// `Http`/`Stream` always mean "service unreachable", never "bad flags".
+fn probe_error(context: &str, err: wf_client::ClientError) -> CliError {
+    use wf_client::ClientError as C;
+    match err {
+        C::Http(msg) | C::Stream(msg) => {
+            CliError::Unavailable(format!("{context}: {msg}"))
+        }
+        other => CliError::Configuration(format!("{context}: {other}")),
     }
 }
 

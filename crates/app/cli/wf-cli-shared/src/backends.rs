@@ -383,7 +383,7 @@ pub async fn create_server_backend(
         client.post_json("/api/v1/system/backends", &body).await;
     match result {
         Ok(_) => Ok(()),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -400,7 +400,7 @@ pub async fn update_server_backend(
         .await;
     match result {
         Ok(_) => Ok(()),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -411,7 +411,7 @@ pub async fn remove_server_backend(client: &wf_client::WfClient, name: &str) -> 
         .await;
     match result {
         Ok(_) => Ok(()),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -454,7 +454,7 @@ pub async fn import_server_backends(
                 .unwrap_or_default();
             Ok((imported, skipped))
         }
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -487,7 +487,7 @@ pub async fn start_server_tunnel(
                 .unwrap_or_default();
             Ok((pid, argv))
         }
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -505,7 +505,7 @@ pub async fn stop_server_tunnel(client: &wf_client::WfClient, name: &str) -> Cli
             .get("stopped")
             .and_then(|value| value.as_bool())
             .unwrap_or(false)),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -551,7 +551,7 @@ pub async fn fetch_server_sync_states(
         client.get_json("/api/v1/system/backups/sync-state").await;
     match result {
         Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -572,7 +572,7 @@ pub async fn reset_server_sync_state(
         .await;
     match result {
         Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -589,7 +589,7 @@ pub async fn restore_server_backup(
         .await;
     match result {
         Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -624,7 +624,7 @@ pub async fn relink_server_backups(
         .await;
     match result {
         Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -641,7 +641,7 @@ pub async fn verify_server_backup(
         .await;
     match result {
         Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }
@@ -658,7 +658,7 @@ pub async fn export_server_backup(
         .await;
     match result {
         Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Configuration(server_unavailable_hint())),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
         Err(e) => Err(CliError::from(e)),
     }
 }

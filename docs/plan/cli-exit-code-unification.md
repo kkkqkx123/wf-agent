@@ -1,6 +1,8 @@
 # CLI 退出码：现状评估、统一方案与实施结果
 
 > 状态：**已实施完成**。O1~O6 全部拍板并完成代码改造、单测与端到端验证，详见第八、十一、十二节。权威码表见 `docs/app/cli/00-exit-codes.md`。
+>
+> **阅读提示**：第二~七节是**改造前的历史取证记录**（当时的码表 0/1/2/3/4 与行号均为旧值，仅用于说明改造动机），不代表当前实现。当前事实以第八节定稿、权威码表 `docs/app/cli/00-exit-codes.md` 及源码 `crates/foundation/wf-common/src/exit_code.rs` 为准；第十节记录了落地后的再次核对与残留修复。
 
 ## 〇、结论摘要
 
@@ -20,9 +22,9 @@
 - 方法：全局搜索 `exit` / `ExitCode` / `exit_code` / `process::exit`，逐个打开构造点核对上下文；再与文档声明比对。
 - 事实一律附 `file:line`。本文不含完整代码片段（遵循 AGENTS.md「Plan/Design Document」约定）。
 
-## 二、唯一权威映射点
+## 二、唯一权威映射点（改造前快照，非当前实现）
 
-`crates/app/cli/wf-cli-shared/src/error.rs:33-46` 的 `CliError::exit_code()` 是主线的唯一映射：
+`crates/app/cli/wf-cli-shared/src/error.rs:33-46` 的 `CliError::exit_code()` 是主线的唯一映射（以下码值与行号均为改造前旧值）：
 
 | 变体 | 退出码 | 定义位置 |
 |------|:---:|------|
@@ -69,7 +71,7 @@ TUI 初始化/清屏失败（`tui.rs:486/490`、`tui/shell_draw.rs:390`）、事
 ### 4.6 第二套体系 — debugger（独立，不兼容）
 `crates/app/debugger/src/main.rs:4-11`：`run()` 返回 `i32`，非 0 时 `process::exit(code)`；加载/IO 错误由 `anyhow` 的 `Err` 交给 Rust runtime，默认 exit 1。退出码产出于 `engine/runner.rs:19/27/29/32/39`（仅 0/1，语义为"门禁是否通过"）。文档约定见 `docs/app/debugger.md:80-94`：「信息展示类恒 0；校验类以失败/违规数决定 0 或 1」。
 
-## 五、错误码表（现状）
+## 五、错误码表（改造前快照，非当前实现）
 
 | 码 | 主线语义（声明） | 实际承载 | debugger 语义 |
 |:---:|------|------|------|
@@ -212,3 +214,17 @@ debugger 的 0/1 + 裸 `i32` 与主线的 0/1/2/3/4 + `u8→i32` 不兼容；同
 | 端到端：服务不可达 | 69 ✓（stderr 显示 "service unavailable"） |
 
 **关键成果**：原先"服务不可达在会话路径退 1、探活路径退 3"的矛盾彻底消除，三条路径统一退 69；脚本现可稳定区分参数错(64)/配置错(78)/服务不可达(69)/业务失败(65)/中断(130)/内部故障(70)。
+
+---
+
+## 十三、落地后再核对与残留修复（后续补记）
+
+统一改造落地后再次全量核对，发现三处残留未收尾问题，已在本次一并修复。完整任务清单、逐处 file:line 取证、代码 diff 与开放点见 `docs/plan/cli-exit-code-followup.md`。
+
+| # | 残留问题 | 证据 | 修复 |
+|:--:|---|---|---|
+| 1 | 中断码跨路径不一致：工作流流式执行的 `Interrupted` 事件被映射为 `Business`(65)，其余中断路径均为 `Interrupted`(130) | `cmd/execution_stream.rs` 的 `stream_terminal` | 改为 `CliError::Interrupted`，并补退出码单测 |
+| 2 | 过时注释：`run.rs` 文档注释仍写 Business→exit 1、Interrupted→exit 4 | `run.rs` 的 `run_session` 注释 | 改为引用 `wf_common::exit_code`，不再硬编码数字 |
+| 3 | e2e 负例只断言"非零"，不校验具体码，无法防止错码回归 | `e2e/run-e2e.sh` 的 `run_negative_case` | 新增 `run_exit_code_case` 精确断言 helper，对 help(0)/usage(64) 加契约用例 |
+
+说明：开放点 O3（远端业务码细分）与 O6（对齐 sysexits）的决议不变；本次属一致性收尾，未改动权威码表。

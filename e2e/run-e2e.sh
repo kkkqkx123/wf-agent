@@ -101,6 +101,20 @@ run_negative_case() {
   fi
 }
 
+# Assert an exact exit code for a headless invocation. Unlike
+# run_negative_case, this pins the machine-readable sysexits value so a
+# wrong-code regression cannot pass on "non-zero" alone.
+# Usage: run_exit_code_case <name> <expected_code> -- <args...>
+run_exit_code_case() {
+  local name="$1" expected_code="$2"; shift 2
+  local out="$ACTUAL_DIR/$name.stdout.json" err="$ACTUAL_DIR/$name.stderr.txt"
+  set +e
+  run_headless "$HEADLESS_BIN" "$REMOTE" "$WORK_DIR" "$out" "$err" -- "$@"
+  local code=$?
+  set -e
+  check "$name" "$expected_code" "$code" "$out"
+}
+
 # Poll an execution until it leaves running/paused, up to a deadline.
 # Prints the terminal status on stdout; returns non-zero on timeout.
 wait_for_terminal() {
@@ -214,6 +228,12 @@ run_node_workflow() {
 }
 
 section "health and diagnostics tier"
+# Exit-code contract: these two resolve during argument parsing and need no
+# server response, so their sysexits values are deterministic (see
+# docs/app/cli/00-exit-codes.md).
+run_exit_code_case exit-code-help 0 -- --help
+run_exit_code_case exit-code-usage 64 -- --this-flag-does-not-exist
+
 run_case smoke-health health
 run_case smoke-info workflow list
 run_case smoke-debug-mode debug-mode

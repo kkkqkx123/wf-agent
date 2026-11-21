@@ -165,8 +165,9 @@ pub struct RunIo {
 /// Drive one headless session against `wf-server` to its terminal event.
 ///
 /// Returns the outcome on success; business failures map to
-/// [`CliError::Business`] (exit 1) and interruptions (SIGINT or a server
-/// `Interrupted` event) to [`CliError::Interrupted`] (exit 4).
+/// [`CliError::Business`] and interruptions (SIGINT or a server
+/// `Interrupted` event) to [`CliError::Interrupted`]. See
+/// `wf_common::exit_code` for the authoritative exit-code values.
 pub async fn run_session(
     handle: &ClientHandle,
     opts: RunOptions,

@@ -152,7 +152,7 @@ pub(crate) fn stream_terminal(
             "iterations": iterations,
         }))),
         ExecutionStreamEvent::Failed { error } => Some(Err(CliError::Business(error.clone()))),
-        ExecutionStreamEvent::Interrupted { reason } => Some(Err(CliError::Business(format!(
+        ExecutionStreamEvent::Interrupted { reason } => Some(Err(CliError::Interrupted(format!(
             "execution interrupted: {reason}"
         )))),
         _ => None,
@@ -443,5 +443,18 @@ mod tests {
         let line = stream_event_line(&ExecutionStreamEvent::ReasoningDelta { content: big });
         assert!(line.starts_with("thinking: "), "{line}");
         assert!(line.contains("truncated 5 chars"), "{line}");
+    }
+
+    #[test]
+    fn interrupted_event_maps_to_interrupted_exit_code() {
+        let outcome = stream_terminal(&ExecutionStreamEvent::Interrupted {
+            reason: "user cancelled".into(),
+        });
+        let err = match outcome {
+            Some(Err(err)) => err,
+            other => panic!("expected an error outcome, got {other:?}"),
+        };
+        assert_eq!(err.exit_code(), wf_common::exit_code::INTERRUPTED);
+        assert!(matches!(err, CliError::Interrupted(_)));
     }
 }

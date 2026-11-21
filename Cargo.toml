@@ -66,7 +66,7 @@ exclude = ["crates/infra/llm-suite", ".wf-user/plugins/example-llm-auth-claude-s
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.97"
 
 [workspace.dependencies]
 wf-integration = { path = "crates/infra/wf-integration" }
@@ -144,7 +144,7 @@ libloading = "0.8"
 # keeps single-binary deployment possible. This is the single place the VM
 # is chosen; mlua rejects two VMs in one dependency graph, so no crate may
 # restate this choice.
-mlua = { version = "0.9", default-features = false, features = ["lua55", "vendored", "send"] }
+mlua = { version = "0.12", default-features = false, features = ["lua55", "vendored", "send"] }
 
 # WASM plugin runtime (optional, enabled via wf-plugin/wasm)
 wasmtime = { version = "34", default-features = false, features = ["async", "runtime", "cranelift", "wat", "component-model"] }

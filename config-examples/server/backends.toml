@@ -33,6 +33,24 @@ backup_max_response_bytes = 67108864
 # Zero keeps the startup pass and disables the recurring one.
 backup_reconcile_interval_secs = 21600
 
+# Remote deployment. The install root is relative to the remote login home:
+# binaries land under `bin/<version>` with a `current` symlink, transferred
+# configuration under `server/` and scripts under `scripts/`. Nothing needs
+# root and no system service is created, so no autostart either.
+deploy_install_root = ".wf-server"
+# Release download base. The remote host fetches
+# `<base>/wf-agent-server-<version>-<platform>.tar.gz` for its own OS/arch,
+# the same naming contract as deploy/scripts/fetch-package.sh. Empty means
+# a local/url/remote_path artifact must be passed explicitly.
+deploy_artifact_base_url = "https://packages.example.com/wf-agent"
+# Local deploy source root. `--from` selects a directory inside it; scope
+# `config` transfers server/*.toml, `full` also transfers scripts/*.
+deploy_source_root = "deploy"
+# Bound on one remote command, and how long `start` waits for the loopback
+# health endpoint before it reports failure.
+deploy_exec_timeout_secs = 120
+deploy_start_timeout_secs = 30
+
 # Environment overrides:
 # WF_BACKEND_ENABLED, WF_BACKEND_PROBE_INTERVAL_SECS,
 # WF_BACKEND_PROBE_TIMEOUT_SECS, WF_BACKEND_DEFAULT_LOCAL_PORT,
@@ -40,5 +58,8 @@ backup_reconcile_interval_secs = 21600
 # WF_BACKEND_REMOTE_API_KEY, WF_BACKEND_REGISTRY_PATH,
 # WF_BACKEND_BACKUP_INTERVAL_SECS, WF_BACKEND_BACKUP_TIMEOUT_SECS,
 # WF_BACKEND_BACKUP_MAX_RESPONSE_BYTES,
-# WF_BACKEND_BACKUP_RECONCILE_INTERVAL_SECS.
+# WF_BACKEND_BACKUP_RECONCILE_INTERVAL_SECS,
+# WF_BACKEND_DEPLOY_INSTALL_ROOT, WF_BACKEND_DEPLOY_ARTIFACT_BASE_URL,
+# WF_BACKEND_DEPLOY_SOURCE_ROOT, WF_BACKEND_DEPLOY_EXEC_TIMEOUT_SECS,
+# WF_BACKEND_DEPLOY_START_TIMEOUT_SECS.
 # WF_BACKEND_REMOTE_API_KEY is never read from this file.

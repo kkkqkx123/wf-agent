@@ -10,6 +10,7 @@
 	import Select from '#lib/ui/components/Select.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
+	import RemoteServersPanel from '#lib/components/layout/RemoteServersPanel.svelte';
 	import ShortcutsSettings from '#lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '#lib/ui/components/UnsavedChangesDialog.svelte';
 	import {
@@ -89,6 +90,11 @@
 			icon: 'sliders',
 		},
 		{
+			id: 'remote',
+			label: message('page.settings.remoteServers'),
+			icon: 'monitor',
+		},
+		{
 			id: 'portability',
 			label: message('page.settings.portability'),
 			icon: 'archive',
@@ -101,6 +107,7 @@
 			requestedSection === 'execution' ||
 			requestedSection === 'notifications' ||
 			requestedSection === 'workspace' ||
+			requestedSection === 'remote' ||
 			requestedSection === 'portability'
 			? requestedSection
 			: 'appearance',
@@ -635,6 +642,10 @@
 			{:else if section === 'shortcuts'}
 				<div class="space-y-3">
 					<ShortcutsSettings />
+				</div>
+			{:else if section === 'remote'}
+				<div class="space-y-3">
+					<RemoteServersPanel />
 				</div>
 			{:else if section === 'portability'}
 				<div class="space-y-3">

@@ -9,6 +9,10 @@ use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 
+use crate::backends::deploy::{
+    DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest, DeploySourceView,
+    DEFAULT_INSTALL_ROOT,
+};
 use crate::backends::types::{
     BackendEntry, BackendEntryView, BackupExportView, BackupRecordView, BackupRelinkReport,
     BackupVerificationView, SyncStateView,
@@ -49,6 +53,20 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route(
             "/system/backends/{name}/sync-state/reset",
             post(handle_reset_sync_state),
+        )
+        // Deployment: the writing half of this domain. `probe` and `plan`
+        // are read-only toward the host; only `POST .../deploy` mutates it.
+        .route(
+            "/system/backends/{name}/deploy/probe",
+            post(handle_deploy_probe),
+        )
+        .route(
+            "/system/backends/{name}/deploy/plan",
+            post(handle_deploy_plan),
+        )
+        .route(
+            "/system/backends/{name}/deploy",
+            get(handle_deploy_status).post(handle_deploy_apply),
         )
 }
 
@@ -555,6 +573,136 @@ pub(crate) async fn handle_trigger_backup(
         .into_response(),
         Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
     }
+}
+
+/// Cached deployment state for one backend. Read-only: it never opens an
+/// SSH channel, so a list render cannot block on an unreachable host.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub(crate) struct DeployStatusView {
+    backend: String,
+    install_root: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last: Option<DeployOutcomeView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    probe: Option<DeployProbeView>,
+    /// Local deploy source directories the operator may select.
+    #[serde(default)]
+    sources: Vec<DeploySourceView>,
+}
+
+#[utoipa::path(post, path = "/api/v1/system/backends/{name}/deploy/probe", operation_id = "probe_system_backend_deploy", tag = "system", params(crate::extract::NamePath), responses((status = 200, description = "Remote platform, install layout and liveness", body = crate::envelope::ApiEnvelope<DeployProbeView>), (status = 404, description = "Unknown backend", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_deploy_probe(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.deploy_probe(&name).await {
+        Ok(probe) => ok(probe).into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backend".to_string(),
+            id: name,
+        })
+        .into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(post, path = "/api/v1/system/backends/{name}/deploy/plan", operation_id = "plan_system_backend_deploy", tag = "system", params(crate::extract::NamePath), request_body = DeployRequest, responses((status = 200, description = "Planned steps, transfers and blocking reasons", body = crate::envelope::ApiEnvelope<DeployPlanView>), (status = 400, description = "Invalid request", body = crate::envelope::ErrorResponse), (status = 404, description = "Unknown backend", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_deploy_plan(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+    axum::Json(body): axum::Json<DeployRequest>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.deploy_plan(&name, &body).await {
+        Ok(plan) => ok(plan).into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backend".to_string(),
+            id: name,
+        })
+        .into_response(),
+        Err(e)
+            if e.contains("unknown deploy action")
+                || e.contains("unknown deploy scope")
+                || e.contains("deploy source")
+                || e.contains("deployed file")
+                || e.contains("artifact") =>
+        {
+            error_response(wf_api::ApiError::Validation(e)).into_response()
+        }
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(post, path = "/api/v1/system/backends/{name}/deploy", operation_id = "apply_system_backend_deploy", tag = "system", params(crate::extract::NamePath), request_body = DeployRequest, responses((status = 200, description = "Per-step result followed by a fresh probe", body = crate::envelope::ApiEnvelope<DeployOutcomeView>), (status = 400, description = "Invalid request", body = crate::envelope::ErrorResponse), (status = 404, description = "Unknown backend", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_deploy_apply(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+    axum::Json(body): axum::Json<DeployRequest>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.deploy_apply(&name, &body).await {
+        Ok(outcome) => ok(outcome).into_response(),
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backend".to_string(),
+            id: name,
+        })
+        .into_response(),
+        Err(e)
+            if e.contains("unknown deploy action")
+                || e.contains("unknown deploy scope")
+                || e.contains("deploy source")
+                || e.contains("deployed file")
+                || e.contains("artifact") =>
+        {
+            error_response(wf_api::ApiError::Validation(e)).into_response()
+        }
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/system/backends/{name}/deploy", operation_id = "get_system_backend_deploy", tag = "system", params(crate::extract::NamePath), responses((status = 200, description = "Cached deployment outcome and probe", body = crate::envelope::ApiEnvelope<DeployStatusView>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_deploy_status(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    let (last, probe) = backends.deploy_snapshot(&name);
+    ok(DeployStatusView {
+        backend: name,
+        install_root: {
+            let configured = backends.config().deploy_install_root.trim();
+            if configured.is_empty() {
+                DEFAULT_INSTALL_ROOT.to_string()
+            } else {
+                configured.to_string()
+            }
+        },
+        last,
+        probe,
+        sources: backends.deploy_sources(),
+    })
+    .into_response()
 }
 
 fn parse_upsert_body(body: &serde_json::Value) -> Result<(String, BackendEntry), String> {

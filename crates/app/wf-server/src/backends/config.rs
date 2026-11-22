@@ -34,6 +34,18 @@ const DEFAULT_BACKUP_TIMEOUT_SECS: u64 = 15;
 const DEFAULT_BACKUP_MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 /// Default cadence of the full remote re-check in seconds (six hours).
 const DEFAULT_BACKUP_RECONCILE_INTERVAL_SECS: u64 = 21_600;
+/// Default install root for a deployed remote server, relative to the
+/// remote login home.
+const DEFAULT_DEPLOY_INSTALL_ROOT: &str = ".wf-server";
+/// Default package base URL. Matches the placeholder in
+/// `deploy/scripts/fetch-package.sh`; real installations override it.
+const DEFAULT_DEPLOY_ARTIFACT_BASE_URL: &str = "https://packages.example.com/wf-agent";
+/// Default local directory holding deploy sources (`server/`, `scripts/`).
+const DEFAULT_DEPLOY_SOURCE_ROOT: &str = "deploy";
+/// Default bound on one deployment command.
+const DEFAULT_DEPLOY_EXEC_TIMEOUT_SECS: u64 = 120;
+/// Default wait for a started remote server to answer its health endpoint.
+const DEFAULT_DEPLOY_START_TIMEOUT_SECS: u64 = 30;
 
 /// Server-owned backend configuration. `enabled == false` keeps every new
 /// backend endpoint at 503 and spawns no background tasks.
@@ -58,6 +70,17 @@ pub struct BackendConfig {
     pub backup_max_response_bytes: u64,
     /// Cadence of the full remote re-check. Zero keeps the startup pass only.
     pub backup_reconcile_interval_secs: u64,
+    /// Install root for a deployed remote server, relative to the remote
+    /// home. Deployment itself has no separate enable switch: enabling the
+    /// backend domain is the switch, and the verb set is fixed in code.
+    pub deploy_install_root: String,
+    /// Base URL used by the remote host to download release artifacts.
+    pub deploy_artifact_base_url: String,
+    /// Local root of deploy sources, relative to the working directory when
+    /// not absolute.
+    pub deploy_source_root: std::path::PathBuf,
+    pub deploy_exec_timeout_secs: u64,
+    pub deploy_start_timeout_secs: u64,
 }
 
 impl Default for BackendConfig {
@@ -77,6 +100,11 @@ impl Default for BackendConfig {
             backup_timeout_secs: DEFAULT_BACKUP_TIMEOUT_SECS,
             backup_max_response_bytes: DEFAULT_BACKUP_MAX_RESPONSE_BYTES,
             backup_reconcile_interval_secs: DEFAULT_BACKUP_RECONCILE_INTERVAL_SECS,
+            deploy_install_root: DEFAULT_DEPLOY_INSTALL_ROOT.to_string(),
+            deploy_artifact_base_url: DEFAULT_DEPLOY_ARTIFACT_BASE_URL.to_string(),
+            deploy_source_root: std::path::PathBuf::from(DEFAULT_DEPLOY_SOURCE_ROOT),
+            deploy_exec_timeout_secs: DEFAULT_DEPLOY_EXEC_TIMEOUT_SECS,
+            deploy_start_timeout_secs: DEFAULT_DEPLOY_START_TIMEOUT_SECS,
         }
     }
 }
@@ -147,6 +175,33 @@ impl BackendConfig {
         if let Some(interval) = file.backup_reconcile_interval_secs {
             self.backup_reconcile_interval_secs = interval;
         }
+        if let Some(root) = file.deploy_install_root {
+            self.deploy_install_root = if root.trim().is_empty() {
+                DEFAULT_DEPLOY_INSTALL_ROOT.to_string()
+            } else {
+                root.trim().to_string()
+            };
+        }
+        if let Some(base) = file.deploy_artifact_base_url {
+            self.deploy_artifact_base_url = if base.trim().is_empty() {
+                String::new()
+            } else {
+                base.trim().trim_end_matches('/').to_string()
+            };
+        }
+        if let Some(root) = file.deploy_source_root {
+            self.deploy_source_root = if root.trim().is_empty() {
+                std::path::PathBuf::from(DEFAULT_DEPLOY_SOURCE_ROOT)
+            } else {
+                std::path::PathBuf::from(root.trim())
+            };
+        }
+        if let Some(timeout) = file.deploy_exec_timeout_secs {
+            self.deploy_exec_timeout_secs = timeout;
+        }
+        if let Some(timeout) = file.deploy_start_timeout_secs {
+            self.deploy_start_timeout_secs = timeout;
+        }
         Ok(())
     }
 
@@ -198,6 +253,29 @@ impl BackendConfig {
         }
         if let Some(interval) = read_env_u64("WF_BACKEND_BACKUP_RECONCILE_INTERVAL_SECS") {
             self.backup_reconcile_interval_secs = interval;
+        }
+        if let Ok(raw) = std::env::var("WF_BACKEND_DEPLOY_INSTALL_ROOT") {
+            self.deploy_install_root = if raw.trim().is_empty() {
+                DEFAULT_DEPLOY_INSTALL_ROOT.to_string()
+            } else {
+                raw.trim().to_string()
+            };
+        }
+        if let Ok(raw) = std::env::var("WF_BACKEND_DEPLOY_ARTIFACT_BASE_URL") {
+            self.deploy_artifact_base_url = raw.trim().trim_end_matches('/').to_string();
+        }
+        if let Ok(raw) = std::env::var("WF_BACKEND_DEPLOY_SOURCE_ROOT") {
+            self.deploy_source_root = if raw.trim().is_empty() {
+                std::path::PathBuf::from(DEFAULT_DEPLOY_SOURCE_ROOT)
+            } else {
+                std::path::PathBuf::from(raw.trim())
+            };
+        }
+        if let Some(timeout) = read_env_u64("WF_BACKEND_DEPLOY_EXEC_TIMEOUT_SECS") {
+            self.deploy_exec_timeout_secs = timeout;
+        }
+        if let Some(timeout) = read_env_u64("WF_BACKEND_DEPLOY_START_TIMEOUT_SECS") {
+            self.deploy_start_timeout_secs = timeout;
         }
     }
 
@@ -253,6 +331,29 @@ impl BackendConfig {
                 "invalid backend config: backup_max_response_bytes must be > 0".to_string(),
             ));
         }
+        if self.deploy_exec_timeout_secs == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: deploy_exec_timeout_secs must be > 0".to_string(),
+            ));
+        }
+        if self.deploy_start_timeout_secs == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: deploy_start_timeout_secs must be > 0".to_string(),
+            ));
+        }
+        if self.deploy_install_root.trim().is_empty() {
+            return Err(ConfigError::Parse(
+                "invalid backend config: deploy_install_root must not be empty".to_string(),
+            ));
+        }
+        // An empty artifact base URL is allowed: local / remote_path / url
+        // sources remain usable. An empty source root is not, because scope
+        // resolution would then read from the process directory by accident.
+        if self.deploy_source_root.as_os_str().is_empty() {
+            return Err(ConfigError::Parse(
+                "invalid backend config: deploy_source_root must not be empty".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -272,6 +373,11 @@ struct BackendFileConfig {
     backup_timeout_secs: Option<u64>,
     backup_max_response_bytes: Option<u64>,
     backup_reconcile_interval_secs: Option<u64>,
+    deploy_install_root: Option<String>,
+    deploy_artifact_base_url: Option<String>,
+    deploy_source_root: Option<String>,
+    deploy_exec_timeout_secs: Option<u64>,
+    deploy_start_timeout_secs: Option<u64>,
 }
 
 fn load_merged_backend_file(
@@ -343,9 +449,82 @@ fn read_env_u64(name: &str) -> Option<u64> {
     }
 }
 
+impl BackendConfig {
+    /// Deployment knobs in the shape the deploy module consumes.
+    #[cfg(feature = "backends")]
+    pub fn deploy_settings(&self) -> crate::backends::deploy::DeploySettings {
+        crate::backends::deploy::DeploySettings {
+            install_root: self.deploy_install_root.clone(),
+            artifact_base_url: self.deploy_artifact_base_url.clone(),
+            source_root: self.deploy_source_root.clone(),
+            exec_timeout_secs: self.deploy_exec_timeout_secs,
+            start_timeout_secs: self.deploy_start_timeout_secs,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deploy_defaults_are_local_user_scoped() {
+        let config = BackendConfig::default();
+        assert_eq!(config.deploy_install_root, ".wf-server");
+        assert_eq!(
+            config.deploy_artifact_base_url,
+            "https://packages.example.com/wf-agent"
+        );
+        assert_eq!(config.deploy_source_root, std::path::PathBuf::from("deploy"));
+        assert_eq!(config.deploy_exec_timeout_secs, 120);
+        assert_eq!(config.deploy_start_timeout_secs, 30);
+    }
+
+    #[test]
+    fn deploy_settings_resolve_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let server_dir = dir.path().join("server");
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\ndeploy_install_root = \"wf-deploy\"\n\
+             deploy_artifact_base_url = \"https://packages.example.test/builds/\"\n\
+             deploy_source_root = \"fixtures/deploy\"\n\
+             deploy_exec_timeout_secs = 30\n",
+        )
+        .unwrap();
+        let config = BackendConfig::resolve(Some(server_dir.as_path()), None).unwrap();
+        assert_eq!(config.deploy_install_root, "wf-deploy");
+        assert_eq!(
+            config.deploy_artifact_base_url,
+            "https://packages.example.test/builds"
+        );
+        assert_eq!(
+            config.deploy_source_root,
+            std::path::PathBuf::from("fixtures/deploy")
+        );
+        assert_eq!(config.deploy_exec_timeout_secs, 30);
+    }
+
+    #[test]
+    fn zero_deploy_timeout_fails_validation() {
+        let config = BackendConfig {
+            enabled: true,
+            deploy_exec_timeout_secs: 0,
+            ..BackendConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn empty_deploy_source_root_fails_validation() {
+        let config = BackendConfig {
+            enabled: true,
+            deploy_source_root: std::path::PathBuf::new(),
+            ..BackendConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
 
     #[test]
     fn disabled_by_default() {

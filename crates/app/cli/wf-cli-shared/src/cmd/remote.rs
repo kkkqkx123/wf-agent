@@ -14,12 +14,13 @@ use std::time::Duration;
 use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
-    apply_server_default_port, collect_backend_candidates, create_server_backend,
-    export_server_backup, fetch_server_backends, fetch_server_backups, fetch_server_sync_states,
-    import_server_backends, load_registry, management_client, probe_backends,
-    relink_server_backups, remove_server_backend, reset_server_sync_state, restore_server_backup,
-    start_server_tunnel, stop_server_tunnel, trigger_server_backup, update_server_backend,
-    verify_server_backup, RemoteHost, ServerBackupRecord,
+    apply_server_default_port, apply_server_deploy, collect_backend_candidates,
+    create_server_backend, export_server_backup, fetch_server_backends, fetch_server_backups,
+    fetch_server_sync_states, import_server_backends, load_registry, management_client,
+    plan_server_deploy, probe_backends, relink_server_backups, remove_server_backend,
+    reset_server_sync_state, restore_server_backup, start_server_tunnel, stop_server_tunnel,
+    trigger_server_backup, update_server_backend, verify_server_backup, RemoteHost,
+    ServerBackupRecord,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -293,6 +294,46 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 "stopped": stopped,
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-down", data))
+        }
+        RemoteSub::Deploy {
+            name,
+            action,
+            artifact,
+            artifact_kind,
+            artifact_version,
+            artifact_sha256,
+            from,
+            scope,
+            apply,
+            force,
+        } => {
+            let body = build_deploy_body(
+                action,
+                artifact.as_deref(),
+                artifact_kind.as_deref(),
+                artifact_version.as_deref(),
+                artifact_sha256.as_deref(),
+                from.as_deref(),
+                scope,
+                *force,
+            )?;
+            let client = management_client(cli);
+            let data = if *apply {
+                apply_server_deploy(&client, name, &body).await?
+            } else {
+                plan_server_deploy(&client, name, &body).await?
+            };
+            render_envelope(cli.output, OutputEnvelope::success("remote-deploy", data))
+        }
+        RemoteSub::DeployInit { dir, scope, force } => {
+            let written = init_deploy_source(std::path::Path::new(dir), scope, *force)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success(
+                    "remote-deploy-init",
+                    serde_json::json!({"dir": dir, "scope": scope, "written": written}),
+                ),
+            )
         }
         RemoteSub::Status => {
             let client = management_client(cli);
@@ -778,10 +819,125 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
     }
 }
 
-/// Validate a prospective entry without registering it: shape first, then
-/// a direct TCP probe of the SSH endpoint. Hosts behind a jump host skip
-/// the probe since direct reachability cannot be assessed; nothing is
-/// written in any dry-run path.
+/// Create a local deploy source tree for the operator to edit. This is a
+/// purely local command: nothing is uploaded until `remote deploy --apply`
+/// names the directory with `--from`.
+fn init_deploy_source(root: &std::path::Path, scope: &str, overwrite: bool) -> CliResult<Vec<String>> {
+    let full = match scope.trim() {
+        "config" => false,
+        "full" => true,
+        other => {
+            return Err(CliError::Arguments(format!(
+                "unknown deploy scope '{other}'; expected config or full"
+            )))
+        }
+    };
+    let mut entries: Vec<(&str, &str)> = vec![
+        (
+            "server/server.toml",
+            "# Settings-layer configuration for the deployed wf-server.\n\
+             # Fill in site-specific values before deploying.\n\
+             [server]\n\
+             bind_addr = \"127.0.0.1\"\n",
+        ),
+        (
+            "server/backends.toml",
+            "# Backend registry settings. Disabled by default.\n\
+             enabled = false\n",
+        ),
+    ];
+    if full {
+        entries.push((
+            "scripts/bootstrap.sh",
+            "#!/bin/sh\n\
+             # Run once after install to prepare host-specific state.\n\
+             set -eu\n\
+             echo \"bootstrap: nothing to do\"\n",
+        ));
+        entries.push((
+            "scripts/healthcheck.sh",
+            "#!/bin/sh\n\
+             # Optional local probe; the deployment API checks /health itself.\n\
+             set -eu\n\
+             curl -fsS \"http://127.0.0.1:${1:-3000}/health\"\n",
+        ));
+    }
+    let mut written = Vec::new();
+    for (relative, content) in entries {
+        let path = root.join(relative);
+        if path.exists() && !overwrite {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                CliError::Configuration(format!(
+                    "cannot create deploy source directory '{}': {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+        std::fs::write(&path, content).map_err(|e| {
+            CliError::Configuration(format!(
+                "cannot write deploy source '{}': {e}",
+                path.display()
+            ))
+        })?;
+        written.push(relative.to_string());
+    }
+    Ok(written)
+}
+
+/// Assemble the deployment request. The server owns validation and execution;
+/// this only maps flags to the wire shape, so the web frontend sends the same
+/// body. No file contents are embedded here: `from` + `scope` name a source
+/// directory on the management server.
+#[allow(clippy::too_many_arguments)]
+fn build_deploy_body(
+    action: &str,
+    artifact: Option<&str>,
+    artifact_kind: Option<&str>,
+    artifact_version: Option<&str>,
+    artifact_sha256: Option<&str>,
+    from: Option<&str>,
+    scope: &str,
+    force: bool,
+) -> CliResult<serde_json::Value> {
+    if !matches!(scope.trim(), "none" | "config" | "full") {
+        return Err(CliError::Arguments(format!(
+            "unknown deploy scope '{}'; expected none, config or full",
+            scope.trim()
+        )));
+    }
+    if artifact.is_none() && artifact_kind.is_some() {
+        return Err(CliError::Arguments(
+            "--artifact-kind requires --artifact; use --artifact-version to pin a release"
+                .to_string(),
+        ));
+    }
+    let kind = artifact_kind.unwrap_or(if artifact.is_some() {
+        "local"
+    } else {
+        "release"
+    });
+    let mut artifact_body = serde_json::json!({ "kind": kind });
+    if let Some(path) = artifact {
+        artifact_body["path"] = serde_json::json!(path);
+    }
+    if let Some(version) = artifact_version {
+        artifact_body["version"] = serde_json::json!(version);
+    }
+    if let Some(sha256) = artifact_sha256 {
+        artifact_body["sha256"] = serde_json::json!(sha256);
+    }
+    Ok(serde_json::json!({
+        "action": action,
+        "artifact": artifact_body,
+        "scope": scope.trim(),
+        "source": from,
+        "force": force,
+    }))
+}
+
 async fn dry_run_add(
     name: &str,
     host: &str,

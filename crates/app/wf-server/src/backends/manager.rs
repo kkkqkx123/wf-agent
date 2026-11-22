@@ -15,6 +15,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::backup::{prune_backups, BackupRequest, BackupRoundStatus};
 use super::config::BackendConfig;
+use super::deploy::{
+    self, DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest, DeploySourceView,
+};
 use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
 use super::types::{
@@ -138,6 +141,10 @@ pub struct BackendManager {
     backup_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     backup_round_error: Arc<std::sync::Mutex<Option<String>>>,
     tunnels: Arc<TunnelSupervisor>,
+    /// Last completed deployment per backend, and the last probe. Both are
+    /// memory-only: the remote host owns the durable truth.
+    deploy_outcomes: Arc<DashMap<String, DeployOutcomeView>>,
+    deploy_probes: Arc<DashMap<String, DeployProbeView>>,
     shutdown_token: CancellationToken,
     handles: MutexHandles,
     metrics: Option<Arc<wf_metrics::MetricsRegistry>>,
@@ -175,6 +182,8 @@ impl BackendManager {
             backup_locks: Arc::new(DashMap::new()),
             backup_round_error: Arc::new(std::sync::Mutex::new(None)),
             tunnels: Arc::new(TunnelSupervisor::default()),
+            deploy_outcomes: Arc::new(DashMap::new()),
+            deploy_probes: Arc::new(DashMap::new()),
             shutdown_token: CancellationToken::new(),
             handles: MutexHandles::default(),
             metrics,
@@ -1398,6 +1407,8 @@ impl BackendManager {
         self.require_enabled()?;
         self.tunnels.stop(name).await;
         self.statuses.remove(name);
+        self.deploy_outcomes.remove(name);
+        self.deploy_probes.remove(name);
         let prefix = format!("{name}/");
         let keys: Vec<String> = self
             .backup_statuses
@@ -1494,6 +1505,100 @@ impl BackendManager {
 
     pub fn tunnel_argv_for(&self, entry: &BackendEntry) -> Vec<String> {
         TunnelSupervisor::tunnel_argv(entry, self.config.default_local_port)
+    }
+
+    // -----------------------------------------------------------------
+    // Deployment: the writing half of the backend domain.
+    //
+    // The verb set and the command shapes live in `deploy`; this layer only
+    // resolves the entry, caches the last observation and keeps the local
+    // port used for the ControlMaster path identical to the tunnel's.
+    // -----------------------------------------------------------------
+
+    async fn entry_for(&self, name: &str) -> Result<BackendEntry, String> {
+        self.require_enabled()?;
+        self.store
+            .get_entry(name)
+            .await?
+            .ok_or_else(|| format!("backend '{name}' not found"))
+    }
+
+    /// Remote facts for one backend. Cached because it costs one SSH round
+    /// trip and the settings page asks for it on every open.
+    pub async fn deploy_probe(&self, name: &str) -> Result<DeployProbeView, String> {
+        let entry = self.entry_for(name).await?;
+        let probe = deploy::probe(
+            name,
+            &entry,
+            &self.config.deploy_settings(),
+            self.config.default_local_port,
+        )
+        .await;
+        self.deploy_probes.insert(name.to_string(), probe.clone());
+        Ok(probe)
+    }
+
+    /// Dry run: what the action would do on this host right now.
+    pub async fn deploy_plan(
+        &self,
+        name: &str,
+        request: &DeployRequest,
+    ) -> Result<DeployPlanView, String> {
+        let entry = self.entry_for(name).await?;
+        deploy::plan(
+            name,
+            &entry,
+            &self.config.deploy_settings(),
+            request,
+            self.config.default_local_port,
+        )
+        .await
+    }
+
+    /// Apply one verb. A successful start also refreshes the liveness row so
+    /// the status page does not wait for the next probe round to go green.
+    pub async fn deploy_apply(
+        &self,
+        name: &str,
+        request: &DeployRequest,
+    ) -> Result<DeployOutcomeView, String> {
+        let entry = self.entry_for(name).await?;
+        let settings = self.config.deploy_settings();
+        let outcome = deploy::apply(
+            name,
+            &entry,
+            &settings,
+            request,
+            self.config.default_local_port,
+        )
+        .await?;
+        if let Some(probe) = outcome.probe.clone() {
+            self.deploy_probes.insert(name.to_string(), probe);
+        }
+        self.deploy_outcomes
+            .insert(name.to_string(), outcome.clone());
+        Ok(outcome)
+    }
+
+    /// Deploy source directories visible to this management server. Purely
+    /// local: no SSH and no desired state, so the settings page can render
+    /// the `--from` choices without probing a host.
+    pub fn deploy_sources(&self) -> Vec<DeploySourceView> {
+        deploy::list_sources(&self.config.deploy_settings())
+    }
+
+    /// Cached deployment state: last outcome plus last probe. Never talks to
+    /// the host, so a list render cannot block on a dead connection.
+    pub fn deploy_snapshot(
+        &self,
+        name: &str,
+    ) -> (Option<DeployOutcomeView>, Option<DeployProbeView>) {
+        (
+            self.deploy_outcomes
+                .get(name)
+                .map(|row| row.value().clone()),
+            self.deploy_probes.get(name).map(|row| row.value().clone()),
+        )
     }
 
     pub async fn list_backups(

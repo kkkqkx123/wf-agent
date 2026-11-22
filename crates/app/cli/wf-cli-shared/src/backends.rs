@@ -663,6 +663,45 @@ pub async fn export_server_backup(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Remote deployment: the management service performs the SSH work, so the
+// CLI only assembles the payload and renders what came back. Keeping the
+// transfer server-side means the CLI holds no remote state and a second
+// frontend (web) sees the same result.
+// ---------------------------------------------------------------------------
+
+/// Dry run on the server: the same steps `apply` would run, plus the
+/// blocking reasons.
+pub async fn plan_server_deploy(
+    client: &wf_client::WfClient,
+    name: &str,
+    body: &serde_json::Value,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json(&format!("/api/v1/system/backends/{name}/deploy/plan"), body)
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+pub async fn apply_server_deploy(
+    client: &wf_client::WfClient,
+    name: &str,
+    body: &serde_json::Value,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json(&format!("/api/v1/system/backends/{name}/deploy"), body)
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

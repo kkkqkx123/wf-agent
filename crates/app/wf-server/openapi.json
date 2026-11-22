@@ -36284,6 +36284,302 @@
         ]
       }
     },
+    "/api/v1/system/backends/{name}/deploy": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_backend_deploy",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cached deployment outcome and probe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DeployStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "apply_system_backend_deploy",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Per-step result followed by a fresh probe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DeployOutcomeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/deploy/plan": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "plan_system_backend_deploy",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Planned steps, transfers and blocking reasons",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DeployPlanView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/deploy/probe": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "probe_system_backend_deploy",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Remote platform, install layout and liveness",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DeployProbeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/backends/{name}/sync-state/reset": {
       "post": {
         "tags": [
@@ -51984,6 +52280,338 @@
           }
         }
       },
+      "ApiEnvelope_DeployOutcomeView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Result of one applied action, followed by a fresh probe so the caller\nnever has to chain a second request to learn the new state.",
+            "required": [
+              "backend",
+              "action",
+              "ok",
+              "install_root",
+              "finished_ms"
+            ],
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "backend": {
+                "type": "string"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "finished_ms": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "install_root": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "probe": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployProbeView"
+                  }
+                ]
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeployStepResultView"
+                }
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_DeployPlanView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Dry run: everything the action would do, plus what blocks it today.",
+            "required": [
+              "backend",
+              "action",
+              "install_root",
+              "server_port",
+              "planned_ms"
+            ],
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "artifact": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ArtifactPlanView"
+                  }
+                ]
+              },
+              "backend": {
+                "type": "string"
+              },
+              "blocked": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Present when the action cannot run as planned; `force` does not\nbypass a missing artifact, only a version or platform disagreement."
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PlannedFileView"
+                }
+              },
+              "install_root": {
+                "type": "string"
+              },
+              "installation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RemoteInstallation",
+                    "description": "Current installation, so a `probe` plan is a complete status report."
+                  }
+                ]
+              },
+              "planned_ms": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "scope": {
+                "type": "string",
+                "description": "`none`, `config` or `full`."
+              },
+              "server_port": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "source": {
+                "type": "string",
+                "description": "Selected source directory relative to the configured source root."
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeployStepView"
+                }
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployTarget"
+                  }
+                ]
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_DeployProbeView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Probe result: what the host is, what is installed, and what failed.\nUnreachable hosts are data, matching the status views: one dead backend\nmust not fail the list.",
+            "required": [
+              "backend",
+              "probed_ms"
+            ],
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeployCheckView"
+                }
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "installation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RemoteInstallation"
+                  }
+                ]
+              },
+              "probed_ms": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployTarget"
+                  }
+                ]
+              },
+              "verdict": {
+                "type": "string",
+                "description": "`ok`, `degraded`, `absent` or `unreachable`."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_DeployStatusView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Cached deployment state for one backend. Read-only: it never opens an\nSSH channel, so a list render cannot block on an unreachable host.",
+            "required": [
+              "backend",
+              "install_root"
+            ],
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "install_root": {
+                "type": "string"
+              },
+              "last": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployOutcomeView"
+                  }
+                ]
+              },
+              "probe": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployProbeView"
+                  }
+                ]
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeploySourceView"
+                },
+                "description": "Local deploy source directories the operator may select."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_DirectoriesResolveView": {
         "type": "object",
         "required": [
@@ -57183,6 +57811,69 @@
           }
         }
       },
+      "ArtifactPlanView": {
+        "type": "object",
+        "description": "Resolved artifact for one deployment.",
+        "required": [
+          "kind",
+          "source",
+          "status"
+        ],
+        "properties": {
+          "bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`ok`, `missing_local_file`, `platform_mismatch` or `unknown`."
+          }
+        }
+      },
+      "ArtifactSpec": {
+        "type": "object",
+        "description": "Where the binary comes from.\n\n`release` is the default: the remote host downloads the published\n`wf-agent-server-<version>-<os>-<arch>.tar.gz` for its own platform, so a\nmanager running on a different architecture can still deploy. `url`\npoints at one explicit archive or bare binary. `remote_path` reuses a\nbinary the host already has. `local` uploads a local file — or this\nmanagement server's own executable — and is the only source that needs\nthe two machines to share an architecture.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`release`, `url`, `remote_path` or `local`."
+          },
+          "path": {
+            "type": "string",
+            "description": "URL, remote path or local path, depending on `kind`. Ignored by\n`release`, which derives the URL from the version and platform."
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional expected SHA-256 for the artifact bytes."
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Version to install. Absent means the management server's version."
+          }
+        }
+      },
       "AuthLoginBody": {
         "type": "object",
         "required": [
@@ -59157,6 +59848,450 @@
           },
           "workflow_name": {
             "type": "string"
+          }
+        }
+      },
+      "DeployCheckView": {
+        "type": "object",
+        "description": "One verification item reported by `probe`. Deployment has no reconcile\nloop, so this list is the whole \"did it work\" answer: a failed item names\nwhat is missing instead of leaving the operator to read raw fields.",
+        "required": [
+          "id",
+          "ok",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "Short human-readable explanation of the pass or the failure."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable id, e.g. `installed`, `running`, `healthy`, `version_match`."
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DeployOutcomeView": {
+        "type": "object",
+        "description": "Result of one applied action, followed by a fresh probe so the caller\nnever has to chain a second request to learn the new state.",
+        "required": [
+          "backend",
+          "action",
+          "ok",
+          "install_root",
+          "finished_ms"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "install_root": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "probe": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployProbeView"
+              }
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployStepResultView"
+            }
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DeployPlanView": {
+        "type": "object",
+        "description": "Dry run: everything the action would do, plus what blocks it today.",
+        "required": [
+          "backend",
+          "action",
+          "install_root",
+          "server_port",
+          "planned_ms"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactPlanView"
+              }
+            ]
+          },
+          "backend": {
+            "type": "string"
+          },
+          "blocked": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present when the action cannot run as planned; `force` does not\nbypass a missing artifact, only a version or platform disagreement."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlannedFileView"
+            }
+          },
+          "install_root": {
+            "type": "string"
+          },
+          "installation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RemoteInstallation",
+                "description": "Current installation, so a `probe` plan is a complete status report."
+              }
+            ]
+          },
+          "planned_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "type": "string",
+            "description": "`none`, `config` or `full`."
+          },
+          "server_port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "description": "Selected source directory relative to the configured source root."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployStepView"
+            }
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployTarget"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DeployProbeView": {
+        "type": "object",
+        "description": "Probe result: what the host is, what is installed, and what failed.\nUnreachable hosts are data, matching the status views: one dead backend\nmust not fail the list.",
+        "required": [
+          "backend",
+          "probed_ms"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployCheckView"
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RemoteInstallation"
+              }
+            ]
+          },
+          "probed_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployTarget"
+              }
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "description": "`ok`, `degraded`, `absent` or `unreachable`."
+          }
+        }
+      },
+      "DeployRequest": {
+        "type": "object",
+        "description": "One deployment request. Serialized form is also the HTTP body and the\nCLI payload, so the three frontends cannot drift.",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Verb as a string so an unknown value fails with a readable message\ninstead of a serde enum error."
+          },
+          "artifact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactSpec"
+              }
+            ]
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Allow an action whose preconditions reported `blocked`."
+          },
+          "scope": {
+            "type": "string",
+            "description": "`none`, `config` or `full`. Absent means `none`."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Deploy source directory, relative to the configured source root.\nAbsent means the source root itself."
+          }
+        }
+      },
+      "DeploySourceView": {
+        "type": "object",
+        "description": "One deploy source directory the management server can read.",
+        "required": [
+          "name",
+          "path"
+        ],
+        "properties": {
+          "config_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Directory name relative to the configured source root; empty for the\nroot itself."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path on the management server, for the operator to edit."
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why this directory cannot serve `config`/`full`, when it cannot."
+          },
+          "script_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DeployStatusView": {
+        "type": "object",
+        "description": "Cached deployment state for one backend. Read-only: it never opens an\nSSH channel, so a list render cannot block on an unreachable host.",
+        "required": [
+          "backend",
+          "install_root"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "install_root": {
+            "type": "string"
+          },
+          "last": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployOutcomeView"
+              }
+            ]
+          },
+          "probe": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployProbeView"
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploySourceView"
+            },
+            "description": "Local deploy source directories the operator may select."
+          }
+        }
+      },
+      "DeployStepResultView": {
+        "type": "object",
+        "description": "Per-step execution result. A failing step keeps the rest unrun, so the\nindex of the failure is the whole diagnosis.",
+        "required": [
+          "id",
+          "ok"
+        ],
+        "properties": {
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "stderr": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trimmed stderr, bounded so one noisy step cannot flood the response."
+          },
+          "stdout": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DeployStepView": {
+        "type": "object",
+        "description": "One planned remote action. The plan is what the operator approves, and\nit is the literal command that runs, so approval cannot cover something\nelse.",
+        "required": [
+          "id",
+          "description",
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Remote command as it will be executed, without stdin payloads."
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "DeployTarget": {
+        "type": "object",
+        "description": "Facts read from the remote host in one round trip.",
+        "required": [
+          "os",
+          "arch",
+          "platform",
+          "home",
+          "curl"
+        ],
+        "properties": {
+          "arch": {
+            "type": "string",
+            "description": "`uname -m`, e.g. `x86_64`."
+          },
+          "curl": {
+            "type": "boolean",
+            "description": "Whether `curl` exists remotely; health waits degrade without it."
+          },
+          "home": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string",
+            "description": "`uname -s`, e.g. `Linux`."
+          },
+          "platform": {
+            "type": "string",
+            "description": "`<os>-<arch>` lowercased, the label used in reports."
+          },
+          "shell": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wf_server_on_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`wf-server` found on `PATH`, if any."
           }
         }
       },
@@ -61551,6 +62686,27 @@
           }
         }
       },
+      "PlannedFileView": {
+        "type": "object",
+        "description": "A transfer announced in the plan: path, bytes and mode.",
+        "required": [
+          "path",
+          "bytes",
+          "mode"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "ProjectEntry": {
         "type": "object",
         "required": [
@@ -61928,6 +63084,90 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "RemoteInstallation": {
+        "type": "object",
+        "description": "What is already installed under the install root.",
+        "required": [
+          "root",
+          "running",
+          "healthy"
+        ],
+        "properties": {
+          "config_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "current": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Resolved `current` link target, e.g. `bin/0.1.0`."
+          },
+          "dirs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Directories present under the root: `bin`, `current`, `server`,\n`scripts`, `run`, `logs`."
+          },
+          "healthy": {
+            "type": "boolean",
+            "description": "The process answers its loopback health endpoint."
+          },
+          "installed_from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installed_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Contents of `install.json` when it parses, verbatim otherwise absent."
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "root": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean",
+            "description": "The recorded pid is alive."
+          },
+          "script_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Version reported by the installed binary."
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Versions present under `bin/`, newest name last."
           }
         }
       },

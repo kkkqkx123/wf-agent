@@ -11,6 +11,8 @@ use clap::Subcommand;
 /// fallback for `list` / `status` when the service is unreachable.
 /// `tunnel` / `start` / `stop` only print the human-driven ssh invocations
 /// (rollback path); `up` / `down` drive the server-supervised forwards.
+/// `deploy` is the write path: it installs and supervises the remote
+/// `wf-server` itself, dry run by default.
 /// Backups run on the server by plan; CLI only queries and triggers.
 #[derive(Debug, Clone, Subcommand)]
 pub enum RemoteSub {
@@ -143,6 +145,66 @@ pub enum RemoteSub {
         /// Registered host name.
         #[arg(value_name = "NAME")]
         name: String,
+    },
+    /// Install, start, verify or remove a wf-server on a registered host.
+    /// The management service drives the sequence over ssh; nothing is
+    /// installed as root and nothing touches the system package manager.
+    ///
+    /// By default the remote host downloads the published release for its
+    /// own platform. `--artifact` switches to a local binary; `--from` and
+    /// `--scope` select which part of a local deploy source is transferred.
+    ///
+    /// Dry run by default: the printed plan is the exact command sequence.
+    /// `--apply` executes it. `probe` is the standalone verification verb.
+    Deploy {
+        /// Registered host name.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Verb: probe | install | start | stop | upgrade | uninstall.
+        #[arg(long, value_name = "ACTION", default_value = "probe")]
+        action: String,
+        /// Optional artifact locator. With `--artifact-kind local` (the
+        /// default when this flag is present) this is a local file; empty
+        /// means the management server's own executable.
+        #[arg(long, value_name = "PATH_OR_URL")]
+        artifact: Option<String>,
+        /// Artifact source: release | local | remote_path | url.
+        /// Absent means `release`, or `local` when `--artifact` is given.
+        #[arg(long, value_name = "KIND")]
+        artifact_kind: Option<String>,
+        /// Release version to install. Defaults to the management version.
+        #[arg(long, value_name = "VERSION")]
+        artifact_version: Option<String>,
+        /// Expected SHA-256 of the artifact bytes.
+        #[arg(long, value_name = "HEX")]
+        artifact_sha256: Option<String>,
+        /// Deploy source directory relative to the server's source root.
+        /// The directory must provide a complete `server/` layer; `full`
+        /// additionally requires `scripts/`.
+        #[arg(long, value_name = "DIR")]
+        from: Option<String>,
+        /// What to transfer: none | config | full.
+        #[arg(long, value_name = "SCOPE", default_value = "none")]
+        scope: String,
+        /// Execute the plan instead of only printing it.
+        #[arg(long)]
+        apply: bool,
+        /// Allow a plan whose version or platform check reported blocked.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Create a local deploy source tree that can be edited before use.
+    /// `config` produces only `server/*.toml`; `full` also creates scripts.
+    DeployInit {
+        /// Directory to create, e.g. `deploy/staging`.
+        #[arg(long, value_name = "DIR", default_value = "deploy")]
+        dir: String,
+        /// Skeleton scope: config | full.
+        #[arg(long, value_name = "SCOPE", default_value = "full")]
+        scope: String,
+        /// Overwrite files that already exist.
+        #[arg(long)]
+        force: bool,
     },
     /// Probe every known backend (registry tunnel addresses plus the
     /// currently resolved server) and report reachability and versions.

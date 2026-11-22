@@ -7136,6 +7136,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backends/{name}/deploy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_system_backend_deploy"];
+        put?: never;
+        post: operations["apply_system_backend_deploy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backends/{name}/deploy/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["plan_system_backend_deploy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backends/{name}/deploy/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["probe_system_backend_deploy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backends/{name}/sync-state/reset": {
         parameters: {
             query?: never;
@@ -10229,6 +10277,91 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_DeployOutcomeView: {
+            /**
+             * @description Result of one applied action, followed by a fresh probe so the caller
+             *     never has to chain a second request to learn the new state.
+             */
+            data?: {
+                action: string;
+                backend: string;
+                error?: string | null;
+                /** Format: int64 */
+                finished_ms: number;
+                install_root: string;
+                ok: boolean;
+                probe?: null | components["schemas"]["DeployProbeView"];
+                steps?: components["schemas"]["DeployStepResultView"][];
+                version?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_DeployPlanView: {
+            /** @description Dry run: everything the action would do, plus what blocks it today. */
+            data?: {
+                action: string;
+                artifact?: null | components["schemas"]["ArtifactPlanView"];
+                backend: string;
+                /**
+                 * @description Present when the action cannot run as planned; `force` does not
+                 *     bypass a missing artifact, only a version or platform disagreement.
+                 */
+                blocked?: string | null;
+                files?: components["schemas"]["PlannedFileView"][];
+                install_root: string;
+                installation?: null | components["schemas"]["RemoteInstallation"];
+                /** Format: int64 */
+                planned_ms: number;
+                /** @description `none`, `config` or `full`. */
+                scope?: string;
+                /** Format: int32 */
+                server_port: number;
+                /** @description Selected source directory relative to the configured source root. */
+                source?: string;
+                steps?: components["schemas"]["DeployStepView"][];
+                target?: null | components["schemas"]["DeployTarget"];
+                warnings?: string[];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_DeployProbeView: {
+            /**
+             * @description Probe result: what the host is, what is installed, and what failed.
+             *     Unreachable hosts are data, matching the status views: one dead backend
+             *     must not fail the list.
+             */
+            data?: {
+                backend: string;
+                checks?: components["schemas"]["DeployCheckView"][];
+                error?: string | null;
+                installation?: null | components["schemas"]["RemoteInstallation"];
+                /** Format: int64 */
+                probed_ms: number;
+                target?: null | components["schemas"]["DeployTarget"];
+                /** @description `ok`, `degraded`, `absent` or `unreachable`. */
+                verdict?: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_DeployStatusView: {
+            /**
+             * @description Cached deployment state for one backend. Read-only: it never opens an
+             *     SSH channel, so a list render cannot block on an unreachable host.
+             */
+            data?: {
+                backend: string;
+                install_root: string;
+                last?: null | components["schemas"]["DeployOutcomeView"];
+                probe?: null | components["schemas"]["DeployProbeView"];
+                /** @description Local deploy source directories the operator may select. */
+                sources?: components["schemas"]["DeploySourceView"][];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_DirectoriesResolveView: {
             /**
              * @description The scope this request is anchored on, for backend affinity checks.
@@ -11624,6 +11757,40 @@ export interface components {
             size_bytes: number;
             truncated: boolean;
         };
+        /** @description Resolved artifact for one deployment. */
+        ArtifactPlanView: {
+            /** Format: int64 */
+            bytes?: number | null;
+            kind: string;
+            sha256?: string | null;
+            source: string;
+            /** @description `ok`, `missing_local_file`, `platform_mismatch` or `unknown`. */
+            status: string;
+        };
+        /**
+         * @description Where the binary comes from.
+         *
+         *     `release` is the default: the remote host downloads the published
+         *     `wf-agent-server-<version>-<os>-<arch>.tar.gz` for its own platform, so a
+         *     manager running on a different architecture can still deploy. `url`
+         *     points at one explicit archive or bare binary. `remote_path` reuses a
+         *     binary the host already has. `local` uploads a local file — or this
+         *     management server's own executable — and is the only source that needs
+         *     the two machines to share an architecture.
+         */
+        ArtifactSpec: {
+            /** @description `release`, `url`, `remote_path` or `local`. */
+            kind?: string;
+            /**
+             * @description URL, remote path or local path, depending on `kind`. Ignored by
+             *     `release`, which derives the URL from the version and platform.
+             */
+            path?: string;
+            /** @description Optional expected SHA-256 for the artifact bytes. */
+            sha256?: string | null;
+            /** @description Version to install. Absent means the management server's version. */
+            version?: string | null;
+        };
         AuthLoginBody: {
             provider_id: string;
         };
@@ -12295,6 +12462,161 @@ export interface components {
             warnings: string[];
             workflow_id: string;
             workflow_name: string;
+        };
+        /**
+         * @description One verification item reported by `probe`. Deployment has no reconcile
+         *     loop, so this list is the whole "did it work" answer: a failed item names
+         *     what is missing instead of leaving the operator to read raw fields.
+         */
+        DeployCheckView: {
+            /** @description Short human-readable explanation of the pass or the failure. */
+            detail: string;
+            /** @description Stable id, e.g. `installed`, `running`, `healthy`, `version_match`. */
+            id: string;
+            ok: boolean;
+        };
+        /**
+         * @description Result of one applied action, followed by a fresh probe so the caller
+         *     never has to chain a second request to learn the new state.
+         */
+        DeployOutcomeView: {
+            action: string;
+            backend: string;
+            error?: string | null;
+            /** Format: int64 */
+            finished_ms: number;
+            install_root: string;
+            ok: boolean;
+            probe?: null | components["schemas"]["DeployProbeView"];
+            steps?: components["schemas"]["DeployStepResultView"][];
+            version?: string | null;
+        };
+        /** @description Dry run: everything the action would do, plus what blocks it today. */
+        DeployPlanView: {
+            action: string;
+            artifact?: null | components["schemas"]["ArtifactPlanView"];
+            backend: string;
+            /**
+             * @description Present when the action cannot run as planned; `force` does not
+             *     bypass a missing artifact, only a version or platform disagreement.
+             */
+            blocked?: string | null;
+            files?: components["schemas"]["PlannedFileView"][];
+            install_root: string;
+            installation?: null | components["schemas"]["RemoteInstallation"];
+            /** Format: int64 */
+            planned_ms: number;
+            /** @description `none`, `config` or `full`. */
+            scope?: string;
+            /** Format: int32 */
+            server_port: number;
+            /** @description Selected source directory relative to the configured source root. */
+            source?: string;
+            steps?: components["schemas"]["DeployStepView"][];
+            target?: null | components["schemas"]["DeployTarget"];
+            warnings?: string[];
+        };
+        /**
+         * @description Probe result: what the host is, what is installed, and what failed.
+         *     Unreachable hosts are data, matching the status views: one dead backend
+         *     must not fail the list.
+         */
+        DeployProbeView: {
+            backend: string;
+            checks?: components["schemas"]["DeployCheckView"][];
+            error?: string | null;
+            installation?: null | components["schemas"]["RemoteInstallation"];
+            /** Format: int64 */
+            probed_ms: number;
+            target?: null | components["schemas"]["DeployTarget"];
+            /** @description `ok`, `degraded`, `absent` or `unreachable`. */
+            verdict?: string;
+        };
+        /**
+         * @description One deployment request. Serialized form is also the HTTP body and the
+         *     CLI payload, so the three frontends cannot drift.
+         */
+        DeployRequest: {
+            /**
+             * @description Verb as a string so an unknown value fails with a readable message
+             *     instead of a serde enum error.
+             */
+            action?: string;
+            artifact?: null | components["schemas"]["ArtifactSpec"];
+            /** @description Allow an action whose preconditions reported `blocked`. */
+            force?: boolean;
+            /** @description `none`, `config` or `full`. Absent means `none`. */
+            scope?: string;
+            /**
+             * @description Deploy source directory, relative to the configured source root.
+             *     Absent means the source root itself.
+             */
+            source?: string | null;
+        };
+        /** @description One deploy source directory the management server can read. */
+        DeploySourceView: {
+            config_files?: string[];
+            /**
+             * @description Directory name relative to the configured source root; empty for the
+             *     root itself.
+             */
+            name: string;
+            /** @description Absolute path on the management server, for the operator to edit. */
+            path: string;
+            /** @description Why this directory cannot serve `config`/`full`, when it cannot. */
+            problem?: string | null;
+            script_files?: string[];
+        };
+        /**
+         * @description Cached deployment state for one backend. Read-only: it never opens an
+         *     SSH channel, so a list render cannot block on an unreachable host.
+         */
+        DeployStatusView: {
+            backend: string;
+            install_root: string;
+            last?: null | components["schemas"]["DeployOutcomeView"];
+            probe?: null | components["schemas"]["DeployProbeView"];
+            /** @description Local deploy source directories the operator may select. */
+            sources?: components["schemas"]["DeploySourceView"][];
+        };
+        /**
+         * @description Per-step execution result. A failing step keeps the rest unrun, so the
+         *     index of the failure is the whole diagnosis.
+         */
+        DeployStepResultView: {
+            /** Format: int32 */
+            exit_code?: number | null;
+            id: string;
+            ok: boolean;
+            /** @description Trimmed stderr, bounded so one noisy step cannot flood the response. */
+            stderr?: string | null;
+            stdout?: string | null;
+        };
+        /**
+         * @description One planned remote action. The plan is what the operator approves, and
+         *     it is the literal command that runs, so approval cannot cover something
+         *     else.
+         */
+        DeployStepView: {
+            /** @description Remote command as it will be executed, without stdin payloads. */
+            command: string;
+            description: string;
+            id: string;
+        };
+        /** @description Facts read from the remote host in one round trip. */
+        DeployTarget: {
+            /** @description `uname -m`, e.g. `x86_64`. */
+            arch: string;
+            /** @description Whether `curl` exists remotely; health waits degrade without it. */
+            curl: boolean;
+            home: string;
+            /** @description `uname -s`, e.g. `Linux`. */
+            os: string;
+            /** @description `<os>-<arch>` lowercased, the label used in reports. */
+            platform: string;
+            shell?: string | null;
+            /** @description `wf-server` found on `PATH`, if any. */
+            wf_server_on_path?: string | null;
         };
         /** @description One hunk of a per-file difference (`DiffHunkView` mirrored). */
         DiffHunkDoc: {
@@ -13137,6 +13459,12 @@ export interface components {
              */
             submitted_at: number;
         };
+        /** @description A transfer announced in the plan: path, bytes and mode. */
+        PlannedFileView: {
+            bytes: number;
+            mode: string;
+            path: string;
+        };
         ProjectEntry: {
             directory: string;
             projectId: string;
@@ -13252,6 +13580,35 @@ export interface components {
         RejectedRowDoc: {
             execution_id: string;
             reason: string;
+        };
+        /** @description What is already installed under the install root. */
+        RemoteInstallation: {
+            config_files?: string[];
+            /** @description Resolved `current` link target, e.g. `bin/0.1.0`. */
+            current?: string | null;
+            /**
+             * @description Directories present under the root: `bin`, `current`, `server`,
+             *     `scripts`, `run`, `logs`.
+             */
+            dirs?: string[];
+            /** @description The process answers its loopback health endpoint. */
+            healthy: boolean;
+            installed_from?: string | null;
+            /**
+             * Format: int64
+             * @description Contents of `install.json` when it parses, verbatim otherwise absent.
+             */
+            installed_ms?: number | null;
+            /** Format: int32 */
+            pid?: number | null;
+            root: string;
+            /** @description The recorded pid is alive. */
+            running: boolean;
+            script_files?: string[];
+            /** @description Version reported by the installed binary. */
+            version?: string | null;
+            /** @description Versions present under `bin/`, newest name last. */
+            versions?: string[];
         };
         RemoteRebuildRequest: {
             /**
@@ -51121,6 +51478,295 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_system_backend_deploy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cached deployment outcome and probe */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DeployStatusView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apply_system_backend_deploy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployRequest"];
+            };
+        };
+        responses: {
+            /** @description Per-step result followed by a fresh probe */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DeployOutcomeView"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown backend */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plan_system_backend_deploy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployRequest"];
+            };
+        };
+        responses: {
+            /** @description Planned steps, transfers and blocking reasons */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DeployPlanView"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown backend */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    probe_system_backend_deploy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remote platform, install layout and liveness */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DeployProbeView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown backend */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

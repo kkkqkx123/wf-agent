@@ -7,6 +7,8 @@
 pub mod backup;
 pub mod config;
 #[cfg(feature = "backends")]
+pub mod deploy;
+#[cfg(feature = "backends")]
 pub mod manager;
 #[cfg(feature = "backends")]
 pub mod probe;

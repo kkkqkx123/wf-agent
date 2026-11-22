@@ -123,6 +123,8 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::agent::locks::routes())
         // chat domain (tool-free multi-turn executor)
         .merge(api::chat::routes())
+        // conversation branch tree (sessions that can be re-aimed)
+        .merge(api::conversation::routes())
         // cli snapshot (data-only plugin CLI projection for shells)
         .merge(api::cli::routes())
         // screen-only recap reads (chat sessions + agent loops share the face)

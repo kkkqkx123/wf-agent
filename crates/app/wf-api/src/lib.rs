@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod audit;
 pub mod chat;
 pub mod checkpoint;
+pub mod conversation;
 pub mod definition;
 pub mod entity;
 pub mod execution_artifacts;

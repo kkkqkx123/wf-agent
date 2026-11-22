@@ -9,6 +9,9 @@ use crate::adapter::agent_loop::AgentLoopStorageAdapter;
 use crate::adapter::agent_profile::AgentProfileStorageAdapter;
 use crate::adapter::base::BaseStorageAdapter;
 use crate::adapter::checkpoint::CheckpointStorageAdapter;
+use crate::adapter::conversation_tree::{
+    ConversationTreeListOptions, ConversationTreeStorageAdapter,
+};
 use crate::adapter::execution::WorkflowExecutionStorageAdapter;
 use crate::adapter::message::{MessageListOptions, MessageStorageAdapter};
 use crate::adapter::metrics::{MetricRecord, MetricsDataPoint, MetricsStorageAdapter};
@@ -555,6 +558,34 @@ impl<S: Store + StoreExt> TriggerExecutionStorageAdapter for TriggerExecutionSto
             deleted += 1;
         }
         Ok(deleted)
+    }
+}
+
+// ─── ConversationTreeStorageAdapter ───
+
+impl<S: Store + StoreExt> ConversationTreeStorageAdapter for ConversationTreeStorage<S> {
+    async fn list_by_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<wf_types::ConversationTree>, StorageError> {
+        let options = ConversationTreeListOptions {
+            session_id_filter: Some(session_id.to_string()),
+            ..Default::default()
+        };
+        let filter: QueryFilter = options.into();
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn load_session_tree(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<wf_types::ConversationTree>, StorageError> {
+        // One session owns at most one `Session` tree; the rest of its rows are
+        // pooled grafts, which are read by id only.
+        let trees = self.list_by_session(session_id).await?;
+        Ok(trees
+            .into_iter()
+            .find(|tree| tree.kind == wf_types::TreeKind::Session))
     }
 }
 

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use crate::adapter::adapter_impls::{
     AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, AgentStorage,
-    CheckpointStorage, MessageStorage, MetricsStorage, NodeDraftStorage, NodeTemplateStorage,
+    CheckpointStorage, ConversationTreeStorage, MessageStorage, MetricsStorage, NodeDraftStorage,
+    NodeTemplateStorage,
     PricingRuleStorage, ScriptStorage, TaskStorage, TemplateUsageStorage, ToolDefinitionStorage,
     ToolStorage, TriggerDraftStorage, TriggerExecutionStorage, TriggerTemplateStorage,
     UserInteractionStorage, VariableStorage, WorkflowDraftStorage, WorkflowExecutionStorage,
@@ -399,6 +400,11 @@ define_storage_entities!(
     "message",
     MessageStorage,
     EntityIndexes::new(&["executionId"], &[], Some("timestamp")),
+    ConversationTree,
+    conversation_tree,
+    "conversation_tree",
+    ConversationTreeStorage,
+    EntityIndexes::new(&["sessionId", "kind"], &[], Some("updatedAt")),
     Variable,
     variable,
     "variable",

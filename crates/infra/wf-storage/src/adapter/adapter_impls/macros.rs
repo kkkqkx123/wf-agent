@@ -4,6 +4,7 @@ use crate::adapter::agent_execution::AgentExecutionListOptions;
 use crate::adapter::agent_loop::AgentLoopListOptions;
 use crate::adapter::agent_profile::AgentProfileListOptions;
 use crate::adapter::checkpoint::CheckpointListOptions;
+use crate::adapter::conversation_tree::ConversationTreeListOptions;
 use crate::adapter::execution::WorkflowExecutionListOptions;
 use crate::adapter::message::MessageListOptions;
 use crate::adapter::node_draft::NodeDraftListOptions;
@@ -46,6 +47,11 @@ make_base_adapter!(
     CheckpointListOptions
 );
 make_base_adapter!(TaskStorage, wf_types::TaskStorageMetadata, TaskListOptions);
+make_base_adapter!(
+    ConversationTreeStorage,
+    wf_types::ConversationTree,
+    ConversationTreeListOptions
+);
 make_base_adapter!(
     AgentLoopStorage,
     wf_types::AgentLoopStorageMetadata,

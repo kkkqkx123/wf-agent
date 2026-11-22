@@ -198,6 +198,30 @@ pub enum EventType {
     /// name. Pushes only carry the transition; the fingerprint stays the
     /// cheap change guard over REST.
     GitChanged,
+    /// A conversation-tree turn started generating: the user node is already
+    /// in the tree, the reply is `Pending`. Metadata carries `turn_id`,
+    /// `node_id` and the parent node.
+    ConversationTurnStarted,
+    /// A conversation-tree turn converged: the reply is written and the tree
+    /// is at the version the event carries. Metadata carries `turn_id`,
+    /// `node_id`, `message_id` and the usage block.
+    ConversationTurnCompleted,
+    /// A conversation-tree turn ended without a usable reply (failure or
+    /// cancellation). Metadata carries `turn_id`, `node_id`, `error` and
+    /// `reason` (`failed` or `cancelled`).
+    ConversationTurnFailed,
+    /// The tree shape or one node's content changed. Metadata carries
+    /// `version`, `change` and the affected `node_id`.
+    ConversationTreeChanged,
+    /// The set of stale answers changed. Metadata carries `version`, `total`
+    /// and the `nodes` list with per-node positions.
+    ConversationDirtyChanged,
+    /// A stepping run started. Metadata carries `job_id`, `mode` and the
+    /// planned node list.
+    ConversationStepStarted,
+    /// A stepping run ended. Metadata carries `job_id`, `reason`, the number
+    /// of regenerated steps and the final node.
+    ConversationStepCompleted,
 }
 
 impl EventType {
@@ -351,6 +375,13 @@ impl EventType {
             EventType::PtyExited => "PTY_EXITED",
             EventType::DefinitionLockChanged => "DEFINITION_LOCK_CHANGED",
             EventType::GitChanged => "GIT_CHANGED",
+            EventType::ConversationTurnStarted => "CONVERSATION_TURN_STARTED",
+            EventType::ConversationTurnCompleted => "CONVERSATION_TURN_COMPLETED",
+            EventType::ConversationTurnFailed => "CONVERSATION_TURN_FAILED",
+            EventType::ConversationTreeChanged => "CONVERSATION_TREE_CHANGED",
+            EventType::ConversationDirtyChanged => "CONVERSATION_DIRTY_CHANGED",
+            EventType::ConversationStepStarted => "CONVERSATION_STEP_STARTED",
+            EventType::ConversationStepCompleted => "CONVERSATION_STEP_COMPLETED",
         }
     }
 }

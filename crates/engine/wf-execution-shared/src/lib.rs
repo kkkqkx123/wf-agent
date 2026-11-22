@@ -6,6 +6,7 @@ pub mod compaction;
 pub mod context;
 pub mod context_store;
 pub mod conversation_session;
+pub mod conversation_tree;
 pub mod error;
 pub mod event_metrics_bridge;
 pub mod execution_loop;

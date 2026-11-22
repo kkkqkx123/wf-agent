@@ -391,6 +391,31 @@ impl Entity for wf_types::MessageStorageMetadata {
     }
 }
 
+impl Entity for wf_types::ConversationTree {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "conversation_tree"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "sessionId": self.session_id,
+            "kind": match self.kind {
+                wf_types::TreeKind::Session => "session",
+                wf_types::TreeKind::Graft => "graft",
+            },
+            "version": self.version,
+            "nodeCount": self.nodes.len(),
+            "updatedAt": self.updated_at,
+        })
+    }
+}
+
 impl Entity for wf_types::VariableStorageMetadata {
     type Metadata = Value;
 

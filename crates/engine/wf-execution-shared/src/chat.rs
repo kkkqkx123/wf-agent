@@ -90,7 +90,31 @@ impl ChatSession {
         let mut turn = user_text("");
         turn.content = content;
         self.conversation.add_message(turn);
-        Ok(LlmRequest {
+        Ok(self.build_request(execution_id))
+    }
+
+    /// Build the request for the conversation as it stands, without appending
+    /// a user message.
+    ///
+    /// The tree driver already stored the turn's user message (so the tree can
+    /// point at it) and restores it with the rest of the path; this is how it
+    /// asks for the generation that answers that stored message.
+    pub fn continue_turn(
+        &mut self,
+        execution_id: Option<&str>,
+    ) -> ExecutionSharedResult<LlmRequest> {
+        if self.template.profile_id.is_empty() {
+            return Err(ExecutionSharedError::Internal(
+                "chat turn requires a profile id".to_string(),
+            ));
+        }
+        Ok(self.build_request(execution_id))
+    }
+
+    /// Tool-free request over the current projection. `tools` stays `None`, so
+    /// a caller cannot smuggle tool definitions into a chat generation.
+    fn build_request(&mut self, execution_id: Option<&str>) -> LlmRequest {
+        LlmRequest {
             profile_id: self.template.profile_id.clone(),
             messages: self.conversation.view_messages(),
             parameters: self.template.parameters.clone(),
@@ -109,7 +133,7 @@ impl ChatSession {
             max_retries: None,
             retry_delay_ms: None,
             extra_headers: None,
-        })
+        }
     }
 
     /// Record the assistant reply produced for the prepared turn.

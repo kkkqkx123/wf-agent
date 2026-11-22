@@ -496,7 +496,10 @@ mod tests {
             config.deploy_artifact_base_url,
             "https://packages.example.com/wf-agent"
         );
-        assert_eq!(config.deploy_source_root, std::path::PathBuf::from("deploy"));
+        assert_eq!(
+            config.deploy_source_root,
+            std::path::PathBuf::from("deploy")
+        );
         assert_eq!(config.deploy_exec_timeout_secs, 120);
         assert_eq!(config.deploy_start_timeout_secs, 30);
         assert_eq!(config.tunnel_stop_grace_secs, 2);

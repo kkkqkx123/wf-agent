@@ -110,6 +110,15 @@ impl ServerHandle {
             }
         }
 
+        // Converge in-flight deployment jobs while the HTTP surface is still
+        // alive and tunnels are up: a cancelled step can settle to a clean
+        // `interrupted` terminal. This must precede tunnel teardown, after
+        // which SSH steps would fail and force a `failed` terminal instead.
+        #[cfg(feature = "backends")]
+        if let Some(backends) = &self.backends {
+            backends.cancel_deploy_jobs().await;
+        }
+
         // Stop the detached-run reaper first: it may still be settling an
         // idle run, and we want that done before tunnels disappear.
         if let Some((reaper, cancel)) = self.reaper {

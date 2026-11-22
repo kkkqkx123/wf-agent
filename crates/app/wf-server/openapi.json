@@ -36534,12 +36534,12 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Per-step result followed by a fresh probe",
+          "202": {
+            "description": "Deployment job accepted",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_DeployOutcomeView"
+                  "$ref": "#/components/schemas/ApiEnvelope_DeployJobView"
                 }
               }
             }
@@ -36562,6 +36562,159 @@
           },
           "404": {
             "description": "Unknown backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A deployment is already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/deploy/jobs/{id}": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_backend_deploy_job",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment job status and progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DeployJobView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/deploy/jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "cancel_system_backend_deploy_job",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation requested"
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown job",
             "content": {
               "application/json": {
                 "schema": {
@@ -52448,7 +52601,7 @@
           }
         }
       },
-      "ApiEnvelope_DeployOutcomeView": {
+      "ApiEnvelope_DeployJobView": {
         "type": "object",
         "required": [
           "success"
@@ -52456,13 +52609,13 @@
         "properties": {
           "data": {
             "type": "object",
-            "description": "Result of one applied action, followed by a fresh probe so the caller\nnever has to chain a second request to learn the new state.",
+            "description": "Status of one background deployment job.",
             "required": [
+              "job_id",
               "backend",
               "action",
-              "ok",
-              "install_root",
-              "finished_ms"
+              "status",
+              "submitted_ms"
             ],
             "properties": {
               "action": {
@@ -52471,31 +52624,35 @@
               "backend": {
                 "type": "string"
               },
-              "error": {
+              "current_step": {
                 "type": [
                   "string",
                   "null"
                 ]
               },
               "finished_ms": {
-                "type": "integer",
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "format": "int64"
               },
-              "install_root": {
+              "job_id": {
                 "type": "string"
               },
-              "ok": {
-                "type": "boolean"
-              },
-              "probe": {
+              "outcome": {
                 "oneOf": [
                   {
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/DeployProbeView"
+                    "$ref": "#/components/schemas/DeployOutcomeView"
                   }
                 ]
+              },
+              "status": {
+                "type": "string",
+                "description": "`queued`, `running`, `succeeded`, `failed` or `interrupted`."
               },
               "steps": {
                 "type": "array",
@@ -52503,11 +52660,9 @@
                   "$ref": "#/components/schemas/DeployStepResultView"
                 }
               },
-              "version": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "submitted_ms": {
+                "type": "integer",
+                "format": "int64"
               }
             }
           },
@@ -60078,6 +60233,65 @@
           }
         }
       },
+      "DeployJobView": {
+        "type": "object",
+        "description": "Status of one background deployment job.",
+        "required": [
+          "job_id",
+          "backend",
+          "action",
+          "status",
+          "submitted_ms"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "current_step": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployOutcomeView"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`queued`, `running`, `succeeded`, `failed` or `interrupted`."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployStepResultView"
+            }
+          },
+          "submitted_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "DeployOutcomeView": {
         "type": "object",
         "description": "Result of one applied action, followed by a fresh probe so the caller\nnever has to chain a second request to learn the new state.",
@@ -60108,6 +60322,13 @@
           "install_root": {
             "type": "string"
           },
+          "job_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Owning job, when this outcome was produced by the background job path."
+          },
           "ok": {
             "type": "boolean"
           },
@@ -60120,6 +60341,13 @@
                 "$ref": "#/components/schemas/DeployProbeView"
               }
             ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`succeeded`, `failed` or `interrupted`. Missing means `succeeded`\nfor outcomes written before the job path existed."
           },
           "steps": {
             "type": "array",

@@ -42,6 +42,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
 
 use super::types::{is_safe_name_component, BackendEntry};
 
@@ -444,6 +445,32 @@ pub struct DeployOutcomeView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe: Option<DeployProbeView>,
     pub finished_ms: i64,
+    /// Owning job, when this outcome was produced by the background job path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
+    /// `succeeded`, `failed` or `interrupted`. Missing means `succeeded`
+    /// for outcomes written before the job path existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+/// Status of one background deployment job.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeployJobView {
+    pub job_id: String,
+    pub backend: String,
+    pub action: String,
+    /// `queued`, `running`, `succeeded`, `failed` or `interrupted`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_step: Option<String>,
+    #[serde(default)]
+    pub steps: Vec<DeployStepResultView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<DeployOutcomeView>,
+    pub submitted_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_ms: Option<i64>,
 }
 
 /// One finished remote command.
@@ -828,8 +855,10 @@ fn evaluate_probe(
         "installed",
         installed,
         match install.version.as_deref() {
-            Some(version) => format!("current -> {}, version {version}",
-                install.current.as_deref().unwrap_or("(unset)")),
+            Some(version) => format!(
+                "current -> {}, version {version}",
+                install.current.as_deref().unwrap_or("(unset)")
+            ),
             None => "current link or --version is missing".to_string(),
         },
     );
@@ -932,8 +961,7 @@ pub async fn probe(
     match channel.run(&script, None).await {
         Ok(output) if output.success() => {
             let record = parse_probe(&output.stdout, &root);
-            let (verdict, checks) =
-                evaluate_probe(record.installation.as_ref(), &record.target);
+            let (verdict, checks) = evaluate_probe(record.installation.as_ref(), &record.target);
             DeployProbeView {
                 backend: backend.to_string(),
                 target: Some(record.target),
@@ -975,8 +1003,12 @@ pub async fn probe(
 /// marks a tar.gz that must be unpacked before the binary can run.
 #[derive(Debug, Clone)]
 enum ArtifactPayload {
-    Local { bytes: Vec<u8> },
-    Remote { path: String },
+    Local {
+        bytes: Vec<u8>,
+    },
+    Remote {
+        path: String,
+    },
     Url {
         url: String,
         sha256: Option<String>,
@@ -1203,9 +1235,12 @@ fn source_root(settings: &DeploySettings) -> Result<std::path::PathBuf, String> 
             .map_err(|e| format!("cannot resolve the working directory: {e}"))?
             .join(raw)
     };
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|e| format!("deploy source root '{}' is not available: {e}", candidate.display()))?;
+    let canonical = candidate.canonicalize().map_err(|e| {
+        format!(
+            "deploy source root '{}' is not available: {e}",
+            candidate.display()
+        )
+    })?;
     if !canonical.is_dir() {
         return Err(format!(
             "deploy source root '{}' is not a directory",
@@ -1240,10 +1275,12 @@ fn resolve_source_dir(
             ));
         }
     }
-    let canonical = root
-        .join(cleaned)
-        .canonicalize()
-        .map_err(|e| format!("deploy source '{raw}' not found under '{}': {e}", root.display()))?;
+    let canonical = root.join(cleaned).canonicalize().map_err(|e| {
+        format!(
+            "deploy source '{raw}' not found under '{}': {e}",
+            root.display()
+        )
+    })?;
     if !canonical.starts_with(&root) || !canonical.is_dir() {
         return Err(format!(
             "deploy source '{raw}' must stay inside '{}' and be a directory",
@@ -1307,7 +1344,9 @@ fn list_source_names(dir: &std::path::Path, extension: &str) -> Vec<String> {
             let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
                 continue;
             };
-            if !extension.is_empty() && path.extension().and_then(|value| value.to_str()) != Some(extension) {
+            if !extension.is_empty()
+                && path.extension().and_then(|value| value.to_str()) != Some(extension)
+            {
                 continue;
             }
             if is_safe_name_component(name) {
@@ -1840,6 +1879,8 @@ pub async fn apply(
     settings: &DeploySettings,
     request: &DeployRequest,
     local_port: u16,
+    cancel: &CancellationToken,
+    mut on_progress: impl FnMut(DeployStepResultView),
 ) -> Result<DeployOutcomeView, String> {
     let action = request.parsed_action()?;
     let root = normalize_install_root(&settings.install_root)?;
@@ -1855,6 +1896,7 @@ pub async fn apply(
             error: Some(reason),
             probe: Some(probe(backend, entry, settings, local_port).await),
             finished_ms: wf_common::epoch_ms(),
+            status: Some("failed".to_string()),
             ..DeployOutcomeView::default()
         });
     }
@@ -1881,12 +1923,46 @@ pub async fn apply(
     let mut version: Option<String> = None;
 
     // Every branch runs its steps in plan order and stops at the first
-    // failure, so `steps` read as the prefix that succeeded.
+    // failure, so `steps` read as the prefix that succeeded. A cancellation
+    // is checked before each step and races each step, so it converges to an
+    // `interrupted` outcome rather than a `failed` one. Each completed step
+    // is reported through `on_progress` for the background job view.
     macro_rules! push_step {
         ($step:expr, $stdin:expr) => {{
-            let result = run_step(&channel, &$step, $stdin).await;
+            if cancel.is_cancelled() {
+                return Ok(DeployOutcomeView {
+                    backend: backend.to_string(),
+                    action: action.as_str().to_string(),
+                    ok: false,
+                    install_root: root,
+                    version,
+                    steps: results,
+                    error: Some("deployment interrupted".to_string()),
+                    finished_ms: wf_common::epoch_ms(),
+                    status: Some("interrupted".to_string()),
+                    ..DeployOutcomeView::default()
+                });
+            }
+            let result = tokio::select! {
+                _ = cancel.cancelled() => {
+                    return Ok(DeployOutcomeView {
+                        backend: backend.to_string(),
+                        action: action.as_str().to_string(),
+                        ok: false,
+                        install_root: root,
+                        version,
+                        steps: results,
+                        error: Some("deployment interrupted".to_string()),
+                        finished_ms: wf_common::epoch_ms(),
+                        status: Some("interrupted".to_string()),
+                        ..DeployOutcomeView::default()
+                    });
+                }
+                result = run_step(&channel, &$step, $stdin) => result,
+            };
             let ok = result.ok;
-            results.push(result);
+            results.push(result.clone());
+            on_progress(result);
             if !ok {
                 return Ok(DeployOutcomeView {
                     backend: backend.to_string(),
@@ -1898,6 +1974,8 @@ pub async fn apply(
                     error: Some(format!("step '{}' failed", $step.id)),
                     probe: Some(probe(backend, entry, settings, local_port).await),
                     finished_ms: wf_common::epoch_ms(),
+                    status: Some("failed".to_string()),
+                    ..DeployOutcomeView::default()
                 });
             }
         }};
@@ -1937,7 +2015,8 @@ pub async fn apply(
             .map_err(|e| format!("cannot encode the install record: {e}"))?;
         push_step!(steps[3], Some(record_body));
         for (path, bytes, _) in &files {
-            push_step!(file_step(&layout, path), Some(bytes.clone()));
+            let file_step = file_step(&layout, path);
+            push_step!(file_step, Some(bytes.clone()));
         }
     }
 
@@ -1995,6 +2074,8 @@ pub async fn apply(
         error: None,
         probe: Some(probe(backend, entry, settings, local_port).await),
         finished_ms: wf_common::epoch_ms(),
+        status: Some("succeeded".to_string()),
+        ..DeployOutcomeView::default()
     })
 }
 
@@ -2091,19 +2172,29 @@ mod tests {
         };
         let config = read_source_files(&settings, Some("staging"), DeployScope::Config).unwrap();
         assert_eq!(config.len(), 2);
-        assert!(config.iter().all(|(path, _, _)| path.starts_with("server/")));
+        assert!(config
+            .iter()
+            .all(|(path, _, _)| path.starts_with("server/")));
         let full = read_source_files(&settings, Some("staging"), DeployScope::Full).unwrap();
         assert_eq!(full.len(), 3);
-        assert!(full.iter().any(|(path, _, mode)| path == "scripts/boot.sh" && *mode == "700"));
-        assert!(read_source_files(&settings, Some("staging"), DeployScope::None)
-            .unwrap()
-            .is_empty());
+        assert!(full
+            .iter()
+            .any(|(path, _, mode)| path == "scripts/boot.sh" && *mode == "700"));
+        assert!(
+            read_source_files(&settings, Some("staging"), DeployScope::None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn release_artifact_url_matches_the_package_contract() {
         assert_eq!(
-            release_artifact_url("https://packages.example.test/builds/", "1.2.3", "linux-aarch64"),
+            release_artifact_url(
+                "https://packages.example.test/builds/",
+                "1.2.3",
+                "linux-aarch64"
+            ),
             "https://packages.example.test/builds/wf-agent-server-1.2.3-linux-aarch64.tar.gz"
         );
     }
@@ -2205,7 +2296,9 @@ mod tests {
             version: None,
             sha256: None,
         });
-        assert!(resolve_artifact(&spec, &target("linux-x86_64"), &DeploySettings::default()).is_err());
+        assert!(
+            resolve_artifact(&spec, &target("linux-x86_64"), &DeploySettings::default()).is_err()
+        );
     }
 
     #[test]
@@ -2231,7 +2324,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let source = root.path().to_path_buf();
         std::fs::create_dir_all(source.join("server")).unwrap();
-        std::fs::write(source.join("server/server.toml"), "x".repeat(MAX_FILE_BYTES + 1)).unwrap();
+        std::fs::write(
+            source.join("server/server.toml"),
+            "x".repeat(MAX_FILE_BYTES + 1),
+        )
+        .unwrap();
         let settings = DeploySettings {
             source_root: source.clone(),
             ..DeploySettings::default()
@@ -2293,7 +2390,13 @@ mod tests {
         };
         let (verdict, checks) = evaluate_probe(Some(&stopped), &target("linux-x86_64"));
         assert_eq!(verdict, "degraded");
-        assert!(!checks.iter().find(|check| check.id == "running").unwrap().ok);
+        assert!(
+            !checks
+                .iter()
+                .find(|check| check.id == "running")
+                .unwrap()
+                .ok
+        );
         let (verdict, _) = evaluate_probe(None, &target("linux-x86_64"));
         assert_eq!(verdict, "absent");
     }

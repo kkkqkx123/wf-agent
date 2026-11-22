@@ -1817,6 +1817,7 @@
 	"page.settings.remoteHome": "Home directory",
 	"page.settings.remoteInstallRoot": "Install root",
 	"page.settings.remoteInstalled": "Installed",
+	"page.settings.remoteJobProgress": "Deploying, step {step} ({done}/{total})",
 	"page.settings.remoteLoading": "Loading remote hosts…",
 	"page.settings.remoteNotInstalled": "not installed",
 	"page.settings.remoteOutcomeFailed": "Failed",

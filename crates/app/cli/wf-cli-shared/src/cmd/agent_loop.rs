@@ -25,7 +25,12 @@ pub async fn run(cli: &Cli, sub: &AgentLoopSub) -> CliResult<()> {
             model,
             context,
             timeout,
-        } => dispatch(cli, client, prompt, loop_id, agent, model, context, *timeout).await,
+        } => {
+            dispatch(
+                cli, client, prompt, loop_id, agent, model, context, *timeout,
+            )
+            .await
+        }
         AgentLoopSub::Attach {
             execution_id,
             since,
@@ -49,7 +54,9 @@ async fn dispatch(
 ) -> CliResult<()> {
     let context = match context {
         Some(raw) => serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw)
-            .map_err(|e| crate::error::CliError::Arguments(format!("invalid --context JSON: {e}")))?,
+            .map_err(|e| {
+                crate::error::CliError::Arguments(format!("invalid --context JSON: {e}"))
+            })?,
         None => serde_json::Map::new(),
     };
     let params = TurnParams {
@@ -71,8 +78,7 @@ async fn dispatch(
         .await?;
     render_envelope_to_cli(
         cli,
-        OutputEnvelope::success("agent-loop-dispatch", view)
-            .with_entity(loop_id.to_string()),
+        OutputEnvelope::success("agent-loop-dispatch", view).with_entity(loop_id.to_string()),
     )
 }
 

@@ -69,11 +69,9 @@ edition = "2021"
 rust-version = "1.97"
 
 [workspace.dependencies]
-wf-integration = { path = "crates/infra/wf-integration" }
 wf-common = { path = "crates/foundation/wf-common" }
 wf-types = { path = "crates/foundation/wf-types" }
 wf-core = { path = "crates/foundation/wf-core" }
-wf-api = { path = "crates/app/wf-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -104,7 +102,6 @@ eventsource-stream = "0.2"
 futures = "0.3"
 tokio-util = "0.7"
 rand = "0.8"
-num_cpus = "1"
 semver = "1"
 
 # General-purpose utilities
@@ -112,8 +109,6 @@ anyhow = "1"
 base64 = "0.22"
 bytes = "1"
 parking_lot = "0.12"
-zstd = "0.13"
-smallvec = "1"
 toml = "1.1"
 hex = "0.4"
 similar = "3"
@@ -158,8 +153,6 @@ wasmparser = "0.244"
 
 # File watching
 notify = "8"
-# Pure-Rust SHA-1 for the checkpoint Git object store (loose objects).
-sha1 = "0.10"
 # Gitoxide object identity for the checkpoint Git object store.
 # Pinned at introduction on the 0.27 release line; do not update during development.
 gix-hash = { version = "0.27", features = ["sha1"] }
@@ -168,7 +161,6 @@ gix-hash = { version = "0.27", features = ["sha1"] }
 gix-object = "0.65"
 gix-odb = "0.85"
 gix-ref = "0.68"
-gix-revwalk = "0.36"
 gix-merge = "0.21"
 gix-diff = "0.68"
 gix-traverse = "0.62"

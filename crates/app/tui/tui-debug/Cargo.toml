@@ -7,7 +7,6 @@ description = "Low-level TUI implementation crate (tui-debug)"
 [dependencies]
 wf-common = { workspace = true }
 wf-types = { workspace = true }
-wf-core = { workspace = true }
 ratatui = { workspace = true }
 thiserror = { workspace = true }
 tui-core = { path = "../tui-core" }

@@ -16,7 +16,6 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-shell = { path = "../../infra/wf-shell" }
-wf-script = { path = "../../infra/wf-script" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
 
 async-trait.workspace = true

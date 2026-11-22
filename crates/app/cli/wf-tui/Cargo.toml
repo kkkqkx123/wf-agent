@@ -14,7 +14,6 @@ pulldown-cmark.workspace = true
 futures.workspace = true
 libc.workspace = true
 regex.workspace = true
-globset.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

@@ -703,6 +703,7 @@
 	"page.settings.remoteBlocked": "已阻止",
 	"page.settings.remoteOutcomeOk": "已完成",
 	"page.settings.remoteOutcomeFailed": "已失败",
+	"page.settings.remoteJobProgress": "正在部署，步骤 {step}（{done}/{total}）",
 	"page.settings.remoteActionProbe": "探测",
 	"page.settings.remoteActionInstall": "安装",
 	"page.settings.remoteActionStart": "启动",

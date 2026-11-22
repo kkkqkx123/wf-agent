@@ -69,10 +69,7 @@ async fn node_handler_call_and_get_resolve_return_types() {
         config: serde_json::json!({ "tag": "ok" }),
     };
     let result = handler.execute(ctx).await.expect("node call must succeed");
-    assert_eq!(
-        result.outputs,
-        serde_json::json!({ "sum": 5, "tag": "ok" })
-    );
+    assert_eq!(result.outputs, serde_json::json!({ "sum": 5, "tag": "ok" }));
 }
 
 #[test]

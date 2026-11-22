@@ -358,8 +358,7 @@ impl Plugin for LuaPlugin {
             }
             let mut tool_descriptions: Vec<wf_types::tool_description::ToolDescriptionData> =
                 Vec::new();
-            if let Ok(Some(tbl)) = contribs_table.get::<Option<mlua::Table>>("tool_descriptions")
-            {
+            if let Ok(Some(tbl)) = contribs_table.get::<Option<mlua::Table>>("tool_descriptions") {
                 for desc_tbl in tbl.sequence_values::<mlua::Table>().flatten() {
                     let id: String = desc_tbl.get("id").unwrap_or_default();
                     if id.trim().is_empty() {

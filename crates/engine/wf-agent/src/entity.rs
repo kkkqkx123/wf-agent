@@ -789,7 +789,10 @@ mod tests {
         let entity = AgentLoopEntity::new(Id::from("shutdown-cancel".to_string()));
         assert!(!entity.is_cancelled());
         entity.stop().await.expect("stop succeeds once");
-        assert!(entity.is_cancelled(), "stop must settle the entity as Cancelled");
+        assert!(
+            entity.is_cancelled(),
+            "stop must settle the entity as Cancelled"
+        );
         // Idempotent: a second stop on a terminal entity is a no-op.
         entity.stop().await.expect("second stop is idempotent");
         assert!(entity.is_cancelled());

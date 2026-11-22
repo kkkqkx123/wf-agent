@@ -56,8 +56,7 @@ pub const STREAM_DETACH_POLICY_ENV_VAR: &str = "WF_SERVER_STREAM_DETACH_POLICY";
 /// Environment variable overriding the detached-run idle threshold.
 pub const RUN_DETACH_IDLE_SECS_ENV_VAR: &str = "WF_SERVER_RUN_DETACH_IDLE_SECS";
 /// Environment variable overriding the per-principal detached cap.
-pub const RUN_DETACH_MAX_PER_PRINCIPAL_ENV_VAR: &str =
-    "WF_SERVER_RUN_DETACH_MAX_PER_PRINCIPAL";
+pub const RUN_DETACH_MAX_PER_PRINCIPAL_ENV_VAR: &str = "WF_SERVER_RUN_DETACH_MAX_PER_PRINCIPAL";
 
 /// Default ceiling for graceful HTTP drain during shutdown (seconds).
 pub const DEFAULT_SHUTDOWN_DRAIN_SECS: u64 = 10;
@@ -179,7 +178,9 @@ impl ServerConfig {
     /// Resolve the keepalive knobs: environment overrides the file layer,
     /// which overrides defaults. A present but invalid value fails startup so
     /// a typo can never silently change the runtime detach behavior.
-    fn resolve_stream_lifecycle(file: Option<&ServerFileConfig>) -> ConfigResult<StreamLifecycleConfig> {
+    fn resolve_stream_lifecycle(
+        file: Option<&ServerFileConfig>,
+    ) -> ConfigResult<StreamLifecycleConfig> {
         let policy_raw = std::env::var(STREAM_DETACH_POLICY_ENV_VAR)
             .ok()
             .filter(|raw| !raw.trim().is_empty())
@@ -724,7 +725,10 @@ mod tests {
             config.stream_lifecycle.detach_policy,
             wf_api::agent::agent_execution::StreamDetachPolicy::Cancel
         );
-        assert_eq!(config.stream_lifecycle.detach_idle_secs, DEFAULT_RUN_DETACH_IDLE_SECS);
+        assert_eq!(
+            config.stream_lifecycle.detach_idle_secs,
+            DEFAULT_RUN_DETACH_IDLE_SECS
+        );
         assert_eq!(
             config.stream_lifecycle.detach_max_per_principal,
             DEFAULT_RUN_DETACH_MAX_PER_PRINCIPAL

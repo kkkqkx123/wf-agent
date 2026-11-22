@@ -16,7 +16,8 @@ use tokio_util::sync::CancellationToken;
 use super::backup::{prune_backups, BackupRequest, BackupRoundStatus};
 use super::config::BackendConfig;
 use super::deploy::{
-    self, DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest, DeploySourceView,
+    self, DeployJobView, DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest,
+    DeploySourceView, DeployStepResultView,
 };
 use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
@@ -24,6 +25,13 @@ use super::types::{
     validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupExportView,
     BackupRecordView, BackupRelinkReport, BackupVerificationView, SyncStateView, TunnelStateView,
 };
+
+/// How long a finished deployment job stays queryable before the reaper
+/// drops it. Live jobs are never reclaimed.
+const DEPLOY_JOB_RETENTION_SECS: u64 = 600;
+/// Bounded window a cancelled job gets to settle before its task is aborted
+/// and an `interrupted` terminal is written unconditionally.
+const DEPLOY_JOB_CANCEL_GRACE_SECS: u64 = 5;
 
 /// Import report: per-row acceptance plus the skipped dirty rows.
 #[derive(Debug, Clone)]
@@ -145,6 +153,15 @@ pub struct BackendManager {
     /// memory-only: the remote host owns the durable truth.
     deploy_outcomes: Arc<DashMap<String, DeployOutcomeView>>,
     deploy_probes: Arc<DashMap<String, DeployProbeView>>,
+    /// Background deployment jobs, keyed by job id. In-memory like the
+    /// outcome cache; the remote host owns the durable truth.
+    deploy_jobs: Arc<DashMap<String, DeployJobView>>,
+    /// Cancellation token per live job, so a job can be interrupted without
+    /// aborting the whole task and losing its progress prefix.
+    deploy_job_cancels: Arc<DashMap<String, CancellationToken>>,
+    /// Task handles per live job, used only as a last resort on shutdown when
+    /// a job fails to settle within the drain budget.
+    deploy_job_handles: Arc<DashMap<String, tokio::task::JoinHandle<()>>>,
     shutdown_token: CancellationToken,
     handles: MutexHandles,
     metrics: Option<Arc<wf_metrics::MetricsRegistry>>,
@@ -184,6 +201,9 @@ impl BackendManager {
             tunnels: Arc::new(TunnelSupervisor::default()),
             deploy_outcomes: Arc::new(DashMap::new()),
             deploy_probes: Arc::new(DashMap::new()),
+            deploy_jobs: Arc::new(DashMap::new()),
+            deploy_job_cancels: Arc::new(DashMap::new()),
+            deploy_job_handles: Arc::new(DashMap::new()),
             shutdown_token: CancellationToken::new(),
             handles: MutexHandles::default(),
             metrics,
@@ -748,6 +768,9 @@ impl BackendManager {
     /// Stop background loops and clean every self-started forward.
     pub async fn shutdown(&self) {
         self.shutdown_token.cancel();
+        // Idempotent: the server converges live jobs just before calling
+        // this, but direct callers (and tests) get the same guarantee.
+        self.cancel_deploy_jobs().await;
         let grace = std::time::Duration::from_secs(self.config.tunnel_stop_grace_secs);
         self.tunnels.shutdown(grace).await;
     }
@@ -804,6 +827,7 @@ impl BackendManager {
                 _ = shutdown.cancelled() => break,
                 _ = interval.tick() => {
                     self.probe_round().await;
+                    self.reap_deploy_jobs();
                 }
             }
         }
@@ -1571,6 +1595,8 @@ impl BackendManager {
             &settings,
             request,
             self.config.default_local_port,
+            &CancellationToken::new(),
+            |_| {},
         )
         .await?;
         if let Some(probe) = outcome.probe.clone() {
@@ -1579,6 +1605,267 @@ impl BackendManager {
         self.deploy_outcomes
             .insert(name.to_string(), outcome.clone());
         Ok(outcome)
+    }
+
+    /// Submit a deployment as a background job and return immediately. The
+    /// caller can poll `deploy_job_status` for step progress and outcome, or
+    /// cancel it with `cancel_deploy_job`.
+    ///
+    /// Only one live job per backend is admitted: two overlapping upgrades
+    /// would fight over stop/start on the same host. A second submission
+    /// while one is queued or running is rejected with a conflict marker.
+    pub fn submit_deploy_job(
+        self: &Arc<Self>,
+        name: &str,
+        request: DeployRequest,
+    ) -> Result<DeployJobView, String> {
+        self.require_enabled()?;
+        // Light validation up front; `apply` recomputes the plan so remote
+        // drift between submit and execution is still caught.
+        request.parsed_action()?;
+        request.parsed_scope()?;
+
+        let live = self.deploy_jobs.iter().any(|row| {
+            let job = row.value();
+            job.backend == name && (job.status == "queued" || job.status == "running")
+        });
+        if live {
+            return Err(format!(
+                "409 conflict: a deployment is already running for backend '{name}'"
+            ));
+        }
+
+        let job_id = format!("deploy-{}", wf_common::generate_id());
+        let cancel = CancellationToken::new();
+        let submitted_ms = wf_common::epoch_ms();
+        let action = request.action.clone();
+        let view = DeployJobView {
+            job_id: job_id.clone(),
+            backend: name.to_string(),
+            action: action.clone(),
+            status: "queued".to_string(),
+            current_step: None,
+            steps: Vec::new(),
+            outcome: None,
+            submitted_ms,
+            finished_ms: None,
+        };
+        self.deploy_jobs.insert(job_id.clone(), view.clone());
+        self.deploy_job_cancels
+            .insert(job_id.clone(), cancel.clone());
+
+        let manager = Arc::clone(self);
+        let backend = name.to_string();
+        let job_key = job_id.clone();
+        let job_cancel = cancel.clone();
+        let handle = tokio::spawn(async move {
+            manager
+                .run_deploy_job(backend, job_key, request, job_cancel)
+                .await;
+        });
+        self.deploy_job_handles.insert(job_id.clone(), handle);
+        Ok(view)
+    }
+
+    /// Body of one background deployment job. Reports each completed step
+    /// into the job view and converges the terminal state. Cancellation never
+    /// lands as `failed`: the apply path returns an interrupted outcome, and
+    /// this method also guards the abort fallback used on shutdown.
+    async fn run_deploy_job(
+        self: Arc<Self>,
+        name: String,
+        job_id: String,
+        request: DeployRequest,
+        cancel: CancellationToken,
+    ) {
+        if let Some(mut job) = self.deploy_jobs.get_mut(&job_id) {
+            job.status = "running".to_string();
+        }
+
+        let applied = match self.entry_for(&name).await {
+            Ok(entry) => {
+                let settings = self.config.deploy_settings();
+                let jobs = Arc::clone(&self.deploy_jobs);
+                let key = job_id.clone();
+                let on_progress = move |step: DeployStepResultView| {
+                    if let Some(mut job) = jobs.get_mut(&key) {
+                        job.current_step = Some(step.id.clone());
+                        job.steps.push(step);
+                    }
+                };
+                deploy::apply(
+                    &name,
+                    &entry,
+                    &settings,
+                    &request,
+                    self.config.default_local_port,
+                    &cancel,
+                    on_progress,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        };
+
+        let outcome = match applied {
+            Ok(outcome) => outcome,
+            Err(e) => DeployOutcomeView {
+                backend: name.clone(),
+                action: request.action.clone(),
+                ok: false,
+                install_root: self.config.deploy_install_root.trim().to_string(),
+                error: Some(e),
+                status: Some(
+                    if cancel.is_cancelled() {
+                        "interrupted"
+                    } else {
+                        "failed"
+                    }
+                    .to_string(),
+                ),
+                finished_ms: wf_common::epoch_ms(),
+                ..DeployOutcomeView::default()
+            },
+        };
+
+        let status = if cancel.is_cancelled() && outcome.status.as_deref() != Some("succeeded") {
+            "interrupted".to_string()
+        } else {
+            outcome
+                .status
+                .clone()
+                .unwrap_or_else(|| if outcome.ok { "succeeded" } else { "failed" }.to_string())
+        };
+        let finished_ms = wf_common::epoch_ms();
+
+        if let Some(probe) = outcome.probe.clone() {
+            self.deploy_probes.insert(name.clone(), probe);
+        }
+        self.deploy_outcomes.insert(name.clone(), outcome.clone());
+
+        if let Some(mut job) = self.deploy_jobs.get_mut(&job_id) {
+            job.status = status;
+            job.outcome = Some(outcome);
+            job.current_step = None;
+            job.finished_ms = Some(finished_ms);
+        }
+        self.deploy_job_cancels.remove(&job_id);
+        self.deploy_job_handles.remove(&job_id);
+    }
+
+    /// Current view of one job, including its completed-step prefix.
+    pub fn deploy_job_status(&self, job_id: &str) -> Option<DeployJobView> {
+        self.deploy_jobs.get(job_id).map(|row| row.value().clone())
+    }
+
+    /// Request cancellation of one live job. Returns false when the id is
+    /// unknown or the job already settled.
+    pub fn cancel_deploy_job(&self, job_id: &str) -> bool {
+        match self.deploy_job_cancels.get(job_id) {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Converge every live job during shutdown. Cancellation is cooperative
+    /// first; a job that misses the grace window has its task aborted and an
+    /// `interrupted` terminal written unconditionally, so no interrupted
+    /// deployment is ever left without a record.
+    pub async fn cancel_deploy_jobs(&self) {
+        let targets: Vec<(
+            String,
+            String,
+            CancellationToken,
+            Option<tokio::task::JoinHandle<()>>,
+        )> = self
+            .deploy_jobs
+            .iter()
+            .filter(|row| {
+                let status = row.value().status.as_str();
+                status == "queued" || status == "running"
+            })
+            .map(|row| {
+                let id = row.key().clone();
+                let backend = row.value().backend.clone();
+                let token = self
+                    .deploy_job_cancels
+                    .get(&id)
+                    .map(|t| t.value().clone())
+                    .unwrap_or_else(CancellationToken::new);
+                let handle = self.deploy_job_handles.remove(&id).map(|(_, h)| h);
+                (id, backend, token, handle)
+            })
+            .collect();
+
+        for (id, backend, token, handle) in targets {
+            token.cancel();
+            let settled = match handle {
+                Some(handle) => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(DEPLOY_JOB_CANCEL_GRACE_SECS),
+                        handle,
+                    )
+                    .await
+                    {
+                        Ok(_) => true,
+                        Err(_) => false,
+                    }
+                }
+                None => true,
+            };
+            if !settled {
+                self.force_interrupted(&id, &backend);
+            }
+        }
+    }
+
+    /// Write a guaranteed `interrupted` terminal for a job whose task was
+    /// aborted before it could settle itself.
+    fn force_interrupted(&self, job_id: &str, backend: &str) {
+        let outcome = DeployOutcomeView {
+            backend: backend.to_string(),
+            action: self
+                .deploy_jobs
+                .get(job_id)
+                .map(|row| row.value().action.clone())
+                .unwrap_or_default(),
+            ok: false,
+            install_root: self.config.deploy_install_root.trim().to_string(),
+            error: Some("deployment interrupted by shutdown".to_string()),
+            status: Some("interrupted".to_string()),
+            finished_ms: wf_common::epoch_ms(),
+            ..DeployOutcomeView::default()
+        };
+        self.deploy_outcomes
+            .insert(backend.to_string(), outcome.clone());
+        if let Some(mut job) = self.deploy_jobs.get_mut(job_id) {
+            job.status = "interrupted".to_string();
+            job.outcome = Some(outcome);
+            job.finished_ms = Some(wf_common::epoch_ms());
+        }
+        self.deploy_job_cancels.remove(job_id);
+    }
+
+    /// Reclaim finished jobs older than the retention window. Live jobs are
+    /// never removed. Called from the periodic reaper loop.
+    pub fn reap_deploy_jobs(&self) {
+        let cutoff = wf_common::epoch_ms().saturating_sub(DEPLOY_JOB_RETENTION_SECS as i64 * 1000);
+        let expired: Vec<String> = self
+            .deploy_jobs
+            .iter()
+            .filter(|row| match row.value().finished_ms {
+                Some(finished) => finished <= cutoff,
+                None => false,
+            })
+            .map(|row| row.key().clone())
+            .collect();
+        for id in expired {
+            self.deploy_jobs.remove(&id);
+            self.deploy_job_cancels.remove(&id);
+        }
     }
 
     /// Deploy source directories visible to this management server. Purely
@@ -2501,5 +2788,58 @@ mod tests {
         // A target that never had a position reports nothing to clear.
         assert!(!manager.reset_sync_state("alpha", "exec-2").await.unwrap());
         assert!(manager.reset_sync_state("missing", "exec-1").await.is_err());
+    }
+
+    #[test]
+    fn deploy_job_reaper_keeps_live_jobs_and_recent_terminals() {
+        let manager = BackendManager::disabled();
+        let now = wf_common::epoch_ms();
+        let old = now - (DEPLOY_JOB_RETENTION_SECS as i64 + 60) * 1000;
+        manager.deploy_jobs.insert(
+            "deploy-old".to_string(),
+            DeployJobView {
+                job_id: "deploy-old".to_string(),
+                backend: "prod".to_string(),
+                action: "upgrade".to_string(),
+                status: "succeeded".to_string(),
+                current_step: None,
+                steps: Vec::new(),
+                outcome: None,
+                submitted_ms: old,
+                finished_ms: Some(old),
+            },
+        );
+        manager.deploy_jobs.insert(
+            "deploy-live".to_string(),
+            DeployJobView {
+                job_id: "deploy-live".to_string(),
+                backend: "prod".to_string(),
+                action: "upgrade".to_string(),
+                status: "running".to_string(),
+                current_step: Some("step-1".to_string()),
+                steps: Vec::new(),
+                outcome: None,
+                submitted_ms: now,
+                finished_ms: None,
+            },
+        );
+        manager.deploy_jobs.insert(
+            "deploy-recent".to_string(),
+            DeployJobView {
+                job_id: "deploy-recent".to_string(),
+                backend: "prod".to_string(),
+                action: "start".to_string(),
+                status: "interrupted".to_string(),
+                current_step: None,
+                steps: Vec::new(),
+                outcome: None,
+                submitted_ms: now,
+                finished_ms: Some(now),
+            },
+        );
+        manager.reap_deploy_jobs();
+        assert!(!manager.deploy_jobs.contains_key("deploy-old"));
+        assert!(manager.deploy_jobs.contains_key("deploy-live"));
+        assert!(manager.deploy_jobs.contains_key("deploy-recent"));
     }
 }

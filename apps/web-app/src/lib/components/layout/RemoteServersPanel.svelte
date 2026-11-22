@@ -13,6 +13,7 @@
 		probeBackendDeploy,
 		type BackendRow,
 		type DeployAction,
+		type DeployJob,
 		type DeployOutcome,
 		type DeployPlan,
 		type DeployProbe,
@@ -65,6 +66,7 @@
 	let plan = $state<DeployPlan | null>(null);
 	let outcome = $state<DeployOutcome | null>(null);
 	let probe = $state<DeployProbe | null>(null);
+	let deployJob = $state<DeployJob | null>(null);
 
 	const actionOptions = $derived(
 		ACTIONS.map((value) => ({ value, label: ACTION_LABEL[value] })),
@@ -162,8 +164,11 @@
 	async function runApply(): Promise<void> {
 		if (!selected) return;
 		busy = true;
+		deployJob = null;
 		try {
-			outcome = await applyBackendDeploy(selected, buildPayload());
+			outcome = await applyBackendDeploy(selected, buildPayload(), (job) => {
+				deployJob = job;
+			});
 			if (outcome.ok) {
 				toasts.success(t('page.settings.remoteApplied'));
 			} else {
@@ -381,6 +386,19 @@
 							</li>
 						{/each}
 					</ol>
+				</div>
+			{/if}
+
+			{#if busy && deployJob}
+				<div class="rounded-md border border-border p-3">
+					<p class="text-small font-medium">
+						{t('page.settings.remoteJobProgress', {
+							step: deployJob.currentStep ?? '—',
+							done: deployJob.steps.length,
+							total: deployJob.steps.length + (deployJob.currentStep ? 1 : 0),
+						})}
+					</p>
+					<p class="text-micro text-muted-foreground font-mono">{deployJob.jobId}</p>
 				</div>
 			{/if}
 

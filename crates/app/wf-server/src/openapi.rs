@@ -711,6 +711,8 @@ use utoipa::OpenApi;
         crate::api::system::backends::handle_deploy_probe,
         crate::api::system::backends::handle_deploy_plan,
         crate::api::system::backends::handle_deploy_apply,
+        crate::api::system::backends::handle_deploy_job_status,
+        crate::api::system::backends::handle_deploy_job_cancel,
         crate::api::system::backends::handle_deploy_status,
         crate::api::system::server::handle_server_info,
         crate::api::system::server::handle_server_status,
@@ -1137,9 +1139,12 @@ mod tests {
             for method in HTTP_METHODS {
                 if let Some(op) = item.get(method) {
                     ops += 1;
+                    let responses = op["responses"].as_object().unwrap();
                     assert!(
-                        op["responses"].as_object().unwrap().contains_key("200"),
-                        "operation {method} on {_path} is missing a 200 response"
+                        ["200", "201", "202", "204"]
+                            .iter()
+                            .any(|code| responses.contains_key(*code)),
+                        "operation {method} on {_path} is missing a 2xx success response"
                     );
                 }
             }
@@ -1212,8 +1217,7 @@ mod tests {
             )
         });
         assert_eq!(
-            actual,
-            expected,
+            actual, expected,
             "OpenAPI snapshot drifted; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document to refresh it"
         );
     }

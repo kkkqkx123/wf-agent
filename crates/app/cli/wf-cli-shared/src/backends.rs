@@ -687,19 +687,60 @@ pub async fn plan_server_deploy(
     }
 }
 
+/// Poll interval and ceiling for a deployment job submitted by the CLI.
+const DEPLOY_JOB_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+const DEPLOY_JOB_MAX_POLLS: u32 = 1800;
+
+/// Submit a deployment job and wait for its terminal state. The server runs
+/// the job in the background; the CLI only polls and renders the outcome, so
+/// the synchronous `--apply` user experience is preserved without holding a
+/// connection open for the whole deployment.
 pub async fn apply_server_deploy(
     client: &wf_client::WfClient,
     name: &str,
     body: &serde_json::Value,
 ) -> CliResult<serde_json::Value> {
-    let result: wf_client::ClientResult<serde_json::Value> = client
+    let submitted: wf_client::ClientResult<serde_json::Value> = client
         .post_json(&format!("/api/v1/system/backends/{name}/deploy"), body)
         .await;
-    match result {
-        Ok(data) => Ok(data),
-        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
-        Err(e) => Err(CliError::from(e)),
+    let job = match submitted {
+        Ok(data) => data,
+        Err(e) if is_fallback_error(&e) => {
+            return Err(CliError::Unavailable(server_unavailable_hint()));
+        }
+        Err(e) => return Err(CliError::from(e)),
+    };
+    let job_id = job
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::Business("deploy job did not return an id".to_string()))?
+        .to_string();
+
+    for _ in 0..DEPLOY_JOB_MAX_POLLS {
+        let polled: wf_client::ClientResult<serde_json::Value> = client
+            .get_json(&format!(
+                "/api/v1/system/backends/{name}/deploy/jobs/{job_id}"
+            ))
+            .await;
+        let view = match polled {
+            Ok(data) => data,
+            Err(e) if is_fallback_error(&e) => {
+                return Err(CliError::Unavailable(server_unavailable_hint()));
+            }
+            Err(e) => return Err(CliError::from(e)),
+        };
+        let status = view.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        if matches!(status, "succeeded" | "failed" | "interrupted") {
+            if let Some(outcome) = view.get("outcome") {
+                return Ok(outcome.clone());
+            }
+            return Ok(view);
+        }
+        tokio::time::sleep(DEPLOY_JOB_POLL_INTERVAL).await;
     }
+    Err(CliError::Business(format!(
+        "deployment job {job_id} did not reach a terminal state"
+    )))
 }
 
 #[cfg(test)]

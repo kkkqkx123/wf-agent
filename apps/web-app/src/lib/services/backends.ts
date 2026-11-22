@@ -63,6 +63,7 @@ export async function listBackends(): Promise<BackendRow[] | null> {
 
 type DeployPlanView = components['schemas']['DeployPlanView'];
 type DeployOutcomeView = components['schemas']['DeployOutcomeView'];
+type DeployJobView = components['schemas']['DeployJobView'];
 type DeployProbeView = components['schemas']['DeployProbeView'];
 type DeployStatusView = components['schemas']['DeployStatusView'];
 type DeploySourceSchema = components['schemas']['DeploySourceView'];
@@ -162,6 +163,21 @@ export interface DeployOutcome {
 	version: string | null;
 	steps: DeployStepResult[];
 	error: string | null;
+	status: string | null;
+}
+
+export type DeployJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted';
+
+export interface DeployJob {
+	jobId: string;
+	backend: string;
+	action: string;
+	status: DeployJobStatus;
+	currentStep: string | null;
+	steps: DeployStepResult[];
+	outcome: DeployOutcome | null;
+	submittedMs: number;
+	finishedMs: number | null;
 }
 
 function toTarget(view: DeployTargetSchema | null | undefined): DeployTarget | null {
@@ -242,6 +258,27 @@ function toOutcome(view: DeployOutcomeView): DeployOutcome {
 			stdout: step.stdout ?? null,
 		})),
 		error: view.error ?? null,
+		status: view.status ?? null,
+	};
+}
+
+function toJob(view: DeployJobView): DeployJob {
+	return {
+		jobId: view.job_id,
+		backend: view.backend,
+		action: view.action,
+		status: view.status as DeployJobStatus,
+		currentStep: view.current_step ?? null,
+		steps: (view.steps ?? []).map((step) => ({
+			id: step.id,
+			ok: step.ok,
+			exitCode: step.exit_code ?? null,
+			stderr: step.stderr ?? null,
+			stdout: step.stdout ?? null,
+		})),
+		outcome: view.outcome ? toOutcome(view.outcome) : null,
+		submittedMs: view.submitted_ms,
+		finishedMs: view.finished_ms ?? null,
 	};
 }
 
@@ -262,18 +299,75 @@ export async function planBackendDeploy(
 	return toPlan(view);
 }
 
-/** Execute the same plan; the response carries per-step results. */
-export async function applyBackendDeploy(
+const DEPLOY_JOB_TERMINAL: DeployJobStatus[] = ['succeeded', 'failed', 'interrupted'];
+const DEPLOY_JOB_POLL_MS = 500;
+const DEPLOY_JOB_MAX_WAIT_MS = 15 * 60 * 1000;
+
+/** Submit a deployment job. Returns the accepted job without waiting. */
+export async function submitBackendDeploy(
 	name: string,
 	request: DeployRequestPayload,
-): Promise<DeployOutcome> {
-	const view = await call<DeployOutcomeView>(
+): Promise<DeployJob> {
+	const view = await call<DeployJobView>(
 		client.POST('/api/v1/system/backends/{name}/deploy', {
 			params: { path: { name } },
 			body: request as never,
 		}),
 	);
-	return toOutcome(view);
+	return toJob(view);
+}
+
+/** Read one deployment job's current status and step progress. */
+export async function getBackendDeployJob(name: string, jobId: string): Promise<DeployJob> {
+	const view = await call<DeployJobView>(
+		client.GET('/api/v1/system/backends/{name}/deploy/jobs/{id}', {
+			params: { path: { name, id: jobId } },
+		}),
+	);
+	return toJob(view);
+}
+
+/** Ask the server to cancel a live deployment job. */
+export async function cancelBackendDeployJob(name: string, jobId: string): Promise<void> {
+	await call(
+		client.POST('/api/v1/system/backends/{name}/deploy/jobs/{id}/cancel', {
+			params: { path: { name, id: jobId } },
+		}),
+	);
+}
+
+/**
+ * Execute the same plan as a background job and wait for its terminal state.
+ * `onProgress` is invoked for every poll so callers can render live step
+ * progress. The returned outcome keeps the original synchronous contract.
+ */
+export async function applyBackendDeploy(
+	name: string,
+	request: DeployRequestPayload,
+	onProgress?: (job: DeployJob) => void,
+): Promise<DeployOutcome> {
+	const job = await submitBackendDeploy(name, request);
+	const deadline = Date.now() + DEPLOY_JOB_MAX_WAIT_MS;
+	let current = job;
+	while (!DEPLOY_JOB_TERMINAL.includes(current.status)) {
+		if (Date.now() >= deadline) {
+			throw new Error(`deployment job ${job.jobId} did not reach a terminal state`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, DEPLOY_JOB_POLL_MS));
+		current = await getBackendDeployJob(name, job.jobId);
+		onProgress?.(current);
+	}
+	if (current.outcome) return current.outcome;
+	return {
+		backend: current.backend,
+		action: current.action,
+		ok: current.status === 'succeeded',
+		installRoot: '',
+		version: null,
+		steps: current.steps,
+		error: current.status === 'interrupted' ? 'deployment interrupted' : 'deployment failed',
+		status: current.status,
+	};
 }
 
 /** Probe result: host facts, current install, per-check verdict and errors. */

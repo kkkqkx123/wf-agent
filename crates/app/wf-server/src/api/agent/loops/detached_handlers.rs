@@ -190,9 +190,8 @@ pub(crate) async fn handle_attach_loop(
         state.stream.registry.add_subscriber(&execution_id);
     }
 
-    let options = wf_api::infra::subscription::EventSubscriptionOptions::for_execution(
-        execution_id.clone(),
-    );
+    let options =
+        wf_api::infra::subscription::EventSubscriptionOptions::for_execution(execution_id.clone());
     let replay_query = wf_api::EventQueryOptions {
         execution_id: Some(execution_id.clone()),
         limit: Some(500),
@@ -218,7 +217,10 @@ pub(crate) async fn handle_attach_loop(
     // reaping can correctly see "no subscriber" afterwards.
     let registry = state.stream.registry.clone();
     let guard_id = execution_id.clone();
-    let guard = SubscriberGuard { registry, id: guard_id };
+    let guard = SubscriberGuard {
+        registry,
+        id: guard_id,
+    };
     let terminal_id = execution_id.clone();
 
     // Replay first, then live events. When a terminal event is seen, stop the

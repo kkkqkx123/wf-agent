@@ -210,9 +210,7 @@ impl ClientHandle {
 fn probe_error(context: &str, err: wf_client::ClientError) -> CliError {
     use wf_client::ClientError as C;
     match err {
-        C::Http(msg) | C::Stream(msg) => {
-            CliError::Unavailable(format!("{context}: {msg}"))
-        }
+        C::Http(msg) | C::Stream(msg) => CliError::Unavailable(format!("{context}: {msg}")),
         other => CliError::Configuration(format!("{context}: {other}")),
     }
 }

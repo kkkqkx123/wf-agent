@@ -75,9 +75,9 @@ impl fmt::Display for CliError {
             Self::Unavailable(msg) => write!(f, "service unavailable: {msg}"),
             Self::Internal(msg) => write!(f, "internal error: {msg}"),
             Self::Business(msg) => write!(f, "command failed: {msg}"),
-            Self::RemoteBusiness {
-                code, message, ..
-            } => write!(f, "command failed: remote {code}: {message}"),
+            Self::RemoteBusiness { code, message, .. } => {
+                write!(f, "command failed: remote {code}: {message}")
+            }
             Self::Interrupted(msg) => write!(f, "interrupted: {msg}"),
             Self::Io(err) => write!(f, "io error: {err}"),
             Self::Common(err) => write!(f, "error: {err}"),
@@ -198,12 +198,21 @@ mod tests {
     #[test]
     fn exit_codes_match_documented_mapping() {
         assert_eq!(CliError::Arguments("x".into()).exit_code(), exit::USAGE);
-        assert_eq!(CliError::Configuration("x".into()).exit_code(), exit::CONFIG);
+        assert_eq!(
+            CliError::Configuration("x".into()).exit_code(),
+            exit::CONFIG
+        );
         assert_eq!(CliError::Terminal("x".into()).exit_code(), exit::SOFTWARE);
-        assert_eq!(CliError::Unavailable("x".into()).exit_code(), exit::UNAVAILABLE);
+        assert_eq!(
+            CliError::Unavailable("x".into()).exit_code(),
+            exit::UNAVAILABLE
+        );
         assert_eq!(CliError::Internal("x".into()).exit_code(), exit::SOFTWARE);
         assert_eq!(CliError::Business("x".into()).exit_code(), exit::DATAERR);
-        assert_eq!(CliError::Interrupted("x".into()).exit_code(), exit::INTERRUPTED);
+        assert_eq!(
+            CliError::Interrupted("x".into()).exit_code(),
+            exit::INTERRUPTED
+        );
         assert_eq!(
             CliError::Io(std::io::Error::other("x")).exit_code(),
             exit::IOERR
@@ -235,10 +244,12 @@ mod tests {
 
     #[test]
     fn remote_business_codes_map_to_distinct_exit_codes() {
-        let remote = |code: &str| CliError::from(C::Remote {
-            code: code.to_string(),
-            message: "m".to_string(),
-        });
+        let remote = |code: &str| {
+            CliError::from(C::Remote {
+                code: code.to_string(),
+                message: "m".to_string(),
+            })
+        };
         assert_eq!(remote("SESSION_BUSY").exit_code(), exit::TEMPFAIL);
         assert_eq!(remote("SESSION_NOT_FOUND").exit_code(), exit::NOUSER);
         assert_eq!(remote("LOCATION_NOT_FOUND").exit_code(), exit::NOINPUT);

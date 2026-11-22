@@ -822,7 +822,11 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
 /// Create a local deploy source tree for the operator to edit. This is a
 /// purely local command: nothing is uploaded until `remote deploy --apply`
 /// names the directory with `--from`.
-fn init_deploy_source(root: &std::path::Path, scope: &str, overwrite: bool) -> CliResult<Vec<String>> {
+fn init_deploy_source(
+    root: &std::path::Path,
+    scope: &str,
+    overwrite: bool,
+) -> CliResult<Vec<String>> {
     let full = match scope.trim() {
         "config" => false,
         "full" => true,

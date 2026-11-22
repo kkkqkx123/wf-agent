@@ -7194,6 +7194,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backends/{name}/deploy/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_system_backend_deploy_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backends/{name}/deploy/jobs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_system_backend_deploy_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backends/{name}/deploy/plan": {
         parameters: {
             query?: never;
@@ -10319,22 +10351,21 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
-        ApiEnvelope_DeployOutcomeView: {
-            /**
-             * @description Result of one applied action, followed by a fresh probe so the caller
-             *     never has to chain a second request to learn the new state.
-             */
+        ApiEnvelope_DeployJobView: {
+            /** @description Status of one background deployment job. */
             data?: {
                 action: string;
                 backend: string;
-                error?: string | null;
+                current_step?: string | null;
                 /** Format: int64 */
-                finished_ms: number;
-                install_root: string;
-                ok: boolean;
-                probe?: null | components["schemas"]["DeployProbeView"];
+                finished_ms?: number | null;
+                job_id: string;
+                outcome?: null | components["schemas"]["DeployOutcomeView"];
+                /** @description `queued`, `running`, `succeeded`, `failed` or `interrupted`. */
+                status: string;
                 steps?: components["schemas"]["DeployStepResultView"][];
-                version?: string | null;
+                /** Format: int64 */
+                submitted_ms: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -12526,6 +12557,21 @@ export interface components {
             id: string;
             ok: boolean;
         };
+        /** @description Status of one background deployment job. */
+        DeployJobView: {
+            action: string;
+            backend: string;
+            current_step?: string | null;
+            /** Format: int64 */
+            finished_ms?: number | null;
+            job_id: string;
+            outcome?: null | components["schemas"]["DeployOutcomeView"];
+            /** @description `queued`, `running`, `succeeded`, `failed` or `interrupted`. */
+            status: string;
+            steps?: components["schemas"]["DeployStepResultView"][];
+            /** Format: int64 */
+            submitted_ms: number;
+        };
         /**
          * @description Result of one applied action, followed by a fresh probe so the caller
          *     never has to chain a second request to learn the new state.
@@ -12537,8 +12583,15 @@ export interface components {
             /** Format: int64 */
             finished_ms: number;
             install_root: string;
+            /** @description Owning job, when this outcome was produced by the background job path. */
+            job_id?: string | null;
             ok: boolean;
             probe?: null | components["schemas"]["DeployProbeView"];
+            /**
+             * @description `succeeded`, `failed` or `interrupted`. Missing means `succeeded`
+             *     for outcomes written before the job path existed.
+             */
+            status?: string | null;
             steps?: components["schemas"]["DeployStepResultView"][];
             version?: string | null;
         };
@@ -51795,13 +51848,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Per-step result followed by a fresh probe */
-            200: {
+            /** @description Deployment job accepted */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_DeployOutcomeView"];
+                    "application/json": components["schemas"]["ApiEnvelope_DeployJobView"];
                 };
             };
             /** @description Invalid request */
@@ -51828,6 +51881,151 @@ export interface operations {
                 content?: never;
             };
             /** @description Unknown backend */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A deployment is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_system_backend_deploy_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deployment job status and progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DeployJobView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown job */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cancel_system_backend_deploy_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation requested */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown job */
             404: {
                 headers: {
                     [name: string]: unknown;

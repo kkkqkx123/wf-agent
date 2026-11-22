@@ -305,7 +305,8 @@ pub fn full_router_with_middleware_and_backends(
     static_enabled: bool,
     stream: Arc<crate::detached::StreamRuntime>,
 ) -> Router {
-    let api = api_router_with_dirs_and_backends(ctx, config, dirs, backends, static_enabled, stream);
+    let api =
+        api_router_with_dirs_and_backends(ctx, config, dirs, backends, static_enabled, stream);
     #[cfg(feature = "metrics")]
     let router = {
         let http = registry.http();
@@ -361,9 +362,7 @@ pub async fn serve_api_with_config(
     let handle = serve_with_router_and_backends(router, config.bind_addr, backends).await?;
     Ok(handle
         .with_reaper(reaper, reaper_cancel)
-        .with_drain(std::time::Duration::from_secs(
-            config.shutdown_drain_secs,
-        )))
+        .with_drain(std::time::Duration::from_secs(config.shutdown_drain_secs)))
 }
 
 /// Resolve the backend manager from config. Both call sites use `?`, so the
@@ -456,9 +455,7 @@ pub async fn serve_full_with_config(
     let handle = serve_with_router_and_backends(router, config.bind_addr, backends).await?;
     Ok(handle
         .with_reaper(reaper, reaper_cancel)
-        .with_drain(std::time::Duration::from_secs(
-            config.shutdown_drain_secs,
-        )))
+        .with_drain(std::time::Duration::from_secs(config.shutdown_drain_secs)))
 }
 
 /// Layer the static-file SPA fallback onto `router` when frontend hosting

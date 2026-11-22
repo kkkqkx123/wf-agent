@@ -92,11 +92,8 @@ impl ResourceMetricsCollector {
 
     /// An idle detached run was reclaimed (reaper or opportunistic sweep).
     pub fn record_detached_reaped(&self, count: u64) {
-        self.inner.increment_counter_by(
-            detached_metrics::REAPED_RUNS,
-            count as f64,
-            labels(&[]),
-        );
+        self.inner
+            .increment_counter_by(detached_metrics::REAPED_RUNS, count as f64, labels(&[]));
     }
 
     pub fn to_prometheus(&self) -> String {

@@ -191,11 +191,7 @@ impl DetachedRunRegistry {
             return Ok(());
         }
 
-        let current = self
-            .counts
-            .get(&principal)
-            .map(|count| *count)
-            .unwrap_or(0);
+        let current = self.counts.get(&principal).map(|count| *count).unwrap_or(0);
         if current >= self.max_per_principal {
             return Err(format!(
                 "detached run quota reached for principal '{principal}': {current}/{}",
@@ -293,7 +289,10 @@ impl DetachedRunRegistry {
 
     /// Return a deduplicated list of all tracked principals (for reaper stats).
     pub fn principals(&self) -> Vec<String> {
-        self.counts.iter().map(|entry| entry.key().clone()).collect()
+        self.counts
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
 
     fn increment(&self, principal: &str) {
@@ -329,7 +328,9 @@ pub fn principal_from_api_key(key: Option<&str>) -> String {
 /// disabled). Call after any admission/removal that changes the population.
 pub fn emit_active_gauge(registry: &DetachedRunRegistry, ctx: &wf_api::ApiContext) {
     if let Some(metrics) = ctx.metrics.as_ref() {
-        metrics.resource().record_detached_active(registry.len() as u64);
+        metrics
+            .resource()
+            .record_detached_active(registry.len() as u64);
     }
 }
 

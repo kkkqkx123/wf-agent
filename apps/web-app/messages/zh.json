@@ -1817,6 +1817,7 @@
 	"page.settings.remoteHome": "家目录",
 	"page.settings.remoteInstallRoot": "安装根目录",
 	"page.settings.remoteInstalled": "安装状态",
+	"page.settings.remoteJobProgress": "正在部署，步骤 {step}（{done}/{total}）",
 	"page.settings.remoteLoading": "正在读取远程主机…",
 	"page.settings.remoteNotInstalled": "未安装",
 	"page.settings.remoteOutcomeFailed": "已失败",

@@ -9,7 +9,6 @@ tokio = { workspace = true, features = ["sync", "time", "fs", "process", "io-uti
 tracing.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
-futures.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 shlex.workspace = true

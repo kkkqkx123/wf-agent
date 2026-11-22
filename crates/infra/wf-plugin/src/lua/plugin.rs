@@ -96,7 +96,7 @@ impl LuaPlugin {
                 };
 
                 let ctx_tbl = bridge::build_lua_context(&locked, &ctx)?;
-                hook.call::<_, ()>(ctx_tbl)
+                hook.call::<()>(ctx_tbl)
                     .map_err(|e| PluginError::LuaError(e.to_string()))
             })();
             locked.remove_hook();
@@ -158,7 +158,7 @@ impl Plugin for LuaPlugin {
                     Err(_) => return Ok(()),
                 };
                 let cfg_val = bridge::to_lua_value(&locked, &config);
-                hook.call::<_, ()>(cfg_val)
+                hook.call::<()>(cfg_val)
                     .map_err(|e| PluginError::LuaError(e.to_string()))
             })();
             locked.remove_hook();
@@ -230,9 +230,9 @@ impl Plugin for LuaPlugin {
 
             {
                 let mut extract = |type_key: &str, handler_key: &str, kind: u8| {
-                    if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>(type_key) {
+                    if let Ok(Some(t)) = contribs_table.get::<Option<mlua::Table>>(type_key) {
                         for (name, handler_tbl) in t.pairs::<String, mlua::Table>().flatten() {
-                            if let Ok(func) = handler_tbl.get::<_, mlua::Function>(handler_key) {
+                            if let Ok(func) = handler_tbl.get::<mlua::Function>(handler_key) {
                                 if let Ok(key) = locked.create_registry_value(&func) {
                                     out.push(RegEntry {
                                         name,
@@ -250,7 +250,7 @@ impl Plugin for LuaPlugin {
                 extract("node_types", "execute", 0);
                 extract("tool_types", "execute", 1);
             }
-            if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("llm_codecs") {
+            if let Ok(Some(t)) = contribs_table.get::<Option<mlua::Table>>("llm_codecs") {
                 for (name, codec_tbl) in t.pairs::<String, mlua::Table>().flatten() {
                     if let Ok(key) = locked.create_registry_value(&codec_tbl) {
                         out.push(RegEntry {
@@ -267,7 +267,7 @@ impl Plugin for LuaPlugin {
             // table of auth functions (`describe`, `login_start`,
             // `login_poll`, `login_submit`, `refresh`, `resolve`). The
             // host owns the login session and the credential store.
-            if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("llm_auths") {
+            if let Ok(Some(t)) = contribs_table.get::<Option<mlua::Table>>("llm_auths") {
                 for (name, auth_tbl) in t.pairs::<String, mlua::Table>().flatten() {
                     if let Ok(key) = locked.create_registry_value(&auth_tbl) {
                         out.push(RegEntry {
@@ -282,9 +282,9 @@ impl Plugin for LuaPlugin {
             }
             {
                 let mut extract = |type_key: &str, handler_key: &str, kind: u8| {
-                    if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>(type_key) {
+                    if let Ok(Some(t)) = contribs_table.get::<Option<mlua::Table>>(type_key) {
                         for (name, handler_tbl) in t.pairs::<String, mlua::Table>().flatten() {
-                            if let Ok(func) = handler_tbl.get::<_, mlua::Function>(handler_key) {
+                            if let Ok(func) = handler_tbl.get::<mlua::Function>(handler_key) {
                                 if let Ok(key) = locked.create_registry_value(&func) {
                                     out.push(RegEntry {
                                         name,
@@ -309,11 +309,11 @@ impl Plugin for LuaPlugin {
                 extract("hook_handlers", "handle", 9);
             }
 
-            if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("middleware") {
+            if let Ok(Some(t)) = contribs_table.get::<Option<mlua::Table>>("middleware") {
                 for (_, mw_tbl) in t.pairs::<i32, mlua::Table>().flatten() {
                     let phase: String = mw_tbl.get("phase").unwrap_or_default();
                     let priority: i32 = mw_tbl.get("priority").unwrap_or(0);
-                    if let Ok(func) = mw_tbl.get::<_, mlua::Function>("handle") {
+                    if let Ok(func) = mw_tbl.get::<mlua::Function>("handle") {
                         if let Ok(key) = locked.create_registry_value(&func) {
                             out.push(RegEntry {
                                 name: String::new(),
@@ -328,18 +328,18 @@ impl Plugin for LuaPlugin {
             }
 
             let mut tools: Vec<wf_types::tool::Tool> = Vec::new();
-            if let Ok(Some(tbl)) = contribs_table.get::<_, Option<mlua::Table>>("tools") {
+            if let Ok(Some(tbl)) = contribs_table.get::<Option<mlua::Table>>("tools") {
                 for tool_tbl in tbl.sequence_values::<mlua::Table>().flatten() {
                     let id: String = tool_tbl.get("id").unwrap_or_default();
                     if id.trim().is_empty() {
                         continue;
                     }
                     let name: String = tool_tbl
-                        .get::<_, Option<String>>("name")
+                        .get::<Option<String>>("name")
                         .unwrap_or_default()
                         .unwrap_or_default();
                     let description: String = tool_tbl
-                        .get::<_, Option<String>>("description")
+                        .get::<Option<String>>("description")
                         .unwrap_or_default()
                         .unwrap_or_default();
                     tools.push(wf_types::tool::Tool {
@@ -358,7 +358,7 @@ impl Plugin for LuaPlugin {
             }
             let mut tool_descriptions: Vec<wf_types::tool_description::ToolDescriptionData> =
                 Vec::new();
-            if let Ok(Some(tbl)) = contribs_table.get::<_, Option<mlua::Table>>("tool_descriptions")
+            if let Ok(Some(tbl)) = contribs_table.get::<Option<mlua::Table>>("tool_descriptions")
             {
                 for desc_tbl in tbl.sequence_values::<mlua::Table>().flatten() {
                     let id: String = desc_tbl.get("id").unwrap_or_default();
@@ -366,7 +366,7 @@ impl Plugin for LuaPlugin {
                         continue;
                     }
                     let description: String = desc_tbl
-                        .get::<_, Option<String>>("description")
+                        .get::<Option<String>>("description")
                         .unwrap_or_default()
                         .unwrap_or_default();
                     tool_descriptions.push(wf_types::tool_description::ToolDescriptionData {

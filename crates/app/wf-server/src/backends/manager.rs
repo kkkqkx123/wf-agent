@@ -748,7 +748,8 @@ impl BackendManager {
     /// Stop background loops and clean every self-started forward.
     pub async fn shutdown(&self) {
         self.shutdown_token.cancel();
-        self.tunnels.shutdown().await;
+        let grace = std::time::Duration::from_secs(self.config.tunnel_stop_grace_secs);
+        self.tunnels.shutdown(grace).await;
     }
 
     /// One-shot startup pass: drop temp leftovers and report drift between

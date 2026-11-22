@@ -381,6 +381,10 @@ where
     let router = router.layer(axum::middleware::from_fn(move |req, next| {
         cors_middleware(Arc::clone(&cfg), req, next)
     }));
+    // Shutdown guard sits just inside CORS/logging and outside auth: once the
+    // stopping flag is set, new work is refused before it reaches a domain
+    // handler, while reads and in-flight execution control still pass.
+    let router = router.layer(axum::middleware::from_fn(shutdown_guard_middleware));
     let cfg = Arc::clone(&config);
     let router = router.layer(axum::middleware::from_fn(move |req, next| {
         auth_middleware(Arc::clone(&cfg), req, next)
@@ -389,6 +393,61 @@ where
     router.layer(axum::middleware::from_fn(move |req, next| {
         rate_limit_middleware(Arc::clone(&cfg), req, next)
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Shutdown guard (503 on new work)
+// ---------------------------------------------------------------------------
+
+/// Which requests count as "new work" and must be refused once the process
+/// starts draining. Kept as a pure function so the exact allow/deny surface is
+/// pinned by tests. Reads, health/status/metrics and execution control needed
+/// to converge an in-flight run (cancel/pause/resume) are always allowed.
+pub(crate) fn is_new_workload(method: &Method, path: &str) -> bool {
+    // Strip any query string for matching.
+    let path = path.split('?').next().unwrap_or(path);
+    let is_post = method == Method::POST;
+
+    // SSE subscriptions and websocket upgrades are long-lived: never accept
+    // a fresh one while draining.
+    if path == "/api/v1/events/stream" || path.ends_with("/attach") || path == "/ws" {
+        return true;
+    }
+
+    if !is_post {
+        return false;
+    }
+
+    // Execution launch points. `run`/`stream`/`dispatch` start agent loops,
+    // `execute`/`rerun` start workflows, chat starts a multi-turn executor.
+    // Matching on the trailing segment keeps this stable under id changes.
+    let launch_suffixes = [
+        "/run",
+        "/stream",
+        "/dispatch",
+        "/execute",
+        "/rerun",
+    ];
+    if launch_suffixes.iter().any(|suffix| path.ends_with(suffix)) {
+        return true;
+    }
+    // POST /api/v1/chat starts a chat execution (no trailing verb to match).
+    if path == "/api/v1/chat" {
+        return true;
+    }
+    false
+}
+
+/// Reject new execution/stream work with 503 during the shutdown drain.
+/// The flag is set at the very start of `ServerHandle::shutdown`, before the
+/// graceful-shutdown signal, so there is no window where new work is admitted
+/// but never drained.
+async fn shutdown_guard_middleware(req: Request<Body>, next: Next) -> Response {
+    if crate::api::system::server::is_server_stopping() && is_new_workload(req.method(), req.uri().path()) {
+        tracing::warn!(target: "wf_server", method = %req.method(), path = %req.uri().path(), "rejecting new work during shutdown");
+        return crate::envelope::service_unavailable("server is shutting down");
+    }
+    next.run(req).await
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,5 +1186,66 @@ mod tests {
                 .contains_key(header::ACCESS_CONTROL_EXPOSE_HEADERS),
             "ratelimit headers must be browser-readable"
         );
+    }
+
+    // --- shutdown guard ---
+
+    #[test]
+    fn new_workload_surface_is_pinned() {
+        let post = |p: &str| is_new_workload(&Method::POST, p);
+        let get = |p: &str| is_new_workload(&Method::GET, p);
+
+        // launch points are refused
+        assert!(post("/api/v1/agent-loops/abc/run"));
+        assert!(post("/api/v1/agent-loops/abc/stream"));
+        assert!(post("/api/v1/agent-loops/abc/dispatch"));
+        assert!(post("/api/v1/workflows/wf/execute"));
+        assert!(post("/api/v1/executions/e1/rerun"));
+        assert!(post("/api/v1/chat"));
+        // new SSE / websocket subscriptions are refused
+        assert!(get("/api/v1/events/stream"));
+        assert!(get("/api/v1/agent-loops/abc/attach"));
+        assert!(get("/ws"));
+        assert!(get("/api/v1/events/stream?ticket=abc"));
+
+        // reads pass
+        assert!(!get("/api/v1/agent-loops/abc/summary"));
+        assert!(!get("/api/v1/server/status"));
+        assert!(!get("/health"));
+        // in-flight control still passes (needed to converge)
+        assert!(!post("/api/v1/agent-loops/abc/cancel"));
+        assert!(!post("/api/v1/agent-loops/abc/pause"));
+        assert!(!post("/api/v1/executions/e1/cancel"));
+        // ticket exchange is a handshake prerequisite, not a launch
+        assert!(!post("/api/v1/events/stream-ticket"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_guard_refuses_new_work_but_allows_reads() {
+        crate::api::system::server::reset_server_stopping_for_test();
+        struct Probe;
+        impl Probe {
+            async fn guarded(req: Request<AxBody>, next: Next) -> axum::response::Response {
+                shutdown_guard_middleware(req, next).await
+            }
+        }
+        let app = Router::new()
+            .route("/api/v1/agent-loops/abc/run", axum::routing::post(|| async { "ran" }))
+            .route("/api/v1/agent-loops/abc/summary", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(Probe::guarded));
+
+        // Before stopping: both pass.
+        assert_eq!(
+            app.clone().oneshot(request("POST", "/api/v1/agent-loops/abc/run")).await.unwrap().status(),
+            StatusCode::OK
+        );
+
+        crate::api::system::server::mark_server_stopping();
+        let rejected = app.clone().oneshot(request("POST", "/api/v1/agent-loops/abc/run")).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let allowed = app.clone().oneshot(request("GET", "/api/v1/agent-loops/abc/summary")).await.unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+
+        crate::api::system::server::reset_server_stopping_for_test();
     }
 }

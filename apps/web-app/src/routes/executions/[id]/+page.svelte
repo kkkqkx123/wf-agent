@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -33,8 +33,10 @@
 	} from '#lib/services/retention';
 	import {
 		appendAgentLoopInput,
+		attachAgentLoop,
 		cancelAgentLoop,
 		convertPendingToSteering,
+		dispatchAgentLoop,
 		pauseAgentLoop,
 		resumeAgentLoop,
 	} from '#lib/services/agent-loops';
@@ -55,6 +57,10 @@
 	let appendMode = $state<'steering' | 'followup'>('followup');
 	let appendBusy = $state(false);
 	let rerunning = $state(false);
+	let dispatchBusy = $state(false);
+	let attachBusy = $state(false);
+	let dispatchPrompt = $state('');
+	let attachController: AbortController | null = null;
 	let lifecycle = $state<ExecutionLifecycle | null>(null);
 	let lifecycleBusy = $state(false);
 	let archiveButtonArmed = $state(false);
@@ -258,6 +264,61 @@
 		void load(id);
 	});
 
+	onDestroy(() => attachController?.abort());
+
+	/** Dispatch a new detached run of this agent loop with the given prompt. */
+	async function runDispatch(loopId: string): Promise<void> {
+		if (dispatchBusy || !dispatchPrompt.trim()) return;
+		dispatchBusy = true;
+		try {
+			const result = await dispatchAgentLoop(loopId, {
+				model: unified?.record && typeof unified.record === 'object' && 'profile_id' in unified.record
+					? String((unified.record as { profile_id?: unknown }).profile_id ?? 'default')
+					: 'default',
+				message: dispatchPrompt.trim(),
+			});
+			toasts.success(t('page.executionDetail.dispatchDone', { id: result.executionId.slice(0, 12) }));
+			dispatchPrompt = '';
+		} catch (e) {
+			toasts.error(t('page.executionDetail.dispatchFailed', {
+				message: e instanceof Error ? e.message : String(e),
+			}));
+		} finally {
+			dispatchBusy = false;
+		}
+	}
+
+	/** Reattach to this detached execution and follow events to terminal. */
+	async function runAttach(executionId: string): Promise<void> {
+		if (attachBusy) return;
+		attachController?.abort();
+		attachController = new AbortController();
+		attachBusy = true;
+		let seen = 0;
+		try {
+			await attachAgentLoop(
+				executionId,
+				{
+					onFrame: () => { seen += 1; },
+					onTerminal: () => {
+						toasts.success(t('page.executionDetail.attachDone', { count: String(seen) }));
+						void load(executionId);
+					},
+					onError: (failure) => {
+						toasts.error(t('page.executionDetail.attachFailed', { message: failure.message }));
+					},
+				},
+				attachController.signal,
+			);
+		} catch (e) {
+			toasts.error(t('page.executionDetail.attachFailed', {
+				message: e instanceof Error ? e.message : String(e),
+			}));
+		} finally {
+			attachBusy = false;
+		}
+	}
+
 	async function copyExecutionId(id: string): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(id);
@@ -400,6 +461,31 @@
 						onclick={() => void runConvertPending()}
 					>
 						convert
+					</Button>
+				</div>
+			{/if}
+			{#if unified && currentId && unified.executionType === 'agent'}
+				<div class="flex items-center gap-2">
+					<Input
+						bind:value={dispatchPrompt}
+						placeholder={t('page.executionDetail.attachPrompt')}
+						aria-label={t('page.executionDetail.attachPrompt')}
+					/>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={dispatchBusy || !dispatchPrompt.trim() || !unified.definitionId}
+						onclick={() => unified?.definitionId && void runDispatch(unified.definitionId)}
+					>
+						{t('page.executionDetail.dispatch')}
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={attachBusy}
+						onclick={() => void runAttach(currentId)}
+					>
+						{t('page.executionDetail.attach')}
 					</Button>
 				</div>
 			{/if}

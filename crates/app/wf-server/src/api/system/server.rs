@@ -111,6 +111,20 @@ pub(crate) fn mark_server_stopping() {
     SERVER_STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Whether the process is in its shutdown/drain window. The rejection
+/// middleware consults this to refuse new work while still allowing reads,
+/// health probes and in-flight execution control (cancel/pause).
+pub fn is_server_stopping() -> bool {
+    SERVER_STOPPING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Test helper: reset the process-wide stopping flag. Only used to keep
+/// middleware tests independent; production never clears the flag.
+#[cfg(test)]
+pub(crate) fn reset_server_stopping_for_test() {
+    SERVER_STOPPING.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 fn request_urls(headers: &HeaderMap) -> Vec<String> {
     let host = headers
         .get(header::HOST)

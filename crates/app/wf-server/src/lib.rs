@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth_session;
 pub mod backends;
 pub mod directory;
+pub mod detached;
 pub mod envelope;
 pub mod extract;
 #[cfg(feature = "metrics")]

@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use crate::display::MarkdownMode;
 use crate::output::OutputFormat;
 
+pub use crate::args_agent_loop::AgentLoopSub;
 pub use crate::args_checkpoint::{ApprovalSub, CheckpointDomain, CheckpointSub};
 pub use crate::args_entity::{MessageSub, SkillSub, TaskSub, VariableSub};
 pub use crate::args_execution::ExecutionSub;
@@ -458,6 +459,12 @@ pub enum Command {
     Execution {
         #[command(subcommand)]
         sub: ExecutionSub,
+    },
+    /// Detached agent-loop run commands (background dispatch / attach).
+    #[command(name = "agent-loop")]
+    AgentLoop {
+        #[command(subcommand)]
+        sub: AgentLoopSub,
     },
     /// LLM profile management commands.
     #[command(name = "llm-profile")]

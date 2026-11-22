@@ -189,6 +189,7 @@ async fn poll_until_completed(runtime: &Runtime, execution_id: &str) -> serde_js
 
 mod execution_callback;
 mod infra_config;
+#[cfg(feature = "keyword")]
 mod keyword;
 mod metrics_wiring;
 mod runtime_bootstrap;

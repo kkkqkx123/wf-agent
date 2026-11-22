@@ -1,12 +1,14 @@
-# 断连保活与关闭语义（下一阶段设计）
+# 断连保活与关闭语义（设计 + 落地状态）
 
-本文只做设计，不改代码。范围是"连接消失时执行怎么办"和"关闭服务时到底关什么"。写权限与远端部署已在 `docs/plan/remote-deploy-write-path.md` 落地，本文只在与它交界处补充衔接约束。所有现状判断附 `文件:行号`。
+> **状态更新**：保活与关闭路径的全部代码修改已落地并通过测试。本文前半部分是设计依据（保留事实链），凡已实现处就地标注 `【已落地】` 与 `文件:行号`；实现与设计有偏差处直接改写为现状。三项核心拍板已定：配额**按主体**、`keep` **全平台可配（默认 cancel）**、停机通知**仅 503 + bounded drain（不引入 `server.closing` 帧）**。8 个开放点已逐项决策并处置（7 项落地、attach 鉴权保持现状、部署作业化留独立任务），详见第 13 节。
+
+本文范围是"连接消失时执行怎么办"和"关闭服务时到底关什么"。写权限与远端部署已在 `docs/plan/remote-deploy-write-path.md` 落地，本文只在与它交界处补充衔接约束。所有现状判断附 `文件:行号`。
 
 ## 0. 结论
 
-* **保活不是新机制，是接线**。引擎已有"后台执行 + 预注册 id + 终态落结果槽 + 可查询可取消"（`crates/engine/wf-agent/src/executor/spawn.rs:17-24`），事件已持久化并支持按游标回放（`crates/app/wf-server/src/api/system/events.rs:686-712`）。缺的是 dispatch、attach 两个端点和一套孤儿回收。
-* **关闭要拆成三个动词**。`detach`（只解绑观察者）、`stop`（终止执行）、`close`（关服务）今天被压缩在"连接消失"一件事上。SSH 连接属于后端条目而不是会话，任何"关会话"的动作都不该碰它。
-* **保活必须与容量记账同批上线**。许可挂在执行实体上、终态才释放（`crates/engine/wf-agent/src/registry.rs:68-71`）。断连不再中止执行之后，许可也不再随连接释放，反复断开重发就能占满并发位。没有配额，保活等于把"断连即释放"换成"断连即泄漏"。
+* **保活不是新机制，是接线**。引擎已有"后台执行 + 预注册 id + 终态落结果槽 + 可查询可取消"（`crates/engine/wf-agent/src/executor/spawn.rs:17-24`），事件已持久化并支持按游标回放（`crates/app/wf-server/src/api/system/events.rs:686-712`）。缺的 dispatch、attach 两个端点和孤儿回收已补齐 `【已落地】`（`crates/app/wf-server/src/api/agent/loops/detached_handlers.rs:76,171`、`crates/app/wf-server/src/detached.rs:283`）。
+* **关闭要拆成三个动词**。`detach`（只解绑观察者）、`stop`（终止执行）、`close`（关服务）今天被压缩在"连接消失"一件事上。SSH 连接属于后端条目而不是会话，任何"关会话"的动作都不该碰它。关闭路径的有界排空、执行收敛、隧道顺序已修复 `【已落地】`（`crates/app/wf-server/src/server.rs:72`、`crates/app/wf-api/src/infra/context.rs:738`）。
+* **保活必须与容量记账同批上线**。许可挂在执行实体上、终态才释放（`crates/engine/wf-agent/src/registry.rs:68-71`）。断连不再中止执行之后，许可也不再随连接释放，反复断开重发就能占满并发位。没有配额，保活等于把"断连即释放"换成"断连即泄漏"。按主体配额已实现 `【已落地】`（`crates/app/wf-server/src/detached.rs:114,151`）。
 
 ## 1. 范围与前提
 
@@ -51,48 +53,57 @@
 
 今天 `ExecutionEventStream` 同时承担三者，所以"订阅者走"必然等价于"执行死"。拆开之后，"执行死不死"由策略决定，"订阅在不在"由连接决定，两者不再互相绑定。
 
-## 6. 两个端点
+## 6. 两个端点 【已落地】
 
-**dispatch**：提交即返回执行 id，执行进入后台。语义直接复用 `spawn_agent_loop` 的预注册——返回后立刻可 query、可 cancel。响应带 id 与"已接受"标记，不带事件。
+`【已落地】` 路由注册于 `crates/app/wf-server/src/api/agent/loops.rs:43-44`，OpenAPI 与前端 schema 已同步（`crates/app/wf-server/src/openapi.rs:93-94,783-784`、`apps/web-app/src/lib/api/schema.d.ts:627,801,10436,12713,17874,18826`）。
 
-**attach**：按执行 id 订阅事件，先重放持久化的事件窗口，再接实时流，最后以终态帧收尾。要点：
+**dispatch**（`POST /api/v1/agent-loops/{id}/dispatch`）：`handle_dispatch_loop`（`detached_handlers.rs:76`）预生成执行 id（`:89`），先过配额门 `admit`（`:92-98`，失败返回 503），再以 `StreamDetachPolicy::Keep` 起后台流（`:109-113`）。服务端 spawn 一个任务持有该流并 drain 到终态（`:127-144`），因此执行生命周期与请求连接解耦。响应为 `DispatchView { execution_id, detached: true }`（`:146-149`），不带事件。返回后即可 query / cancel。
 
-1. **必须能处理"已经结束"**：回放 + 终态帧，不能 404。否则前端每次重连都要先分辨"结束"与"不存在"，重连逻辑会退化成猜。
-2. **鉴权沿用一次性 ticket**，不把 key 放进 URL（与既有事件流一致）。
-3. **游标语义复用现有 `since`**，不新增一套。客户端存最后一个事件的时间戳，重连即续传。
+**attach**（`GET /api/v1/agent-loops/{id}/attach`）：`handle_attach_loop`（`detached_handlers.rs:171`）先机会式 `sweep_idle`（`:181`），对已跟踪的执行加订阅者（`:183-185`），再用 `wf_api::infra::events::history` 回放最近事件并按 `since` 游标过滤、取 200 条（`:190-208`），接实时订阅（`:209`），遇终态事件停止并追加一个合成帧 `{"type":"execution.terminal"}`（`:232-239`）。`SubscriberGuard` 在流 drop 时减订阅者（`:282-289`），使空闲回收能看到"无订阅"。
 
-## 7. detach 策略
+设计要点与落地的偏差（如实记录）：
 
-`stream_detach_policy = cancel | keep`：
+1. **"已结束"可处理** — 已落地。回放 + 合成终态帧，不 404（`:232-241`）。
+2. **鉴权沿用一次性 ticket** — **决策：不引入，保持 API key 头**。当前直接沿用 API key 头（`principal_for`，`:49-55`），key 不进 URL；本轮拍板不做一次性 ticket（额外攻击面 + 改动量），记录为已接受风险。
+3. **游标语义复用 `since`** — 已落地，但 `since` 是时间戳字符串，经 `decode_sse_since` 解析（`:195`），回放窗口上限 200 条（`:204`）。
+
+## 7. detach 策略 【已落地】
+
+`stream_detach_policy = cancel | keep`，默认 `cancel`。类型定义与解析在 `crates/app/wf-api/src/agent/agent_execution.rs:26,40,48`；配置解析在 `crates/app/wf-server/src/server_config.rs:182-197`（环境变量 `WF_SERVER_STREAM_DETACH_POLICY` / 文件层 `stream_detach_policy`，非法值启动失败）；运行时由 `router.rs:338-341,421-424` 注入 `StreamRuntime`。
 
 | 取值 | 断连时 | 适用 |
 |---|---|---|
-| `cancel` | 中止执行（今天的默认） | 本地单用户、交互式问答 |
+| `cancel` | 中止执行（默认） | 本地单用户、交互式问答 |
 | `keep` | 解绑订阅者，执行继续 | 远端节点、长任务、移动端 |
 
-**服务端是上限**：客户端可以在请求里声明偏好，但策略为 `cancel` 时声明无效。允许客户端单方面钉住服务端资源等于开放一个 DoS 面——这条不能配。
+**【已落地】keep 模式 consumer 断开不中止执行**：`ExecutionEventStream::from_agent_stream_detached`（`crates/app/wf-api/src/infra/stream.rs:66-67`）走 `keep_on_detach=true` 的内部构造（`:70`），forwarder 在 receiver closed 后继续 drain 引擎流（`:209,224`）；`cancel` 保持原行为。两条语义各有单测覆盖（`stream.rs:366,388`）。`stream_with_policy`（`lifecycle.rs:88`）是两策略的统一入口，`stream()` 仍默认 `cancel`（`:79`）。普通 `stream` handler 用配置策略（`loops/lifecycle.rs`），dispatch 固定用 `keep`（`detached_handlers.rs:109-113`）。
 
-## 8. 孤儿回收
+**服务端是上限**：策略只在服务端配置，不暴露客户端按请求覆盖的口子（dispatch 忽略调用方偏好，固定 `keep`）。允许客户端单方面钉住服务端资源等于开放一个 DoS 面——这条不能配。**拍板**：`keep` 为**全平台可配**（默认 `cancel`），不按运行 profile 硬限制。
 
-直接借 PTY 的判定式，只替换"空闲"的口径（`pty/state.rs:232-237` 是现成写法）：
+## 8. 孤儿回收 【已落地】
 
-* **不能用"没有事件"判空闲**。一次长工具调用可能几分钟不出事件，但它在正常推进。用"没有事件"判会杀掉正在干活的执行。
-* 用"**最后事件时间 + 无人订阅**"判据，阈值比 PTY 大一个量级（建议默认 30 分钟，可配），`persistent`（用户显式标记的长任务）豁免。
-* 兜底还有执行自身的墙钟上限（`crates/app/wf-api/src/agent/agent_execution.rs:14` 的 90s 默认值，或 loop 配置的 `max_execution_time`），所以保活不会无限占用。
-* 回收动作是 `cancel` + `cleanup`，顺序不能反：先落终态再删实体，否则结果槽会出现"实体没了但结果还在"或反之。
+判定式沿用 PTY 的"空闲 + 无人看 + 非 persistent"（`pty/state.rs:232-237`），实现在 `crates/app/wf-server/src/detached.rs`：
 
-## 9. 容量记账
+* **不能用"没有事件"判空闲**。一次长工具调用可能几分钟不出事件，但它在正常推进。判据用 `DetachedRun.last_event_ms + subscribers==0 + !persistent`（`detached.rs:36-47`），`reap_candidates`（`:233`）按 `idle_secs`（默认 1800s，`server_config.rs:46`）筛。`last_event_ms` 在 dispatch 的后台 drain 每次事件时 `touch`（`detached_handlers.rs:136`）。单测覆盖"最后事件时间而非 detach 时间"（`detached.rs:390`）与 persistent 豁免（`:397`）。
+* **兜底**仍有执行自身墙钟上限，保活不会无限占用。
+* 回收动作在 `detached::reap`（`detached.rs:283-309`）：先 `settle`（调用方 `cancel_execution`）再 `registry.remove`，顺序不能反；二次检查仍 idle 才回收（`:295`）。单测 `reap_settles_before_removing`（`:406`）锁定该顺序。
+
+**【已落地：常驻 reaper + 机会式兜底】** `spawn_reaper`（`detached.rs`）启动一个周期任务（扫描间隔 `REAPER_SCAN_SECS`，默认 60s），按 `reap` 的"先 settle 后 remove"语义回收空闲 detached run；由 `ServerHandle` 持有其 `CancellationToken`，shutdown 时先 cancel 再 await，且检测到 host 停机标记即自行退出。两个 serve 路径（`router.rs` 的 `serve_api_with_config` / `serve_full_with_config`）都会启动它。`sweep_idle`（`detached_handlers.rs:265-280`）在 attach 时仍做机会式兜底，dispatch 后台任务终态时也会 `registry.remove` 自身条目（`:143`）。三者共同保证孤儿不会长期滞留。
+
+## 9. 容量记账 【部分落地】
 
 这是最容易被漏掉的一条，也是保活能不能开的前提。
 
-| 项 | 现状 | 保活后必须有 |
+| 项 | 设计 | 落地现状 |
 |---|---|---|
-| 并发许可 | 挂在实体上，终态释放（`registry.rs:68-71`） | 不变，但释放时机从"断连"推迟到"终态"，因此需要配额 |
-| 每主体 detached 上限 | 不存在 | 建议默认 4，超限拒绝新的 detach |
-| 每主体在跑执行上限 | 不存在 | 与容量门配合，防单主体占满共享位 |
-| 指标 | 有执行数指标 | detached 执行单独计量，否则容量问题看不见 |
+| 并发许可 | 挂在实体上，终态释放（`registry.rs:68-71`） | 不变；释放时机从"断连"推迟到"终态" |
+| 每主体 detached 上限 | 默认 4，超限拒绝新的 detach | **已落地**：`admit`（`detached.rs:114,151`）按主体计数，超限 503；默认 `4`（`server_config.rs:48`），范围 1–64；单测 `quota_is_per_principal_and_refusals_do_not_disturb_existing`（`detached.rs:330`） |
+| 每主体在跑执行上限 | 与容量门配合 | **未单独做**：沿用引擎既有 `max_concurrent` 容量门；未新增"在跑执行数"独立计数 |
+| 指标 | detached 执行单独计量 | **已落地**：`detached.runs.active` gauge、`detached.quota.rejections`、`detached.runs.reaped` counter（`wf-metrics/.../constants.rs` 的 `detached_metrics`、`collectors/resource.rs`），经 `emit_active_gauge`/`emit_quota_rejection`/`emit_reaped`（`detached.rs`）写入，复用既有 Prometheus/JSON 导出 |
 
-没有这三样，保活就是把泄漏点从"连接"挪到"执行"。
+**主体口径（拍板：按主体）**：`principal_from_api_key`（`detached.rs:270-277`）对 API key 取 SHA-256 前 8 字节 hex 加前缀 `key_`，无 key 落入 `anonymous` bucket。原因是当前 HTTP middleware 只校验 key、不注入 principal（`request_guard`），故用 key 的稳定摘要作主体标识，既不落明文也不依赖会话。配额拒绝不影响已有执行（单测锁定）。
+
+没有配额，保活就是把泄漏点从"连接"挪到"执行"——这一条已通过配额、常驻回收与 detached 指标三者兜住。
 
 ## 10. 关闭语义
 
@@ -105,24 +116,23 @@
 | 关闭本地服务 | 标停（仅状态位）→ 取消探活/备份循环并杀全部 `ssh -N` → 发优雅停机 → axum 排空 → runtime 关闭 | `crates/app/wf-server/src/server.rs:45-56`、`backends/manager.rs:740-743`、`backends/tunnel.rs:208-216` |
 | 关闭远端服务 | 本阶段起有代码路径：`deploy` 域的 `stop` / `uninstall`，后者一次删净安装根目录 | `crates/app/wf-server/src/backends/deploy.rs:1545,1617` |
 
-### 10.2 四个缺口
+### 10.2 四个缺口（本轮处理结果）
 
-1. **排空没有上限**。axum 的 graceful shutdown 只停止接受新连接并等待既有连接结束（`server.rs:74-83`），而 SSE 长连接不会自行结束，服务端也没有任何地方在这条路径上主动关流。等待时长实际由外部决定（systemd `TimeoutStopSec` 默认 90s 强杀）。表现是"重启一次服务，前端卡到超时"。
-2. **停机标记不拒新请求**。`mark_server_stopping` 只写一个原子位（`api/system/server.rs:110-112`），除 `/server/status` 外没有消费者。排空期间新请求照收。
-3. **agent 执行不在关闭收敛范围内**。`ctx.shutdown()` 只中止工作流驱动任务（`infra/context.rs:731-734` 的 `execution_tasks.abort_all()`），agent 循环任务不在其中，进程退出时被硬杀，可能留下"运行中"的执行记录。
-4. **隧道先于排空被杀**。`backends.shutdown()` 在发送优雅停机信号之前执行（`server.rs:47-53`），正在进行的备份拉取会中途断开，而此时监听仍在，新请求进来只能看到"不可达"。
+1. **排空没有上限** → **已修复**。有界 drain（`server.rs:77-94`），默认 10s 可配，单测锁定。
+2. **停机标记不拒新请求** → **已修复**。`is_server_stopping()`（`api/system/server.rs:117`）暴露停机位；`shutdown_guard_middleware`（`middleware.rs`）在停机期间对新执行启动（run/stream/dispatch/execute/rerun、chat POST）与新 SSE/WS（events/stream、attach、ws）返回 503，放行只读查询、health/status 与 cancel/pause/resume（收敛所需）。路径判定是纯函数 `is_new_workload`，由单测锁定（middleware.rs tests）。弥补了拍板"仅 503 + bounded drain"中缺失的 503 一半。
+3. **agent 执行不在关闭收敛范围内** → **已修复**。`shutdown_executions()`（`context.rs:738`）覆盖 agent loop + workflow，落 `Cancelled`。
+4. **隧道先于排空被杀** → **已修复**。`backends.shutdown()` 移到排空之后（`server.rs:88-91`）。
 
-### 10.3 建议的关闭顺序
+### 10.3 关闭顺序 【本轮落地 1/3/4，拍板已定】
 
-每层有超时，任何一层超时都记日志继续往下，不阻塞后层：
+每层有超时，任何一层超时都记日志继续往下，不阻塞后层。**实际实现顺序**（`ServerHandle::shutdown`，`server.rs:72-94`）：置停机标记（`:73`）→ 发 shutdown 信号（`:74`）→ 有界排空（`:77-94`）→ 关 backend 隧道（`:88-91`）。Runtime 侧另做执行收敛（`context.rs:738`、`shutdown.rs:51`）。
 
-1. **拒新**：置停机位，中间件对新的执行提交与新的 SSE 连接返回 503（与 `backends` 域禁用时的 503 同构）。
-2. **通知**：向所有 SSE 连接推一帧 `server.closing`，让客户端主动重连或进入"等待恢复"，而不是干等。
-3. **有界排空**：给 axum 一个排空超时（建议 10s，可配），超时后强制结束剩余连接。这是缺口 1 的正面修复。
-4. **收敛执行**：对所有非终态执行走一次 cancel，让它们以 `Cancelled` 落库而不是 `Failed`——这正是 `is_active_shutdown` 标记的用途（`crates/foundation/wf-common/src/shutdown.rs:1-9`，消费点 `crates/engine/wf-agent/src/coordinator/execution.rs:454-455`）。
-5. **关 PTY**：杀掉非 persistent 会话的子进程，清理已退出终端（复用 `pty/state.rs:232-237` 的判定）。
-6. **杀隧道**：此时已无在飞请求依赖转发。
-7. **关存储**：事件持久化 flush、检查点、sqlite。
+1. **拒新 + 通知（拍板：只做停机标记 + 503，不引入 `server.closing` 帧）**。`mark_server_stopping()`（`server.rs:73`）置原子位，`is_server_stopping()`（`api/system/server.rs:117`）供 `shutdown_guard_middleware`（`middleware.rs`）消费：停机期间对新执行提交与新 SSE/WS 返回 503，放行只读与 cancel/pause/resume。缺口 2 已修复。客户端通过 503 与 bounded drain 感知停机，不新增协议帧，避免旧前端解析未知帧。
+2. **有界排空【已落地】**。`shutdown_drain_secs` 默认 10s（0–120 可配，`server_config.rs:63-65,225-240`），`with_drain`（`server.rs:55`）注入；`shutdown` 用 `timeout(drain, &mut task)` 包裹（`:77`），超时 abort 并告警（`:78-94`）。单测 `shutdown_is_bounded_by_drain_budget`（`server.rs:188`）验证挂起 SSE 不拖过预算。修复了缺口 1。
+3. **收敛执行【已落地】**。`ApiContext::shutdown_executions`（`context.rs:738`）遍历 agent loop 与 workflow，非终态者先 `stop()` 再 `abort_task`，最后 `execution_tasks.abort_all()` + `stop_persistence_bridge()`；Runtime 停机改调它（`shutdown.rs:51`）。active-shutdown 标记使 settle 归类为 `Cancelled` 而非 `Failed`（`wf-common/src/shutdown.rs`、`coordinator/execution.rs:454-455`）。实体 `stop()` 落 `Cancelled` 有单测（`entity.rs:786`）。修复了缺口 3。
+4. **关 PTY【已落地】**。`PtyManager::shutdown_all()`（`crates/app/wf-api/src/pty/state.rs`）在排空之后、关隧道之前调用（`server.rs` 的 `#[cfg(feature = "pty")]` 块），杀掉所有会话子进程（含 persistent），清空注册表。
+5. **杀隧道【已落地，顺序已修正】**。在排空完成之后才 `backends.shutdown()`（`server.rs:88-91`），不再先于优雅停机。关闭前先等 `tunnel_stop_grace_secs`（默认 2，0–30 可配）让在飞备份收尾，再逐个 kill（`backends/tunnel.rs` 的 `shutdown(grace)`、`backends/config.rs`）。修复了缺口 4。
+6. **关存储**：事件持久化 flush、检查点、sqlite。由 `shutdown_executions` 中的 `stop_persistence_bridge()`（`context.rs`）覆盖持久化桥，其余存储关闭沿用既有路径。
 
 ### 10.4 关闭"什么"：归属决定命运
 
@@ -143,13 +153,15 @@
 
 原则：**行为可配，不变量不可配**。
 
-| 配置项 | 默认 | 允许范围 | 为什么可配 |
-|---|---|---|---|
-| `stream_detach_policy` | `cancel` | `cancel` / `keep` | 单用户本地与远端节点是两种产品语义 |
-| `run_detach_idle_secs` | 1800 | 300–86400 | 长任务与短问答的容忍度不同 |
-| `run_detach_max_per_principal` | 4 | 1–64 | 与容量门配合，防占位 |
-| `shutdown_drain_secs` | 10 | 0–120 | 部署环境的 systemd 超时差异大 |
-| `tunnel_stop_grace_secs` | 2 | 0–30 | 让在飞备份有机会收尾 |
+前四项**已落地**【已落地】，均支持文件层 `server.toml` 与环境变量两层，非法值启动失败。配置样例见 `config-examples/server/server.toml`（已同步至 `deploy/templates/server/server.toml`，`sync-deploy.sh --check` 通过）。
+
+| 配置项 | 环境变量 | 默认 | 允许范围 | 状态 |
+|---|---|---|---|---|
+| `stream_detach_policy` | `WF_SERVER_STREAM_DETACH_POLICY` | `cancel` | `cancel` / `keep` | 已落地，全平台可配 |
+| `run_detach_idle_secs` | `WF_SERVER_RUN_DETACH_IDLE_SECS` | 1800 | 300–86400 | 已落地（`server_config.rs:46,200-205`） |
+| `run_detach_max_per_principal` | `WF_SERVER_RUN_DETACH_MAX_PER_PRINCIPAL` | 4 | 1–64 | 已落地（`server_config.rs:48,207-212`） |
+| `shutdown_drain_secs` | `WF_SERVER_SHUTDOWN_DRAIN_SECS` | 10 | 0–120 | 已落地（`server_config.rs:65,225-240`） |
+| `tunnel_stop_grace_secs` | `WF_BACKEND_TUNNEL_STOP_GRACE_SECS` | 2 | 0–30 | **已落地**（`backends/config.rs`，在 `backends.toml` 配置） |
 
 **不可配**（写死在代码里并配测试）：
 
@@ -162,25 +174,80 @@
 
 ## 12. 落地顺序与验收
 
-顺序按"收益 ÷ 风险"排，每步独立可验证：
+顺序按"收益 ÷ 风险"排，每步独立可验证。**截至本轮全部前端/后端开放点已完成，仅部署作业化按拍板留作独立任务**：
 
-1. **关闭路径修复**（缺口 1/3/4）：不涉及新接口，收益最大。
-2. **dispatch + attach + `stream_detach_policy`**，先只在单用户 profile 打开 `keep`。
-3. **孤儿回收 + 容量记账**，与第 2 步同批上线，否则第 2 步不能开。
-4. **`server.closing` 帧与前端配合**：属协议新增，需要处理旧前端忽略该帧的情况。
-5. **部署作业化**：当前的 `install`/`upgrade` 是同步 HTTP，分钟级操作会占住一个请求；作业化之后与关闭流程的交界处才清晰——作业在停机时应落 `interrupted`，而不是 `failed`。
+1. **关闭路径修复**（缺口 1/2/3/4）— **已完成**：有界 drain + 503 拒新 + 执行收敛 + PTY 收敛 + 隧道顺序与 grace（第 10.3 节）。
+2. **dispatch + attach + `stream_detach_policy`** — **已完成**：`keep` 全平台可配默认 `cancel`；CLI `wf agent-loop dispatch|attach`、Web 执行页"后台运行/重新连接"入口已接（第 6、7 节）。
+3. **孤儿回收 + 容量记账** — **已完成**：按主体配额 + 常驻 reaper + 机会式兜底 + detached 独立指标（第 8、9 节）。
+4. ~~`server.closing` 帧与前端配合~~ — **取消**：拍板采用 503 + bounded drain，不引入协议帧。
+5. **部署作业化** — **按拍板留作独立任务**：`install`/`upgrade` 仍是同步 HTTP；停机落 `interrupted` 的交界另行处理。
 
-验收要点：
+验收要点（单测已覆盖的部分见文中 `文件:行号`，其余留待开发板/集成验证）：
 
-* **关闭**：开着 SSE 与一个在跑执行时发 SIGTERM，观察是否在排空上限内退出、执行是否落 `Cancelled`、隧道是否全部回收（`tunnel.rs` 已有回收单测可扩）。
-* **保活**：断开客户端后执行继续（事件持续增长）、attach 能重放并收到终态帧、超空闲阈值后被回收且释放许可。
-* **配额**：单主体反复 detach 到上限后被拒绝，且拒绝不影响已有执行。
-* **部署交界**：`install` 进行中关闭本地服务，远端进程应保持运行，作业状态落 `interrupted`。
+* **关闭**：开着 SSE 与一个在跑执行时发 SIGTERM，观察是否在排空上限内退出（`shutdown_is_bounded_by_drain_budget` 已覆盖）、执行是否落 `Cancelled`（`entity.rs:786` 已覆盖）、隧道是否全部回收（待集成验证）。
+* **保活**：断开客户端后执行继续、attach 能重放并收到终态帧（handler 单测待补）、超空闲阈值后被回收且释放许可（`detached.rs` 回收单测已覆盖）。
+* **配额**：单主体反复 detach 到上限后被拒绝，且拒绝不影响已有执行（`detached.rs:330` 已覆盖）。
+* **部署交界**：`install` 进行中关闭本地服务，远端进程应保持运行（依赖作业化，未做）。
 
-## 13. 待拍板
+## 13. 拍板结果与开放点处置
 
-1. `keep` 是否只对本地单用户 profile 开放，还是远端节点也允许（影响信任模型与配额口径）。
-2. detached 执行的配额口径：按主体、按目录，还是全局共享容量门。
-3. 排空上限超时后，是"强制断开 SSE"还是"转成后台执行再断"——后者更友好但会把保活引入关闭路径。
-4. `server.closing` 帧是否值得引入协议变更，还是只靠 503 + 客户端重试。
-5. 部署作业化与保活谁先做：两者都要动"长操作的生命周期"，合并做可以少一次改造，但耦合面更大。
+**三项核心拍板（首轮）**：
+
+1. detached 执行配额口径 → **按主体**（API key 摘要分桶，无 key 落 anonymous）。已落地（`detached.rs:270`）。
+2. `stream_detach_policy=keep` 开放范围 → **全平台可配，默认 cancel**。已落地（`server_config.rs:182`）。
+3. 停机通知方式 → **仅 503 + bounded drain，不引入 `server.closing` 协议帧**。已落地（第 10.3 节）。
+
+**本轮对 8 个开放点的决策与处置**：
+
+| 开放点 | 决策 | 处置 |
+|---|---|---|
+| 停机 503 拒新 | 做 | **已落地**：`shutdown_guard_middleware` + `is_server_stopping` |
+| 常驻 reaper | 做 | **已落地**：`spawn_reaper` + ServerHandle 生命周期接线 |
+| detached 指标 | 做 | **已落地**：3 个 gauge/counter 复用 resource collector 导出 |
+| attach 鉴权 | **保持 API key 头**，不引入一次性 ticket | **记录为已接受风险**：key 走请求头不进 URL，与既有事件流一致；ticket 属额外攻击面与改动量，本阶段不做 |
+| `tunnel_stop_grace_secs` | 做 | **已落地**：默认 2s，0–30 可配 |
+| PTY 关闭收敛 | 做 | **已落地**：`PtyManager::shutdown_all` 接入关闭顺序 |
+| Web/CLI 入口 | **CLI + Web 都加** | **已落地**：`wf agent-loop dispatch\|attach`；Web 执行页"后台运行/重新连接"入口 |
+| 部署作业化 | **留作独立任务** | 本轮不做；`install`/`upgrade` 仍同步 HTTP |
+
+**仅存的独立任务**：部署作业化（`install`/`upgrade` 异步化、停机落 `interrupted`）。它与保活都要动"长操作的生命周期"，用户拍板单独成阶段，避免耦合面过大。
+
+## 14. 本轮一并修复的既有问题
+
+这些问题与保活/关闭改动无关，是验证过程中暴露的既有缺陷，本轮按"一并修复"处置。修复已在本文对应的 patch 中（`wf-agent-keepalive-shutdown.patch`）。
+
+| 问题 | 根因（file:line 事实） | 修复 | 验证 |
+|---|---|---|---|
+| `wf-runtime` 的 6 个 keyword bootstrap 测试在 `--no-default-features` 下失败 | `bootstrap/tests.rs` 的 `mod keyword;` 无条件编译，但 `keyword_index()` 等功能由 `keyword` feature 提供 | `bootstrap/tests.rs:192` 加 `#[cfg(feature = "keyword")]` | `--no-default-features` 全绿 |
+| `test_bootstrap_registers_mcp_manager_and_use_mcp` 在无 mcp feature 下失败 | `service_wiring.rs` 该测试依赖 `mcp_manager()`，无 feature 门控 | `service_wiring.rs:128` 加 `#[cfg(feature = "mcp")]` | 同上 |
+| `test_llm_profiles_merge_with_programmatic_values_by_id` 断言 `explicit-a` 却得到 `file-a` | `bootstrap/config.rs:432,444` 调用 `merge_llm_profiles`/`merge_llm_provider_definitions` 时把 `file_*` 放在了 base 位，而这两个函数是 **base 优先**（`wf-config/src/llm.rs:114` `merge_records_by_id` 用 `entry().or_insert()`）；显式值应优先却被文件值覆盖 | 交换实参顺序：`std::mem::take(&mut config.llm.profiles)` 放 base 位，`file_profiles` 放 overlay 位；provider_definitions 同 | 该测试通过；`wf-config` 390✓ 回归无回退 |
+
+`merge_auth_configs` 是 **overlay 优先**语义（`llm_auth.rs:143`），`config.rs:420` 的调用本就正确，未改。
+
+**验收**（本轮实测）：`cargo test -p wf-runtime --lib --no-default-features` = 154✓ / 0 失败；加 `--features keyword,mcp` = 162✓ / 0 失败；`cargo test -p wf-config --lib` = 390✓。
+
+~~**未修的独立既有问题**：默认特性集下 `wf-plugin` 的 lua 桥接层仍用 mlua 0.9 的带生命周期 API……留待独立的 lua 后端升级任务处理。~~ → **本轮已一并修复**，见第 15 节。
+
+## 15. wf-plugin lua 桥接层迁移至 mlua 0.12（本轮完成）
+
+用户追加要求"把 wf-plugin lua 桥接层完整修复，之后凡是发现的关键问题必须立刻修复"。本轮完成迁移，**默认特性集全工作区编译通过，不再需要 `--no-default-features` 规避**。
+
+**根因**：`Cargo.toml:147` 锁 `mlua = "0.12"`（`Value`/`Table` 无生命周期参数；`Function::call`、`Table::get` 均降为单个泛型；hook 回调返回 `VmState`；`set_hook` 返回 `Result`），但 `wf-plugin/src/lua/` 仍按 0.9 API 编写。同仓 `wf-sandbox` 早已适配，可作为正确写法参照。
+
+**迁移改动（4 个文件，file:line 为修复后位置）**：
+
+| 文件 | 改动 | 处数 |
+|---|---|---|
+| `lua/bridge.rs` | `build_lua_context`/`to_lua_value`/`create_lua_handler_table`/`set_table_str`/`set_table_value` 去掉 `Value<'lua>`/`Table<'lua>` 生命周期参数 | 5 |
+| `lua/handlers.rs` | `t.get::<&str, mlua::Value>` → `t.get::<mlua::Value>`（outputs/result） | 2 |
+| `lua/plugin.rs` | `hook.call::<_, ()>` → `hook.call::<()>`；`get::<_, V>` → `get::<V>`（Option<Table>/Function/Option<String>）；`pairs`/`sequence_values` 签名未变不动 | 14 |
+| `lua/pool.rs` | hook 回调 `Ok(())` → `Ok(mlua::VmState::Continue)` | 1 |
+
+**过程中发现并立即修复的关键问题**：`lua/pool.rs` 的 `set_protection_hook` 原代码丢弃 `lua.set_hook(...)` 的返回值（0.9 返回 `()`，0.12 返回 `Result<()>`，编译器报 `unused Result`）。该 hook 是 Lua 超时/内存保护的唯一执行点，吞掉安装失败会让死循环脚本无法被中断——属正确性缺陷。修复为直接返回 `set_hook(...)` 的结果（`pool.rs:93`），安装失败现在经 `arm_hook` 的 `map_err` 上抛。
+
+**回归测试**：新增 `crates/infra/wf-plugin/tests/mlua_bridge_smoke.rs`（3 例），填补仓库此前 lua 桥接层无端到端测试的缺口：
+1. value 双向转换保持类型（string/number/float/bool/array/object + 顶层 null）；对象内 `null` 字段因 Lua `set(key, nil)` 即删键的固有语义无法往返，非迁移缺陷，不作处理。
+2. `LuaNodeHandler` 跑真实 Lua 脚本，验证 `call::<R>`/`get::<V>` 的返回类型解析正确。
+3. 保护 hook：正常执行放行（`VmState::Continue`）、过期 deadline 触发超时错误。
+
+**验收（本轮实测）**：`cargo check --workspace`（默认特性）= 0 错误；`cargo test -p wf-plugin --all-features` = 160✓ + 3✓（smoke）；`cargo test -p wf-sandbox --all-features` = 212✓；`cargo test -p wf-runtime --lib`（默认特性）= 176✓（含此前 8 个失败测试）。

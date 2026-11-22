@@ -9,6 +9,7 @@
 
 pub mod app_config;
 pub mod args;
+pub mod args_agent_loop;
 pub mod args_checkpoint;
 pub mod args_entity;
 pub mod args_execution;
@@ -71,6 +72,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         }
         Some(Command::Execution { sub }) => {
             return cmd::execution::run(&cli, sub).await;
+        }
+        Some(Command::AgentLoop { sub }) => {
+            return cmd::agent_loop::run(&cli, sub).await;
         }
         Some(Command::LlmProfile { sub }) => {
             return cmd::llm::run(&cli, sub).await;

@@ -46,6 +46,11 @@ const DEFAULT_DEPLOY_SOURCE_ROOT: &str = "deploy";
 const DEFAULT_DEPLOY_EXEC_TIMEOUT_SECS: u64 = 120;
 /// Default wait for a started remote server to answer its health endpoint.
 const DEFAULT_DEPLOY_START_TIMEOUT_SECS: u64 = 30;
+/// Grace period before supervised SSH forwards are killed at shutdown, giving
+/// in-flight backup fetches a window to finish. Zero kills immediately.
+const DEFAULT_TUNNEL_STOP_GRACE_SECS: u64 = 2;
+/// Upper bound for the tunnel grace period (a typo must not stall shutdown).
+const MAX_TUNNEL_STOP_GRACE_SECS: u64 = 30;
 
 /// Server-owned backend configuration. `enabled == false` keeps every new
 /// backend endpoint at 503 and spawns no background tasks.
@@ -81,6 +86,9 @@ pub struct BackendConfig {
     pub deploy_source_root: std::path::PathBuf,
     pub deploy_exec_timeout_secs: u64,
     pub deploy_start_timeout_secs: u64,
+    /// Seconds to let supervised tunnels drain before they are killed on
+    /// shutdown. Bounded by `MAX_TUNNEL_STOP_GRACE_SECS`.
+    pub tunnel_stop_grace_secs: u64,
 }
 
 impl Default for BackendConfig {
@@ -105,6 +113,7 @@ impl Default for BackendConfig {
             deploy_source_root: std::path::PathBuf::from(DEFAULT_DEPLOY_SOURCE_ROOT),
             deploy_exec_timeout_secs: DEFAULT_DEPLOY_EXEC_TIMEOUT_SECS,
             deploy_start_timeout_secs: DEFAULT_DEPLOY_START_TIMEOUT_SECS,
+            tunnel_stop_grace_secs: DEFAULT_TUNNEL_STOP_GRACE_SECS,
         }
     }
 }
@@ -202,6 +211,9 @@ impl BackendConfig {
         if let Some(timeout) = file.deploy_start_timeout_secs {
             self.deploy_start_timeout_secs = timeout;
         }
+        if let Some(grace) = file.tunnel_stop_grace_secs {
+            self.tunnel_stop_grace_secs = grace;
+        }
         Ok(())
     }
 
@@ -277,6 +289,9 @@ impl BackendConfig {
         if let Some(timeout) = read_env_u64("WF_BACKEND_DEPLOY_START_TIMEOUT_SECS") {
             self.deploy_start_timeout_secs = timeout;
         }
+        if let Some(grace) = read_env_u64("WF_BACKEND_TUNNEL_STOP_GRACE_SECS") {
+            self.tunnel_stop_grace_secs = grace;
+        }
     }
 
     fn validate(&self) -> ConfigResult<()> {
@@ -341,6 +356,11 @@ impl BackendConfig {
                 "invalid backend config: deploy_start_timeout_secs must be > 0".to_string(),
             ));
         }
+        if self.tunnel_stop_grace_secs > MAX_TUNNEL_STOP_GRACE_SECS {
+            return Err(ConfigError::Parse(format!(
+                "invalid backend config: tunnel_stop_grace_secs must be 0-{MAX_TUNNEL_STOP_GRACE_SECS}"
+            )));
+        }
         if self.deploy_install_root.trim().is_empty() {
             return Err(ConfigError::Parse(
                 "invalid backend config: deploy_install_root must not be empty".to_string(),
@@ -378,6 +398,7 @@ struct BackendFileConfig {
     deploy_source_root: Option<String>,
     deploy_exec_timeout_secs: Option<u64>,
     deploy_start_timeout_secs: Option<u64>,
+    tunnel_stop_grace_secs: Option<u64>,
 }
 
 fn load_merged_backend_file(
@@ -478,6 +499,28 @@ mod tests {
         assert_eq!(config.deploy_source_root, std::path::PathBuf::from("deploy"));
         assert_eq!(config.deploy_exec_timeout_secs, 120);
         assert_eq!(config.deploy_start_timeout_secs, 30);
+        assert_eq!(config.tunnel_stop_grace_secs, 2);
+    }
+
+    #[test]
+    fn tunnel_stop_grace_resolves_from_file_and_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let server_dir = dir.path().join("server");
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\ntunnel_stop_grace_secs = 5\n",
+        )
+        .unwrap();
+        let config = BackendConfig::resolve(Some(server_dir.as_path()), None).unwrap();
+        assert_eq!(config.tunnel_stop_grace_secs, 5);
+
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\ntunnel_stop_grace_secs = 31\n",
+        )
+        .unwrap();
+        assert!(BackendConfig::resolve(Some(server_dir.as_path()), None).is_err());
     }
 
     #[test]

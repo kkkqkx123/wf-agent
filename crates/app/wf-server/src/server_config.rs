@@ -40,6 +40,34 @@ pub const STATIC_FALLBACK_ENV_VAR: &str = "WF_SERVER_STATIC_FALLBACK";
 /// Environment variable overriding the cache lifetime of immutable assets.
 pub const STATIC_IMMUTABLE_MAX_AGE_ENV_VAR: &str = "WF_SERVER_STATIC_IMMUTABLE_MAX_AGE_SECS";
 
+/// Default behavior when an SSE observer disconnects from a streaming run.
+pub const DEFAULT_STREAM_DETACH_POLICY: &str = "cancel";
+/// Default idle threshold for reclaiming a detached run (seconds, 30 min).
+pub const DEFAULT_RUN_DETACH_IDLE_SECS: u64 = 1800;
+/// Default per-principal cap on live detached runs.
+pub const DEFAULT_RUN_DETACH_MAX_PER_PRINCIPAL: usize = 4;
+/// Lower bound for the detached-run idle threshold (5 min).
+pub const MIN_RUN_DETACH_IDLE_SECS: u64 = 300;
+/// Upper bound for the detached-run idle threshold (24 h).
+pub const MAX_RUN_DETACH_IDLE_SECS: u64 = 86_400;
+
+/// Environment variable overriding the detach policy.
+pub const STREAM_DETACH_POLICY_ENV_VAR: &str = "WF_SERVER_STREAM_DETACH_POLICY";
+/// Environment variable overriding the detached-run idle threshold.
+pub const RUN_DETACH_IDLE_SECS_ENV_VAR: &str = "WF_SERVER_RUN_DETACH_IDLE_SECS";
+/// Environment variable overriding the per-principal detached cap.
+pub const RUN_DETACH_MAX_PER_PRINCIPAL_ENV_VAR: &str =
+    "WF_SERVER_RUN_DETACH_MAX_PER_PRINCIPAL";
+
+/// Default ceiling for graceful HTTP drain during shutdown (seconds).
+pub const DEFAULT_SHUTDOWN_DRAIN_SECS: u64 = 10;
+/// Environment variable overriding the graceful drain budget.
+pub const SHUTDOWN_DRAIN_SECS_ENV_VAR: &str = "WF_SERVER_SHUTDOWN_DRAIN_SECS";
+/// Lower bound for the drain budget: zero means force-close immediately.
+pub const MIN_SHUTDOWN_DRAIN_SECS: u64 = 0;
+/// Upper bound for the drain budget, so a typo cannot hang shutdown forever.
+pub const MAX_SHUTDOWN_DRAIN_SECS: u64 = 120;
+
 /// Default SPA fallback page served for extension-less app routes.
 pub const DEFAULT_STATIC_INDEX: &str = "index.html";
 /// Default cache lifetime for immutable fingerprinted assets (one year).
@@ -67,6 +95,33 @@ pub struct ServerConfig {
     /// Backend management domain (registry hosting, probing, tunnels,
     /// backups). Disabled by default; see `backends.toml`.
     pub backends: BackendConfig,
+    /// Maximum seconds to drain in-flight HTTP requests on shutdown before
+    /// force-closing remaining connections. Bounds the wait on SSE clients.
+    pub shutdown_drain_secs: u64,
+    /// Detached-stream lifecycle policy and quotas.
+    pub stream_lifecycle: StreamLifecycleConfig,
+}
+
+/// Resolved keepalive knobs shared by the streaming and dispatch handlers.
+#[derive(Debug, Clone)]
+pub struct StreamLifecycleConfig {
+    /// What happens to a run when its SSE observer disconnects.
+    pub detach_policy: wf_api::agent::agent_execution::StreamDetachPolicy,
+    /// Reclaim a detached run after this long with a last event and no
+    /// subscriber. Persistent runs are exempt.
+    pub detach_idle_secs: u64,
+    /// Maximum number of live detached runs per principal.
+    pub detach_max_per_principal: usize,
+}
+
+impl Default for StreamLifecycleConfig {
+    fn default() -> Self {
+        Self {
+            detach_policy: wf_api::agent::agent_execution::StreamDetachPolicy::Cancel,
+            detach_idle_secs: DEFAULT_RUN_DETACH_IDLE_SECS,
+            detach_max_per_principal: DEFAULT_RUN_DETACH_MAX_PER_PRINCIPAL,
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -77,6 +132,8 @@ impl Default for ServerConfig {
             static_config: None,
             directory: DirectoryConfig::default(),
             backends: BackendConfig::default(),
+            shutdown_drain_secs: DEFAULT_SHUTDOWN_DRAIN_SECS,
+            stream_lifecycle: StreamLifecycleConfig::default(),
         }
     }
 }
@@ -114,7 +171,74 @@ impl ServerConfig {
             static_config: Self::resolve_static(cli_static_dir, file.as_ref())?,
             directory: Self::resolve_directory(file.as_ref())?,
             backends: BackendConfig::resolve(settings_layer, project_layer)?,
+            shutdown_drain_secs: Self::resolve_shutdown_drain(file.as_ref())?,
+            stream_lifecycle: Self::resolve_stream_lifecycle(file.as_ref())?,
         })
+    }
+
+    /// Resolve the keepalive knobs: environment overrides the file layer,
+    /// which overrides defaults. A present but invalid value fails startup so
+    /// a typo can never silently change the runtime detach behavior.
+    fn resolve_stream_lifecycle(file: Option<&ServerFileConfig>) -> ConfigResult<StreamLifecycleConfig> {
+        let policy_raw = std::env::var(STREAM_DETACH_POLICY_ENV_VAR)
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .or_else(|| {
+                file.and_then(|file| file.stream_detach_policy.clone())
+                    .filter(|raw| !raw.trim().is_empty())
+            })
+            .unwrap_or_else(|| DEFAULT_STREAM_DETACH_POLICY.to_string());
+        let detach_policy = wf_api::agent::agent_execution::StreamDetachPolicy::parse(&policy_raw)
+            .ok_or_else(|| {
+                ConfigError::Parse(format!(
+                    "{STREAM_DETACH_POLICY_ENV_VAR} must be 'cancel' or 'keep', got '{policy_raw}'"
+                ))
+            })?;
+
+        let detach_idle_secs = resolve_u64_knob(
+            RUN_DETACH_IDLE_SECS_ENV_VAR,
+            file.and_then(|file| file.run_detach_idle_secs),
+            DEFAULT_RUN_DETACH_IDLE_SECS,
+            Some(MIN_RUN_DETACH_IDLE_SECS),
+            Some(MAX_RUN_DETACH_IDLE_SECS),
+        )?;
+
+        let detach_max_per_principal = resolve_u64_knob(
+            RUN_DETACH_MAX_PER_PRINCIPAL_ENV_VAR,
+            file.and_then(|file| file.run_detach_max_per_principal),
+            DEFAULT_RUN_DETACH_MAX_PER_PRINCIPAL as u64,
+            Some(1),
+            Some(64),
+        )? as usize;
+
+        Ok(StreamLifecycleConfig {
+            detach_policy,
+            detach_idle_secs,
+            detach_max_per_principal,
+        })
+    }
+
+    /// Resolve the graceful-drain budget: environment overrides the file
+    /// layer, which overrides the built-in default. A present but invalid
+    /// value fails startup rather than silently falling back to an unbounded
+    /// wait.
+    fn resolve_shutdown_drain(file: Option<&ServerFileConfig>) -> ConfigResult<u64> {
+        let raw = std::env::var(SHUTDOWN_DRAIN_SECS_ENV_VAR)
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .or_else(|| file.and_then(|file| file.shutdown_drain_secs.map(|v| v.to_string())));
+        let Some(raw) = raw else {
+            return Ok(DEFAULT_SHUTDOWN_DRAIN_SECS);
+        };
+        let secs = raw.trim().parse::<u64>().map_err(|e| {
+            ConfigError::Parse(format!("invalid {SHUTDOWN_DRAIN_SECS_ENV_VAR}: {e}"))
+        })?;
+        if !(MIN_SHUTDOWN_DRAIN_SECS..=MAX_SHUTDOWN_DRAIN_SECS).contains(&secs) {
+            return Err(ConfigError::Parse(format!(
+                "{SHUTDOWN_DRAIN_SECS_ENV_VAR} must be between {MIN_SHUTDOWN_DRAIN_SECS} and {MAX_SHUTDOWN_DRAIN_SECS}, got {secs}"
+            )));
+        }
+        Ok(secs)
     }
 
     fn resolve_bind_addr(
@@ -220,6 +344,37 @@ fn default_bind_addr() -> SocketAddr {
         .expect("built-in default bind address parses")
 }
 
+/// Resolve one numeric knob: env > file > default, with inclusive bounds.
+/// A present but invalid value fails startup instead of silently falling back.
+fn resolve_u64_knob(
+    env_name: &str,
+    file_value: Option<u64>,
+    default: u64,
+    min: Option<u64>,
+    max: Option<u64>,
+) -> ConfigResult<u64> {
+    let raw = std::env::var(env_name)
+        .ok()
+        .filter(|raw| !raw.trim().is_empty())
+        .or_else(|| file_value.map(|value| value.to_string()));
+    let Some(raw) = raw else {
+        return Ok(default);
+    };
+    let value = raw
+        .trim()
+        .parse::<u64>()
+        .map_err(|e| ConfigError::Parse(format!("invalid {env_name}: {e}")))?;
+    if min.is_some_and(|low| value < low) || max.is_some_and(|high| value > high) {
+        return Err(ConfigError::Parse(format!(
+            "{env_name} out of range: got {value}, allowed {}..={}",
+            min.map(|v| v.to_string()).unwrap_or_else(|| "0".into()),
+            max.map(|v| v.to_string())
+                .unwrap_or_else(|| "u64::MAX".into())
+        )));
+    }
+    Ok(value)
+}
+
 /// Resolved static hosting: the directory is absolute and validated,
 /// so serving never starts against a half-broken page.
 #[derive(Debug, Clone)]
@@ -298,6 +453,10 @@ struct ServerFileConfig {
     static_immutable_max_age_secs: Option<u64>,
     allowed_roots: Option<Vec<String>>,
     trusted_roots: Option<Vec<String>>,
+    shutdown_drain_secs: Option<u64>,
+    stream_detach_policy: Option<String>,
+    run_detach_idle_secs: Option<u64>,
+    run_detach_max_per_principal: Option<u64>,
 }
 
 /// Load and merge `server.toml` from the settings layer (low) and the
@@ -523,5 +682,96 @@ mod tests {
         .unwrap();
         let err = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap_err();
         assert!(err.to_string().contains("fallback page"));
+    }
+
+    #[test]
+    fn shutdown_drain_defaults_to_ten_secs() {
+        let config = ServerConfig::default();
+        assert_eq!(config.shutdown_drain_secs, DEFAULT_SHUTDOWN_DRAIN_SECS);
+        assert_eq!(DEFAULT_SHUTDOWN_DRAIN_SECS, 10);
+    }
+
+    #[test]
+    fn file_layer_provides_shutdown_drain() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "shutdown_drain_secs = 25\n",
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap();
+        assert_eq!(config.shutdown_drain_secs, 25);
+    }
+
+    #[test]
+    fn shutdown_drain_out_of_range_fails_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "shutdown_drain_secs = 121\n",
+        )
+        .unwrap();
+        let err = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap_err();
+        assert!(err.to_string().contains(SHUTDOWN_DRAIN_SECS_ENV_VAR));
+    }
+
+    #[test]
+    fn stream_lifecycle_defaults() {
+        let config = ServerConfig::default();
+        assert_eq!(
+            config.stream_lifecycle.detach_policy,
+            wf_api::agent::agent_execution::StreamDetachPolicy::Cancel
+        );
+        assert_eq!(config.stream_lifecycle.detach_idle_secs, DEFAULT_RUN_DETACH_IDLE_SECS);
+        assert_eq!(
+            config.stream_lifecycle.detach_max_per_principal,
+            DEFAULT_RUN_DETACH_MAX_PER_PRINCIPAL
+        );
+    }
+
+    #[test]
+    fn file_layer_provides_stream_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "stream_detach_policy = \"keep\"\nrun_detach_idle_secs = 600\nrun_detach_max_per_principal = 8\n",
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap();
+        assert_eq!(
+            config.stream_lifecycle.detach_policy,
+            wf_api::agent::agent_execution::StreamDetachPolicy::Keep
+        );
+        assert_eq!(config.stream_lifecycle.detach_idle_secs, 600);
+        assert_eq!(config.stream_lifecycle.detach_max_per_principal, 8);
+    }
+
+    #[test]
+    fn invalid_detach_policy_fails_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "stream_detach_policy = \"pause\"\n",
+        )
+        .unwrap();
+        let err = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap_err();
+        assert!(err.to_string().contains(STREAM_DETACH_POLICY_ENV_VAR));
+    }
+
+    #[test]
+    fn detach_idle_out_of_range_fails_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "run_detach_idle_secs = 10\n",
+        )
+        .unwrap();
+        let err = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap_err();
+        assert!(err.to_string().contains(RUN_DETACH_IDLE_SECS_ENV_VAR));
     }
 }

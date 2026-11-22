@@ -162,6 +162,7 @@ mod tests {
                 crate::directory::DirectoryConfig::default(),
             )),
             locks: crate::api::workflow::locks::DefinitionLocks::default(),
+            stream: Arc::new(crate::detached::StreamRuntime::default()),
             #[cfg(feature = "backends")]
             backends: None,
         };

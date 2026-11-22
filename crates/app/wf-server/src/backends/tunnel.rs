@@ -207,8 +207,16 @@ impl TunnelSupervisor {
 
     /// Drop every supervised forward. Called on server shutdown so no
     /// `ssh -N` outlives the management service.
-    pub async fn shutdown(&self) {
+    ///
+    /// `grace` is a window during which in-flight backup fetches may finish
+    /// before the forwards are killed. It is applied once, up front, while
+    /// the start lock is held (no new forward can be added mid-drain). A
+    /// zero grace kills immediately.
+    pub async fn shutdown(&self, grace: std::time::Duration) {
         let _start_guard = self.start_lock.lock().await;
+        if !grace.is_zero() {
+            tokio::time::sleep(grace).await;
+        }
         let entries: Vec<String> = self.live.lock().await.keys().cloned().collect();
         for name in entries {
             self.stop(&name).await;
@@ -284,7 +292,7 @@ mod tests {
             },
         );
         assert!(supervisor.snapshot("alpha").await.is_some());
-        supervisor.shutdown().await;
+        supervisor.shutdown(std::time::Duration::ZERO).await;
         assert!(supervisor.snapshot("alpha").await.is_none());
     }
 }

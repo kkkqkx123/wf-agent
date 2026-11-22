@@ -3525,6 +3525,74 @@
         ]
       }
     },
+    "/api/v1/agent-loops/{id}/attach": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/v1/agent-loops/{id}/attach",
+        "description": "Replay the retained event window, then follow live events until the\nterminal event. Works whether the run is still active or already finished.",
+        "operationId": "handle_attach_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Execution ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Opaque replay cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events stream",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent-loops/{id}/cancel": {
       "post": {
         "tags": [
@@ -4416,6 +4484,106 @@
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/agent-loops/{id}/dispatch": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "POST /api/v1/agent-loops/{id}/dispatch",
+        "description": "Submit the run to the background, return the execution id immediately,\nand keep the run alive independent of this request's connection.",
+        "operationId": "handle_dispatch_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Agent loop ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAgentLoopBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Run dispatched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DispatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Agent loop not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Detached quota reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "504": {
             "description": "Gateway timeout: upstream operation timed out"
@@ -52712,6 +52880,43 @@
           }
         }
       },
+      "ApiEnvelope_DispatchView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response for a dispatched (background) run.",
+            "required": [
+              "execution_id",
+              "detached"
+            ],
+            "properties": {
+              "detached": {
+                "type": "boolean"
+              },
+              "execution_id": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_EntityMetadataDoc": {
         "type": "object",
         "required": [
@@ -60401,6 +60606,22 @@
             "type": "string"
           },
           "project_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DispatchView": {
+        "type": "object",
+        "description": "Response for a dispatched (background) run.",
+        "required": [
+          "execution_id",
+          "detached"
+        ],
+        "properties": {
+          "detached": {
+            "type": "boolean"
+          },
+          "execution_id": {
             "type": "string"
           }
         }

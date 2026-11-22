@@ -1,5 +1,7 @@
 import { client } from '#lib/api/client';
 import type { components } from '#lib/api/schema';
+import { openGetStream } from '#lib/api/stream';
+import type { StreamFailure } from '#lib/api/stream';
 import { call, extractCursorPage, extractPage, requireData } from '#lib/api/envelope';
 import type { CursorPageResult, PageResult } from '#lib/api/envelope';
 import type {
@@ -754,6 +756,81 @@ export async function runAgentLoop(id: string, input: RunLoopInput): Promise<Age
 	};
 }
 
+/** Result of a detached dispatch: the id to later pass to `attachAgentLoop`. */
+export interface DispatchResult {
+	executionId: string;
+	detached: boolean;
+}
+
+/**
+ * Submit an agent loop run to the background. The run keeps advancing after
+ * the HTTP request (and the browser tab) goes away; observe it with
+ * `attachAgentLoop`.
+ */
+export async function dispatchAgentLoop(
+	id: string,
+	input: RunLoopInput,
+): Promise<DispatchResult> {
+	const message = assertAgentMessage(input.message);
+	const model = assertAgentModel(input.model);
+	const fileScope = assertFileScope(input.fileScope ?? null);
+	const data = requireData(
+		await call<{ execution_id: string; detached: boolean }>(
+			client.POST('/api/v1/agent-loops/{id}/dispatch', {
+				params: { path: { id } },
+				body: {
+					model,
+					message,
+					tool_call_protocol: { format: 'json' },
+					conversation: input.conversation ?? [],
+					file_scope: fileScope,
+					...(input.temporaryMode ? { temporary_mode: input.temporaryMode } : {}),
+				},
+			}),
+		),
+		`Dispatch result missing for loop ${id}`,
+	);
+	return { executionId: data.execution_id, detached: data.detached };
+}
+
+/** Callbacks for `attachAgentLoop`: one per SSE data frame, plus terminal. */
+export interface AttachCallbacks {
+	onFrame: (event: string, data: unknown) => void;
+	onTerminal: (executionId: string) => void;
+	onError: (failure: StreamFailure) => void;
+}
+
+/**
+ * Replay retained history for a detached execution, then follow live events.
+ * The server ends the stream with a synthetic `execution.terminal` frame.
+ */
+export function attachAgentLoop(
+	executionId: string,
+	callbacks: AttachCallbacks,
+	signal: AbortSignal,
+	since?: string,
+): Promise<void> {
+	return openGetStream({
+		path: `/api/v1/agent-loops/${encodeURIComponent(executionId)}/attach`,
+		query: since ? { since } : undefined,
+		signal,
+		onFrame: (event, data) => {
+			callbacks.onFrame(event, data);
+			const type =
+				data && typeof data === 'object' && 'type' in data
+					? (data as { type?: unknown }).type
+					: undefined;
+			if (type === 'execution.terminal') {
+				const id =
+					data && typeof data === 'object' && 'executionId' in data
+						? (data as { executionId?: unknown }).executionId
+						: undefined;
+				callbacks.onTerminal(typeof id === 'string' ? id : executionId);
+			}
+		},
+		onError: callbacks.onError,
+	});
+}
 
 export interface ForkLoopInput extends RunLoopInput {
     /** Checkpoint to branch from; absent selects the latest restorable one. */

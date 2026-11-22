@@ -194,6 +194,30 @@ impl PtyManager {
     pub fn write(&self, id: &str, data: &[u8]) -> PtyResult<()> {
         super::io::write_session(&self.inner, id, data)
     }
+
+    /// Terminate every session and clear the registry. Called when the host
+    /// service shuts down so no PTY child process outlives the management
+    /// server. Unlike `sweep` this ignores `persistent` and idleness: on
+    /// shutdown all sessions are stopped, then removed. Returns the number of
+    /// sessions that were live (and therefore signalled to stop).
+    pub fn shutdown_all(&self) -> usize {
+        let victims: Vec<(String, Arc<PtyState>)> = {
+            let mgr = lock_inner(&self.inner);
+            mgr.sessions
+                .iter()
+                .map(|(id, st)| (id.clone(), st.clone()))
+                .collect()
+        };
+        let mut killed = 0;
+        for (id, st) in victims {
+            if *lock(&st.status) == PtySessionStatus::Running {
+                super::session::request_kill(&st, "shutdown");
+                killed += 1;
+            }
+            lock_inner(&self.inner).sessions.remove(&id);
+        }
+        killed
+    }
 }
 
 static PTY_MANAGER: std::sync::OnceLock<PtyManager> = std::sync::OnceLock::new();

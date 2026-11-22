@@ -50,6 +50,9 @@ deploy_source_root = "deploy"
 # health endpoint before it reports failure.
 deploy_exec_timeout_secs = 120
 deploy_start_timeout_secs = 30
+# Grace before supervised SSH forwards are killed on shutdown, letting
+# in-flight backup fetches finish. 0 kills immediately; max 30.
+tunnel_stop_grace_secs = 2
 
 # Environment overrides:
 # WF_BACKEND_ENABLED, WF_BACKEND_PROBE_INTERVAL_SECS,
@@ -61,5 +64,5 @@ deploy_start_timeout_secs = 30
 # WF_BACKEND_BACKUP_RECONCILE_INTERVAL_SECS,
 # WF_BACKEND_DEPLOY_INSTALL_ROOT, WF_BACKEND_DEPLOY_ARTIFACT_BASE_URL,
 # WF_BACKEND_DEPLOY_SOURCE_ROOT, WF_BACKEND_DEPLOY_EXEC_TIMEOUT_SECS,
-# WF_BACKEND_DEPLOY_START_TIMEOUT_SECS.
+# WF_BACKEND_DEPLOY_START_TIMEOUT_SECS, WF_BACKEND_TUNNEL_STOP_GRACE_SECS.
 # WF_BACKEND_REMOTE_API_KEY is never read from this file.

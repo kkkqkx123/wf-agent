@@ -111,7 +111,7 @@ impl PluginNodeHandler for LuaNodeHandler {
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 let o = result
                     .as_table()
-                    .and_then(|t| t.get::<&str, mlua::Value>("outputs").ok())
+                    .and_then(|t| t.get::<mlua::Value>("outputs").ok())
                     .unwrap_or(mlua::Value::Nil);
                 Ok(PluginNodeResult {
                     outputs: super::bridge::from_lua_value(o),
@@ -144,7 +144,7 @@ impl PluginToolExecutor for LuaToolExecutor {
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 let r = result
                     .as_table()
-                    .and_then(|t| t.get::<&str, mlua::Value>("result").ok())
+                    .and_then(|t| t.get::<mlua::Value>("result").ok())
                     .unwrap_or(mlua::Value::Nil);
                 Ok(PluginToolResult {
                     result: super::bridge::from_lua_value(r),

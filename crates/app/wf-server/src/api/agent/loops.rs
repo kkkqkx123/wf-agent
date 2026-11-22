@@ -4,10 +4,12 @@
 //! into `crud` / `lifecycle` / `inspect` handler modules.
 
 mod crud;
+mod detached_handlers;
 mod inspect;
 mod lifecycle;
 
 pub(crate) use crud::*;
+pub(crate) use detached_handlers::*;
 pub(crate) use inspect::*;
 pub(crate) use lifecycle::*;
 
@@ -38,6 +40,8 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agent-loops/{id}/title", patch(handle_update_loop_title))
         .route("/agent-loops/{id}/run", post(handle_run_loop))
         .route("/agent-loops/{id}/stream", post(handle_stream_loop))
+        .route("/agent-loops/{id}/dispatch", post(handle_dispatch_loop))
+        .route("/agent-loops/{id}/attach", get(handle_attach_loop))
         .route("/agent-loops/{id}/pause", post(handle_pause_loop))
         .route("/agent-loops/{id}/resume", post(handle_resume_loop))
         .route("/agent-loops/{id}/cancel", post(handle_cancel_loop))

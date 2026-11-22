@@ -125,6 +125,7 @@ fn test_resolve_log_config_rejects_invalid_file_format() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_bootstrap_registers_mcp_manager_and_use_mcp() {
     clear_env_vars();

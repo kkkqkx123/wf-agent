@@ -41,11 +41,14 @@ impl Runtime {
             info!("Code-context sidecar stopped");
         }
 
-        // Abort detached execution driver tasks (workflow `stream()` drivers,
-        // callback forwarders) before the storage layer closes underneath
-        // them.
+        // Converge live agent-loop and workflow executions into a terminal
+        // `Cancelled` state before the storage layer closes underneath them.
+        // The active-shutdown marker set above makes the coordinator label
+        // the settle as Cancelled (not Failed); the synchronous `shutdown()`
+        // would only abort workflow driver tasks and leave agent loops as
+        // hard-killed `Running` records.
         if let Some(ctx) = self.api_ctx.get() {
-            ctx.shutdown();
+            ctx.shutdown_executions().await;
         }
 
         // Flush buffered event persistence before the storage layer closes.

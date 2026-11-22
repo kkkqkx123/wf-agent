@@ -207,6 +207,23 @@ pub mod endpoints {
     pub fn agent_cli_run() -> String {
         "/api/v1/agent-loops/cli/run".to_string()
     }
+
+    /// `POST /api/v1/agent-loops/{id}/dispatch` (detached run).
+    pub fn agent_loop_dispatch(id: &str) -> String {
+        format!("/api/v1/agent-loops/{id}/dispatch")
+    }
+
+    /// `GET /api/v1/agent-loops/{id}/attach` with an optional opaque replay
+    /// cursor. The cursor is the decimal epoch-ms timestamp emitted by the
+    /// events API, so it needs no percent-encoding.
+    pub fn agent_loop_attach(id: &str, since: Option<&str>) -> String {
+        match since {
+            Some(cursor) if !cursor.is_empty() => {
+                format!("/api/v1/agent-loops/{id}/attach?since={cursor}")
+            }
+            _ => format!("/api/v1/agent-loops/{id}/attach"),
+        }
+    }
 }
 
 impl WfClient {
@@ -379,6 +396,7 @@ mod tests {
         let mut table: BTreeSet<String> = BTreeSet::new();
         table.insert(endpoints::workflow_execute("w1"));
         table.insert(endpoints::agent_loop_stream("a1").replace("a1", "w1"));
+        table.insert(endpoints::agent_loop_attach("w1", None));
         table.insert(endpoints::LLM_GENERATE_STREAM.to_string());
         table.insert(endpoints::CHAT_STREAM.to_string());
         table.insert(endpoints::EVENTS_STREAM.to_string());

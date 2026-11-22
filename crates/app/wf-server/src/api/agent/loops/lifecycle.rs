@@ -300,12 +300,13 @@ pub(crate) async fn handle_stream_loop(
     Extension(scope): Extension<Option<DirectoryScope>>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> Response {
-    match wf_api::agent::agent_execution::stream(
+    match wf_api::agent::agent_execution::stream_with_policy(
         state.ctx.clone(),
         match params_from_body(&state, &scope, body).await {
             Ok(params) => params,
             Err(e) => return error_response(e),
         },
+        state.stream.detach_policy,
     )
     .await
     {

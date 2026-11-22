@@ -32,6 +32,8 @@ pub(crate) struct ApiState {
     pub(crate) config: Arc<ServerMiddlewareConfig>,
     pub(crate) dirs: Arc<DirectoryContext>,
     pub(crate) locks: api::workflow::locks::DefinitionLocks,
+    /// Detached-run accounting shared by streaming/dispatch/attach handlers.
+    pub(crate) stream: Arc<crate::detached::StreamRuntime>,
     #[cfg(feature = "backends")]
     pub(crate) backends: BackendHandle,
 }
@@ -72,7 +74,14 @@ pub fn api_router_with_dirs(
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
 ) -> Router {
-    api_router_with_dirs_and_backends(ctx, config, dirs, None, false)
+    api_router_with_dirs_and_backends(
+        ctx,
+        config,
+        dirs,
+        None,
+        false,
+        Arc::new(crate::detached::StreamRuntime::default()),
+    )
 }
 
 /// Same as [`api_router_with_dirs`] with an explicit backend manager for
@@ -86,6 +95,7 @@ pub fn api_router_with_dirs_and_backends(
     dirs: Arc<DirectoryContext>,
     backends: BackendHandle,
     static_enabled: bool,
+    stream: Arc<crate::detached::StreamRuntime>,
 ) -> Router {
     #[cfg(not(feature = "backends"))]
     let _ = &backends;
@@ -220,6 +230,7 @@ pub fn api_router_with_dirs_and_backends(
         config,
         dirs,
         locks: api::workflow::locks::DefinitionLocks::default(),
+        stream,
         #[cfg(feature = "backends")]
         backends,
     });
@@ -270,7 +281,15 @@ pub fn full_router_with_middleware(
     config: Arc<ServerMiddlewareConfig>,
     dirs: Arc<DirectoryContext>,
 ) -> Router {
-    full_router_with_middleware_and_backends(registry, ctx, config, dirs, None, false)
+    full_router_with_middleware_and_backends(
+        registry,
+        ctx,
+        config,
+        dirs,
+        None,
+        false,
+        Arc::new(crate::detached::StreamRuntime::default()),
+    )
 }
 
 /// Same as [`full_router_with_middleware`] with an explicit backend
@@ -284,8 +303,9 @@ pub fn full_router_with_middleware_and_backends(
     dirs: Arc<DirectoryContext>,
     backends: BackendHandle,
     static_enabled: bool,
+    stream: Arc<crate::detached::StreamRuntime>,
 ) -> Router {
-    let api = api_router_with_dirs_and_backends(ctx, config, dirs, backends, static_enabled);
+    let api = api_router_with_dirs_and_backends(ctx, config, dirs, backends, static_enabled, stream);
     #[cfg(feature = "metrics")]
     let router = {
         let http = registry.http();
@@ -315,15 +335,35 @@ pub async fn serve_api_with_config(
     }
     #[cfg(not(feature = "backends"))]
     let _ = &backends;
+    let stream = Arc::new(crate::detached::StreamRuntime::new(
+        config.stream_lifecycle.detach_policy,
+        config.stream_lifecycle.detach_max_per_principal,
+        config.stream_lifecycle.detach_idle_secs,
+    ));
+    // Resident reaper: reclaims idle detached runs even when nobody re-attaches.
+    // The token is owned by ServerHandle and cancelled on shutdown.
+    let reaper_cancel = tokio_util::sync::CancellationToken::new();
+    let reaper = crate::detached::spawn_reaper(
+        stream.registry.clone(),
+        Arc::clone(&ctx),
+        reaper_cancel.clone(),
+        std::time::Duration::from_secs(crate::detached::REAPER_SCAN_SECS),
+    );
     let router = api_router_with_dirs_and_backends(
         ctx,
         Arc::new(config.middleware.clone()),
         dirs,
         backends.clone(),
         config.static_config.is_some(),
+        stream,
     );
     let router = with_static_fallback(router, config.static_config.as_ref());
-    serve_with_router_and_backends(router, config.bind_addr, backends).await
+    let handle = serve_with_router_and_backends(router, config.bind_addr, backends).await?;
+    Ok(handle
+        .with_reaper(reaper, reaper_cancel)
+        .with_drain(std::time::Duration::from_secs(
+            config.shutdown_drain_secs,
+        )))
 }
 
 /// Resolve the backend manager from config. Both call sites use `?`, so the
@@ -389,6 +429,20 @@ pub async fn serve_full_with_config(
     }
     #[cfg(not(feature = "backends"))]
     let _ = &backends;
+    let stream = Arc::new(crate::detached::StreamRuntime::new(
+        config.stream_lifecycle.detach_policy,
+        config.stream_lifecycle.detach_max_per_principal,
+        config.stream_lifecycle.detach_idle_secs,
+    ));
+    // Resident reaper, see `serve_api_with_config`. Cancelled on shutdown
+    // before backend tunnels are torn down.
+    let reaper_cancel = tokio_util::sync::CancellationToken::new();
+    let reaper = crate::detached::spawn_reaper(
+        stream.registry.clone(),
+        Arc::clone(&ctx),
+        reaper_cancel.clone(),
+        std::time::Duration::from_secs(crate::detached::REAPER_SCAN_SECS),
+    );
     let router = full_router_with_middleware_and_backends(
         registry,
         ctx,
@@ -396,9 +450,15 @@ pub async fn serve_full_with_config(
         dirs,
         backends.clone(),
         config.static_config.is_some(),
+        stream,
     );
     let router = with_static_fallback(router, config.static_config.as_ref());
-    serve_with_router_and_backends(router, config.bind_addr, backends).await
+    let handle = serve_with_router_and_backends(router, config.bind_addr, backends).await?;
+    Ok(handle
+        .with_reaper(reaper, reaper_cancel)
+        .with_drain(std::time::Duration::from_secs(
+            config.shutdown_drain_secs,
+        )))
 }
 
 /// Layer the static-file SPA fallback onto `router` when frontend hosting

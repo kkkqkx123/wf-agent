@@ -15,6 +15,7 @@
 //! Every handler resolves a [`ClientHandle`](crate::connection::ClientHandle)
 //! and serves through `wf-server` HTTP; output rendering stays local so
 //! established envelope names and text layouts do not change.
+pub mod agent_loop;
 pub mod analysis;
 pub mod approval;
 pub mod audit;

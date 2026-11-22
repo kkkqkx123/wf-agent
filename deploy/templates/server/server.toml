@@ -2,19 +2,41 @@
 #
 # Schema:    wf_server::server_config::ServerConfig file layer
 # (`bind_addr`, `static_dir`, `static_index`, `static_fallback`,
-# `static_immutable_max_age_secs`, `allowed_roots`).
+# `static_immutable_max_age_secs`, `allowed_roots`, `shutdown_drain_secs`,
+# `stream_detach_policy`, `run_detach_idle_secs`,
+# `run_detach_max_per_principal`).
 # Sample: copy to `{settings_dir}/server/` or `{project}/.wf/server/`
 # (independent family owned by wf-server).
 # Priority (high to low): `--addr` / `--static-dir` flags >
 # `WF_SERVER_BIND_ADDR` / `WF_SERVER_STATIC_DIR` /
 # `WF_SERVER_STATIC_INDEX` / `WF_SERVER_STATIC_FALLBACK` /
-# `WF_SERVER_STATIC_IMMUTABLE_MAX_AGE_SECS` / `WF_DIRECTORY_ROOTS` env >
+# `WF_SERVER_STATIC_IMMUTABLE_MAX_AGE_SECS` / `WF_SERVER_SHUTDOWN_DRAIN_SECS` /
+# `WF_SERVER_STREAM_DETACH_POLICY` / `WF_SERVER_RUN_DETACH_IDLE_SECS` /
+# `WF_SERVER_RUN_DETACH_MAX_PER_PRINCIPAL` / `WF_DIRECTORY_ROOTS` env >
 # project `.wf/server/` > settings-dir `server/` > built-in defaults.
 #
 # A missing file falls back to the default; a present but invalid file
 # fails startup, so a typo never silently binds elsewhere.
 
 bind_addr = "127.0.0.1:3000"
+
+# Graceful-shutdown drain budget in seconds (0–120, default 10). After the
+# shutdown signal the server waits at most this long for in-flight HTTP
+# requests (SSE streams never end on their own) before force-closing them.
+# Tunnels are torn down only after the drain completes.
+# shutdown_drain_secs = 10
+
+# Detached-stream keepalive. `cancel` (default) aborts a run when its SSE
+# observer disconnects; `keep` lets the run finish and stay replayable via
+# `GET /agent-loops/{id}/attach`. Only `cancel`/`keep` are accepted.
+# stream_detach_policy = "cancel"
+# Reclaim a detached run with no subscriber after this idle window (300..86400s).
+# A run with a last event and no watcher is considered idle; persistent runs
+# are exempt.
+# run_detach_idle_secs = 1800
+# Per-principal cap on live detached runs (1..64). The principal is derived
+# from the presenting API-key hash, or the anonymous bucket without auth.
+# run_detach_max_per_principal = 4
 
 # Static frontend hosting for the single-host bundle (one port for pages
 # plus API). Disabled unless `static_dir` is set; API-only deployments

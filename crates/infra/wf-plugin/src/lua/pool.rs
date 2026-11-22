@@ -104,10 +104,9 @@ pub fn set_protection_hook(
                     max_kb
                 )));
             }
-            Ok(())
+            Ok(mlua::VmState::Continue)
         },
-    );
-    Ok(())
+    )
 }
 
 #[cfg(test)]

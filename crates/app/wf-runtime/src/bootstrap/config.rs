@@ -430,8 +430,8 @@ pub async fn resolve_infra_config(
         )
         .map_err(|e| RuntimeError::Config(format!("Invalid llm-profiles config: {e}")))?;
         config.llm.profiles = wf_config::llm::merge_llm_profiles(
-            file_profiles,
             std::mem::take(&mut config.llm.profiles),
+            file_profiles,
         );
 
         let file_definitions = wf_config::llm::load_llm_provider_definitions_config(
@@ -442,8 +442,8 @@ pub async fn resolve_infra_config(
         )
         .map_err(|e| RuntimeError::Config(format!("Invalid llm-providers config: {e}")))?;
         config.llm.provider_definitions = wf_config::llm::merge_llm_provider_definitions(
-            file_definitions,
             std::mem::take(&mut config.llm.provider_definitions),
+            file_definitions,
         );
     }
     // Credential store placement: with ambient disabled the store resolves

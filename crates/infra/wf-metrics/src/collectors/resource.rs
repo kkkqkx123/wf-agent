@@ -1,5 +1,5 @@
 use crate::collector::{BaseMetricCollector, CollectorConfig};
-use crate::constants::resource_metrics;
+use crate::constants::{detached_metrics, resource_metrics};
 use crate::labels;
 
 /// Process/entity resource sample consumed by the resource collector.
@@ -76,6 +76,29 @@ impl ResourceMetricsCollector {
         );
     }
 
+    // --- detached-run keepalive ---
+
+    /// Gauge of detached runs currently tracked (quota slots in use).
+    pub fn record_detached_active(&self, count: u64) {
+        self.inner
+            .set_gauge(detached_metrics::ACTIVE_RUNS, count as f64, labels(&[]));
+    }
+
+    /// A new detach was refused because the principal hit its cap.
+    pub fn record_detached_quota_rejection(&self) {
+        self.inner
+            .increment_counter(detached_metrics::QUOTA_REJECTIONS, labels(&[]));
+    }
+
+    /// An idle detached run was reclaimed (reaper or opportunistic sweep).
+    pub fn record_detached_reaped(&self, count: u64) {
+        self.inner.increment_counter_by(
+            detached_metrics::REAPED_RUNS,
+            count as f64,
+            labels(&[]),
+        );
+    }
+
     pub fn to_prometheus(&self) -> String {
         crate::formatter::format_collector_prometheus(&self.inner)
     }
@@ -142,5 +165,17 @@ mod tests {
         c.record_memory_usage(1024);
         let text = c.to_prometheus();
         assert!(text.contains(resource_metrics::MEMORY_USAGE));
+    }
+
+    #[test]
+    fn records_detached_keepalive_metrics() {
+        let c = collector();
+        c.record_detached_active(7);
+        c.record_detached_quota_rejection();
+        c.record_detached_reaped(3);
+        assert_eq!(gauge_value(&c, detached_metrics::ACTIVE_RUNS), 7.0);
+        let text = c.to_prometheus();
+        assert!(text.contains(detached_metrics::QUOTA_REJECTIONS));
+        assert!(text.contains(detached_metrics::REAPED_RUNS));
     }
 }

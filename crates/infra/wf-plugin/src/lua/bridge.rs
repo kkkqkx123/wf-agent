@@ -48,10 +48,10 @@ pub fn with_guarded_lua<T>(
     outcome
 }
 
-pub fn build_lua_context<'lua>(
-    lua: &'lua mlua::Lua,
+pub fn build_lua_context(
+    lua: &mlua::Lua,
     ctx: &crate::context::PluginContext,
-) -> PluginResult<mlua::Table<'lua>> {
+) -> PluginResult<mlua::Table> {
     let t = lua
         .create_table()
         .map_err(|e| PluginError::LuaError(format!("create context table: {}", e)))?;
@@ -62,8 +62,8 @@ pub fn build_lua_context<'lua>(
     Ok(t)
 }
 
-pub fn to_lua_value<'lua>(lua: &'lua mlua::Lua, value: &Value) -> mlua::Value<'lua> {
-    fn try_to_table<'l>(l: &'l mlua::Lua, v: &Value) -> Result<mlua::Value<'l>, mlua::Error> {
+pub fn to_lua_value(lua: &mlua::Lua, value: &Value) -> mlua::Value {
+    fn try_to_table(l: &mlua::Lua, v: &Value) -> Result<mlua::Value, mlua::Error> {
         match v {
             Value::Null => Ok(mlua::Value::Nil),
             Value::Bool(b) => Ok(mlua::Value::Boolean(*b)),
@@ -149,21 +149,17 @@ pub fn from_lua_value(value: mlua::Value) -> Value {
     try_convert(value).unwrap_or(Value::Null)
 }
 
-pub fn create_lua_handler_table<'lua>(lua: &'lua mlua::Lua) -> PluginResult<mlua::Table<'lua>> {
+pub fn create_lua_handler_table(lua: &mlua::Lua) -> PluginResult<mlua::Table> {
     lua.create_table()
         .map_err(|e| PluginError::LuaError(format!("create table: {}", e)))
 }
 
-pub fn set_table_str<'lua>(t: &mlua::Table<'lua>, k: &str, v: &str) -> PluginResult<()> {
+pub fn set_table_str(t: &mlua::Table, k: &str, v: &str) -> PluginResult<()> {
     t.set(k, v)
         .map_err(|e| PluginError::LuaError(format!("set {k}: {e}")))
 }
 
-pub fn set_table_value<'lua>(
-    t: &mlua::Table<'lua>,
-    k: &str,
-    v: mlua::Value<'lua>,
-) -> PluginResult<()> {
+pub fn set_table_value(t: &mlua::Table, k: &str, v: mlua::Value) -> PluginResult<()> {
     t.set(k, v)
         .map_err(|e| PluginError::LuaError(format!("set {k}: {e}")))
 }

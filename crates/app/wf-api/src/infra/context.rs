@@ -724,11 +724,53 @@ impl ApiContext {
         removed
     }
 
+    /// Gracefully converge every live execution into a terminal `Cancelled`
+    /// state as part of an active shutdown, then abort their driver tasks.
+    ///
+    /// A host shutdown already sets the `wf_common::shutdown` marker, so the
+    /// coordinator classifies the resulting stop as `Cancelled` rather than
+    /// `Failed`. Calling this before storage closes is what keeps a quit from
+    /// leaving `Running` records that look like errors or trigger retries.
+    /// Stopping is idempotent: already-terminal executions are skipped.
+    ///
+    /// This is intentionally async (unlike [`Self::shutdown`]): settling an
+    /// entity publishes its terminal event and releases the capacity permit.
+    pub async fn shutdown_executions(&self) {
+        // Agent loops: stop the entity (moves it to Cancelled and releases
+        // its gate permit) before aborting the background driver task.
+        let agent_ids: Vec<wf_types::Id> = self.agent_loops.get_all_ids();
+        for id in agent_ids {
+            if let Some(entity) = self.agent_loops.get(&id) {
+                if !LiveExecutionInstance::agent(entity.clone()).is_terminal() {
+                    let _ = entity.stop().await;
+                }
+            }
+            self.agent_loops.abort_task(&id);
+        }
+
+        // Workflows: same shape, keyed by string id in the shared registry.
+        for key in self.workflow_executions.list() {
+            if let Some(entity) = self.workflow_executions.get(&key) {
+                if !LiveExecutionInstance::workflow(entity.clone()).is_terminal() {
+                    let _ = entity.stop().await;
+                }
+            }
+        }
+
+        // Finally abort detached workflow `stream()` drivers and forwarders
+        // and stop the persistence bridge, matching the synchronous path.
+        self.execution_tasks.abort_all();
+        self.stop_persistence_bridge();
+    }
+
     /// Abort every tracked execution driver task (workflow `stream()`
     /// drivers and callback forwarders) still running. Synchronous; the
     /// authoritative teardown path for `Runtime::shutdown` and embedded
     /// consumers. Tasks hold an `Arc` to the context, so `Drop` alone cannot
     /// reach them while they are alive.
+    ///
+    /// Prefer [`Self::shutdown_executions`] during host shutdown so live runs
+    /// settle as `Cancelled` instead of being hard-aborted as `Running`.
     pub fn shutdown(&self) {
         self.execution_tasks.abort_all();
         self.stop_persistence_bridge();

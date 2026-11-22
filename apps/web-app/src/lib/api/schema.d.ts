@@ -612,6 +612,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-loops/{id}/attach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/agent-loops/{id}/attach
+         * @description Replay the retained event window, then follow live events until the
+         *     terminal event. Works whether the run is still active or already finished.
+         */
+        get: operations["handle_attach_loop"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-loops/{id}/cancel": {
         parameters: {
             query?: never;
@@ -757,6 +778,27 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_convert_pending_to_steering_loop"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-loops/{id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/agent-loops/{id}/dispatch
+         * @description Submit the run to the background, return the execution id immediately,
+         *     and keep the run alive independent of this request's connection.
+         */
+        post: operations["handle_dispatch_loop"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10391,6 +10433,15 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_DispatchView: {
+            /** @description Response for a dispatched (background) run. */
+            data?: {
+                detached: boolean;
+                execution_id: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_EntityMetadataDoc: {
             /**
              * @description Entity metadata document: a bare map of arbitrary JSON values, or
@@ -12657,6 +12708,11 @@ export interface components {
             directory: string;
             project: string;
             project_id: string;
+        };
+        /** @description Response for a dispatched (background) run. */
+        DispatchView: {
+            detached: boolean;
+            execution_id: string;
         };
         /**
          * @description One staged edit group (`wf_checkpoint::file::session::EditGroup`
@@ -17815,6 +17871,76 @@ export interface operations {
             };
         };
     };
+    handle_attach_loop: {
+        parameters: {
+            query?: {
+                /** @description Opaque replay cursor */
+                since?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Execution ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-sent events stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_cancel_loop: {
         parameters: {
             query?: never;
@@ -18687,6 +18813,97 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_dispatch_loop: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent loop ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunAgentLoopBody"];
+            };
+        };
+        responses: {
+            /** @description Run dispatched */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DispatchView"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent loop not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Detached quota reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Gateway timeout: upstream operation timed out */
             504: {

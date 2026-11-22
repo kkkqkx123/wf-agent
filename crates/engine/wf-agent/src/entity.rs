@@ -777,4 +777,21 @@ mod tests {
         assert!(first.starts_with("general-exec-1-"));
         assert!(second.starts_with("general-exec-1-"));
     }
+
+    /// A shutdown converge calls `stop()` on live entities, which must
+    /// settle them as `Cancelled` (not `Running`/`Failed`) so a host quit
+    /// leaves no spurious error records. This is the state move the graceful
+    /// shutdown path relies on.
+    #[tokio::test]
+    async fn stop_settles_live_entity_as_cancelled() {
+        use wf_execution_shared::types::execution_entity::ExecutionEntity;
+
+        let entity = AgentLoopEntity::new(Id::from("shutdown-cancel".to_string()));
+        assert!(!entity.is_cancelled());
+        entity.stop().await.expect("stop succeeds once");
+        assert!(entity.is_cancelled(), "stop must settle the entity as Cancelled");
+        // Idempotent: a second stop on a terminal entity is a no-op.
+        entity.stop().await.expect("second stop is idempotent");
+        assert!(entity.is_cancelled());
+    }
 }

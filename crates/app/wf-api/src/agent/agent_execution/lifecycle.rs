@@ -74,7 +74,21 @@ pub async fn run(
 /// returned stream.
 pub async fn stream(
     ctx: Arc<ApiContext>,
+    params: RunAgentLoopParams,
+) -> crate::infra::error::ApiResult<ExecutionEventStream> {
+    stream_with_policy(ctx, params, super::StreamDetachPolicy::Cancel).await
+}
+
+/// Run a streaming agent loop under an explicit detach policy.
+///
+/// With [`StreamDetachPolicy::Keep`] the forwarder keeps the engine task alive
+/// after the consumer disconnects, so the run completes and its events remain
+/// replayable. The caller still owns the returned stream for the lifetime of
+/// the SSE connection; dropping it no longer cancels the underlying run.
+pub async fn stream_with_policy(
+    ctx: Arc<ApiContext>,
     mut params: RunAgentLoopParams,
+    policy: super::StreamDetachPolicy,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
     params.input.message = wf_types::message::sanitize_user_text(&params.input.message);
     params.input.conversation =
@@ -96,13 +110,16 @@ pub async fn stream(
         .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
     let mut coordinator = coordinator_for(&ctx, &params, Some(agent_loop_id.as_str()));
     coordinator = coordinator.with_agent_loop_id(agent_loop_id.clone());
-    let stream = coordinator
+    let engine_stream = coordinator
         .execute_stream(params.config, params.input)
         .await;
-    Ok(
-        ExecutionEventStream::from_agent_stream(stream)
-            .with_persist(ctx, agent_loop_id.to_string()),
-    )
+    let stream = match policy {
+        super::StreamDetachPolicy::Keep => {
+            ExecutionEventStream::from_agent_stream_detached(engine_stream)
+        }
+        super::StreamDetachPolicy::Cancel => ExecutionEventStream::from_agent_stream(engine_stream),
+    };
+    Ok(stream.with_persist(ctx, agent_loop_id.to_string()))
 }
 
 /// Pause a running agent loop (checked between iterations).

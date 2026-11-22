@@ -118,6 +118,18 @@ pub mod resource_metrics {
     pub const EVENT_QUEUE_LENGTH: &str = "resource.event.queue.length";
 }
 
+/// Detached-run keepalive gauges/counters. Recorded through the resource
+/// collector so they surface in the existing Prometheus/JSON export without a
+/// separate endpoint. Label dimensions are bounded (no principal ids).
+pub mod detached_metrics {
+    /// Gauge: detached runs currently tracked (quota slots in use).
+    pub const ACTIVE_RUNS: &str = "detached.runs.active";
+    /// Counter: new detaches rejected by the per-principal quota.
+    pub const QUOTA_REJECTIONS: &str = "detached.quota.rejections";
+    /// Counter: idle runs reclaimed by the reaper / opportunistic sweep.
+    pub const REAPED_RUNS: &str = "detached.runs.reaped";
+}
+
 /// Storage I/O gauges recorded by the runtime resource sampler from the
 /// `wf-storage` per-operation instrumentation.
 pub mod storage_metrics {

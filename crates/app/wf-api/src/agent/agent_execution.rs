@@ -16,6 +16,43 @@ use crate::infra::error::ApiError;
 /// iterations). An elapse maps onto `ApiError::Timeout`.
 const DEFAULT_AGENT_TIMEOUT_MS: u64 = 90_000;
 
+/// What happens to a running execution when its SSE observer disconnects.
+///
+/// The server owns this policy: a client may express a preference but cannot
+/// pin server resources by itself. `Cancel` preserves the local single-user
+/// behavior (disconnect aborts the run); `Keep` detaches delivery from the
+/// engine so the run finishes and events stay replayable via `attach`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamDetachPolicy {
+    Cancel,
+    Keep,
+}
+
+impl Default for StreamDetachPolicy {
+    fn default() -> Self {
+        Self::Cancel
+    }
+}
+
+impl StreamDetachPolicy {
+    /// Parse the configured value; unknown strings are rejected at startup
+    /// rather than silently falling back to a different runtime behavior.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "cancel" => Some(Self::Cancel),
+            "keep" => Some(Self::Keep),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancel => "cancel",
+            Self::Keep => "keep",
+        }
+    }
+}
+
 /// Parameters for running an agent loop.
 #[derive(Clone)]
 pub struct RunAgentLoopParams {
@@ -78,7 +115,7 @@ pub use accessor::AgentStateAccessor;
 pub use checkpoint::{auto_resume, resume_from_checkpoint};
 pub use lifecycle::{
     append, cancel, convert_pending_to_steering, pause, resume, run, set_append_mode, status,
-    stream,
+    stream, stream_with_policy,
 };
 
 // helpers re-exported as pub(crate) maybe

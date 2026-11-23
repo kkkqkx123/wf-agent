@@ -1,8 +1,10 @@
 //! Shared transport helpers for concrete search backends.
 
+use std::collections::HashSet;
 use std::io;
 
-use wf_tools::{redact_transport_error, NetworkDomainPolicy, NetworkProxy};
+use reqwest::Url;
+use wf_tools::{redact_transport_error, NetworkDomainPolicy, NetworkProxy, WebSearchResult};
 
 /// Shared hard bound for search backend response bodies.
 pub const SEARCH_RESPONSE_LIMIT_BYTES: usize = 2_000_000;
@@ -45,9 +47,72 @@ pub fn enforce_endpoint(endpoint: &str, policy: &NetworkDomainPolicy) -> Result<
     policy.allows_url(endpoint)
 }
 
+/// Normalize one result URL into an http(s) absolute form. Unsafe schemes and
+/// malformed values are dropped instead of reaching the model as citations.
+pub fn normalize_result_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let candidate = raw
+        .strip_prefix("//")
+        .map(|rest| format!("https:{rest}"))
+        .unwrap_or_else(|| raw.to_string());
+    let url = Url::parse(&candidate).ok()?;
+    matches!(url.scheme(), "http" | "https").then(|| url.to_string())
+}
+
+/// Keep the first occurrence of each result URL up to `limit`.
+pub fn dedup_results(results: Vec<WebSearchResult>, limit: usize) -> Vec<WebSearchResult> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::with_capacity(results.len().min(limit));
+    for result in results {
+        if out.len() >= limit {
+            break;
+        }
+        if seen.insert(result.url.clone()) {
+            out.push(result);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_result_urls() {
+        assert_eq!(
+            normalize_result_url("//example.com/a").as_deref(),
+            Some("https://example.com/a")
+        );
+        assert_eq!(
+            normalize_result_url("https://example.com").as_deref(),
+            Some("https://example.com/")
+        );
+        assert_eq!(normalize_result_url("javascript:alert(1)"), None);
+        assert_eq!(normalize_result_url("not a url"), None);
+    }
+
+    #[test]
+    fn deduplicates_by_result_url() {
+        let hit = |url: &str| WebSearchResult {
+            title: "title".into(),
+            url: url.into(),
+            snippet: String::new(),
+        };
+        let results = dedup_results(
+            vec![
+                hit("https://example.com/a"),
+                hit("https://example.com/a"),
+                hit("https://example.com/b"),
+            ],
+            1,
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://example.com/a");
+    }
 
     #[test]
     fn endpoint_policy_rejects_unlisted_hosts() {

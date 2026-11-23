@@ -14,7 +14,10 @@ use wf_tools::{
     WebSearchQuery, WebSearchResponse,
 };
 
-use super::backend::{enforce_endpoint, SearchBackendClient, SEARCH_RESPONSE_LIMIT_BYTES};
+use super::backend::{
+    dedup_results, enforce_endpoint, normalize_result_url, SearchBackendClient,
+    SEARCH_RESPONSE_LIMIT_BYTES,
+};
 use super::duckduckgo::parse_duckduckgo_results;
 
 /// Search backend described entirely by configuration.
@@ -114,13 +117,15 @@ impl HttpSearchBackend {
                 }
                 (_, value) => value.to_string(),
             };
-            results.push(wf_tools::WebSearchResult {
-                title: title.to_string(),
-                url,
-                snippet: snippet.unwrap_or_default().to_string(),
-            });
+            if let Some(url) = normalize_result_url(&url) {
+                results.push(wf_tools::WebSearchResult {
+                    title: title.to_string(),
+                    url,
+                    snippet: snippet.unwrap_or_default().to_string(),
+                });
+            }
         }
-        Ok(results)
+        Ok(dedup_results(results, usize::MAX))
     }
 }
 

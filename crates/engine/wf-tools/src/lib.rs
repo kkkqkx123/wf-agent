@@ -27,6 +27,7 @@ pub mod tool_exposure;
 pub mod tool_failure;
 pub mod tool_output;
 pub mod tool_schema_formatter;
+pub mod web_text;
 
 pub use error::{ToolError, ToolResult};
 pub use filesystem::{FsToolConfig, FsToolHandlers};
@@ -61,3 +62,4 @@ pub use tool_exposure::{
     is_tool_callable, resolve_tool_exposure, AvailablePool, ExposureInput, ExposureResolution,
 };
 pub use tool_schema_formatter::ToolSchemaFormatter;
+pub use web_text::{decode_html_entities, html_to_text};

@@ -1,10 +1,10 @@
 //! Search backend registry and web-domain aggregation.
 
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use super::backend::dedup_results;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -13,7 +13,7 @@ use wf_config::processor::network::{max_results_cap, AggregationMode};
 use wf_metrics::ToolMetricsCollector;
 use wf_tools::{
     SearchBackend, SearchBackendInfo, WebSearchBackend, WebSearchError, WebSearchQuery,
-    WebSearchResponse, WebSearchResult,
+    WebSearchResponse,
 };
 
 type SelectedBackend = (String, Arc<dyn WebSearchBackend>);
@@ -451,7 +451,7 @@ impl WebSearchAggregator {
                 "all search backends failed".into(),
             ));
         }
-        let limited = dedup(hits, query.max_results.min(max_results_cap()));
+        let limited = dedup_results(hits, query.max_results.min(max_results_cap()));
         Ok(WebSearchResponse::with_metadata(
             limited,
             json!({ "backends": used, "backend_errors": errors }),
@@ -470,23 +470,10 @@ fn with_metadata(
     )
 }
 
-fn dedup(results: Vec<WebSearchResult>, limit: usize) -> Vec<WebSearchResult> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::with_capacity(limit);
-    for result in results {
-        if seen.insert(result.url.clone()) {
-            out.push(result);
-            if out.len() == limit {
-                break;
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_tools::WebSearchResult;
 
     struct StubBackend {
         id: String,

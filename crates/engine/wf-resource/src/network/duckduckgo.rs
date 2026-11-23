@@ -6,17 +6,29 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use regex::Regex;
 use wf_tools::{
-    redact_transport_error, NetworkDomainPolicy, NetworkProxy, SearchBackend, WebSearchError,
-    WebSearchQuery, WebSearchResponse, WebSearchResult,
+    decode_html_entities, html_to_text, redact_transport_error, NetworkDomainPolicy, NetworkProxy,
+    SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult,
 };
 
-use super::backend::{enforce_endpoint, SearchBackendClient, SEARCH_RESPONSE_LIMIT_BYTES};
+use super::backend::{
+    dedup_results, enforce_endpoint, normalize_result_url, SearchBackendClient,
+    SEARCH_RESPONSE_LIMIT_BYTES,
+};
 
 const DEFAULT_ENDPOINT: &str = "https://html.duckduckgo.com/html/";
 const DEFAULT_USER_AGENT: &str = "wf-agent/0.1 (Modular Agent Framework)";
 
-static TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<[^>]*>").expect("invariant: regex literal is a fixed pattern and must compile")
+static ANCHOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?is)<a\b([^>]*)>(.*?)</a\s*>")
+        .expect("invariant: fixed anchor pattern must compile")
+});
+static HREF_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?is)(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#)
+        .expect("invariant: fixed href pattern must compile")
+});
+static CLASS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?is)(?:^|\s)class\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#)
+        .expect("invariant: fixed class pattern must compile")
 });
 
 /// One built-in web search implementation over the HTML endpoint.
@@ -113,18 +125,6 @@ impl wf_tools::WebSearchBackend for DuckDuckGoBackend {
     }
 }
 
-fn unescape_entities(input: &str) -> String {
-    input
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#x27;", "'")
-        .replace("&#39;", "'")
-        .replace("&#x2F;", "/")
-        .replace("&nbsp;", " ")
-}
-
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -157,64 +157,75 @@ fn hex_val(byte: u8) -> Option<u8> {
     }
 }
 
-fn extract_search_url(href: &str) -> String {
-    if let Some(position) = href.find("uddg=") {
-        let rest = &href[position + 5..];
-        let end = rest.find('&').unwrap_or(rest.len());
-        return percent_decode(&rest[..end]);
+fn attr_value(regex: &Regex, attributes: &str) -> Option<String> {
+    let captures = regex.captures(attributes)?;
+    (1..=3)
+        .find_map(|index| captures.get(index))
+        .map(|value| value.as_str().to_string())
+}
+
+fn has_class(attributes: &str, name: &str) -> bool {
+    attr_value(&CLASS_RE, attributes)
+        .is_some_and(|value| value.split_whitespace().any(|token| token == name))
+}
+
+/// Resolve the destination hidden in a DuckDuckGo redirect link.
+fn extract_ddg_target(href: &str) -> String {
+    let is_redirect = href.starts_with("/l/") || href.contains("duckduckgo.com/l/");
+    if !is_redirect {
+        return href.to_string();
     }
-    href.to_string()
+    let Some((_, query)) = href.split_once('?') else {
+        return href.to_string();
+    };
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("uddg="))
+        .map(percent_decode)
+        .unwrap_or_else(|| href.to_string())
 }
 
-fn extract_attr(line: &str, attribute: &str) -> Option<String> {
-    let needle = format!("{}=\"", attribute);
-    let start = line.find(&needle)? + needle.len();
-    let rest = &line[start..];
-    let end = rest.find('"').unwrap_or(rest.len());
-    Some(rest[..end].to_string())
-}
-
-fn extract_tag_content(line: &str) -> String {
-    let start = line.find('>').map(|index| index + 1).unwrap_or(0);
-    let end = line.rfind('<').unwrap_or(line.len());
-    if end > start {
-        line[start..end].to_string()
-    } else {
-        String::new()
-    }
-}
-
-/// Parse DuckDuckGo HTML result markup into normalized hits.
+/// Parse DuckDuckGo result anchors into normalized hits.
 pub fn parse_duckduckgo_results(html: &str) -> Vec<WebSearchResult> {
     let mut results = Vec::new();
-    let mut current: Option<(String, String, String)> = None;
+    let mut current: Option<WebSearchResult> = None;
 
-    for line in html.split('\n') {
-        if line.contains("class=\"result__a\"") {
+    for captures in ANCHOR_RE.captures_iter(html) {
+        let attributes = captures.get(1).map_or("", |value| value.as_str());
+        let body = captures.get(2).map_or("", |value| value.as_str());
+
+        if has_class(attributes, "result__a") {
             if let Some(previous) = current.take() {
-                results.push(WebSearchResult {
-                    title: previous.0,
-                    url: previous.1,
-                    snippet: previous.2,
+                results.push(previous);
+            }
+            let href = attr_value(&HREF_RE, attributes)
+                .map(|value| decode_html_entities(&value))
+                .unwrap_or_default();
+            let target = extract_ddg_target(&href);
+            let target = if target.starts_with('/') {
+                format!("https://duckduckgo.com{target}")
+            } else {
+                target
+            };
+            if let Some(url) = normalize_result_url(&target) {
+                current = Some(WebSearchResult {
+                    title: html_to_text(body),
+                    url,
+                    snippet: String::new(),
                 });
             }
-            let href = extract_attr(line, "href").unwrap_or_default();
-            let title = unescape_entities(&TAG_RE.replace_all(&extract_tag_content(line), ""));
-            current = Some((title, extract_search_url(&href), String::new()));
-        } else if line.contains("class=\"result__snippet\"") {
+        } else if has_class(attributes, "result__snippet") {
             if let Some(entry) = current.as_mut() {
-                entry.2 = unescape_entities(&TAG_RE.replace_all(&extract_tag_content(line), ""));
+                if entry.snippet.is_empty() {
+                    entry.snippet = html_to_text(body);
+                }
             }
         }
     }
     if let Some(last) = current.take() {
-        results.push(WebSearchResult {
-            title: last.0,
-            url: last.1,
-            snippet: last.2,
-        });
+        results.push(last);
     }
-    results
+    dedup_results(results, usize::MAX)
 }
 
 #[cfg(test)]
@@ -239,12 +250,36 @@ mod tests {
         assert_eq!(results[0].title, "Rust Programming Language");
         assert_eq!(results[0].url, "https://example.com/rust");
         assert!(results[0].snippet.contains("reliable software"));
-        assert_eq!(results[1].url, "https://docs.rs");
+        assert_eq!(results[1].url, "https://docs.rs/");
+    }
+
+    #[test]
+    fn parses_multiline_attributes_and_single_quotes() {
+        let html = "<a\n  href='//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=x'\n  class='result__a'>A &amp; B</a>\n\
+                    <a class=\"result__snippet\">First <b>snippet</b> &#39;here&#39;</a>";
+        let results = parse_duckduckgo_results(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "A & B");
+        assert_eq!(results[0].url, "https://example.com/a");
+        assert_eq!(results[0].snippet, "First snippet 'here'");
     }
 
     #[test]
     fn parses_empty_html() {
         assert!(parse_duckduckgo_results("").is_empty());
+    }
+
+    #[test]
+    fn drops_unsafe_and_duplicate_result_urls() {
+        let html = "<a class=\"result__a\" href=\"javascript:alert(1)\">unsafe</a>\n\
+                    <a class=\"result__a\" href=\"https://example.com/a\">first</a>\n\
+                    <a class=\"result__snippet\">one</a>\n\
+                    <a class=\"result__a\" href=\"https://example.com/a\">duplicate</a>\n\
+                    <a class=\"result__snippet\">two</a>";
+        let results = parse_duckduckgo_results(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "first");
+        assert_eq!(results[0].snippet, "one");
     }
 
     #[test]

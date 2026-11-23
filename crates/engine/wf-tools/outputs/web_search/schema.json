@@ -10,14 +10,31 @@
         "type": "string",
         "description": "Optional search backend id; omit to use the configured aggregation"
       },
+      "freshness": {
+        "type": "string",
+        "description": "Optional recency filter forwarded to backends that support filtering"
+      },
+      "language": {
+        "type": "string",
+        "description": "Optional language code forwarded to backends that support filtering"
+      },
       "max_results": {
         "type": "number",
         "description": "Maximum number of results to return",
         "default": 5
       },
+      "page": {
+        "type": "number",
+        "description": "Optional 1-based result page",
+        "default": 1
+      },
       "query": {
         "type": "string",
         "description": "The search query"
+      },
+      "region": {
+        "type": "string",
+        "description": "Optional region code forwarded to backends that support filtering"
       }
     },
     "required": [

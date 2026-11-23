@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use regex::Regex;
 use wf_tools::{SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult};
 
-use super::backend::{ResolvedProxy, SearchBackendClient};
+use super::backend::{transport_error, ResolvedProxy, SearchBackendClient};
 
 const DEFAULT_ENDPOINT: &str = "https://html.duckduckgo.com/html/";
 const DEFAULT_USER_AGENT: &str = "wf-agent/0.1 (Modular Agent Framework)";
@@ -57,17 +57,19 @@ impl SearchBackend for DuckDuckGoBackend {
 impl wf_tools::WebSearchBackend for DuckDuckGoBackend {
     async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError> {
         let url = reqwest::Url::parse_with_params(&self.endpoint, &[("q", query.query.as_str())])
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?;
+            .map_err(|error| {
+            WebSearchError::Backend(self.id.clone(), transport_error(error))
+        })?;
         let html = self
             .client
             .get(url)
             .send()
             .await
             .and_then(|response| response.error_for_status())
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?
+            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?
             .text()
             .await
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?;
+            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
         let results = parse_duckduckgo_results(&html)
             .into_iter()
             .take(query.max_results)

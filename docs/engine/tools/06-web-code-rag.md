@@ -5,7 +5,7 @@
 
 ## 联网工具
 
-搜索与抓取各一。搜索由注入的 `WebSearchBackend` 执行：契约和通用处理器在 `wf-tools`，DuckDuckGo HTML 实现、声明式 HTTP 后端、后端注册表与聚合器在 `wf-resource`。默认配置只启用 DuckDuckGo，调用可指定 `backend` 覆盖；多后端时按配置聚合、去重并汇总部分失败。抓取仍由 `wf-tools` 直接执行，做响应体上限截断与 HTML 标签剥离。每个搜索后端独立设置代理，凭据由运行时在装配阶段从 credential store 解析。
+搜索与抓取各一。搜索由注入的 `WebSearchBackend` 执行：契约和通用处理器在 `wf-tools`，DuckDuckGo HTML 实现、声明式 HTTP 后端、后端注册表与聚合器在 `wf-resource`。默认配置只启用 DuckDuckGo，调用可指定 `backend` 覆盖；`all` 模式并发调用多个后端，按 URL 去重并汇总部分失败，`priority_first_success` 模式按注册顺序或 `default_backends` 顺序取第一个非空结果。抓取仍由 `wf-tools` 直接执行，做响应体上限截断与 HTML 标签剥离。每个搜索后端独立设置代理，凭据由运行时在装配阶段从 credential store 解析，传输错误统一脱敏。
 
 ## 代码上下文工具
 

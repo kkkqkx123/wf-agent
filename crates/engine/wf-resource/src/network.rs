@@ -10,7 +10,7 @@ pub mod duckduckgo;
 pub mod http_backend;
 pub mod registry;
 
-pub use backend::{ResolvedProxy, SearchBackendClient};
+pub use backend::{transport_error, ResolvedProxy, SearchBackendClient};
 pub use duckduckgo::DuckDuckGoBackend;
 pub use http_backend::HttpSearchBackend;
 pub use registry::{NetworkRegistry, WebSearchAggregator};
@@ -66,7 +66,7 @@ pub fn build_web_backends(
     }
 
     for backend in backends {
-        let backend: ArcBackend = Arc::from(backend);
+        let backend: Arc<dyn WebSearchBackend> = Arc::from(backend);
         registry.register_builtin(backend)?;
     }
     Ok(WebSearchAggregator::new(
@@ -76,5 +76,3 @@ pub fn build_web_backends(
         config.web_search.default_backends.clone(),
     ))
 }
-
-type ArcBackend = std::sync::Arc<dyn WebSearchBackend>;

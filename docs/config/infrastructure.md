@@ -97,11 +97,11 @@
 
 ### network 搜索后端
 
-`tools.toml [network.web_search]` 包含 `mode`（`all` 聚合并发配置的所有后端，或 `priority_first_success` 按优先级取第一个非空结果）、`timeout_ms`（整次聚合的硬上限）、`default_backends`（省略 `backend` 参数时使用的后端 id 列表，缺省为全部启用后端）以及 `backends` 数组。
+`tools.toml [network.web_search]` 包含 `mode`（`all` 并发调用配置的所有后端并汇总结果，或 `priority_first_success` 按优先级取第一个非空结果）、`timeout_ms`（整次聚合的硬上限）、`default_backends`（省略 `backend` 参数时使用的后端 id 列表，缺省为全部启用后端）以及 `backends` 数组。优先级默认来自后端注册顺序；声明 `default_backends` 时以该列表顺序为准。
 
 后端通过 `kind` 区分：`duckduckgo_html` 接受 `endpoint`、`user_agent`、超时与代理；`http` 接受 `request`（`method`、`url`、`headers`、`query`、`json_body`）与 `response`（`format`、`items_path`、`map`、`url_prefix`）。请求模板只支持 `$query` 和 `$max_results` 两个占位符；请求头中的密钥用环境变量占位符注入，配置校验拒绝未知占位符。
 
-每个后端可独立设置 `proxy.url` 与 `proxy.no_proxy`。代理 URL 只允许路由，不能内嵌 userinfo；凭据按路由从 credential store 读取并仅在构建该后端的 HTTP client 时临时组合。插件贡献的搜索后端使用 `tool` + `tool-type` 声明，并为工具标记 `search-backend:web`；联网插件限定 native 后端且需要 `network` 权限，插件停用时会同步注销其后端。
+每个后端可独立设置 `proxy.url` 与 `proxy.no_proxy`。代理 URL 只允许路由，不能内嵌 userinfo；凭据按路由从 credential store 读取并仅在构建该后端的 HTTP client 时临时组合，传输错误中的 userinfo 也会被脱敏。插件贡献的搜索后端使用 `tool` + `tool-type` 声明，并为工具标记 `search-backend:web`；联网插件限定 native 后端且需要 `network` 权限，插件停用时会同步注销其后端。权限不满足、缺少 executor 或后端 id 冲突会让插件激活失败，而不是静默跳过。
 
 ## limits.toml
 

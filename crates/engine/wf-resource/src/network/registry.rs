@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
+use futures::future::join_all;
 use serde_json::json;
 use wf_config::processor::network::{max_results_cap, AggregationMode};
 use wf_tools::{
@@ -237,14 +238,34 @@ impl WebSearchAggregator {
         query: WebSearchQuery,
     ) -> Result<WebSearchResponse, WebSearchError> {
         let selected = self.selected(query.backend.as_deref())?;
+        let outcomes = if self.mode == AggregationMode::All {
+            let calls = selected
+                .iter()
+                .map(|(id, backend)| {
+                    let call_query = query.clone();
+                    async move { (id.clone(), self.call(backend, &call_query).await) }
+                })
+                .collect::<Vec<_>>();
+            join_all(calls).await
+        } else {
+            let mut outcomes = Vec::with_capacity(selected.len());
+            for (id, backend) in selected {
+                let result = self.call(&backend, &query).await;
+                let succeeded = matches!(&result, Ok(response) if !response.results.is_empty());
+                outcomes.push((id, result));
+                if succeeded {
+                    break;
+                }
+            }
+            outcomes
+        };
+        let used: Vec<String> = outcomes.iter().map(|(id, _)| id.clone()).collect();
         let mut errors = Vec::new();
         let mut hits = Vec::new();
-        let mut used = Vec::new();
         let mut fallback: Option<WebSearchResponse> = None;
 
-        for (id, backend) in selected {
-            used.push(id.clone());
-            match self.call(&backend, &query).await {
+        for (id, result) in outcomes {
+            match result {
                 Ok(response) if !response.results.is_empty() => {
                     if self.mode == AggregationMode::PriorityFirstSuccess {
                         return Ok(with_metadata(response, &used, &errors));
@@ -316,18 +337,24 @@ mod tests {
         id: String,
         results: Vec<WebSearchResult>,
         fails: bool,
+        delay_ms: u64,
     }
 
     impl StubBackend {
         fn hit(id: &str) -> Self {
+            Self::with_url(id, &format!("https://example.com/{id}"))
+        }
+
+        fn with_url(id: &str, url: &str) -> Self {
             Self {
                 id: id.into(),
                 results: vec![WebSearchResult {
                     title: id.into(),
-                    url: format!("https://example.com/{id}"),
+                    url: url.into(),
                     snippet: String::new(),
                 }],
                 fails: false,
+                delay_ms: 0,
             }
         }
 
@@ -336,6 +363,14 @@ mod tests {
                 id: id.into(),
                 results: Vec::new(),
                 fails: true,
+                delay_ms: 0,
+            }
+        }
+
+        fn delayed(id: &str, delay_ms: u64) -> Self {
+            Self {
+                delay_ms,
+                ..Self::hit(id)
             }
         }
     }
@@ -355,6 +390,9 @@ mod tests {
             &self,
             _query: WebSearchQuery,
         ) -> Result<WebSearchResponse, WebSearchError> {
+            if self.delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            }
             if self.fails {
                 Err(WebSearchError::Backend(
                     self.id.clone(),
@@ -363,6 +401,35 @@ mod tests {
             } else {
                 Ok(WebSearchResponse::new(self.results.clone()))
             }
+        }
+    }
+
+    struct BarrierBackend {
+        id: String,
+        barrier: Arc<tokio::sync::Barrier>,
+    }
+
+    impl SearchBackend for BarrierBackend {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn kind(&self) -> &str {
+            "barrier"
+        }
+    }
+
+    #[async_trait]
+    impl WebSearchBackend for BarrierBackend {
+        async fn search(
+            &self,
+            _query: WebSearchQuery,
+        ) -> Result<WebSearchResponse, WebSearchError> {
+            self.barrier.wait().await;
+            Ok(WebSearchResponse::new(vec![WebSearchResult {
+                title: self.id.clone(),
+                url: format!("https://example.com/{}", self.id),
+                snippet: String::new(),
+            }]))
         }
     }
 
@@ -403,6 +470,99 @@ mod tests {
         call.backend = Some("b".into());
         let response = aggregator.search(call).await.expect("explicit backend");
         assert_eq!(response.results[0].title, "b");
+    }
+
+    #[tokio::test]
+    async fn all_mode_calls_backends_concurrently() {
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(BarrierBackend {
+                id: "a".into(),
+                barrier: barrier.clone(),
+            }))
+            .expect("register a");
+        registry
+            .register_builtin(Arc::new(BarrierBackend {
+                id: "b".into(),
+                barrier,
+            }))
+            .expect("register b");
+        let aggregator = WebSearchAggregator::new(registry, AggregationMode::All, 1000, None);
+        let response = aggregator
+            .search(query())
+            .await
+            .expect("both backends arrive");
+        assert_eq!(response.results.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn dedups_results_by_url() {
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubBackend::with_url(
+                "a",
+                "https://example.com/shared",
+            )))
+            .expect("register a");
+        registry
+            .register_builtin(Arc::new(StubBackend::with_url(
+                "b",
+                "https://example.com/shared",
+            )))
+            .expect("register b");
+        let aggregator = WebSearchAggregator::new(registry, AggregationMode::All, 1000, None);
+        let response = aggregator.search(query()).await.expect("dedup succeeds");
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].title, "a");
+        assert_eq!(response.metadata["backends"], json!(["a", "b"]));
+    }
+
+    #[tokio::test]
+    async fn priority_mode_stops_at_first_non_empty_result() {
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubBackend::failing("a")))
+            .expect("register a");
+        registry
+            .register_builtin(Arc::new(StubBackend::hit("b")))
+            .expect("register b");
+        let aggregator =
+            WebSearchAggregator::new(registry, AggregationMode::PriorityFirstSuccess, 1000, None);
+        let response = aggregator.search(query()).await.expect("priority success");
+        assert_eq!(response.results[0].title, "b");
+        assert_eq!(response.metadata["backends"], json!(["a", "b"]));
+        assert_eq!(response.metadata["backend_errors"][0]["backend"], "a");
+    }
+
+    #[tokio::test]
+    async fn default_backends_limits_selection() {
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubBackend::hit("a")))
+            .expect("register a");
+        registry
+            .register_builtin(Arc::new(StubBackend::hit("b")))
+            .expect("register b");
+        let aggregator =
+            WebSearchAggregator::new(registry, AggregationMode::All, 1000, Some(vec!["b".into()]));
+        let response = aggregator.search(query()).await.expect("subset succeeds");
+        assert_eq!(response.results[0].title, "b");
+        assert_eq!(response.metadata["backends"], json!(["b"]));
+    }
+
+    #[tokio::test]
+    async fn aggregation_timeout_aborts_slow_backends() {
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubBackend::delayed("slow", 200)))
+            .expect("register slow");
+        let aggregator = WebSearchAggregator::new(registry, AggregationMode::All, 20, None);
+        let error = aggregator
+            .search(query())
+            .await
+            .expect_err("slow backend exceeds aggregation timeout");
+        assert!(error.to_string().contains("aggregation timeout"));
     }
 
     #[test]

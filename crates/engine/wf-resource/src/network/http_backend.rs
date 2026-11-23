@@ -10,7 +10,7 @@ use wf_config::processor::network::{
 };
 use wf_tools::{SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse};
 
-use super::backend::{ResolvedProxy, SearchBackendClient};
+use super::backend::{transport_error, ResolvedProxy, SearchBackendClient};
 use super::duckduckgo::parse_duckduckgo_results;
 
 const MAX_RESPONSE_BYTES: usize = 2_000_000;
@@ -45,7 +45,7 @@ impl HttpSearchBackend {
         query: &WebSearchQuery,
     ) -> Result<reqwest::RequestBuilder, WebSearchError> {
         let mut url = reqwest::Url::parse(&self.request.url)
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?;
+            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
         {
             let mut pairs = url.query_pairs_mut();
             for (name, value) in &self.request.query {
@@ -58,8 +58,10 @@ impl HttpSearchBackend {
         };
         for (name, value) in &self.request.headers {
             let resolved = resolve_string(value, query);
-            let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
-                .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?;
+            let header_name =
+                reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
+                    WebSearchError::Backend(self.id.clone(), transport_error(error))
+                })?;
             let header_value = reqwest::header::HeaderValue::from_str(&resolved).map_err(|_| {
                 WebSearchError::Backend(self.id.clone(), "invalid header value".into())
             })?;
@@ -135,11 +137,11 @@ impl wf_tools::WebSearchBackend for HttpSearchBackend {
             .send()
             .await
             .and_then(|response| response.error_for_status())
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?;
+            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
         let bytes = response
             .bytes()
             .await
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), error.to_string()))?;
+            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
         if bytes.len() > MAX_RESPONSE_BYTES {
             return Err(WebSearchError::Backend(
                 self.id.clone(),

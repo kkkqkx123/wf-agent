@@ -21,7 +21,8 @@ wf-config = { path = "../../infra/wf-config" }
 reqwest.workspace = true
 llm-proxy = { package = "llm-suite-proxy", path = "../../infra/llm-suite/crates/llm-suite-proxy" }
 async-trait.workspace = true
-tokio = { workspace = true, features = ["time"] }
+futures.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
 regex.workspace = true
 
 [dev-dependencies]

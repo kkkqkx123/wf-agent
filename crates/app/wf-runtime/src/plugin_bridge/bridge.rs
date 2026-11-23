@@ -50,7 +50,7 @@ impl ContributionBridge for WfPluginBridge {
             plugin_id,
             manager,
             &self.plugin_registry,
-        );
+        )?;
         llm::sync_llm(&self.llm_gateway, plugin_id, manager)?;
         auth::sync_auth(&self.llm_gateway, plugin_id, manager)?;
         images::sync_images(plugin_id, manager);

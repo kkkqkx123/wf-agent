@@ -8,10 +8,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tracing::warn;
 use wf_plugin::{
-    ContributionManager, PluginPermission, PluginRegistry, PluginToolContext, PluginToolExecutor,
-    PluginType,
+    ContributionManager, PluginError, PluginPermission, PluginRegistry, PluginResult,
+    PluginToolContext, PluginToolExecutor, PluginType,
 };
 use wf_resource::NetworkRegistry;
 use wf_tools::{SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult};
@@ -88,25 +87,23 @@ fn is_web_backend(tool_id: &str, manager: &ContributionManager) -> bool {
         .is_some_and(|tags| tags.iter().any(|tag| tag == WEB_BACKEND_TAG))
 }
 
-fn plugin_can_search(plugin_id: &str, plugin_registry: &PluginRegistry) -> bool {
+fn validate_plugin_search(plugin_id: &str, plugin_registry: &PluginRegistry) -> PluginResult<()> {
     let Some(info) = plugin_registry.get(plugin_id) else {
-        return true;
+        return Ok(());
     };
     if info.manifest.plugin_type != Some(PluginType::Native) {
-        warn!(
-            plugin_id,
-            "plugin search backend requires the native backend"
-        );
-        return false;
+        return Err(PluginError::InvalidContribution {
+            plugin_id: plugin_id.into(),
+            message: "search backend requires the native plugin backend".into(),
+        });
     }
     if !info.permissions.contains(&PluginPermission::Network) {
-        warn!(
-            plugin_id,
-            "plugin search backend requires the network permission"
-        );
-        return false;
+        return Err(PluginError::PermissionDenied {
+            plugin_id: plugin_id.into(),
+            reason: "search backend requires the network permission".into(),
+        });
     }
-    true
+    Ok(())
 }
 
 pub(crate) fn sync_network(
@@ -114,31 +111,44 @@ pub(crate) fn sync_network(
     plugin_id: &str,
     manager: &ContributionManager,
     plugin_registry: &PluginRegistry,
-) {
-    if !plugin_can_search(plugin_id, plugin_registry) {
-        return;
+) -> PluginResult<()> {
+    validate_plugin_search(plugin_id, plugin_registry)?;
+    let backends: Vec<String> = manager
+        .all_tools()
+        .into_iter()
+        .filter(|(id, owner)| owner == plugin_id && is_web_backend(id, manager))
+        .map(|(id, _)| id)
+        .collect();
+    if backends.is_empty() {
+        return Ok(());
     }
     let executor = manager
         .all_tool_types()
         .into_iter()
         .filter(|(_, owner)| owner == plugin_id)
         .filter_map(|(name, _)| manager.get_tool_executor(&name))
-        .last();
-    let Some(executor) = executor else {
-        return;
-    };
-    for (id, owner) in manager.all_tools() {
-        if owner != plugin_id || !is_web_backend(&id, manager) {
-            continue;
-        }
+        .last()
+        .ok_or_else(|| PluginError::InvalidContribution {
+            plugin_id: plugin_id.into(),
+            message: format!(
+                "search backend tool '{}' has no tool-type executor",
+                backends[0]
+            ),
+        })?;
+    for id in backends {
         let backend = PluginWebSearchBackend {
             id: id.clone(),
             executor: executor.clone(),
         };
-        if let Err(error) = registry.register_plugin(plugin_id, Arc::new(backend)) {
-            warn!(plugin_id, backend = %id, error = %error, "plugin search backend was not registered");
-        }
+        registry
+            .register_plugin(plugin_id, Arc::new(backend))
+            .map_err(|error| {
+                PluginError::ContributionConflict(format!(
+                    "search backend id '{id}' cannot be registered by plugin '{plugin_id}': {error}"
+                ))
+            })?;
     }
+    Ok(())
 }
 
 pub(crate) fn unsync_network(registry: &NetworkRegistry, plugin_id: &str) {
@@ -151,6 +161,98 @@ pub(crate) fn unsync_network(registry: &NetworkRegistry, plugin_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_plugin::{ContributionRegistrar, PluginToolResult};
+    use wf_tools::WebSearchBackend;
+    use wf_types::tool::{Tool, ToolMetadata, ToolType};
+
+    struct SearchExecutor;
+
+    #[async_trait]
+    impl PluginToolExecutor for SearchExecutor {
+        async fn execute(&self, _ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
+            Ok(PluginToolResult {
+                result: json!({
+                    "results": [{ "title": "T", "url": "https://x", "snippet": "S" }]
+                }),
+            })
+        }
+    }
+
+    struct FailingExecutor;
+
+    #[async_trait]
+    impl PluginToolExecutor for FailingExecutor {
+        async fn execute(&self, _ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
+            Err(PluginError::Internal("executor failed".into()))
+        }
+    }
+
+    struct ConflictBackend;
+
+    impl SearchBackend for ConflictBackend {
+        fn id(&self) -> &str {
+            "p1.search"
+        }
+        fn kind(&self) -> &str {
+            "test"
+        }
+    }
+
+    #[async_trait]
+    impl WebSearchBackend for ConflictBackend {
+        async fn search(
+            &self,
+            _query: WebSearchQuery,
+        ) -> Result<WebSearchResponse, WebSearchError> {
+            Ok(WebSearchResponse::default())
+        }
+    }
+
+    fn tagged_tool(id: &str) -> Tool {
+        Tool {
+            id: id.into(),
+            name: format!("{id} tool"),
+            description: "plugin search backend".into(),
+            tool_type: ToolType::Stateless,
+            parameters: None,
+            metadata: Some(ToolMetadata {
+                category: None,
+                tags: Some(vec![WEB_BACKEND_TAG.into()]),
+                documentation_url: None,
+                custom_fields: None,
+                risk_level: None,
+                auto_approvable: None,
+                create_checkpoint: None,
+                exposure: None,
+            }),
+            config: None,
+            enabled: None,
+            strict: None,
+            default_timeout_ms: None,
+        }
+    }
+
+    fn manager_with_search(plugin_id: &str, tool_id: &str) -> ContributionManager {
+        let manager = ContributionManager::new();
+        manager.start_registration(plugin_id);
+        manager
+            .as_registrar()
+            .register_tool_type("p1.search_type", Arc::new(SearchExecutor))
+            .expect("register executor");
+        manager
+            .as_registrar()
+            .register_tool(tool_id, tagged_tool(tool_id))
+            .expect("register tagged tool");
+        manager
+    }
+
+    fn query() -> WebSearchQuery {
+        WebSearchQuery {
+            query: "rust".into(),
+            max_results: 5,
+            backend: None,
+        }
+    }
 
     #[test]
     fn parses_valid_plugin_results() {
@@ -162,5 +264,43 @@ mod tests {
     #[test]
     fn rejects_missing_results_array() {
         assert!(parse_plugin_results("p", &json!({})).is_err());
+    }
+
+    #[test]
+    fn sync_registers_and_unsync_removes_plugin_backend() {
+        let registry = NetworkRegistry::new();
+        let manager = manager_with_search("p1", "p1.search");
+        let plugins = PluginRegistry::new();
+
+        sync_network(&registry, "p1", &manager, &plugins).expect("sync succeeds");
+        assert!(registry.has("p1.search"));
+
+        unsync_network(&registry, "p1");
+        assert!(!registry.has("p1.search"));
+    }
+
+    #[test]
+    fn duplicate_backend_id_fails_plugin_sync() {
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(ConflictBackend))
+            .expect("register existing backend");
+        let manager = manager_with_search("p1", "p1.search");
+        let plugins = PluginRegistry::new();
+
+        assert!(sync_network(&registry, "p1", &manager, &plugins).is_err());
+    }
+
+    #[tokio::test]
+    async fn executor_failure_is_rejected() {
+        let backend = PluginWebSearchBackend {
+            id: "failing".into(),
+            executor: Arc::new(FailingExecutor),
+        };
+        let error = backend
+            .search(query())
+            .await
+            .expect_err("executor failure propagates");
+        assert!(error.to_string().contains("executor failed"));
     }
 }

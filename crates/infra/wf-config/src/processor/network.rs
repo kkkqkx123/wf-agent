@@ -384,12 +384,6 @@ pub fn transform_network_config(config: NetworkConfig) -> ConfigResult<NetworkCo
     Ok(config)
 }
 
-/// Exposed for the declarative backend implementation so request templates
-/// use one placeholder vocabulary.
-pub fn allowed_placeholders() -> &'static [&'static str] {
-    &["query", "max_results"]
-}
-
 /// Exposed for result limiting so config and tool agree on one bound.
 pub const fn max_results_cap() -> usize {
     MAX_RESULTS_CAP
@@ -436,5 +430,47 @@ mod tests {
     fn unknown_placeholder_is_rejected() {
         assert!(validate_placeholders("https://x/?q=$query&k=$secret", "query").is_err());
         assert!(validate_placeholders("https://x/?q=$query&n=$max_results", "query").is_ok());
+    }
+
+    #[test]
+    fn unknown_backend_kind_is_rejected() {
+        let config = serde_json::json!({
+            "web_search": {
+                "backends": [{ "id": "x", "kind": "unknown" }]
+            }
+        });
+        assert!(serde_json::from_value::<NetworkConfig>(config).is_err());
+    }
+
+    #[test]
+    fn json_backend_requires_response_mapping() {
+        let mut config = NetworkConfig::default();
+        config.web_search.backends = vec![WebSearchBackendConfig::Http {
+            id: "api".into(),
+            enabled: true,
+            timeout_ms: DEFAULT_TIMEOUT_MS,
+            proxy: None,
+            request: Box::new(HttpRequestConfig {
+                url: "https://api.example.com".into(),
+                method: HttpMethod::Get,
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                json_body: None,
+            }),
+            response: Box::new(HttpResponseConfig {
+                format: HttpResponseFormat::Json,
+                items_path: Some("results".into()),
+                map: None,
+                url_prefix: None,
+            }),
+        }];
+        assert!(validate_network_config(&config).is_err());
+    }
+
+    #[test]
+    fn unknown_default_backend_is_rejected() {
+        let mut config = NetworkConfig::default();
+        config.web_search.default_backends = Some(vec!["missing".into()]);
+        assert!(validate_network_config(&config).is_err());
     }
 }

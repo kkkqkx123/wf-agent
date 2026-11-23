@@ -4,10 +4,12 @@
 //! configured proxy. Tests here replay it locally so the parsed contract is
 //! stable without depending on the live search service.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use wf_config::processor::network::{
@@ -38,8 +40,8 @@ fn expected() -> ExpectedFixture {
 
 #[test]
 fn real_html_matches_expected_results() {
-    let html = fs::read_to_string(fixture_path("duckduckgo.html"))
-        .expect("HTML fixture must be readable");
+    let html =
+        fs::read_to_string(fixture_path("duckduckgo.html")).expect("HTML fixture must be readable");
     let fixture = expected();
     assert_eq!(fixture.endpoint, "https://html.duckduckgo.com/html/");
     assert_eq!(fixture.query, "Rust async programming");
@@ -50,10 +52,11 @@ fn real_html_matches_expected_results() {
 
 #[tokio::test]
 async fn declarative_backend_replays_fixture_over_local_http() {
-    let html = fs::read(fixture_path("duckduckgo.html"))
-        .expect("HTML fixture must be readable");
+    let html = fs::read(fixture_path("duckduckgo.html")).expect("HTML fixture must be readable");
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local fixture server");
-    let address = listener.local_addr().expect("resolve local fixture address");
+    let address = listener
+        .local_addr()
+        .expect("resolve local fixture address");
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let mut stream = stream;
@@ -96,4 +99,98 @@ async fn declarative_backend_replays_fixture_over_local_http() {
         .await
         .expect("fixture search succeeds");
     assert_eq!(response.results, expected().results);
+}
+
+fn read_request(stream: &mut TcpStream) -> String {
+    let mut data = Vec::new();
+    let mut buffer = [0u8; 1024];
+    loop {
+        let count = stream.read(&mut buffer).expect("read mock request");
+        if count == 0 {
+            break;
+        }
+        data.extend_from_slice(&buffer[..count]);
+        let text = String::from_utf8_lossy(&data);
+        let Some(header_end) = text.find("\r\n\r\n") else {
+            continue;
+        };
+        let content_length = text.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())?
+        });
+        if data.len() >= header_end + 4 + content_length.unwrap_or(0) {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&data).into_owned()
+}
+
+#[tokio::test]
+async fn declarative_backend_renders_post_request_and_maps_json() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local JSON server");
+    let address = listener.local_addr().expect("resolve local JSON address");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let request = read_request(&mut stream);
+            captured.lock().expect("capture request").push(request);
+            let body = br#"{"data":{"items":[{"title":"T","url":"/p","snippet":"S"}]}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.write_all(body);
+        }
+    });
+
+    let backend = HttpSearchBackend::new(
+        "json_api".into(),
+        HttpRequestConfig {
+            url: format!("http://{address}/search?fixed=1"),
+            method: HttpMethod::Post,
+            headers: BTreeMap::from([("X-Query".to_string(), "$query".to_string())]),
+            query: BTreeMap::from([
+                ("q".to_string(), "$query".to_string()),
+                ("n".to_string(), "$max_results".to_string()),
+            ]),
+            json_body: Some(serde_json::json!({
+                "q": "$query",
+                "count": "$max_results"
+            })),
+        },
+        HttpResponseConfig {
+            format: HttpResponseFormat::Json,
+            items_path: Some("data.items".into()),
+            map: Some(wf_config::processor::network::ResultFieldMap {
+                title: "title".into(),
+                url: "url".into(),
+                snippet: "snippet".into(),
+            }),
+            url_prefix: Some("https://example.com".into()),
+        },
+        5_000,
+        ResolvedProxy::default(),
+    )
+    .expect("JSON backend builds");
+    let response = backend
+        .search(WebSearchQuery {
+            query: "rust async".into(),
+            max_results: 3,
+            backend: None,
+        })
+        .await
+        .expect("JSON search succeeds");
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(response.results[0].url, "https://example.com/p");
+    assert_eq!(response.results[0].snippet, "S");
+    let captured = requests.lock().expect("read captured requests");
+    let request = captured.first().expect("request captured");
+    assert!(request.starts_with("POST /search?fixed=1&q=rust+async&n=3 HTTP/1.1"));
+    assert!(request.to_ascii_lowercase().contains("x-query: rust async"));
+    assert!(request.contains("\"q\":\"rust async\""));
+    assert!(request.contains("\"count\":\"3\""));
 }

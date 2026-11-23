@@ -2,7 +2,7 @@
 Fetch the content of a web page. Returns the page content in the requested format.
 
 tips:
-- Prefer markdown format for readability
+- Prefer text for readability; use html when markup is needed
 
 examples:
 - web_fetch("https://example.com")

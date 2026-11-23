@@ -19,6 +19,10 @@ pub struct ToolApprovalRequestData {
     pub parameters: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk_level: Option<String>,
+    /// Host-resolved network endpoints this tool will contact, supplied when
+    /// the tool schema has no URL parameter to derive a domain from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_domains: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_queue: Option<Vec<PendingToolCallInfo>>,
     #[serde(skip_serializing_if = "Option::is_none")]

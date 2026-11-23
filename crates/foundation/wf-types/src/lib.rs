@@ -60,9 +60,9 @@ pub use validation::*;
 
 pub use agent_execution::AgentExecution;
 pub use conversation::ConversationTree;
-pub use conversation::Node as ConversationNode;
 pub use conversation::GraftOrigin;
 pub use conversation::MessageRef;
+pub use conversation::Node as ConversationNode;
 pub use conversation::NodeId;
 pub use conversation::NodeKind;
 pub use conversation::OpRecord;
@@ -74,7 +74,9 @@ pub use conversation::ReplyOrigin;
 pub use conversation::ReplyState;
 pub use conversation::SegmentReply;
 pub use conversation::TreeKind;
-pub use conversation::{CONVERSATION_MAX_OP_RECORDS, CONVERSATION_ROOT, CONVERSATION_TREE_SCHEMA_VERSION};
+pub use conversation::{
+    CONVERSATION_MAX_OP_RECORDS, CONVERSATION_ROOT, CONVERSATION_TREE_SCHEMA_VERSION,
+};
 pub use execution::ExecutionStatus;
 pub use storage::AgentLoopStorageMetadata;
 pub use storage::AgentProfileStorageMetadata;

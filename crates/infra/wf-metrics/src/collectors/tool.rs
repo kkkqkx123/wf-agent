@@ -110,6 +110,25 @@ impl ToolMetricsCollector {
         self.record_discovery(tool_name, "activation");
     }
 
+    /// Record one concrete search backend attempt with a low-cardinality
+    /// backend label; failures use a separate error counter.
+    pub fn record_backend_call(&self, backend: &str, success: bool, duration_ms: f64) {
+        let backend_labels = labels(&[("backend", backend)]);
+        self.inner
+            .increment_counter(tool_metrics::BACKEND_CALL_COUNT, backend_labels.clone());
+        self.inner.observe_histogram(
+            tool_metrics::BACKEND_CALL_DURATION,
+            duration_ms,
+            backend_labels,
+        );
+        if !success {
+            self.inner.increment_counter(
+                tool_metrics::BACKEND_ERROR_COUNT,
+                labels(&[("backend", backend)]),
+            );
+        }
+    }
+
     pub fn usage_stats(&self) -> ToolUsageStats {
         let total = crate::collectors::counter_total(&self.inner, tool_metrics::CALL_COUNT);
         let duration = crate::collectors::latest(&self.inner, tool_metrics::CALL_DURATION);

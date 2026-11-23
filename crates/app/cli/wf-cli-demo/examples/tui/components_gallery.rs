@@ -376,6 +376,7 @@ fn approval_request() -> ToolApprovalRequestData {
         tool_description: Some("Write a file into the workspace".into()),
         parameters: json!({ "path": "src/demo.rs", "content": "fn main() {}" }),
         risk_level: Some("low".into()),
+        resolved_domains: None,
         pending_queue: None,
         batch_id: None,
         tool_index: None,

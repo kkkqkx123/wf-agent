@@ -734,7 +734,6 @@ pub fn graft_index(graft: &ConversationTree) -> DigestIndex {
     digest::build_with_seed(graft, seed)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,7 +757,13 @@ mod tests {
         let base_before = index.base(&b).expect("base").to_string();
         let out_before = index.out(&b).expect("out").to_string();
 
-        let premise = ConversationNode::premise("p1".to_string(), "root".to_string(), 0, reference("use vim"), 1);
+        let premise = ConversationNode::premise(
+            "p1".to_string(),
+            "root".to_string(),
+            0,
+            reference("use vim"),
+            1,
+        );
         let outcome = TreeEditor::new(&mut tree, &mut index, 1)
             .insert_before(&a, premise)
             .expect("insert");

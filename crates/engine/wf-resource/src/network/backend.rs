@@ -1,55 +1,48 @@
 //! Shared transport helpers for concrete search backends.
 
-use std::sync::LazyLock;
+use std::io;
 
-use regex::Regex;
+use wf_tools::{redact_transport_error, NetworkDomainPolicy, NetworkProxy};
 
-/// Runtime proxy address, composed with credentials by the host. The URL is
-/// used only while constructing a client; it is never persisted here.
-#[derive(Debug, Clone, Default)]
-pub struct ResolvedProxy {
-    pub url: Option<String>,
-    pub no_proxy: Vec<String>,
-}
-
-impl ResolvedProxy {
-    pub fn new(url: Option<String>, no_proxy: Vec<String>) -> Self {
-        Self { url, no_proxy }
-    }
-}
-
-static USERINFO_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@")
-        .expect("invariant: fixed userinfo pattern must compile")
-});
-
-/// Format a transport failure for tool output without exposing proxy
-/// userinfo. The composed proxy URL is transient, but transport libraries may
-/// include it in their error chain.
-pub fn transport_error(error: impl std::fmt::Display) -> String {
-    let text = error.to_string();
-    USERINFO_RE.replace_all(&text, "$1[redacted]@").into_owned()
-}
+/// Shared hard bound for search backend response bodies.
+pub const SEARCH_RESPONSE_LIMIT_BYTES: usize = 2_000_000;
 
 /// Builds one reqwest client per backend, with that backend's own timeout,
-/// user agent and proxy route.
+/// user agent, proxy route and domain policy.
 pub struct SearchBackendClient;
 
 impl SearchBackendClient {
     pub fn build(
         timeout_ms: u64,
         user_agent: &str,
-        proxy: &ResolvedProxy,
+        proxy: &NetworkProxy,
+        domain_policy: &NetworkDomainPolicy,
     ) -> Result<reqwest::Client, String> {
+        let policy = domain_policy.clone();
         let mut builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
-            .user_agent(user_agent);
+            .user_agent(user_agent)
+            .redirect(reqwest::redirect::Policy::custom(
+                move |attempt| match policy.allows_url(attempt.url().as_str()) {
+                    Ok(()) => attempt.follow(),
+                    Err(reason) => {
+                        attempt.error(io::Error::new(io::ErrorKind::PermissionDenied, reason))
+                    }
+                },
+            ));
         if let Some(url) = proxy.url.as_deref() {
-            let route = llm_proxy::build_proxy(url, &proxy.no_proxy).map_err(transport_error)?;
+            let route =
+                llm_proxy::build_proxy(url, &proxy.no_proxy).map_err(redact_transport_error)?;
             builder = builder.proxy(route);
         }
-        builder.build().map_err(transport_error)
+        builder.build().map_err(redact_transport_error)
     }
+}
+
+/// Validate a configured endpoint against the host domain policy before a
+/// request is dispatched.
+pub fn enforce_endpoint(endpoint: &str, policy: &NetworkDomainPolicy) -> Result<(), String> {
+    policy.allows_url(endpoint)
 }
 
 #[cfg(test)]
@@ -57,13 +50,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn redacts_proxy_userinfo_in_transport_errors() {
-        let message = transport_error(
-            "connect failed: http://user:secret@proxy.example.com:3128 while sending request",
-        );
-        assert_eq!(
-            message,
-            "connect failed: http://[redacted]@proxy.example.com:3128 while sending request"
-        );
+    fn endpoint_policy_rejects_unlisted_hosts() {
+        let policy = NetworkDomainPolicy::new(Some(vec!["example.com".into()]), None);
+        assert!(enforce_endpoint("https://api.example.com/search", &policy).is_ok());
+        assert!(enforce_endpoint("https://api.other.test/search", &policy).is_err());
     }
 }

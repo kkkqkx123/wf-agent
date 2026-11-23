@@ -1,0 +1,21 @@
+{
+  "description": "List configured web search backends and their capabilities.",
+  "enabled": true,
+  "id": "web_search_backends",
+  "metadata": {
+    "category": "web",
+    "risk_level": "read_only",
+    "tags": [
+      "search",
+      "discovery"
+    ]
+  },
+  "name": "web_search_backends",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

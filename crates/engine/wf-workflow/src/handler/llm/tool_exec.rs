@@ -288,6 +288,10 @@ pub async fn execute_tool_call(
                 tool_description: tool_description.clone(),
                 parameters: args.clone(),
                 risk_level: risk_level.clone(),
+                resolved_domains: registered_tool
+                    .as_ref()
+                    .map(|tool| wf_tools::network_domains(tool))
+                    .filter(|domains| !domains.is_empty()),
                 pending_queue: batch.map(|b| b.pending_queue.clone()),
                 batch_id: batch.map(|b| b.batch_id.clone()),
                 tool_index: batch.map(|b| b.index),

@@ -32,4 +32,6 @@ pub use dirty::{evaluate as evaluate_dirty, DirtyEntry, DirtyList};
 pub use invariants::{validate as validate_tree, TreeError, MAX_TREE_DEPTH, MAX_TREE_NODES};
 pub use projection::{project, ProjectedRef, ProjectedRole};
 pub use step::{plan as plan_steps, still_stale, StepPlan, StepStop};
-pub use surgery::{graft_index, AttachMode, AttachOutcome, DetachOutcome, SurgeryOutcome, TreeEditor};
+pub use surgery::{
+    graft_index, AttachMode, AttachOutcome, DetachOutcome, SurgeryOutcome, TreeEditor,
+};

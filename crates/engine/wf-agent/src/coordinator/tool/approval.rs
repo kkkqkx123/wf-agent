@@ -67,6 +67,10 @@ impl ToolApprovalGate {
                 tool_description: tool_description_of(registry, &tc.function.name),
                 parameters: serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null),
                 risk_level: risk_level_of(registry, &tc.function.name),
+                resolved_domains: registry
+                    .get_tool(&tc.function.name)
+                    .map(|tool| wf_tools::network_domains(&tool))
+                    .filter(|domains| !domains.is_empty()),
                 pending_queue: None,
                 batch_id: None,
                 tool_index: None,

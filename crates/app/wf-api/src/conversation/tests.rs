@@ -127,9 +127,14 @@ async fn an_in_place_edit_makes_every_answer_below_it_stale() {
         .expect("dirty")
         .is_empty());
 
-    write_user_content(&ctx, surgery(&session_id), &first.node_id, "question one, fixed")
-        .await
-        .expect("in-place edit");
+    write_user_content(
+        &ctx,
+        surgery(&session_id),
+        &first.node_id,
+        "question one, fixed",
+    )
+    .await
+    .expect("in-place edit");
 
     let dirty = dirty_list(&ctx, &session_id, None).await.expect("dirty");
     let stale: Vec<&str> = dirty.entries.iter().map(|e| e.node_id.as_str()).collect();
@@ -144,9 +149,14 @@ async fn a_branch_edit_leaves_the_original_branch_fresh() {
     let session_id = session(&ctx).await;
     let first = turn(&ctx, &session_id, "question one").await;
 
-    let branch = edit_branch(&ctx, surgery(&session_id), &first.node_id, "another phrasing")
-        .await
-        .expect("branch edit");
+    let branch = edit_branch(
+        &ctx,
+        surgery(&session_id),
+        &first.node_id,
+        "another phrasing",
+    )
+    .await
+    .expect("branch edit");
 
     let snapshot = snapshot(&ctx, &session_id, None).await.expect("snapshot");
     assert_eq!(snapshot.nodes.len(), 2, "a sibling, not a rewrite");
@@ -169,9 +179,14 @@ async fn a_single_step_regenerates_one_answer_at_a_time() {
     let first = turn(&ctx, &session_id, "question one").await;
     turn(&ctx, &session_id, "question two").await;
 
-    write_user_content(&ctx, surgery(&session_id), &first.node_id, "question one, fixed")
-        .await
-        .expect("in-place edit");
+    write_user_content(
+        &ctx,
+        surgery(&session_id),
+        &first.node_id,
+        "question one, fixed",
+    )
+    .await
+    .expect("in-place edit");
     assert_eq!(
         dirty_list(&ctx, &session_id, None)
             .await

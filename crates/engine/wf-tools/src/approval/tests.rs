@@ -3,7 +3,7 @@
 
 use super::*;
 use serde_json::json;
-use wf_types::tool::approval::ApprovalCategories;
+use wf_types::tool::approval::{ApprovalCategories, NetworkApprovalSettings};
 use wf_types::tool::file_permission::{FileOperationType, FilePermissionSettings};
 
 fn make_request(id: &str, name: &str, risk: Option<&str>) -> ToolApprovalRequestData {
@@ -13,6 +13,7 @@ fn make_request(id: &str, name: &str, risk: Option<&str>) -> ToolApprovalRequest
         tool_description: None,
         parameters: json!({}),
         risk_level: risk.map(String::from),
+        resolved_domains: None,
         pending_queue: None,
         batch_id: None,
         tool_index: None,
@@ -27,6 +28,7 @@ fn make_execute_request(id: &str, command: &str) -> ToolApprovalRequestData {
         tool_description: None,
         parameters: json!({ "command": command }),
         risk_level: Some("execute".into()),
+        resolved_domains: None,
         pending_queue: None,
         batch_id: None,
         tool_index: None,
@@ -556,6 +558,35 @@ fn test_network_domain_suffix_match() {
     ));
     assert!(!domain_matches("not-evil.example", "evil.example"));
     assert!(!domain_matches("evil.example.evil.com", "evil.example"));
+}
+
+#[test]
+fn test_network_resolved_domains_drive_approval() {
+    let options = ToolApprovalOptions {
+        auto_approval_enabled: Some(true),
+        categories: Some(ApprovalCategories {
+            always_allow_network: Some(true),
+            ..ApprovalCategories::default()
+        }),
+        network: Some(NetworkApprovalSettings {
+            allowed_domains: Some(vec!["allowed.example".into()]),
+            denied_domains: None,
+        }),
+        ..ToolApprovalOptions::empty()
+    };
+    let coordinator = ToolApprovalCoordinator::new(options);
+    let mut request = make_request("net-1", "web_search", Some("network"));
+    request.resolved_domains = Some(vec!["html.duckduckgo.com".into()]);
+    assert!(matches!(
+        coordinator.check_approval(&request, None, None),
+        ApprovalDecision::Ask
+    ));
+
+    request.resolved_domains = Some(vec!["api.allowed.example".into()]);
+    assert_eq!(
+        coordinator.check_approval(&request, None, None),
+        ApprovalDecision::Approve
+    );
 }
 
 #[test]

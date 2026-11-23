@@ -4,16 +4,18 @@
 //! placeholders. Complex signing or pagination belongs in a plugin backend.
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use serde_json::Value;
 use wf_config::processor::network::{
     HttpMethod, HttpRequestConfig, HttpResponseConfig, HttpResponseFormat,
 };
-use wf_tools::{SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse};
+use wf_tools::{
+    redact_transport_error, NetworkDomainPolicy, NetworkProxy, SearchBackend, WebSearchError,
+    WebSearchQuery, WebSearchResponse,
+};
 
-use super::backend::{transport_error, ResolvedProxy, SearchBackendClient};
+use super::backend::{enforce_endpoint, SearchBackendClient, SEARCH_RESPONSE_LIMIT_BYTES};
 use super::duckduckgo::parse_duckduckgo_results;
-
-const MAX_RESPONSE_BYTES: usize = 2_000_000;
 
 /// Search backend described entirely by configuration.
 pub struct HttpSearchBackend {
@@ -29,9 +31,11 @@ impl HttpSearchBackend {
         request: HttpRequestConfig,
         response: HttpResponseConfig,
         timeout_ms: u64,
-        proxy: ResolvedProxy,
+        proxy: NetworkProxy,
+        domain_policy: NetworkDomainPolicy,
     ) -> Result<Self, String> {
-        let client = SearchBackendClient::build(timeout_ms, "", &proxy)?;
+        enforce_endpoint(&request.url, &domain_policy)?;
+        let client = SearchBackendClient::build(timeout_ms, "", &proxy, &domain_policy)?;
         Ok(Self {
             id,
             request,
@@ -44,8 +48,9 @@ impl HttpSearchBackend {
         &self,
         query: &WebSearchQuery,
     ) -> Result<reqwest::RequestBuilder, WebSearchError> {
-        let mut url = reqwest::Url::parse(&self.request.url)
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
+        let mut url = reqwest::Url::parse(&self.request.url).map_err(|error| {
+            WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
+        })?;
         {
             let mut pairs = url.query_pairs_mut();
             for (name, value) in &self.request.query {
@@ -60,7 +65,7 @@ impl HttpSearchBackend {
             let resolved = resolve_string(value, query);
             let header_name =
                 reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
-                    WebSearchError::Backend(self.id.clone(), transport_error(error))
+                    WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
                 })?;
             let header_value = reqwest::header::HeaderValue::from_str(&resolved).map_err(|_| {
                 WebSearchError::Backend(self.id.clone(), "invalid header value".into())
@@ -131,22 +136,32 @@ impl SearchBackend for HttpSearchBackend {
 
 #[async_trait]
 impl wf_tools::WebSearchBackend for HttpSearchBackend {
+    fn endpoints(&self) -> Vec<String> {
+        vec![self.request.url.clone()]
+    }
+
     async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError> {
         let response = self
             .request_builder(&query)?
             .send()
             .await
             .and_then(|response| response.error_for_status())
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
-        if bytes.len() > MAX_RESPONSE_BYTES {
-            return Err(WebSearchError::Backend(
-                self.id.clone(),
-                "response body exceeds the search limit".into(),
-            ));
+            .map_err(|error| {
+                WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
+            })?;
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|error| {
+                WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
+            })?;
+            if bytes.len() + chunk.len() > SEARCH_RESPONSE_LIMIT_BYTES {
+                return Err(WebSearchError::Backend(
+                    self.id.clone(),
+                    "response body exceeds the search limit".into(),
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
         }
         let results = self
             .parse_response(&bytes)?
@@ -160,6 +175,10 @@ impl wf_tools::WebSearchBackend for HttpSearchBackend {
 fn resolve_string(value: &str, query: &WebSearchQuery) -> String {
     value
         .replace("$max_results", &query.max_results.to_string())
+        .replace("$page", &query.page.max(1).to_string())
+        .replace("$language", query.language.as_deref().unwrap_or(""))
+        .replace("$region", query.region.as_deref().unwrap_or(""))
+        .replace("$freshness", query.freshness.as_deref().unwrap_or(""))
         .replace("$query", &query.query)
 }
 
@@ -210,6 +229,7 @@ mod tests {
             query: "rust async".into(),
             max_results: 3,
             backend: None,
+            ..Default::default()
         }
     }
 

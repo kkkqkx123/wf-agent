@@ -197,6 +197,7 @@ pub(crate) async fn handle_execute_tool(
         tool_description: None,
         parameters: body.parameters.clone(),
         risk_level,
+        resolved_domains: None,
         pending_queue: None,
         batch_id: None,
         tool_index: None,

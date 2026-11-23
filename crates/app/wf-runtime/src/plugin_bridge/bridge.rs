@@ -47,6 +47,7 @@ impl ContributionBridge for WfPluginBridge {
 
         network::sync_network(
             &self.registries.network,
+            &self.registries.fetch,
             plugin_id,
             manager,
             &self.plugin_registry,
@@ -68,7 +69,7 @@ impl ContributionBridge for WfPluginBridge {
     async fn unsync_all(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
         tracing::info!("[bridge] unsyncing contributions for '{}'", plugin_id);
 
-        network::unsync_network(&self.registries.network, plugin_id);
+        network::unsync_network(&self.registries.network, &self.registries.fetch, plugin_id);
         llm::unsync_llm(&self.llm_gateway, plugin_id, manager);
         auth::unsync_auth(&self.llm_gateway, plugin_id, manager);
         images::unsync_images(plugin_id, manager);

@@ -637,7 +637,7 @@ mod tests {
         let tool = crate::predefined::web::WEB_FETCH.tool_def();
         BaseExecutor::validate_parameters(
             &tool,
-            &serde_json::json!({ "url": "https://example.com", "format": "markdown" }),
+            &serde_json::json!({ "url": "https://example.com", "format": "text" }),
         )
         .unwrap();
         let err = BaseExecutor::validate_parameters(

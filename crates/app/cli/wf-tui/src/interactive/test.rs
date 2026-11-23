@@ -223,6 +223,7 @@ fn approval_view(tool_name: &str) -> crate::approval_overlay::ApprovalView {
             tool_description: None,
             parameters: serde_json::Value::Null,
             risk_level: None,
+            resolved_domains: None,
             pending_queue: None,
             batch_id: None,
             tool_index: None,

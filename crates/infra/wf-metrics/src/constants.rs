@@ -36,6 +36,9 @@ pub mod tool_metrics {
     pub const GENERAL_INVOKE_DURATION: &str = "tool.general.invoke.duration";
     pub const DISCOVERY_COUNT: &str = "tool.discovery.count";
     pub const ACTIVATION_COUNT: &str = "tool.activation.count";
+    pub const BACKEND_CALL_COUNT: &str = "tool.backend.call.count";
+    pub const BACKEND_CALL_DURATION: &str = "tool.backend.call.duration";
+    pub const BACKEND_ERROR_COUNT: &str = "tool.backend.error.count";
 }
 
 pub mod token_metrics {
@@ -315,6 +318,9 @@ mod tests {
             tool_metrics::GENERAL_INVOKE_DURATION,
             tool_metrics::DISCOVERY_COUNT,
             tool_metrics::ACTIVATION_COUNT,
+            tool_metrics::BACKEND_CALL_COUNT,
+            tool_metrics::BACKEND_CALL_DURATION,
+            tool_metrics::BACKEND_ERROR_COUNT,
             token_metrics::TOTAL_TOKENS,
             token_metrics::PROMPT_TOKENS,
             token_metrics::COMPLETION_TOKENS,

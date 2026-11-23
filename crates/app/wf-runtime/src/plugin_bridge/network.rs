@@ -1,8 +1,8 @@
-//! Plugin-backed web search backends.
+//! Plugin-backed web search and fetch backends.
 //!
-//! Plugins contribute a normal `tool` plus a `tool-type` executor. A tool
-//! tagged `search-backend:web` is adapted into a backend and joined to the
-//! shared aggregation registry for its plugin lifetime.
+//! Plugins contribute a normal `tool` plus a `tool-type` executor. Tags select
+//! the capability a tool implements; matching backends join the shared
+//! registries for the plugin lifetime.
 
 use std::sync::Arc;
 
@@ -12,10 +12,14 @@ use wf_plugin::{
     ContributionManager, PluginError, PluginPermission, PluginRegistry, PluginResult,
     PluginToolContext, PluginToolExecutor, PluginType,
 };
-use wf_resource::NetworkRegistry;
-use wf_tools::{SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult};
+use wf_resource::{FetchBackendRegistry, NetworkRegistry};
+use wf_tools::{
+    SearchBackend, WebFetchBackend, WebFetchError, WebFetchQuery, WebFetchResponse, WebSearchError,
+    WebSearchQuery, WebSearchResponse, WebSearchResult,
+};
 
-const WEB_BACKEND_TAG: &str = "search-backend:web";
+const SEARCH_BACKEND_TAG: &str = "search-backend:web";
+const FETCH_BACKEND_TAG: &str = "fetch-backend:web";
 
 struct PluginWebSearchBackend {
     id: String,
@@ -79,28 +83,78 @@ fn parse_plugin_results(id: &str, output: &Value) -> Result<WebSearchResponse, W
     ))
 }
 
-fn is_web_backend(tool_id: &str, manager: &ContributionManager) -> bool {
+struct PluginWebFetchBackend {
+    id: String,
+    executor: Arc<dyn PluginToolExecutor>,
+}
+
+#[async_trait]
+impl WebFetchBackend for PluginWebFetchBackend {
+    async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
+        let output = self
+            .executor
+            .execute(PluginToolContext {
+                args: json!({ "url": query.url }),
+            })
+            .await
+            .map_err(|error| WebFetchError::Transport(error.to_string()))?
+            .result;
+        let content = output
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| WebFetchError::Transport("plugin result has no content".into()))?
+            .to_string();
+        let final_url = output
+            .get("final_url")
+            .and_then(Value::as_str)
+            .unwrap_or(&query.url)
+            .to_string();
+        Ok(WebFetchResponse {
+            final_url,
+            content_type: output
+                .get("content_type")
+                .and_then(Value::as_str)
+                .unwrap_or("text/plain")
+                .to_string(),
+            size: output
+                .get("size")
+                .and_then(Value::as_u64)
+                .unwrap_or(content.len() as u64) as usize,
+            content,
+        })
+    }
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn kind(&self) -> &str {
+        "plugin"
+    }
+}
+
+fn has_tag(tool_id: &str, tag: &str, manager: &ContributionManager) -> bool {
     manager
         .get_tool(tool_id)
         .and_then(|tool| tool.metadata.clone())
         .and_then(|metadata| metadata.tags)
-        .is_some_and(|tags| tags.iter().any(|tag| tag == WEB_BACKEND_TAG))
+        .is_some_and(|tags| tags.iter().any(|candidate| candidate == tag))
 }
 
-fn validate_plugin_search(plugin_id: &str, plugin_registry: &PluginRegistry) -> PluginResult<()> {
+fn validate_plugin_network(plugin_id: &str, plugin_registry: &PluginRegistry) -> PluginResult<()> {
     let Some(info) = plugin_registry.get(plugin_id) else {
         return Ok(());
     };
     if info.manifest.plugin_type != Some(PluginType::Native) {
         return Err(PluginError::InvalidContribution {
             plugin_id: plugin_id.into(),
-            message: "search backend requires the native plugin backend".into(),
+            message: "network backend requires the native plugin backend".into(),
         });
     }
     if !info.permissions.contains(&PluginPermission::Network) {
         return Err(PluginError::PermissionDenied {
             plugin_id: plugin_id.into(),
-            reason: "search backend requires the network permission".into(),
+            reason: "network backend requires the network permission".into(),
         });
     }
     Ok(())
@@ -108,53 +162,88 @@ fn validate_plugin_search(plugin_id: &str, plugin_registry: &PluginRegistry) -> 
 
 pub(crate) fn sync_network(
     registry: &NetworkRegistry,
+    fetch_registry: &FetchBackendRegistry,
     plugin_id: &str,
     manager: &ContributionManager,
     plugin_registry: &PluginRegistry,
 ) -> PluginResult<()> {
-    validate_plugin_search(plugin_id, plugin_registry)?;
-    let backends: Vec<String> = manager
+    validate_plugin_network(plugin_id, plugin_registry)?;
+    let search_backends: Vec<String> = manager
         .all_tools()
         .into_iter()
-        .filter(|(id, owner)| owner == plugin_id && is_web_backend(id, manager))
+        .filter(|(id, owner)| owner == plugin_id && has_tag(id, SEARCH_BACKEND_TAG, manager))
         .map(|(id, _)| id)
         .collect();
-    if backends.is_empty() {
+    let fetch_backends: Vec<String> = manager
+        .all_tools()
+        .into_iter()
+        .filter(|(id, owner)| owner == plugin_id && has_tag(id, FETCH_BACKEND_TAG, manager))
+        .map(|(id, _)| id)
+        .collect();
+    if search_backends.is_empty() && fetch_backends.is_empty() {
         return Ok(());
     }
-    let executor = manager
+    let executors: Vec<_> = manager
         .all_tool_types()
         .into_iter()
         .filter(|(_, owner)| owner == plugin_id)
         .filter_map(|(name, _)| manager.get_tool_executor(&name))
-        .last()
-        .ok_or_else(|| PluginError::InvalidContribution {
+        .collect();
+    if executors.len() != 1 {
+        return Err(PluginError::InvalidContribution {
             plugin_id: plugin_id.into(),
             message: format!(
-                "search backend tool '{}' has no tool-type executor",
-                backends[0]
+                "network backend requires exactly one tool-type executor, found {}",
+                executors.len()
             ),
-        })?;
-    for id in backends {
-        let backend = PluginWebSearchBackend {
-            id: id.clone(),
-            executor: executor.clone(),
-        };
+        });
+    }
+    let executor = executors
+        .into_iter()
+        .next()
+        .expect("invariant: executor count was checked");
+    for id in search_backends {
         registry
-            .register_plugin(plugin_id, Arc::new(backend))
+            .register_plugin(
+                plugin_id,
+                Arc::new(PluginWebSearchBackend {
+                    id: id.clone(),
+                    executor: executor.clone(),
+                }),
+            )
             .map_err(|error| {
                 PluginError::ContributionConflict(format!(
-                    "search backend id '{id}' cannot be registered by plugin '{plugin_id}': {error}"
+                "search backend id '{id}' cannot be registered by plugin '{plugin_id}': {error}"
+            ))
+            })?;
+    }
+    for id in fetch_backends {
+        fetch_registry
+            .register_plugin(
+                plugin_id,
+                Arc::new(PluginWebFetchBackend {
+                    id: id.clone(),
+                    executor: executor.clone(),
+                }),
+            )
+            .map_err(|error| {
+                PluginError::ContributionConflict(format!(
+                    "fetch backend id '{id}' cannot be registered by plugin '{plugin_id}': {error}"
                 ))
             })?;
     }
     Ok(())
 }
 
-pub(crate) fn unsync_network(registry: &NetworkRegistry, plugin_id: &str) {
+pub(crate) fn unsync_network(
+    registry: &NetworkRegistry,
+    fetch_registry: &FetchBackendRegistry,
+    plugin_id: &str,
+) {
     let removed = registry.unregister_by_owner(plugin_id);
-    if !removed.is_empty() {
-        tracing::debug!(plugin_id, backends = ?removed, "plugin search backends removed");
+    let fetch_removed = fetch_registry.unregister_by_owner(plugin_id);
+    if !removed.is_empty() || !fetch_removed.is_empty() {
+        tracing::debug!(plugin_id, search = ?removed, fetch = ?fetch_removed, "plugin network backends removed");
     }
 }
 
@@ -217,7 +306,7 @@ mod tests {
             parameters: None,
             metadata: Some(ToolMetadata {
                 category: None,
-                tags: Some(vec![WEB_BACKEND_TAG.into()]),
+                tags: Some(vec![SEARCH_BACKEND_TAG.into()]),
                 documentation_url: None,
                 custom_fields: None,
                 risk_level: None,
@@ -250,7 +339,7 @@ mod tests {
         WebSearchQuery {
             query: "rust".into(),
             max_results: 5,
-            backend: None,
+            ..Default::default()
         }
     }
 
@@ -269,26 +358,45 @@ mod tests {
     #[test]
     fn sync_registers_and_unsync_removes_plugin_backend() {
         let registry = NetworkRegistry::new();
+        let fetch_registry = FetchBackendRegistry::new();
         let manager = manager_with_search("p1", "p1.search");
         let plugins = PluginRegistry::new();
 
-        sync_network(&registry, "p1", &manager, &plugins).expect("sync succeeds");
+        sync_network(&registry, &fetch_registry, "p1", &manager, &plugins).expect("sync succeeds");
         assert!(registry.has("p1.search"));
 
-        unsync_network(&registry, "p1");
+        unsync_network(&registry, &fetch_registry, "p1");
         assert!(!registry.has("p1.search"));
     }
 
     #[test]
     fn duplicate_backend_id_fails_plugin_sync() {
         let registry = NetworkRegistry::new();
+        let fetch_registry = FetchBackendRegistry::new();
         registry
             .register_builtin(Arc::new(ConflictBackend))
             .expect("register existing backend");
         let manager = manager_with_search("p1", "p1.search");
         let plugins = PluginRegistry::new();
 
-        assert!(sync_network(&registry, "p1", &manager, &plugins).is_err());
+        assert!(sync_network(&registry, &fetch_registry, "p1", &manager, &plugins).is_err());
+    }
+
+    #[test]
+    fn multiple_executors_are_rejected() {
+        let registry = NetworkRegistry::new();
+        let fetch_registry = FetchBackendRegistry::new();
+        let manager = manager_with_search("p1", "p1.search");
+        manager
+            .as_registrar()
+            .register_tool_type("p1.other_type", Arc::new(SearchExecutor))
+            .expect("register second executor");
+        let plugins = PluginRegistry::new();
+        let error = sync_network(&registry, &fetch_registry, "p1", &manager, &plugins)
+            .expect_err("ambiguous executor must fail");
+        assert!(error
+            .to_string()
+            .contains("requires exactly one tool-type executor"));
     }
 
     #[tokio::test]

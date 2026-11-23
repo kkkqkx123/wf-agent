@@ -11,6 +11,7 @@ pub mod handlers;
 pub mod harness;
 pub mod ignore;
 pub mod mcp;
+pub mod network;
 pub mod patch;
 pub mod predefined;
 pub mod protect;
@@ -38,9 +39,14 @@ pub use general::{GeneralToolInvoker, GENERAL_TOOL_NAME};
 pub use handlers::{
     create_default_tool_registry, register_builtin_handlers, BuiltinHandlersConfig,
 };
+pub use network::{
+    network_domains, redact_transport_error, set_network_domains, NetworkDomainPolicy,
+    NetworkProxy, NETWORK_DOMAINS_METADATA_KEY,
+};
 pub use predefined::web::{
-    SearchBackend, WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse,
-    WebSearchResult, WebToolConfig,
+    FetchToolConfig, SearchBackend, SearchBackendInfo, WebFetchBackend, WebFetchError,
+    WebFetchQuery, WebFetchResponse, WebSearchBackend, WebSearchError, WebSearchQuery,
+    WebSearchResponse, WebSearchResult, WebToolConfig, WEB_SEARCH_BACKENDS,
 };
 pub use shell::execute_command_handler;
 pub use skill::{SkillLoader, SkillResourceContent};

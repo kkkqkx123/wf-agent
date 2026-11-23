@@ -109,10 +109,17 @@ async fn mutate<T, F>(
 where
     F: FnOnce(&mut ConversationTree, &mut DigestIndex) -> ApiResult<(T, SurgeryOutcome)>,
 {
-    mutate_with_side(ctx, session_id, if_version, change, node, move |tree, digests| {
-        let (value, outcome) = body(tree, digests)?;
-        Ok((value, outcome, SideWrites::default()))
-    })
+    mutate_with_side(
+        ctx,
+        session_id,
+        if_version,
+        change,
+        node,
+        move |tree, digests| {
+            let (value, outcome) = body(tree, digests)?;
+            Ok((value, outcome, SideWrites::default()))
+        },
+    )
     .await
 }
 

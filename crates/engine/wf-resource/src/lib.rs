@@ -19,7 +19,8 @@ pub use dynamic::{
     build_system_context, build_user_context, current_time_text, SystemConfig, UserInput,
 };
 pub use network::{
-    build_web_backends, DuckDuckGoBackend, HttpSearchBackend, NetworkRegistry, ResolvedProxy,
+    build_web_backends, build_web_fetch_backend, DuckDuckGoBackend, FetchBackendRegistry,
+    HttpFetchBackend, HttpSearchBackend, NetworkRegistry, SearchAggregationOptions, WebFetchRouter,
     WebSearchAggregator,
 };
 pub use predefined::resource_assembler::{

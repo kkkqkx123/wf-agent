@@ -87,7 +87,6 @@ pub fn still_stale(tree: &ConversationTree, index: &DigestIndex, node: &str) -> 
     tree.node(node).is_some_and(|node| index.is_dirty(node))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +141,4 @@ mod tests {
         answer(&mut tree, &mut index, &a, "a1");
         assert!(!still_stale(&tree, &index, &a));
     }
-
 }

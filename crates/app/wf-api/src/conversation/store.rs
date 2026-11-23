@@ -86,7 +86,10 @@ async fn recover_pending(
     let driver_node = super::runtime::runtime_for(session_id)
         .inflight()
         .map(|inflight| inflight.node_id);
-    if pending.iter().all(|id| Some(id.as_str()) == driver_node.as_deref()) {
+    if pending
+        .iter()
+        .all(|id| Some(id.as_str()) == driver_node.as_deref())
+    {
         return Ok(());
     }
     let now = wf_common::now();

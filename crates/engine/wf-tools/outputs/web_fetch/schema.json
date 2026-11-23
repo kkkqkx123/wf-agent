@@ -14,11 +14,10 @@
     "additionalProperties": false,
     "properties": {
       "format": {
-        "default": "markdown",
-        "description": "Output format: text, markdown, or html",
+        "default": "text",
+        "description": "Output format: text (HTML stripped to readable text) or html (raw body)",
         "enum": [
           "text",
-          "markdown",
           "html"
         ],
         "type": "string"

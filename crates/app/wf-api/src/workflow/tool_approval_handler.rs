@@ -33,6 +33,7 @@ use crate::workflow::approval::{request_user_approval_in, ApprovalFlow};
 pub struct InteractionApprovalHandler {
     flow: ApprovalFlow,
     execution_id: String,
+    tool_registry: Arc<wf_tools::registry::ToolRegistry>,
 }
 
 impl InteractionApprovalHandler {
@@ -41,6 +42,7 @@ impl InteractionApprovalHandler {
         Self {
             flow: ApprovalFlow::from_context(ctx),
             execution_id: execution_id.into(),
+            tool_registry: ctx.tool_registry.clone(),
         }
     }
 }
@@ -48,12 +50,18 @@ impl InteractionApprovalHandler {
 #[async_trait::async_trait]
 impl ToolApprovalHandler for InteractionApprovalHandler {
     async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult {
+        let resolved_domains = self
+            .tool_registry
+            .get_tool(&request.tool_name)
+            .map(|tool| wf_tools::network_domains(&tool))
+            .unwrap_or_default();
         let request_data = ToolApprovalRequestData {
             tool_call_id: request.tool_call_id.clone(),
             tool_name: request.tool_name.clone(),
             tool_description: request.tool_description.clone(),
             parameters: request.arguments.clone(),
             risk_level: request.risk_level.clone(),
+            resolved_domains: (!resolved_domains.is_empty()).then_some(resolved_domains),
             pending_queue: request.pending_queue.clone(),
             batch_id: request.batch_id.clone(),
             tool_index: request.tool_index,

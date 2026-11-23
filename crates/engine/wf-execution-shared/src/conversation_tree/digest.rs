@@ -207,11 +207,7 @@ pub fn build_with_seed(tree: &ConversationTree, seed: String) -> DigestIndex {
 /// own segment changes (its question, its answer, its reply state): the node's
 /// `out` digest feeds its children, so refreshing only the children would leave
 /// the change invisible.
-pub fn refold_node(
-    tree: &ConversationTree,
-    index: &mut DigestIndex,
-    node: &str,
-) -> Option<bool> {
+pub fn refold_node(tree: &ConversationTree, index: &mut DigestIndex, node: &str) -> Option<bool> {
     let current = tree.node(node)?;
     let parent_out = index.out(&current.parent)?.to_string();
     // A soft-deleted node contributes nothing to the projection, so it must

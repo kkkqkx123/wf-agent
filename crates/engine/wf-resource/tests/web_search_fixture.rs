@@ -16,8 +16,9 @@ use wf_config::processor::network::{
     HttpMethod, HttpRequestConfig, HttpResponseConfig, HttpResponseFormat,
 };
 use wf_resource::network::HttpSearchBackend;
-use wf_resource::ResolvedProxy;
-use wf_tools::{WebSearchBackend, WebSearchQuery, WebSearchResult};
+use wf_tools::{
+    NetworkDomainPolicy, NetworkProxy, WebSearchBackend, WebSearchQuery, WebSearchResult,
+};
 
 #[derive(Debug, Deserialize)]
 struct ExpectedFixture {
@@ -87,7 +88,8 @@ async fn declarative_backend_replays_fixture_over_local_http() {
             url_prefix: None,
         },
         5_000,
-        ResolvedProxy::default(),
+        NetworkProxy::default(),
+        NetworkDomainPolicy::default(),
     )
     .expect("fixture backend builds");
     let response = backend
@@ -95,6 +97,7 @@ async fn declarative_backend_replays_fixture_over_local_http() {
             query: "Rust async programming".into(),
             max_results: 5,
             backend: None,
+            ..Default::default()
         })
         .await
         .expect("fixture search succeeds");
@@ -172,7 +175,8 @@ async fn declarative_backend_renders_post_request_and_maps_json() {
             url_prefix: Some("https://example.com".into()),
         },
         5_000,
-        ResolvedProxy::default(),
+        NetworkProxy::default(),
+        NetworkDomainPolicy::default(),
     )
     .expect("JSON backend builds");
     let response = backend
@@ -180,6 +184,7 @@ async fn declarative_backend_renders_post_request_and_maps_json() {
             query: "rust async".into(),
             max_results: 3,
             backend: None,
+            ..Default::default()
         })
         .await
         .expect("JSON search succeeds");

@@ -35,8 +35,8 @@ use crate::handlers::{register_builtin_handlers, BuiltinHandlersConfig};
 use crate::predefined;
 use crate::predefined::rag::{RagHit, RagSearchBackend, RagSearchQuery};
 use crate::predefined::web::{
-    SearchBackend, WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse,
-    WebSearchResult,
+    SearchBackend, WebFetchBackend, WebFetchError, WebFetchQuery, WebFetchResponse,
+    WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult,
 };
 use crate::registry::ToolRegistry;
 use crate::skill::SkillLoader;
@@ -673,6 +673,28 @@ impl WebSearchBackend for HarnessSearchBackend {
     }
 }
 
+struct HarnessFetchBackend;
+
+#[async_trait]
+impl WebFetchBackend for HarnessFetchBackend {
+    async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
+        Ok(WebFetchResponse {
+            final_url: query.url,
+            content_type: "text/html".into(),
+            content: MOCK_PAGE_HTML.to_string(),
+            size: MOCK_PAGE_HTML.len(),
+        })
+    }
+
+    fn id(&self) -> &str {
+        "harness"
+    }
+
+    fn kind(&self) -> &str {
+        "harness-mock"
+    }
+}
+
 /// Canned HTML page returned for `/page`, used by `web_fetch`.
 const MOCK_PAGE_HTML: &str =
     "<!DOCTYPE html>\n<html><body><h1>Mock Page</h1><p>Mock page body.</p></body></html>";
@@ -739,7 +761,8 @@ async fn build_registry(sandbox: &Path) -> crate::error::ToolResult<ToolRegistry
         },
         web: predefined::web::WebToolConfig {
             backend: Some(Arc::new(HarnessSearchBackend)),
-            ..Default::default()
+            fetch_backend: Some(Arc::new(HarnessFetchBackend)),
+            max_results: 5,
         },
         rag: predefined::rag::RagToolConfig {
             backend: Some(Arc::new(HarnessRagBackend)),

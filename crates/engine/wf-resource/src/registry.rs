@@ -98,6 +98,8 @@ pub struct ResourceRegistries {
     /// Shared network search backends; plugins append backends here through
     /// the runtime bridge while the tool handler reads a live snapshot.
     pub network: crate::network::NetworkRegistry,
+    /// Shared fetch backends with the same owner-based lifecycle.
+    pub fetch: crate::network::FetchBackendRegistry,
     pub fragments: ConcurrentRegistry<SystemPromptFragment>,
     /// Unified templateable prompt texts: system-prompt templates
     /// (`system.default` et al.) plus tool-visibility texts (activation/block
@@ -114,6 +116,7 @@ impl ResourceRegistries {
     pub fn new() -> Self {
         Self {
             network: crate::network::NetworkRegistry::new(),
+            fetch: crate::network::FetchBackendRegistry::new(),
             fragments: ConcurrentRegistry::new(),
             templates: ConcurrentRegistry::new(),
             tool_descriptions: ConcurrentRegistry::new(),

@@ -291,12 +291,14 @@ pub async fn execute_tool_with_approval(
         .and_then(|m| m.risk_level)
         .map(|level| level.as_str().to_string());
 
+    let resolved_domains = wf_tools::network_domains(&tool);
     let request = ToolApprovalRequestData {
         tool_call_id: wf_common::generate_id(),
         tool_name: tool.name.clone(),
         tool_description: Some(tool.description.clone()),
         parameters: parameters.clone(),
         risk_level: risk_level.as_deref().map(ToOwned::to_owned),
+        resolved_domains: (!resolved_domains.is_empty()).then_some(resolved_domains),
         pending_queue: None,
         batch_id: None,
         tool_index: None,
@@ -350,6 +352,7 @@ mod tests {
             tool_description: Some(format!("Tool {tool_name}")),
             parameters: serde_json::json!({ "command": "echo hi" }),
             risk_level: Some(risk.into()),
+            resolved_domains: None,
             pending_queue: None,
             batch_id: None,
             tool_index: None,

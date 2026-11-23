@@ -3,16 +3,17 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future::join_all;
 use serde_json::json;
 use wf_config::processor::network::{max_results_cap, AggregationMode};
+use wf_metrics::ToolMetricsCollector;
 use wf_tools::{
-    SearchBackend, WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse,
-    WebSearchResult,
+    SearchBackend, SearchBackendInfo, WebSearchBackend, WebSearchError, WebSearchQuery,
+    WebSearchResponse, WebSearchResult,
 };
 
 type SelectedBackend = (String, Arc<dyn WebSearchBackend>);
@@ -140,12 +141,25 @@ impl NetworkRegistry {
     }
 }
 
+/// Runtime controls for search aggregation.
+#[derive(Default)]
+pub struct SearchAggregationOptions {
+    pub max_retries: usize,
+    pub retry_delay_ms: u64,
+    pub cache_ttl_ms: u64,
+    pub min_interval_ms: u64,
+    pub metrics: Option<Arc<ToolMetricsCollector>>,
+}
+
 /// Aggregates the registered web backends behind one tool backend.
 pub struct WebSearchAggregator {
     registry: NetworkRegistry,
     mode: AggregationMode,
     timeout_ms: u64,
     default_backends: Option<Vec<String>>,
+    options: SearchAggregationOptions,
+    cache: DashMap<String, (Instant, WebSearchResponse)>,
+    last_call: DashMap<String, Instant>,
 }
 
 impl WebSearchAggregator {
@@ -155,17 +169,43 @@ impl WebSearchAggregator {
         timeout_ms: u64,
         default_backends: Option<Vec<String>>,
     ) -> Self {
+        Self::new_with_options(
+            registry,
+            mode,
+            timeout_ms,
+            default_backends,
+            SearchAggregationOptions::default(),
+        )
+    }
+
+    pub fn new_with_options(
+        registry: NetworkRegistry,
+        mode: AggregationMode,
+        timeout_ms: u64,
+        default_backends: Option<Vec<String>>,
+        options: SearchAggregationOptions,
+    ) -> Self {
         Self {
             registry,
             mode,
             timeout_ms,
             default_backends,
+            options,
+            cache: DashMap::new(),
+            last_call: DashMap::new(),
         }
     }
 
     fn selected(&self, requested: Option<&str>) -> Result<Vec<SelectedBackend>, WebSearchError> {
         let entries = self.registry.snapshot();
         if let Some(id) = requested {
+            if self
+                .default_backends
+                .as_ref()
+                .is_some_and(|allowed| !allowed.iter().any(|candidate| candidate == id))
+            {
+                return Err(WebSearchError::BackendNotFound(id.to_string()));
+            }
             let entry = entries
                 .into_iter()
                 .find(|(candidate, _, _)| candidate == id)
@@ -195,18 +235,69 @@ impl WebSearchAggregator {
         Ok(selected)
     }
 
+    async fn throttle(&self, id: &str) {
+        let interval = self.options.min_interval_ms;
+        if interval == 0 {
+            return;
+        }
+        let interval = Duration::from_millis(interval);
+        let wait = {
+            let mut last = self.last_call.entry(id.to_string()).or_insert_with(|| {
+                Instant::now()
+                    .checked_sub(interval)
+                    .unwrap_or_else(Instant::now)
+            });
+            let elapsed = last.elapsed();
+            if elapsed >= interval {
+                *last = Instant::now();
+                None
+            } else {
+                Some(interval - elapsed)
+            }
+        };
+        if let Some(wait) = wait {
+            tokio::time::sleep(wait).await;
+            self.last_call.insert(id.to_string(), Instant::now());
+        }
+    }
+
     async fn call(
         &self,
+        id: &str,
         backend: &Arc<dyn WebSearchBackend>,
         query: &WebSearchQuery,
     ) -> Result<WebSearchResponse, WebSearchError> {
-        backend
-            .search(WebSearchQuery {
-                query: query.query.clone(),
-                max_results: query.max_results,
-                backend: None,
-            })
-            .await
+        self.throttle(id).await;
+        let mut attempt = 0;
+        loop {
+            let started = Instant::now();
+            let result = backend
+                .search(WebSearchQuery {
+                    query: query.query.clone(),
+                    max_results: query.max_results,
+                    backend: None,
+                    language: query.language.clone(),
+                    region: query.region.clone(),
+                    freshness: query.freshness.clone(),
+                    page: query.page,
+                })
+                .await;
+            if let Some(metrics) = &self.options.metrics {
+                metrics.record_backend_call(
+                    id,
+                    result.is_ok(),
+                    started.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+            match result {
+                Ok(response) => return Ok(response),
+                Err(error) if attempt >= self.options.max_retries => return Err(error),
+                Err(_) => {
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_millis(self.options.retry_delay_ms)).await;
+                }
+            }
+        }
     }
 }
 
@@ -222,14 +313,78 @@ impl SearchBackend for WebSearchAggregator {
 
 #[async_trait]
 impl WebSearchBackend for WebSearchAggregator {
+    fn endpoints(&self) -> Vec<String> {
+        let mut endpoints: Vec<String> = self
+            .registry
+            .snapshot()
+            .into_iter()
+            .flat_map(|(_, backend, _)| backend.endpoints())
+            .collect();
+        endpoints.sort();
+        endpoints.dedup();
+        endpoints
+    }
+
+    fn catalog(&self) -> Vec<SearchBackendInfo> {
+        self.registry
+            .snapshot()
+            .into_iter()
+            .map(|(id, backend, _)| SearchBackendInfo {
+                id,
+                kind: backend.kind().to_string(),
+                capabilities: vec!["web_search".to_string()],
+            })
+            .collect()
+    }
+
     async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError> {
         let id = self.id().to_string();
+        let key = cache_key(&query);
+        if let Some(response) = self.cached(&key) {
+            return Ok(response);
+        }
         let work = self.search_inner(query);
-        match tokio::time::timeout(Duration::from_millis(self.timeout_ms.max(1)), work).await {
-            Ok(result) => result,
-            Err(_) => Err(WebSearchError::Backend(id, "aggregation timeout".into())),
+        let result =
+            match tokio::time::timeout(Duration::from_millis(self.timeout_ms.max(1)), work).await {
+                Ok(result) => result,
+                Err(_) => Err(WebSearchError::Backend(id, "aggregation timeout".into())),
+            };
+        if let Ok(response) = &result {
+            self.store_cache(key, response);
+        }
+        result
+    }
+}
+
+impl WebSearchAggregator {
+    fn cached(&self, key: &str) -> Option<WebSearchResponse> {
+        if self.options.cache_ttl_ms == 0 {
+            return None;
+        }
+        let ttl = Duration::from_millis(self.options.cache_ttl_ms);
+        self.cache
+            .get(key)
+            .and_then(|entry| (entry.value().0.elapsed() < ttl).then(|| entry.value().1.clone()))
+    }
+
+    fn store_cache(&self, key: String, response: &WebSearchResponse) {
+        if self.options.cache_ttl_ms > 0 {
+            self.cache.insert(key, (Instant::now(), response.clone()));
         }
     }
+}
+
+fn cache_key(query: &WebSearchQuery) -> String {
+    serde_json::to_string(&(
+        &query.query,
+        query.max_results,
+        &query.backend,
+        &query.language,
+        &query.region,
+        &query.freshness,
+        query.page,
+    ))
+    .unwrap_or_else(|_| query.query.clone())
 }
 
 impl WebSearchAggregator {
@@ -243,14 +398,14 @@ impl WebSearchAggregator {
                 .iter()
                 .map(|(id, backend)| {
                     let call_query = query.clone();
-                    async move { (id.clone(), self.call(backend, &call_query).await) }
+                    async move { (id.clone(), self.call(&id, backend, &call_query).await) }
                 })
                 .collect::<Vec<_>>();
             join_all(calls).await
         } else {
             let mut outcomes = Vec::with_capacity(selected.len());
             for (id, backend) in selected {
-                let result = self.call(&backend, &query).await;
+                let result = self.call(&id, &backend, &query).await;
                 let succeeded = matches!(&result, Ok(response) if !response.results.is_empty());
                 outcomes.push((id, result));
                 if succeeded {
@@ -438,6 +593,7 @@ mod tests {
             query: "rust".into(),
             max_results: 5,
             backend: None,
+            ..Default::default()
         }
     }
 
@@ -549,6 +705,70 @@ mod tests {
         let response = aggregator.search(query()).await.expect("subset succeeds");
         assert_eq!(response.results[0].title, "b");
         assert_eq!(response.metadata["backends"], json!(["b"]));
+    }
+
+    #[tokio::test]
+    async fn explicit_backend_respects_configured_allowlist() {
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubBackend::hit("a")))
+            .expect("register a");
+        registry
+            .register_builtin(Arc::new(StubBackend::hit("b")))
+            .expect("register b");
+        let aggregator =
+            WebSearchAggregator::new(registry, AggregationMode::All, 1000, Some(vec!["b".into()]));
+        let mut call = query();
+        call.backend = Some("a".into());
+        assert!(aggregator.search(call).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn cache_avoids_duplicate_backend_calls() {
+        struct CountingBackend(Arc<AtomicUsize>);
+
+        impl SearchBackend for CountingBackend {
+            fn id(&self) -> &str {
+                "counting"
+            }
+            fn kind(&self) -> &str {
+                "test"
+            }
+        }
+
+        #[async_trait]
+        impl WebSearchBackend for CountingBackend {
+            async fn search(
+                &self,
+                _query: WebSearchQuery,
+            ) -> Result<WebSearchResponse, WebSearchError> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(WebSearchResponse::new(vec![WebSearchResult {
+                    title: "cached".into(),
+                    url: "https://example.com/cached".into(),
+                    snippet: String::new(),
+                }]))
+            }
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let registry = NetworkRegistry::new();
+        registry
+            .register_builtin(Arc::new(CountingBackend(calls.clone())))
+            .expect("register counting backend");
+        let aggregator = WebSearchAggregator::new_with_options(
+            registry,
+            AggregationMode::All,
+            1000,
+            None,
+            SearchAggregationOptions {
+                cache_ttl_ms: 10_000,
+                ..Default::default()
+            },
+        );
+        aggregator.search(query()).await.expect("first search");
+        aggregator.search(query()).await.expect("second search");
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]

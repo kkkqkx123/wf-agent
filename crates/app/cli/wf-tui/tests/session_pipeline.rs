@@ -140,6 +140,7 @@ fn approval_and_question_requests_render_views() {
         tool_description: None,
         parameters: json!({ "command": "echo test" }),
         risk_level: None,
+        resolved_domains: None,
         pending_queue: None,
         batch_id: None,
         tool_index: None,

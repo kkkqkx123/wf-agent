@@ -29,7 +29,9 @@ use super::llm::{create_auth_registry, create_llm_gateway, register_llm_config};
 #[cfg(feature = "mcp")]
 use super::mcp::init_mcp;
 use super::metrics::init_metrics_context;
-use super::network::build_web_search_backend;
+use super::network::{
+    build_network_domain_policy, build_web_fetch_backend, build_web_search_backend,
+};
 #[cfg(feature = "plugins")]
 use super::plugin::init_plugins;
 use super::plugin::init_plugins_and_resources;
@@ -217,14 +219,51 @@ impl Runtime {
             config.mcp.project_root.as_deref(),
         )
         .await;
+        // The agent registry and metrics are created before tool backends so
+        // backend attempts can be recorded through the shared collector.
+        let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
+        let gate_stats = agent_registry.gate_stats();
+        info!(
+            "Agent capacity gate at startup: max_concurrent={}, active={}, available={}",
+            gate_stats.max_concurrent, gate_stats.active_count, gate_stats.available_permits
+        );
+        let metrics = init_metrics_context(
+            &config.metrics,
+            &storage_manager,
+            &event_bus,
+            &agent_registry,
+            Some(config_metrics),
+        )
+        .await?;
+        let tool_metrics = metrics.as_ref().map(|metrics| metrics.registry().tool());
+
         // Auth surfaces are available before tool registration because proxy
         // credentials for every search backend are resolved at bootstrap.
         let auth_registry =
             create_auth_registry(&config.llm.auth, config.mcp.project_root.as_deref())?;
+        let domain_policy = build_network_domain_policy(&config.tool_approval);
+        let search_domain_policy = domain_policy.denied_only();
+        let network_default = wf_config::processor::network::NetworkConfig::default();
+        let web_search_max_results = config
+            .tools
+            .network
+            .as_ref()
+            .map_or(network_default.web_search.max_results, |network| {
+                network.web_search.max_results
+            });
         let web_search_backend = build_web_search_backend(
             config.tools.network.as_ref(),
             Some(&auth_registry),
             &registries,
+            &search_domain_policy,
+            tool_metrics.clone(),
+        )
+        .await?;
+        let web_fetch_backend = build_web_fetch_backend(
+            config.tools.network.as_ref(),
+            Some(&auth_registry),
+            &domain_policy,
+            &registries.fetch,
         )
         .await?;
         let tool_registry = init_tool_registry_with_mcp(
@@ -235,26 +274,9 @@ impl Runtime {
             &event_bus,
             Some(code_context.clone()),
             web_search_backend,
-        )
-        .await?;
-
-        // Fixed startup order for LLM extensibility: the gateway exists
-        // before plugin activation so the bridge can sync plugin codecs
-        // and provider definitions into it; file-layer providers and
-        // profiles register afterwards. No lazy backfill.
-        let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
-        let gate_stats = agent_registry.gate_stats();
-        info!(
-            "Agent capacity gate at startup: max_concurrent={}, active={}, available={}",
-            gate_stats.max_concurrent, gate_stats.active_count, gate_stats.available_permits
-        );
-
-        let metrics = init_metrics_context(
-            &config.metrics,
-            &storage_manager,
-            &event_bus,
-            &agent_registry,
-            Some(config_metrics),
+            Arc::new(web_fetch_backend),
+            web_search_max_results,
+            wf_tools::predefined::web::WEB_SEARCH.tool_def(),
         )
         .await?;
 

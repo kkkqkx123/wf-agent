@@ -374,6 +374,7 @@ mod tests {
             tool_description: None,
             parameters: json!({ "command": "rm -rf /tmp/x" }),
             risk_level: None,
+            resolved_domains: None,
             pending_queue: None,
             batch_id: None,
             tool_index: None,

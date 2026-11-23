@@ -82,4 +82,3 @@ pub fn project(tree: &ConversationTree, leaf: &str) -> Vec<ProjectedRef> {
     }
     out
 }
-

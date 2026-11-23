@@ -132,7 +132,8 @@ pub fn node_views(
                 based_on_version: reply.based_on_version,
                 origin: origin_name(reply.origin),
                 acknowledged: index.is_acknowledged(node),
-                model_drift: current_params.is_some_and(|current| reply.params.as_ref() != Some(current)),
+                model_drift: current_params
+                    .is_some_and(|current| reply.params.as_ref() != Some(current)),
                 edited_at: reply.edited_at,
                 superseded: reply.superseded.iter().map(|m| m.id.clone()).collect(),
             }),
@@ -155,11 +156,13 @@ pub async fn snapshot(
     let tree = store::load_or_adopt(ctx, session_id).await?;
     let index = store::digests(&tree);
     let dirty = conversation_tree::evaluate_dirty(&tree, &index, leaf);
-    let params = session_profile(ctx, &tree).await.map(|profile_id| ParamsFingerprint {
-        profile_id,
-        parameters: None,
-        tools: Vec::new(),
-    });
+    let params = session_profile(ctx, &tree)
+        .await
+        .map(|profile_id| ParamsFingerprint {
+            profile_id,
+            parameters: None,
+            tools: Vec::new(),
+        });
     let inflight: Option<InflightSnapshot> = runtime::runtime_for(session_id).inflight();
     Ok(SessionSnapshot {
         session_id: session_id.to_string(),

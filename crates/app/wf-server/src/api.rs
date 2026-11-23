@@ -1,8 +1,8 @@
 pub mod agent;
 pub mod chat;
 pub mod checkpoint;
-pub mod conversation;
 pub mod cli;
+pub mod conversation;
 pub mod definition;
 pub mod entity;
 #[cfg(feature = "git-fs")]

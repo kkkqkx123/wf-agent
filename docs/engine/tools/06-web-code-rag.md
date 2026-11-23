@@ -5,7 +5,7 @@
 
 ## 联网工具
 
-搜索与抓取各一。搜索由注入的 `WebSearchBackend` 执行：契约和通用处理器在 `wf-tools`，DuckDuckGo HTML 实现、声明式 HTTP 后端、后端注册表与聚合器在 `wf-resource`。默认配置只启用 DuckDuckGo，调用可指定 `backend` 覆盖；`all` 模式并发调用多个后端，按 URL 去重并汇总部分失败，`priority_first_success` 模式按注册顺序或 `default_backends` 顺序取第一个非空结果。抓取仍由 `wf-tools` 直接执行，做响应体上限截断与 HTML 标签剥离。每个搜索后端独立设置代理，凭据由运行时在装配阶段从 credential store 解析，传输错误统一脱敏。
+搜索与抓取各一，另有后端发现工具 `web_search_backends`。搜索与抓取都通过 `wf-tools` 契约注入后端：DuckDuckGo HTML、声明式 HTTP 搜索、内置 HTTP 抓取、注册表、路由器与聚合器都在 `wf-resource`。默认配置只启用 DuckDuckGo，调用可指定 `backend` 覆盖，但显式 id 仍受 `default_backends` 约束；`all` 模式并发调用多个后端，按 URL 去重并汇总部分失败，`priority_first_success` 模式按注册顺序或 `default_backends` 顺序取第一个非空结果。聚合器支持单后端重试、结果缓存与调用间隔下限，并按后端标签记录次数、耗时和错误。搜索参数中的语言、地区、时效与页码会转发给支持它们的后端。抓取 handler 只负责文本整形与落盘：流式下载上限、超时、UA、代理与重定向次数都可配置；`text` 移除脚本样式和标签并解码实体，`html` 返回原文。搜索后端与抓取传输都复用同一份域名规则，重定向目标逐跳校验；搜索工具定义携带已解析的后端端点域名，审批阶段可据此执行域名策略。每个后端独立设置代理，凭据由运行时在装配阶段从 credential store 解析，传输错误统一脱敏。
 
 ## 代码上下文工具
 

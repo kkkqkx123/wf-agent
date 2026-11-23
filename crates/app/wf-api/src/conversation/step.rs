@@ -234,13 +234,7 @@ impl StepJob {
                 }
                 continue;
             };
-            events::turn_started(
-                &self.ctx,
-                &self.session_id,
-                &turn_id,
-                &node_id,
-                &parent,
-            );
+            events::turn_started(&self.ctx, &self.session_id, &turn_id, &node_id, &parent);
             let answer = turn::generate_answer(
                 &self.ctx,
                 &self.session_id,

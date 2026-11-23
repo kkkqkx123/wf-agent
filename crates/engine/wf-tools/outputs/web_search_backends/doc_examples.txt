@@ -1,0 +1,5 @@
+# web_search_backends (web)
+List configured web search backends and their capabilities.
+
+examples:
+- web_search_backends()

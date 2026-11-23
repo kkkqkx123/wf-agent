@@ -182,9 +182,10 @@ impl SessionRuntime {
     /// finisher cannot clear a newer turn's claim.
     pub fn finish_turn(&self, turn_id: &str) {
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
-        if slot.as_ref().is_some_and(|current| {
-            current.job_id.is_none() && current.turn.turn_id == turn_id
-        }) {
+        if slot
+            .as_ref()
+            .is_some_and(|current| current.job_id.is_none() && current.turn.turn_id == turn_id)
+        {
             *slot = None;
         }
     }
@@ -239,12 +240,7 @@ impl SessionRuntime {
         let slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
         let current = slot.as_ref()?;
         match turn_id {
-            Some(id)
-                if current.turn.turn_id != id
-                    && current.job_id.as_deref() != Some(id) =>
-            {
-                None
-            }
+            Some(id) if current.turn.turn_id != id && current.job_id.as_deref() != Some(id) => None,
             _ => Some(current.turn.cancel.clone()),
         }
     }
@@ -280,10 +276,7 @@ pub fn runtime_for(session_id: &str) -> Arc<SessionRuntime> {
         return existing.clone();
     }
     let fresh = Arc::new(SessionRuntime::default());
-    table
-        .entry(session_id.to_string())
-        .or_insert(fresh)
-        .clone()
+    table.entry(session_id.to_string()).or_insert(fresh).clone()
 }
 
 /// Drop a session's runtime. Called when the session is deleted, so a long-lived

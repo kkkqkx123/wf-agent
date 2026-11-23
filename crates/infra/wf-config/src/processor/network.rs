@@ -14,6 +14,15 @@ use crate::error::{ConfigError, ConfigResult};
 
 const DEFAULT_TIMEOUT_MS: u64 = 20_000;
 const MAX_TIMEOUT_MS: u64 = 120_000;
+const DEFAULT_MAX_CONTENT_BYTES: usize = 2_000_000;
+const MAX_FETCH_CONTENT_BYTES: usize = 100_000_000;
+const DEFAULT_MAX_REDIRECTS: usize = 10;
+const MAX_REDIRECTS: usize = 20;
+const DEFAULT_MAX_RESULTS: usize = 5;
+const DEFAULT_RETRY_DELAY_MS: u64 = 100;
+const MAX_RETRIES: usize = 3;
+const MAX_RATE_INTERVAL_MS: u64 = 60_000;
+const MAX_CACHE_TTL_MS: u64 = 3_600_000;
 const MAX_RESULTS_CAP: usize = 50;
 const PROXY_SCHEMES: [&str; 6] = ["http", "https", "socks4", "socks4a", "socks5", "socks5h"];
 
@@ -27,6 +36,26 @@ fn default_timeout_ms() -> u64 {
 
 fn default_method() -> HttpMethod {
     HttpMethod::Get
+}
+
+fn default_max_content_bytes() -> usize {
+    DEFAULT_MAX_CONTENT_BYTES
+}
+
+fn default_user_agent() -> String {
+    "wf-agent/0.1 (Modular Agent Framework)".into()
+}
+
+fn default_max_redirects() -> usize {
+    DEFAULT_MAX_REDIRECTS
+}
+
+fn default_max_results() -> usize {
+    DEFAULT_MAX_RESULTS
+}
+
+fn default_retry_delay_ms() -> u64 {
+    DEFAULT_RETRY_DELAY_MS
 }
 
 fn default_format() -> HttpResponseFormat {
@@ -169,32 +198,88 @@ pub struct WebSearchConfig {
     /// Hard bound for the whole aggregation, in milliseconds.
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+    #[serde(default = "default_max_results")]
+    pub max_results: usize,
+    #[serde(default)]
+    pub max_retries: usize,
+    #[serde(default = "default_retry_delay_ms")]
+    pub retry_delay_ms: u64,
+    #[serde(default)]
+    pub cache_ttl_ms: u64,
+    #[serde(default)]
+    pub min_interval_ms: u64,
     #[serde(default)]
     pub backends: Vec<WebSearchBackendConfig>,
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            default_backends: None,
+            mode: AggregationMode::All,
+            timeout_ms: DEFAULT_TIMEOUT_MS,
+            max_results: DEFAULT_MAX_RESULTS,
+            max_retries: 0,
+            retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+            cache_ttl_ms: 0,
+            min_interval_ms: 0,
+            backends: vec![WebSearchBackendConfig::DuckduckgoHtml {
+                id: "duckduckgo".into(),
+                enabled: true,
+                timeout_ms: DEFAULT_TIMEOUT_MS,
+                proxy: None,
+                endpoint: None,
+                user_agent: None,
+            }],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebFetchConfig {
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_max_content_bytes")]
+    pub max_content_bytes: usize,
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
+    #[serde(default = "default_max_redirects")]
+    pub max_redirects: usize,
+    /// Fetch backend id. `http` is the built-in default; plugins may add ids.
+    #[serde(default)]
+    pub backend: Option<String>,
+    #[serde(default)]
+    pub proxy: Option<ProxyConfig>,
+}
+
+impl Default for WebFetchConfig {
+    fn default() -> Self {
+        Self {
+            timeout_ms: DEFAULT_TIMEOUT_MS,
+            max_content_bytes: DEFAULT_MAX_CONTENT_BYTES,
+            user_agent: default_user_agent(),
+            max_redirects: DEFAULT_MAX_REDIRECTS,
+            backend: None,
+            proxy: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkConfig {
+    #[serde(default)]
     pub web_search: WebSearchConfig,
+    #[serde(default)]
+    pub web_fetch: WebFetchConfig,
 }
 
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
-            web_search: WebSearchConfig {
-                default_backends: None,
-                mode: AggregationMode::All,
-                timeout_ms: DEFAULT_TIMEOUT_MS,
-                backends: vec![WebSearchBackendConfig::DuckduckgoHtml {
-                    id: "duckduckgo".into(),
-                    enabled: true,
-                    timeout_ms: DEFAULT_TIMEOUT_MS,
-                    proxy: None,
-                    endpoint: None,
-                    user_agent: None,
-                }],
-            },
+            web_search: WebSearchConfig::default(),
+            web_fetch: WebFetchConfig::default(),
         }
     }
 }
@@ -236,7 +321,10 @@ fn validate_placeholders(text: &str, field: &str) -> ConfigResult<()> {
             continue;
         }
         let name = &text[start..end];
-        if name != "query" && name != "max_results" {
+        if !matches!(
+            name,
+            "query" | "max_results" | "language" | "region" | "freshness" | "page"
+        ) {
             return Err(ConfigError::Validation(format!(
                 "unknown placeholder '${name}' in {field}"
             )));
@@ -347,13 +435,71 @@ fn validate_backend(backend: &WebSearchBackendConfig) -> ConfigResult<()> {
     Ok(())
 }
 
+fn validate_fetch_config(fetch: &WebFetchConfig) -> ConfigResult<()> {
+    if fetch.timeout_ms == 0 || fetch.timeout_ms > MAX_TIMEOUT_MS {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch timeout_ms must be between 1 and {MAX_TIMEOUT_MS}"
+        )));
+    }
+    if fetch.max_content_bytes == 0 || fetch.max_content_bytes > MAX_FETCH_CONTENT_BYTES {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch max_content_bytes must be between 1 and {MAX_FETCH_CONTENT_BYTES}"
+        )));
+    }
+    if fetch.user_agent.trim().is_empty() {
+        return Err(ConfigError::Validation(
+            "web_fetch user_agent must not be empty".into(),
+        ));
+    }
+    if fetch
+        .backend
+        .as_deref()
+        .is_some_and(|backend| backend.trim().is_empty())
+    {
+        return Err(ConfigError::Validation(
+            "web_fetch backend id must not be empty".into(),
+        ));
+    }
+    if fetch.max_redirects > MAX_REDIRECTS {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch max_redirects must not exceed {MAX_REDIRECTS}"
+        )));
+    }
+    if let Some(proxy) = &fetch.proxy {
+        validate_proxy(proxy, "web_fetch")?;
+    }
+    Ok(())
+}
+
 /// Validate the resolved configuration. Unknown backend ids in the default
 /// list fail instead of silently widening the backend set.
 pub fn validate_network_config(config: &NetworkConfig) -> ConfigResult<()> {
+    validate_fetch_config(&config.web_fetch)?;
     let search = &config.web_search;
     if search.timeout_ms == 0 || search.timeout_ms > MAX_TIMEOUT_MS {
         return Err(ConfigError::Validation(format!(
             "web_search timeout_ms must be between 1 and {MAX_TIMEOUT_MS}"
+        )));
+    }
+    if search.max_retries > MAX_RETRIES {
+        return Err(ConfigError::Validation(format!(
+            "web_search max_retries must not exceed {MAX_RETRIES}"
+        )));
+    }
+    if search.min_interval_ms > MAX_RATE_INTERVAL_MS {
+        return Err(ConfigError::Validation(format!(
+            "web_search min_interval_ms must not exceed {MAX_RATE_INTERVAL_MS}"
+        )));
+    }
+    if search.cache_ttl_ms > MAX_CACHE_TTL_MS {
+        return Err(ConfigError::Validation(format!(
+            "web_search cache_ttl_ms must not exceed {MAX_CACHE_TTL_MS}"
+        )));
+    }
+    if search.max_results == 0 || search.max_results > max_results_cap() {
+        return Err(ConfigError::Validation(format!(
+            "web_search max_results must be between 1 and {}",
+            max_results_cap()
         )));
     }
     let mut ids = HashSet::new();
@@ -464,6 +610,78 @@ mod tests {
                 url_prefix: None,
             }),
         }];
+        assert!(validate_network_config(&config).is_err());
+    }
+
+    #[test]
+    fn fetch_config_defaults_are_valid() {
+        let config = serde_json::json!({ "web_search": {} });
+        let config: NetworkConfig = serde_json::from_value(config).expect("web_fetch defaults");
+        assert_eq!(
+            config.web_fetch.max_content_bytes,
+            DEFAULT_MAX_CONTENT_BYTES
+        );
+        assert_eq!(config.web_fetch.max_redirects, DEFAULT_MAX_REDIRECTS);
+        validate_network_config(&config).expect("default fetch config validates");
+    }
+
+    #[test]
+    fn fetch_only_section_keeps_default_search_backend() {
+        let config = serde_json::json!({ "web_fetch": { "max_redirects": 3 } });
+        let config: NetworkConfig = serde_json::from_value(config).expect("fetch-only config");
+        assert_eq!(config.web_fetch.max_redirects, 3);
+        assert_eq!(config.web_search.backends[0].id(), "duckduckgo");
+        validate_network_config(&config).expect("fetch-only config validates");
+    }
+
+    #[test]
+    fn search_governance_limits_are_validated() {
+        let mut config = NetworkConfig::default();
+        config.web_search.max_retries = MAX_RETRIES + 1;
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_search.cache_ttl_ms = MAX_CACHE_TTL_MS + 1;
+        assert!(validate_network_config(&config).is_err());
+    }
+
+    #[test]
+    fn declarative_backend_supports_filter_placeholders() {
+        let mut config = NetworkConfig::default();
+        config.web_search.backends = vec![WebSearchBackendConfig::Http {
+            id: "api".into(),
+            enabled: true,
+            timeout_ms: DEFAULT_TIMEOUT_MS,
+            proxy: None,
+            request: Box::new(HttpRequestConfig {
+                url: "https://api.example.com/search?q=$query&l=$language&$page".into(),
+                method: HttpMethod::Get,
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                json_body: None,
+            }),
+            response: Box::new(HttpResponseConfig {
+                format: HttpResponseFormat::DuckduckgoHtml,
+                items_path: None,
+                map: None,
+                url_prefix: None,
+            }),
+        }];
+        validate_network_config(&config).expect("filter placeholders validate");
+    }
+
+    #[test]
+    fn invalid_fetch_limits_are_rejected() {
+        let mut config = NetworkConfig::default();
+        config.web_fetch.max_content_bytes = 0;
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_fetch.max_redirects = MAX_REDIRECTS + 1;
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_fetch.proxy = Some(ProxyConfig {
+            url: "http://user:secret@proxy.test:3128".into(),
+            no_proxy: Vec::new(),
+        });
         assert!(validate_network_config(&config).is_err());
     }
 

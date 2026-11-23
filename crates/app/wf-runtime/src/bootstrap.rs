@@ -34,7 +34,10 @@ pub use llm::{create_auth_registry, create_llm_gateway, init_llm_gateway, regist
 #[cfg(feature = "mcp")]
 pub use mcp::init_mcp;
 pub use metrics::init_metrics_context;
-pub use network::build_web_search_backend;
+pub use network::{
+    build_network_domain_policy, build_web_fetch_backend, build_web_fetch_config,
+    build_web_search_backend,
+};
 #[cfg(feature = "plugins")]
 pub use plugin::init_plugins;
 pub use plugin::init_plugins_and_resources;

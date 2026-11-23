@@ -274,36 +274,40 @@ impl ToolApprovalCoordinator {
                     .and_then(|c| c.always_allow_network)
                     == Some(true)
                 {
+                    let mut domains = tool.resolved_domains.clone().unwrap_or_default();
                     if let Some(domain) = extract_domain(tool) {
-                        let denied = self
-                            .options
-                            .network
-                            .as_ref()
-                            .and_then(|n| n.denied_domains.as_ref())
-                            .map(|d| d.iter().any(|d| domain_matches(&domain, d)))
-                            .unwrap_or(false);
-                        if denied {
-                            return ApprovalDecision::Deny(format!(
-                                "Domain {} is in denylist",
-                                domain
-                            ));
-                        }
-                        let allowed = self
-                            .options
-                            .network
-                            .as_ref()
-                            .and_then(|n| n.allowed_domains.as_ref());
-                        if let Some(allowed) = allowed {
-                            if !allowed.is_empty()
-                                && !allowed.iter().any(|d| domain_matches(&domain, d))
-                            {
-                                return ApprovalDecision::Ask;
-                            }
-                        }
-                        ApprovalDecision::Approve
-                    } else {
-                        ApprovalDecision::Ask
+                        domains.push(domain);
                     }
+                    if domains.is_empty() {
+                        return ApprovalDecision::Ask;
+                    }
+                    let denied_rules = self
+                        .options
+                        .network
+                        .as_ref()
+                        .and_then(|n| n.denied_domains.as_ref());
+                    if let Some(domain) = domains.iter().find(|domain| {
+                        denied_rules.is_some_and(|rules| {
+                            rules.iter().any(|rule| domain_matches(domain, rule))
+                        })
+                    }) {
+                        return ApprovalDecision::Deny(format!("Domain {} is in denylist", domain));
+                    }
+                    let allowed = self
+                        .options
+                        .network
+                        .as_ref()
+                        .and_then(|n| n.allowed_domains.as_ref());
+                    if let Some(allowed) = allowed {
+                        if !allowed.is_empty()
+                            && !domains.iter().all(|domain| {
+                                allowed.iter().any(|rule| domain_matches(domain, rule))
+                            })
+                        {
+                            return ApprovalDecision::Ask;
+                        }
+                    }
+                    ApprovalDecision::Approve
                 } else {
                     ApprovalDecision::Ask
                 }

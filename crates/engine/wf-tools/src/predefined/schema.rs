@@ -323,13 +323,9 @@ mod tests {
         assert_eq!(format.property_type, "string");
         assert_eq!(
             format.r#enum.as_ref().unwrap(),
-            &vec![
-                serde_json::json!("text"),
-                serde_json::json!("markdown"),
-                serde_json::json!("html"),
-            ]
+            &vec![serde_json::json!("text"), serde_json::json!("html")]
         );
-        assert_eq!(format.default, Some(serde_json::json!("markdown")));
+        assert_eq!(format.default, Some(serde_json::json!("text")));
     }
 
     #[test]

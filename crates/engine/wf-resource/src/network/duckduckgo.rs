@@ -3,10 +3,14 @@
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use regex::Regex;
-use wf_tools::{SearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult};
+use wf_tools::{
+    redact_transport_error, NetworkDomainPolicy, NetworkProxy, SearchBackend, WebSearchError,
+    WebSearchQuery, WebSearchResponse, WebSearchResult,
+};
 
-use super::backend::{transport_error, ResolvedProxy, SearchBackendClient};
+use super::backend::{enforce_endpoint, SearchBackendClient, SEARCH_RESPONSE_LIMIT_BYTES};
 
 const DEFAULT_ENDPOINT: &str = "https://html.duckduckgo.com/html/";
 const DEFAULT_USER_AGENT: &str = "wf-agent/0.1 (Modular Agent Framework)";
@@ -28,16 +32,20 @@ impl DuckDuckGoBackend {
         endpoint: Option<String>,
         user_agent: Option<String>,
         timeout_ms: u64,
-        proxy: ResolvedProxy,
+        proxy: NetworkProxy,
+        domain_policy: NetworkDomainPolicy,
     ) -> Result<Self, String> {
+        let endpoint = endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_string());
+        enforce_endpoint(&endpoint, &domain_policy)?;
         let client = SearchBackendClient::build(
             timeout_ms,
             user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT),
             &proxy,
+            &domain_policy,
         )?;
         Ok(Self {
             id,
-            endpoint: endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_string()),
+            endpoint,
             client,
         })
     }
@@ -55,21 +63,48 @@ impl SearchBackend for DuckDuckGoBackend {
 
 #[async_trait]
 impl wf_tools::WebSearchBackend for DuckDuckGoBackend {
+    fn endpoints(&self) -> Vec<String> {
+        vec![self.endpoint.clone()]
+    }
+
     async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError> {
-        let url = reqwest::Url::parse_with_params(&self.endpoint, &[("q", query.query.as_str())])
-            .map_err(|error| {
-            WebSearchError::Backend(self.id.clone(), transport_error(error))
+        let mut params: Vec<(&str, String)> = vec![("q", query.query.clone())];
+        if let Some(language) = &query.language {
+            params.push(("kl", language.clone()));
+        }
+        if let Some(freshness) = &query.freshness {
+            params.push(("df", freshness.clone()));
+        }
+        if query.page > 1 {
+            params.push(("s", ((query.page - 1) * query.max_results).to_string()));
+        }
+        let url = reqwest::Url::parse_with_params(&self.endpoint, &params).map_err(|error| {
+            WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
         })?;
-        let html = self
+        let response = self
             .client
             .get(url)
             .send()
             .await
             .and_then(|response| response.error_for_status())
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?
-            .text()
-            .await
-            .map_err(|error| WebSearchError::Backend(self.id.clone(), transport_error(error)))?;
+            .map_err(|error| {
+                WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
+            })?;
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|error| {
+                WebSearchError::Backend(self.id.clone(), redact_transport_error(error))
+            })?;
+            if bytes.len() + chunk.len() > SEARCH_RESPONSE_LIMIT_BYTES {
+                return Err(WebSearchError::Backend(
+                    self.id.clone(),
+                    "response body exceeds the search limit".into(),
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let html = String::from_utf8_lossy(&bytes);
         let results = parse_duckduckgo_results(&html)
             .into_iter()
             .take(query.max_results)

@@ -71,7 +71,12 @@
 #[network.web_search]
 # mode = "all"                         # all | priority_first_success
 # timeout_ms = 20000                   # whole aggregation
-# default_backends = ["duckduckgo"]    # omit to use every enabled backend
+# max_results = 5                      # default result count, hard cap 50
+# default_backends = ["duckduckgo"]    # also restricts explicit backend selection
+# max_retries = 0                       # per-backend retries, max 3
+# retry_delay_ms = 100                  # delay between attempts
+# cache_ttl_ms = 0                      # 0 disables result caching
+# min_interval_ms = 0                   # per-backend rate limit floor
 
 # [[network.web_search.backends]]
 # id = "duckduckgo"
@@ -92,5 +97,17 @@
 # request = { method = "POST", url = "https://api.example.com/search",
 #             headers = { "Content-Type" = "application/json" },
 #             json_body = { q = "$query", count = "$max_results" } }
+# Response templates may additionally use $language, $region, $freshness
+# and $page. Backends receive the matching web_search tool parameters.
 # response = { format = "json", items_path = "results",
 #              map = { title = "title", url = "url", snippet = "description" } }
+
+# Web fetch transport. `format = "text"` strips scripts, styles and markup
+# and decodes HTML entities; `format = "html"` returns the raw body.
+#[network.web_fetch]
+# timeout_ms = 20000
+# max_content_bytes = 2000000          # hard cap while streaming the body
+# user_agent = "wf-agent/0.1 (Modular Agent Framework)"
+# max_redirects = 10
+# backend = "http"                     # built-in id or a native plugin id
+# proxy = { url = "http://127.0.0.1:7890", no_proxy = ["localhost"] }

@@ -3,11 +3,10 @@ use std::sync::Arc;
 use crate::adapter::adapter_impls::{
     AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, AgentStorage,
     CheckpointStorage, ConversationTreeStorage, MessageStorage, MetricsStorage, NodeDraftStorage,
-    NodeTemplateStorage,
-    PricingRuleStorage, ScriptStorage, TaskStorage, TemplateUsageStorage, ToolDefinitionStorage,
-    ToolStorage, TriggerDraftStorage, TriggerExecutionStorage, TriggerTemplateStorage,
-    UserInteractionStorage, VariableStorage, WorkflowDraftStorage, WorkflowExecutionStorage,
-    WorkflowStorage,
+    NodeTemplateStorage, PricingRuleStorage, ScriptStorage, TaskStorage, TemplateUsageStorage,
+    ToolDefinitionStorage, ToolStorage, TriggerDraftStorage, TriggerExecutionStorage,
+    TriggerTemplateStorage, UserInteractionStorage, VariableStorage, WorkflowDraftStorage,
+    WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};

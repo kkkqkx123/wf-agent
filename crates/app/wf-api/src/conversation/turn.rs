@@ -631,7 +631,14 @@ pub(crate) async fn converge_answer(
                     conversation_tree::message_hash(&message),
                 );
                 editor
-                    .finish_reply(&node_id, reference, Vec::new(), answer.state, None, &based_on)
+                    .finish_reply(
+                        &node_id,
+                        reference,
+                        Vec::new(),
+                        answer.state,
+                        None,
+                        &based_on,
+                    )
                     .map_err(super::tree_error)
             }
             None => editor

@@ -137,8 +137,12 @@ pub trait WebFetchBackend: Send + Sync {
 /// Create the async handler for the web_fetch tool.
 pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> StatelessAsyncHandler {
     let backend = config.fetch_backend.clone();
+    let text_converter = config.fetch_text_converter.clone();
+    let post_processor = config.fetch_post_processor.clone();
     Arc::new(move |parameters: serde_json::Value, ctx| {
         let backend = backend.clone();
+        let text_converter = text_converter.clone();
+        let post_processor = post_processor.clone();
         Box::pin(async move {
             let backend = backend.ok_or(WebFetchError::NoBackend)?;
             let url = parameters
@@ -165,7 +169,10 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
                     .to_ascii_lowercase()
                     .starts_with("<!doctype");
             if is_html && format == "text" {
-                content = html_to_text(&content);
+                content = match &text_converter {
+                    Some(converter) => converter(&content),
+                    None => html_to_text(&content),
+                };
             }
 
             let spill_dir = resolve_spill_dir(
@@ -180,7 +187,7 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
                 .as_ref()
                 .map(|p| p.to_string_lossy().to_string());
 
-            Ok(serde_json::json!({
+            let output = serde_json::json!({
                 "url": url,
                 "final_url": response.final_url,
                 "format": format,
@@ -189,7 +196,11 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
                 "content": outcome.kept_text,
                 "content_truncated": truncated,
                 "content_path": content_path,
-            }))
+            });
+            Ok(match &post_processor {
+                Some(process) => process(output),
+                None => output,
+            })
         })
     })
 }
@@ -241,5 +252,26 @@ mod tests {
         .expect("stub fetch succeeds");
         assert_eq!(output["content"], "Hello & world");
         assert_eq!(output["final_url"], "https://example.com/page");
+    }
+
+    #[tokio::test]
+    async fn handler_applies_injected_text_converter_and_post_processor() {
+        let config = crate::predefined::web::WebToolConfig {
+            fetch_backend: Some(Arc::new(StubFetchBackend)),
+            fetch_text_converter: Some(Arc::new(|html| format!("converted:{html}"))),
+            fetch_post_processor: Some(Arc::new(|mut value| {
+                value["processed"] = serde_json::json!(true);
+                value
+            })),
+            ..Default::default()
+        };
+        let output = web_fetch_handler(&config)(
+            serde_json::json!({ "url": "https://example.com/page" }),
+            crate::executor::trait_def::ToolExecutionContext::new("exec-2".into()),
+        )
+        .await
+        .expect("stub fetch succeeds");
+        assert_eq!(output["content"], "converted:<h1>Hello &amp; world</h1>");
+        assert_eq!(output["processed"], serde_json::json!(true));
     }
 }

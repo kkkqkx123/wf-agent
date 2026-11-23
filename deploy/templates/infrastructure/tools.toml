@@ -80,14 +80,14 @@
 
 # [[network.web_search.backends]]
 # id = "duckduckgo"
-# kind = "duckduckgo_html"
+# kind = "duckduckgo_html"             # shorthand for a declarative HTML backend
 # enabled = true
 # timeout_ms = 20000
+# max_redirects = 10                    # per-hop cap, also applies to every http backend
 # endpoint = "https://html.duckduckgo.com/html/"
 # proxy = { url = "http://127.0.0.1:7890", no_proxy = ["localhost"] }
 
-# Declarative JSON search API. `$query` and `$max_results` are the only
-# supported placeholders; secrets use environment expansion, e.g.
+# Declarative JSON search API. Secrets use environment expansion, e.g.
 # "X-Api-Key" = "${WF_SEARCH_API_KEY}".
 # [[network.web_search.backends]]
 # id = "example_api"
@@ -97,8 +97,9 @@
 # request = { method = "POST", url = "https://api.example.com/search",
 #             headers = { "Content-Type" = "application/json" },
 #             json_body = { q = "$query", count = "$max_results" } }
-# Response templates may additionally use $language, $region, $freshness
-# and $page. Backends receive the matching web_search tool parameters.
+# Templates may additionally use $language, $region, $freshness, $page and
+# $offset (= (page-1) * max_results, the DuckDuckGo pagination offset).
+# Backends receive the matching web_search tool parameters.
 # response = { format = "json", items_path = "results",
 #              map = { title = "title", url = "url", snippet = "description" } }
 

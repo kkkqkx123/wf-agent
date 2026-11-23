@@ -141,6 +141,8 @@ pub enum WebSearchBackendConfig {
         enabled: bool,
         #[serde(default = "default_timeout_ms")]
         timeout_ms: u64,
+        #[serde(default = "default_max_redirects")]
+        max_redirects: usize,
         #[serde(default)]
         proxy: Option<ProxyConfig>,
         #[serde(default)]
@@ -154,6 +156,8 @@ pub enum WebSearchBackendConfig {
         enabled: bool,
         #[serde(default = "default_timeout_ms")]
         timeout_ms: u64,
+        #[serde(default = "default_max_redirects")]
+        max_redirects: usize,
         #[serde(default)]
         proxy: Option<ProxyConfig>,
         request: Box<HttpRequestConfig>,
@@ -177,6 +181,14 @@ impl WebSearchBackendConfig {
     pub fn timeout_ms(&self) -> u64 {
         match self {
             Self::DuckduckgoHtml { timeout_ms, .. } | Self::Http { timeout_ms, .. } => *timeout_ms,
+        }
+    }
+
+    pub fn max_redirects(&self) -> usize {
+        match self {
+            Self::DuckduckgoHtml { max_redirects, .. } | Self::Http { max_redirects, .. } => {
+                *max_redirects
+            }
         }
     }
 
@@ -227,6 +239,7 @@ impl Default for WebSearchConfig {
                 id: "duckduckgo".into(),
                 enabled: true,
                 timeout_ms: DEFAULT_TIMEOUT_MS,
+                max_redirects: DEFAULT_MAX_REDIRECTS,
                 proxy: None,
                 endpoint: None,
                 user_agent: None,
@@ -323,7 +336,7 @@ fn validate_placeholders(text: &str, field: &str) -> ConfigResult<()> {
         let name = &text[start..end];
         if !matches!(
             name,
-            "query" | "max_results" | "language" | "region" | "freshness" | "page"
+            "query" | "max_results" | "language" | "region" | "freshness" | "page" | "offset"
         ) {
             return Err(ConfigError::Validation(format!(
                 "unknown placeholder '${name}' in {field}"
@@ -372,6 +385,11 @@ fn validate_backend(backend: &WebSearchBackendConfig) -> ConfigResult<()> {
     if backend.timeout_ms() == 0 || backend.timeout_ms() > MAX_TIMEOUT_MS {
         return Err(ConfigError::Validation(format!(
             "timeout_ms for backend '{id}' must be between 1 and {MAX_TIMEOUT_MS}"
+        )));
+    }
+    if backend.max_redirects() > MAX_REDIRECTS {
+        return Err(ConfigError::Validation(format!(
+            "max_redirects for backend '{id}' must not exceed {MAX_REDIRECTS}"
         )));
     }
     if let Some(proxy) = backend.proxy() {
@@ -595,6 +613,7 @@ mod tests {
             id: "api".into(),
             enabled: true,
             timeout_ms: DEFAULT_TIMEOUT_MS,
+            max_redirects: DEFAULT_MAX_REDIRECTS,
             proxy: None,
             request: Box::new(HttpRequestConfig {
                 url: "https://api.example.com".into(),
@@ -651,6 +670,7 @@ mod tests {
             id: "api".into(),
             enabled: true,
             timeout_ms: DEFAULT_TIMEOUT_MS,
+            max_redirects: DEFAULT_MAX_REDIRECTS,
             proxy: None,
             request: Box::new(HttpRequestConfig {
                 url: "https://api.example.com/search?q=$query&l=$language&$page".into(),

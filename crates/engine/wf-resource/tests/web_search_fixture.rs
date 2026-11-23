@@ -92,6 +92,7 @@ async fn declarative_backend_replays_fixture_over_local_http() {
             url_prefix: None,
         },
         5_000,
+        10,
         NetworkProxy::default(),
         NetworkDomainPolicy::default(),
     )
@@ -179,6 +180,7 @@ async fn declarative_backend_renders_post_request_and_maps_json() {
             url_prefix: Some("https://example.com".into()),
         },
         5_000,
+        10,
         NetworkProxy::default(),
         NetworkDomainPolicy::default(),
     )

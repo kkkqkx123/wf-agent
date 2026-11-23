@@ -763,6 +763,7 @@ async fn build_registry(sandbox: &Path) -> crate::error::ToolResult<ToolRegistry
             backend: Some(Arc::new(HarnessSearchBackend)),
             fetch_backend: Some(Arc::new(HarnessFetchBackend)),
             max_results: 5,
+            ..Default::default()
         },
         rag: predefined::rag::RagToolConfig {
             backend: Some(Arc::new(HarnessRagBackend)),

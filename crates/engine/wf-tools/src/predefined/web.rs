@@ -24,6 +24,16 @@ use crate::registry::ToolRegistry;
 /// All web tool definitions in registration order.
 pub const ALL: &[&ToolDefinition] = &[&WEB_SEARCH, &WEB_SEARCH_BACKENDS, &WEB_FETCH];
 
+/// Converts fetched HTML into readable text. The host may replace the default
+/// converter to plug in a different extraction strategy without touching the
+/// tool definition or transport.
+pub type FetchTextConverter = Arc<dyn Fn(&str) -> String + Send + Sync>;
+
+/// Optional post-processing applied to the fetch output envelope after text
+/// conversion and output spilling, so hosts can add redaction or enrichment.
+pub type FetchPostProcessor =
+    Arc<dyn Fn(serde_json::Value) -> serde_json::Value + Send + Sync>;
+
 /// Configuration for the web tools. Transport settings are resolved by the
 /// host; handlers only consume the effective values.
 #[derive(Clone)]
@@ -34,6 +44,10 @@ pub struct WebToolConfig {
     pub max_results: usize,
     /// Fetch capability injected by the host resource layer.
     pub fetch_backend: Option<Arc<dyn WebFetchBackend>>,
+    /// Overrides HTML-to-text conversion for `web_fetch` with `format = "text"`.
+    pub fetch_text_converter: Option<FetchTextConverter>,
+    /// Post-processes the `web_fetch` output envelope before it is returned.
+    pub fetch_post_processor: Option<FetchPostProcessor>,
 }
 
 impl Default for WebToolConfig {
@@ -42,6 +56,8 @@ impl Default for WebToolConfig {
             backend: None,
             max_results: 5,
             fetch_backend: None,
+            fetch_text_converter: None,
+            fetch_post_processor: None,
         }
     }
 }
@@ -52,6 +68,8 @@ impl std::fmt::Debug for WebToolConfig {
             .field("backend_configured", &self.backend.is_some())
             .field("max_results", &self.max_results)
             .field("fetch_backend_configured", &self.fetch_backend.is_some())
+            .field("fetch_text_converter_configured", &self.fetch_text_converter.is_some())
+            .field("fetch_post_processor_configured", &self.fetch_post_processor.is_some())
             .finish()
     }
 }

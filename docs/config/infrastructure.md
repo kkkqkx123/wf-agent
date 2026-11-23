@@ -99,7 +99,7 @@
 
 `tools.toml [network.web_search]` 包含 `mode`（`all` 并发调用配置的所有后端并汇总结果，或 `priority_first_success` 按优先级取第一个非空结果）、`timeout_ms`（整次聚合的硬上限）、`max_results`（缺省结果数，硬上限 50）、`max_retries` 与 `retry_delay_ms`（单后端失败重试）、`cache_ttl_ms`（结果缓存，0 关闭）、`min_interval_ms`（单后端调用间隔下限）、`default_backends`（允许使用的后端 id 列表，同时也限制显式 `backend` 参数，缺省为全部启用后端）以及 `backends` 数组。优先级默认来自后端注册顺序；声明 `default_backends` 时以该列表顺序为准。
 
-后端通过 `kind` 区分：`duckduckgo_html` 接受 `endpoint`、`user_agent`、超时与代理；`http` 接受 `request`（`method`、`url`、`headers`、`query`、`json_body`）与 `response`（`format`、`items_path`、`map`、`url_prefix`）。请求模板支持 `$query`、`$max_results`、`$language`、`$region`、`$freshness` 与 `$page` 占位符；模型侧对应的可选参数会随请求传给后端，DuckDuckGo 后端把它们映射到 `kl`、`df` 与分页偏移。请求头中的密钥用环境变量占位符注入，配置校验拒绝未知占位符。
+后端通过 `kind` 区分：`duckduckgo_html` 是声明式 HTML 搜索的简写预设（接受 `endpoint`、`user_agent`、超时、代理与 `max_redirects`，内部翻译成一条 `http` 后端配置）；`http` 接受 `request`（`method`、`url`、`headers`、`query`、`json_body`）与 `response`（`format`、`items_path`、`map`、`url_prefix`）。所有后端都在构建时设置各自的逐跳重定向上限 `max_redirects`（默认 10，与抓取共用同一 client 构造与域名策略）。请求模板支持 `$query`、`$max_results`、`$language`、`$region`、`$freshness`、`$page` 与 `$offset`（等于 `(page-1) * max_results`，即 DuckDuckGo 的分页偏移）占位符；模型侧对应的可选参数会随请求传给后端，DuckDuckGo 预设把它们映射到 `kl`、`df` 与 `s`。请求头中的密钥用环境变量占位符注入，配置校验拒绝未知占位符。
 
 每个后端可独立设置 `proxy.url` 与 `proxy.no_proxy`。代理 URL 只允许路由，不能内嵌 userinfo；凭据按路由从 credential store 读取并仅在构建该后端的 HTTP client 时临时组合，传输错误中的 userinfo 也会被脱敏。响应体在流式读取阶段就受统一上限约束，超限直接失败。插件贡献的搜索后端使用 `tool` + `tool-type` 声明，并为工具标记 `search-backend:web`；联网插件限定 native 后端且需要 `network` 权限，插件停用时会同步注销其后端。插件必须恰好贡献一个 tool-type executor，权限不满足、executor 数量不符或后端 id 冲突会让插件激活失败，而不是静默跳过。
 
@@ -107,7 +107,7 @@
 
 `tools.toml [network.web_fetch]` 配置 `timeout_ms`、`max_content_bytes`（流式下载硬上限）、`user_agent`、`max_redirects`、`backend`（内置 `http` 或 native 插件后端 id）和 `proxy`。`web_fetch` 的 `format` 只有 `text` 与 `html`：前者移除脚本、样式与标签并解码 HTML 实体，后者返回原始响应体；不再提供名不副实的 markdown 选项。响应体超限在接收过程中立即失败，超长文本再走统一落盘。
 
-抓取后端注册表与搜索后端一样按插件 owner 管理生命周期；插件用 `fetch-backend:web` 标记贡献抓取能力，搜索后端仍使用 `search-backend:web`，两者都要求 native 实现、`network` 权限和唯一 executor。
+抓取后端注册表与搜索后端一样按插件 owner 管理生命周期；插件用 `fetch-backend:web` 标记贡献抓取能力，搜索后端仍使用 `search-backend:web`，两者都要求 native 实现、`network` 权限和唯一 executor。当前选中的抓取后端 id 由注册表持有，路由器在每次调用时读取，因此运行时可切换；当被移除的插件后端正是当前选中项时，自动回退到内置 `http` 后端。网页转文本与输出后处理是宿主可注入的扩展点，未注入时使用默认 HTML 转文本规则。
 
 审批配置中的网络域名规则会下推到内置传输层：拒绝列表始终生效；允许列表仅在 `always_allow_network = true` 时约束抓取目标，否则由人工审批决定。搜索后端只接收拒绝规则，因为搜索引擎端点并不是被搜索的目标站点；对每次重定向目标都会重新校验域名。`web_search_backends` 工具列出当前可用后端及能力；`web_search` 工具定义携带已解析的后端端点域名，审批阶段可据此执行域名策略，不再因为缺少 URL 参数而直接转人工。
 

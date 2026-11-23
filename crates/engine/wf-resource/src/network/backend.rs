@@ -9,8 +9,13 @@ use wf_tools::{redact_transport_error, NetworkDomainPolicy, NetworkProxy, WebSea
 /// Shared hard bound for search backend response bodies.
 pub const SEARCH_RESPONSE_LIMIT_BYTES: usize = 2_000_000;
 
+/// Redirect cap used when a caller has no explicit transport setting.
+pub const DEFAULT_MAX_REDIRECTS: usize = 10;
+
 /// Builds one reqwest client per backend, with that backend's own timeout,
-/// user agent, proxy route and domain policy.
+/// user agent, proxy route, redirect cap and domain policy. The domain policy
+/// is checked on the initial target and on every redirect hop; the hop count
+/// is bounded independently of the per-request timeout.
 pub struct SearchBackendClient;
 
 impl SearchBackendClient {
@@ -19,19 +24,23 @@ impl SearchBackendClient {
         user_agent: &str,
         proxy: &NetworkProxy,
         domain_policy: &NetworkDomainPolicy,
+        max_redirects: usize,
     ) -> Result<reqwest::Client, String> {
         let policy = domain_policy.clone();
         let mut builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
             .user_agent(user_agent)
-            .redirect(reqwest::redirect::Policy::custom(
-                move |attempt| match policy.allows_url(attempt.url().as_str()) {
-                    Ok(()) => attempt.follow(),
-                    Err(reason) => {
-                        attempt.error(io::Error::new(io::ErrorKind::PermissionDenied, reason))
-                    }
-                },
-            ));
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                if let Err(reason) = policy.allows_url(attempt.url().as_str()) {
+                    return attempt.error(io::Error::new(io::ErrorKind::PermissionDenied, reason));
+                }
+                if attempt.previous().len() >= max_redirects {
+                    return attempt.error(io::Error::other(format!(
+                        "too many redirects (limit {max_redirects})"
+                    )));
+                }
+                attempt.follow()
+            }));
         if let Some(url) = proxy.url.as_deref() {
             let route =
                 llm_proxy::build_proxy(url, &proxy.no_proxy).map_err(redact_transport_error)?;
@@ -119,5 +128,70 @@ mod tests {
         let policy = NetworkDomainPolicy::new(Some(vec!["example.com".into()]), None);
         assert!(enforce_endpoint("https://api.example.com/search", &policy).is_ok());
         assert!(enforce_endpoint("https://api.other.test/search", &policy).is_err());
+    }
+
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    fn spawn_redirect_chain(hops: usize) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local redirect server");
+        let address = listener.local_addr().expect("resolve address");
+        std::thread::spawn(move || {
+            for (index, stream) in listener.incoming().flatten().enumerate() {
+                let mut stream = stream;
+                let mut request = [0u8; 2048];
+                let _ = stream.read(&mut request);
+                let response = if index < hops {
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: http://{address}/hop{index}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                } else {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string()
+                };
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://{address}/start")
+    }
+
+    #[tokio::test]
+    async fn redirect_cap_stops_long_chains() {
+        let url = spawn_redirect_chain(10);
+        let client = SearchBackendClient::build(
+            5_000,
+            "test",
+            &NetworkProxy::default(),
+            &NetworkDomainPolicy::default(),
+            2,
+        )
+        .expect("client builds");
+        let error = client
+            .get(&url)
+            .send()
+            .await
+            .expect_err("redirect chain exceeds the cap");
+        let mut detail = error.to_string();
+        let mut source = std::error::Error::source(&error);
+        while let Some(cause) = source {
+            detail.push_str(" ");
+            detail.push_str(&cause.to_string());
+            source = cause.source();
+        }
+        assert!(detail.contains("too many redirects"), "detail: {detail}");
+    }
+
+    #[tokio::test]
+    async fn redirect_cap_allows_short_chains() {
+        let url = spawn_redirect_chain(1);
+        let client = SearchBackendClient::build(
+            5_000,
+            "test",
+            &NetworkProxy::default(),
+            &NetworkDomainPolicy::default(),
+            5,
+        )
+        .expect("client builds");
+        let response = client.get(&url).send().await.expect("short chain succeeds");
+        assert!(response.status().is_success());
     }
 }

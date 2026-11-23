@@ -48,6 +48,7 @@ pub async fn init_tool_registry_with_mcp(
                 backend: Some(web_search_backend),
                 max_results: web_search_max_results,
                 fetch_backend: Some(web_fetch_backend),
+                ..Default::default()
             },
             ..Default::default()
         },

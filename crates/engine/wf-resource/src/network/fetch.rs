@@ -1,6 +1,6 @@
 //! Built-in HTTP fetch backend, registry and router.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -12,20 +12,54 @@ use wf_tools::{
 
 use super::backend::SearchBackendClient;
 
+const BUILTIN_FETCH_ID: &str = "http";
+
 struct FetchEntry {
     backend: Arc<dyn WebFetchBackend>,
     owner: String,
 }
 
-/// Shared registry of fetch backends with owner-based teardown.
-#[derive(Clone, Default)]
+/// Shared registry of fetch backends with owner-based teardown. The selected
+/// id lives here so the router reads it at call time; a plugin bridge holding
+/// a clone can switch the active backend at runtime.
+#[derive(Clone)]
 pub struct FetchBackendRegistry {
     entries: Arc<DashMap<String, FetchEntry>>,
+    selected: Arc<RwLock<String>>,
+}
+
+impl Default for FetchBackendRegistry {
+    fn default() -> Self {
+        Self {
+            entries: Arc::new(DashMap::new()),
+            selected: Arc::new(RwLock::new(BUILTIN_FETCH_ID.to_string())),
+        }
+    }
 }
 
 impl FetchBackendRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Id currently used by the router.
+    pub fn selected(&self) -> String {
+        self.selected
+            .read()
+            .expect("invariant: selected lock is not poisoned")
+            .clone()
+    }
+
+    /// Switch the active backend. The target must be registered.
+    pub fn set_selected(&self, id: &str) -> Result<(), String> {
+        if !self.entries.contains_key(id) {
+            return Err(format!("fetch backend '{id}' is not registered"));
+        }
+        *self
+            .selected
+            .write()
+            .expect("invariant: selected lock is not poisoned") = id.to_string();
+        Ok(())
     }
 
     pub fn register_builtin(&self, backend: Arc<dyn WebFetchBackend>) -> Result<(), String> {
@@ -67,6 +101,13 @@ impl FetchBackendRegistry {
             }
         });
         removed.sort();
+        let active = self.selected();
+        if removed.contains(&active) && self.entries.contains_key(BUILTIN_FETCH_ID) {
+            *self
+                .selected
+                .write()
+                .expect("invariant: selected lock is not poisoned") = BUILTIN_FETCH_ID.to_string();
+        }
         removed
     }
 
@@ -85,28 +126,30 @@ impl FetchBackendRegistry {
     }
 }
 
-/// Routes every fetch call to the configured backend id.
+/// Routes every fetch call to the registry's current selected backend id.
+/// The selection is read at call time so it can change at runtime.
 pub struct WebFetchRouter {
     registry: FetchBackendRegistry,
-    selected: String,
 }
 
 impl WebFetchRouter {
     pub fn new(registry: FetchBackendRegistry, selected: impl Into<String>) -> Self {
-        Self {
-            registry,
-            selected: selected.into(),
-        }
+        let router = Self { registry };
+        // Selection is owned by the registry; ignore a missing id here and let
+        // fetch report it, so construction stays infallible.
+        let _ = router.registry.set_selected(&selected.into());
+        router
     }
 }
 
 #[async_trait]
 impl WebFetchBackend for WebFetchRouter {
     async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
-        let backend = self.registry.get(&self.selected).ok_or_else(|| {
+        let selected = self.registry.selected();
+        let backend = self.registry.get(&selected).ok_or_else(|| {
             WebFetchError::Transport(format!(
                 "fetch backend '{}' is not registered",
-                self.selected
+                selected
             ))
         })?;
         backend.fetch(query).await
@@ -135,6 +178,7 @@ impl HttpFetchBackend {
             &config.user_agent,
             &config.proxy,
             &config.domain_policy,
+            config.max_redirects,
         )?;
         Ok(Self {
             id: id.into(),
@@ -198,5 +242,93 @@ impl WebFetchBackend for HttpFetchBackend {
 
     fn kind(&self) -> &str {
         "http"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StubFetch {
+        id: String,
+        tag: String,
+    }
+
+    #[async_trait]
+    impl WebFetchBackend for StubFetch {
+        async fn fetch(&self, _query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
+            Ok(WebFetchResponse {
+                final_url: "https://example.com".into(),
+                content_type: "text/plain".into(),
+                content: self.tag.clone(),
+                size: self.tag.len(),
+            })
+        }
+
+        fn id(&self) -> &str {
+            &self.id
+        }
+
+        fn kind(&self) -> &str {
+            "stub"
+        }
+    }
+
+    #[test]
+    fn selection_switches_at_runtime_and_rejects_unknown() {
+        let registry = FetchBackendRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubFetch {
+                id: "http".into(),
+                tag: "builtin".into(),
+            }))
+            .expect("register builtin");
+        registry
+            .register_plugin(
+                "p1",
+                Arc::new(StubFetch {
+                    id: "p1.fetch".into(),
+                    tag: "plugin".into(),
+                }),
+            )
+            .expect("register plugin");
+
+        let router = WebFetchRouter::new(registry.clone(), "http");
+        assert_eq!(registry.selected(), "http");
+        assert!(registry.set_selected("p1.fetch").is_ok());
+        assert_eq!(registry.selected(), "p1.fetch");
+        assert!(registry.set_selected("missing").is_err());
+        assert_eq!(registry.selected(), "p1.fetch");
+
+        let query = WebFetchQuery {
+            url: "https://example.com".into(),
+        };
+        let routed = futures::executor::block_on(router.fetch(query)).expect("fetch succeeds");
+        assert_eq!(routed.content, "plugin");
+    }
+
+    #[test]
+    fn removing_active_owner_falls_back_to_builtin() {
+        let registry = FetchBackendRegistry::new();
+        registry
+            .register_builtin(Arc::new(StubFetch {
+                id: "http".into(),
+                tag: "builtin".into(),
+            }))
+            .expect("register builtin");
+        registry
+            .register_plugin(
+                "p1",
+                Arc::new(StubFetch {
+                    id: "p1.fetch".into(),
+                    tag: "plugin".into(),
+                }),
+            )
+            .expect("register plugin");
+        registry.set_selected("p1.fetch").expect("select plugin");
+
+        let removed = registry.unregister_by_owner("p1");
+        assert_eq!(removed, vec!["p1.fetch".to_string()]);
+        assert_eq!(registry.selected(), "http");
     }
 }

@@ -34,11 +34,24 @@ impl HttpSearchBackend {
         request: HttpRequestConfig,
         response: HttpResponseConfig,
         timeout_ms: u64,
+        max_redirects: usize,
         proxy: NetworkProxy,
         domain_policy: NetworkDomainPolicy,
     ) -> Result<Self, String> {
         enforce_endpoint(&request.url, &domain_policy)?;
-        let client = SearchBackendClient::build(timeout_ms, "", &proxy, &domain_policy)?;
+        let user_agent = request
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+            .map(|(_, value)| value.as_str())
+            .unwrap_or("");
+        let client = SearchBackendClient::build(
+            timeout_ms,
+            user_agent,
+            &proxy,
+            &domain_policy,
+            max_redirects,
+        )?;
         Ok(Self {
             id,
             request,
@@ -178,8 +191,10 @@ impl wf_tools::WebSearchBackend for HttpSearchBackend {
 }
 
 fn resolve_string(value: &str, query: &WebSearchQuery) -> String {
+    let offset = query.page.saturating_sub(1).saturating_mul(query.max_results);
     value
         .replace("$max_results", &query.max_results.to_string())
+        .replace("$offset", &offset.to_string())
         .replace("$page", &query.page.max(1).to_string())
         .replace("$language", query.language.as_deref().unwrap_or(""))
         .replace("$region", query.region.as_deref().unwrap_or(""))

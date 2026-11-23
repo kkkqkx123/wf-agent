@@ -169,14 +169,47 @@ impl AgentIterationCoordinator {
         };
         let messages = request.messages.clone();
         let limits = self.effective_compaction_limits();
-        // Shared forced-plan helper: stateless only, never consults
-        // planning advice, so no directive can reach the forced path.
-        let forced_plan = wf_execution_shared::forced_stateless_plan(
-            &messages,
-            tokens_used,
-            effective_limit,
-            &limits,
-        );
+        // Overflow-reactive compaction is delegated to the bound engine so
+        // the safety net obeys the same replacement as every other entrance.
+        // The range spans the whole request snapshot; the builtin engine
+        // reduces it to the forced stateless plan, preserving the invariant
+        // that no directive reaches the forced path.
+        let range = wf_types::message::SeqRange {
+            start: 0,
+            end: messages.len().saturating_sub(1) as u64,
+        };
+        let cancel = entity.get_abort_signal();
+        let forced_outcome = {
+            let conversation = entity.conversation().read().await;
+            let snapshot = conversation.view_messages();
+            let seqs = conversation.message_seqs();
+            let call = wf_execution_shared::CompactionCall {
+                execution_id: entity.id(),
+                messages: &snapshot,
+                history: conversation.messages(),
+                seqs,
+                view: conversation.active_view(),
+                state: conversation.compaction_state(),
+                limits: &limits,
+                hot_tokens: tokens_used,
+                window_tokens: conversation.compaction_window(),
+                context_limit: effective_limit,
+                version,
+                cancel: &cancel,
+            };
+            self.compaction_engine()
+                .compact_region(&call, &wf_execution_shared::NoopProgressSink, range)
+                .await
+        };
+        let forced_plan: Vec<wf_execution_shared::CompactionPlanItem> = match forced_outcome {
+            Ok(wf_execution_shared::CompactionOutcome::View(plan)) => plan.items,
+            _ => wf_execution_shared::forced_stateless_plan(
+                &messages,
+                tokens_used,
+                effective_limit,
+                &limits,
+            ),
+        };
         // Forced path carries the same pending contract as the regular
         // path: plan-mode forced results match against this pending copy.
         // The stateless plan never consults planning advice, so no
@@ -367,7 +400,7 @@ impl AgentIterationCoordinator {
                 drop(conversation);
                 self.enter_handoff_flow(entity, reason).await;
             }
-            wf_execution_shared::CompactionDecision::Compact { aggressive } => {
+            wf_execution_shared::CompactionDecision::Compact { aggressive: _ } => {
                 // Backpressure coalescing: one in-flight plan settles
                 // first. The newer version re-decides on the next
                 // settlement instead of stacking a second plan signal.
@@ -384,13 +417,57 @@ impl AgentIterationCoordinator {
                         return;
                     }
                 }
+                let version = conversation.conversation_version();
+                if !conversation.should_emit_compression(version) {
+                    return;
+                }
+                // The bound engine owns the compact decision and plan. Handoff
+                // and oldest-block dropping stay host safety nets above; here
+                // the host only applies the engine's outcome through the
+                // existing summary-chain emission and write-back path.
+                let snapshot = conversation.view_messages();
+                let cancel = entity.get_abort_signal();
+                let outcome = {
+                    let call = wf_execution_shared::CompactionCall {
+                        execution_id: entity.id(),
+                        messages: &snapshot,
+                        history: conversation.messages(),
+                        seqs: conversation.message_seqs(),
+                        view: conversation.active_view(),
+                        state: conversation.compaction_state(),
+                        limits: &limits,
+                        hot_tokens: hot,
+                        window_tokens: conversation.compaction_window(),
+                        context_limit,
+                        version,
+                        cancel: &cancel,
+                    };
+                    self.compaction_engine()
+                        .compact_if_needed(&call, &wf_execution_shared::NoopProgressSink)
+                        .await
+                };
+                let plan = match outcome {
+                    Ok(Some(wf_execution_shared::CompactionOutcome::View(plan))) => plan,
+                    Ok(Some(wf_execution_shared::CompactionOutcome::Replace(_))) => {
+                        // Destructive replacement is a host-side write-back
+                        // path; the automatic settlement has no summary chain
+                        // to anchor, so it defers until that path is wired.
+                        tracing::warn!(
+                            "compaction engine requested a destructive replace from the \
+                             automatic settlement; deferring"
+                        );
+                        return;
+                    }
+                    Ok(None) | Ok(Some(wf_execution_shared::CompactionOutcome::Noop)) => return,
+                    Err(e) => {
+                        tracing::warn!("compaction engine call failed: {e}");
+                        return;
+                    }
+                };
                 let single_summary = wf_execution_shared::is_single_summary_strategy(
                     &wf_execution_shared::compaction_strategy_name(&limits),
                 );
-                let plan = conversation.build_compaction_plan(hot, &limits, aggressive);
-                if plan.is_empty() && !single_summary {
-                    return;
-                }
+                let aggressive = plan.aggressive;
                 if !single_summary
                     && aggressive
                     && hot.saturating_sub(plan.freed_tokens)
@@ -401,20 +478,15 @@ impl AgentIterationCoordinator {
                         .await;
                     return;
                 }
-                let version = conversation.conversation_version();
-                if !conversation.should_emit_compression(version) {
-                    return;
-                }
+                let legacy = plan.items.is_empty();
                 // Budget, count and snapshot share the active view so the
                 // plan indices stay valid for the service run. The pending
                 // store keeps items and drops only; the directive travels
                 // in the signal request.
-                let messages = conversation.view_messages();
-                let items = plan.items.clone();
-                let directive = plan.directive.clone().unwrap_or_default();
+                let items = plan.items;
+                conversation.set_pending_compaction(items.clone(), plan.drops);
                 let capped = plan.capped;
-                let legacy = items.is_empty();
-                conversation.set_pending_compaction(plan.items, plan.drops);
+                let directive = plan.directive.unwrap_or_default();
                 drop(conversation);
                 if self
                     .emit_compaction_signal(
@@ -422,7 +494,7 @@ impl AgentIterationCoordinator {
                         version,
                         hot,
                         context_limit,
-                        messages,
+                        snapshot,
                         items,
                         directive,
                     )

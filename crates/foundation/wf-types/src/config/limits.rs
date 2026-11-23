@@ -93,6 +93,15 @@ pub struct CompactionLimits {
     /// re-compression chain when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
+    /// Name of the compaction engine bound to an execution. Absent or
+    /// `builtin` selects the native engine; any other name must resolve to a
+    /// registered native engine factory at startup or the run fails loudly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+    /// Opaque engine-private configuration. The host never interprets it and
+    /// passes it verbatim to the engine factory at instance construction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_config: Option<serde_json::Value>,
 }
 
 /// Compression service policy for the context-compression chain.

@@ -38,3 +38,16 @@ network 能力刻意保留了两类可插拔抽象，因此动态派发是必要
 
 - 未定义统一的"后端身份" trait 让 search 与 fetch 共享。二者返回结构不同（web 搜索结果是带排序的 JSON 对象，抓取是网页正文文本），id/kind 不足以构成统一理由，因此 `WebFetchBackend` 独立声明 id/kind，不继承 `SearchBackend`。
 - 未用 `dyn` 表达配置形态。配置是数据（`WebSearchBackendConfig` 枚举），校验与默认值在 `wf-config` 静态完成。
+
+## 压缩引擎动态派发
+
+压缩引擎是需要运行时替换的能力：内建引擎与第三方原生引擎实现同一套决策与规划语义，由配置名在装配期选中一个并绑定到本次执行，运行期不可更换。只有统一 trait 对象能让宿主在不知道具体引擎的情况下驱动三种触发入口，也才能让原生插件在启动时贡献新引擎。
+
+| 位置 | 派发类型 | 必要性 |
+| --- | --- | --- |
+| `wf-execution-shared/src/compaction/engine.rs` | `Arc<dyn CompactionEngine>` 作为工厂产物与引擎契约 | 宿主按统一契约调用，不感知内建或第三方实现 |
+| `wf-execution-shared/src/compaction/engine.rs` | `dyn CompactionEngineFactory`、`&dyn ProgressSink` | 工厂按名构造异构引擎；进度上报不感知消费方 |
+| `wf-execution-shared/src/compaction/registry.rs` | `DashMap<String, Arc<dyn CompactionEngineFactory>>` | 进程级按名索引异构引擎工厂，重名即拒绝 |
+| `wf-agent/src/coordinator/iteration.rs` | `Arc<dyn CompactionEngine>` 实例字段 | 每次执行解析一次并冻结，杜绝多套压缩逻辑并行 |
+
+具体生产者（无需动态派发即可静态识别）：`BuiltinEngine`（内建，包装原生决策与规划）、插件经原生边界实现的工厂与引擎。`Arc<dyn CompactionEngine>` 只在注册表与实例字段边界出现；引擎返回的写回意图是强类型 `CompactionOutcome`，写回由宿主执行。

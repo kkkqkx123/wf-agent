@@ -709,26 +709,6 @@ pub trait PluginMiddlewareHandler: Send + Sync {
     async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value>;
 }
 
-/// Plugin-contributed compaction planning advice.
-///
-/// Pure shaping hook for context compression: the engine owns thresholds,
-/// version anchors, write-back and audit, the plugin only suggests which
-/// ranges to summarize and which small blocks to drop. Input carries a
-/// read-only snapshot of the decision (hot token estimate, resolved
-/// thresholds, active blocks with sizes, per-message costs, aggressiveness
-/// flag and item cap) as JSON; output carries suggested items and drops
-/// as JSON. Returning an empty suggestion defers to the built-in planner.
-/// Every suggestion is validated and clamped by the engine, so unknown
-/// block ids, out-of-range indices and over-cap plans never reach
-/// execution. Implementations must stay synchronous and side-effect free.
-///
-/// Only the native backend dispatches this hook; Lua and Wasm sandboxes
-/// expose no compaction channel, mirroring the retrieval extensions below.
-pub trait PluginCompactionAdvisor: Send + Sync {
-    /// Suggest a compaction plan for one settlement point.
-    fn advise(&self, input: Value) -> PluginResult<Value>;
-}
-
 // ── retrieval extensions (advisory, native-dispatched) ──
 // Advisory plugin shapes for text analysis, retrieval shaping, vector
 // encodings and the ingest, routing, postprocess and judge hooks.

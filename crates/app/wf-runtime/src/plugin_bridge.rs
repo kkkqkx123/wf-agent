@@ -1,4 +1,3 @@
-mod advisors;
 mod auth;
 pub(crate) mod bridge;
 mod cli_snapshot;

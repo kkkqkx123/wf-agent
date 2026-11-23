@@ -118,7 +118,6 @@ impl Plugin for NativePlugin {
             register_agent_template: Some(ffi_register_agent_template),
             register_node_template: Some(ffi_register_node_template),
             register_trigger: Some(ffi_register_trigger),
-            register_compaction_advisor: Some(ffi_register_compaction_advisor),
             register_text_analyzer: Some(ffi_register_text_analyzer),
             register_retrieval_advisor: Some(ffi_register_retrieval_advisor),
             register_vector_encoding: Some(ffi_register_vector_encoding),
@@ -805,26 +804,6 @@ extern "C" fn ffi_register_trigger(
     registrar_ctx.record(result)
 }
 
-extern "C" fn ffi_register_compaction_advisor(
-    ctx_ptr: *mut std::ffi::c_void,
-    name: *const std::os::raw::c_char,
-) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() {
-        return 1;
-    }
-    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
-    let name_str = unsafe { ptr_to_string(name) };
-    let dispatch = registrar_ctx.dispatch;
-    let result = registrar_ctx.registrar.register_compaction_advisor(
-        &name_str.clone(),
-        Arc::new(NativeCompactionAdvisor {
-            name: name_str,
-            dispatch,
-        }),
-    );
-    registrar_ctx.record(result)
-}
-
 extern "C" fn ffi_register_text_analyzer(
     ctx_ptr: *mut std::ffi::c_void,
     name: *const std::os::raw::c_char,
@@ -1260,21 +1239,6 @@ impl PluginLlmImages for NativeLlmImages {
         )?;
         serde_json::from_slice::<Value>(&output)
             .map_err(|e| PluginError::NativeError(format!("deserialize images output: {e}")))
-    }
-}
-
-pub struct NativeCompactionAdvisor {
-    name: String,
-    dispatch: Option<DispatchFn>,
-}
-
-impl PluginCompactionAdvisor for NativeCompactionAdvisor {
-    fn advise(&self, input: Value) -> PluginResult<Value> {
-        let input_json = serde_json::to_string(&input)
-            .map_err(|e| PluginError::NativeError(format!("serialize compaction input: {e}")))?;
-        let output = dispatch_call(self.dispatch, "compaction", &self.name, &input_json)?;
-        serde_json::from_slice::<Value>(&output)
-            .map_err(|e| PluginError::NativeError(format!("deserialize compaction output: {e}")))
     }
 }
 

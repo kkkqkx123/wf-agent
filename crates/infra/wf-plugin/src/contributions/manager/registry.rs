@@ -42,7 +42,6 @@ pub struct ContributionManager {
     pub(crate) trigger_registry: Registry<String, Arc<TriggerTemplate>>,
     pub(crate) tool_description_registry: Registry<String, Arc<ToolDescriptionData>>,
     pub(crate) tool_registry: Registry<String, Arc<ToolDef>>,
-    pub(crate) compaction_advisor_registry: Registry<String, Arc<dyn PluginCompactionAdvisor>>,
     pub(crate) text_analyzer_registry: Registry<String, Arc<dyn PluginTextAnalyzer>>,
     pub(crate) retrieval_advisor_registry: Registry<String, Arc<dyn PluginRetrievalAdvisor>>,
     pub(crate) vector_encoding_registry: Registry<String, Arc<dyn PluginVectorEncoding>>,
@@ -94,7 +93,6 @@ impl ContributionManager {
             trigger_registry: Registry::new(),
             tool_description_registry: Registry::new(),
             tool_registry: Registry::new(),
-            compaction_advisor_registry: Registry::new(),
             text_analyzer_registry: Registry::new(),
             retrieval_advisor_registry: Registry::new(),
             vector_encoding_registry: Registry::new(),
@@ -144,8 +142,6 @@ impl ContributionManager {
         self.tool_description_registry
             .unregister_by_plugin(plugin_id);
         self.tool_registry.unregister_by_plugin(plugin_id);
-        self.compaction_advisor_registry
-            .unregister_by_plugin(plugin_id);
         self.text_analyzer_registry.unregister_by_plugin(plugin_id);
         self.retrieval_advisor_registry
             .unregister_by_plugin(plugin_id);
@@ -312,11 +308,6 @@ impl ContributionManager {
         for (key, owner) in self.all_tools() {
             if owner == plugin_id {
                 records.push((ContributionType::Tool.as_str().into(), key));
-            }
-        }
-        for (key, owner) in self.all_compaction_advisors() {
-            if owner == plugin_id {
-                records.push((ContributionType::CompactionAdvisor.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_text_analyzers() {

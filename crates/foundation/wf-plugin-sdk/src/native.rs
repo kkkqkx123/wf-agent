@@ -86,9 +86,6 @@ pub struct ContributionRegistrarC {
     /// Declarative trigger (`TriggerTemplate` JSON, null-terminated).
     pub register_trigger:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, trigger_json: *const c_char) -> i32>,
-    /// Compaction planning advice under `name`; dispatched on `compaction`.
-    pub register_compaction_advisor:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
     /// Full-text analyzer under `name`; dispatched on `text-analyzer`.
     pub register_text_analyzer:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,

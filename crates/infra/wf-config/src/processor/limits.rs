@@ -149,6 +149,11 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
             .and_then(|c| c.strategy.clone())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
+        engine: user_compaction
+            .and_then(|c| c.engine.clone())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        engine_config: user_compaction.and_then(|c| c.engine_config.clone()),
     };
 
     LimitsConfig {
@@ -402,6 +407,7 @@ mod tests {
                 plan_max_items: Some(8),
                 summary_call_budget_tokens: None,
                 strategy: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -422,6 +428,7 @@ mod tests {
                 plan_max_items: Some(8),
                 summary_call_budget_tokens: None,
                 strategy: None,
+                ..Default::default()
             }),
             ..Default::default()
         };

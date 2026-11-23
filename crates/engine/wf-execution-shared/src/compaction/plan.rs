@@ -10,10 +10,7 @@ use super::budget::{
     k_repress, r_min_range, r_repress, resolve_compaction_thresholds, resolve_summary_call_budget,
     stateless_plan_factor, PLAN_MAX_ITEMS_DEFAULT,
 };
-use super::strategy::{
-    compaction_strategy_name, get_compaction_advisor, is_single_summary_strategy,
-    ADVISOR_PROTOCOL_VERSION,
-};
+use super::strategy::{compaction_strategy_name, is_single_summary_strategy};
 
 /// Sequence coordinate per snapshot position (`None` for undecodable
 /// positions). `Full` snapshots align with history; compacted snapshots
@@ -165,183 +162,6 @@ fn plan_max_items(limits: &CompactionLimits) -> usize {
         .max(1)
 }
 
-/// Consult the registered planning advice for the effective strategy. A
-/// registered advisor enhances whatever strategy is active, including the
-/// built-in one; only a missing advisor, a failure or an invalid
-/// suggestion falls back to the built-in planner. Returns the validated
-/// plan when the suggestion survives engine checks, `None` otherwise.
-fn try_advisor_plan(
-    state: &CompactionState,
-    snapshot: &[Message],
-    hot_tokens: u64,
-    limits: &CompactionLimits,
-    aggressive: bool,
-) -> Option<CompactionPlan> {
-    let strategy = compaction_strategy_name(limits);
-    let Some(advisor) = get_compaction_advisor(&strategy) else {
-        tracing::debug!(strategy = %strategy, "compaction advisor missing; falling back to built-in plan");
-        return None;
-    };
-    try_advisor_plan_with(
-        &strategy, &advisor, state, snapshot, hot_tokens, limits, aggressive,
-    )
-}
-
-/// Validate one advisor suggestion against the live block table and the
-/// snapshot bounds. Split from [`try_advisor_plan`] so the validation is
-/// testable without touching the process-wide advisor registry: unknown
-/// block ids, out-of-range indices and over-cap suggestions never reach
-/// execution, and an empty suggestion defers to the built-in planner.
-pub(crate) fn try_advisor_plan_with(
-    strategy: &str,
-    advisor: &std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>,
-    state: &CompactionState,
-    snapshot: &[Message],
-    hot_tokens: u64,
-    limits: &CompactionLimits,
-    aggressive: bool,
-) -> Option<CompactionPlan> {
-    let thresholds = resolve_compaction_thresholds(state.window_tokens, limits);
-    let target_freed = hot_tokens.saturating_sub(thresholds.h_target);
-    let item_cap = plan_max_items(limits);
-    let costs: Vec<u64> = snapshot
-        .iter()
-        .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
-        .collect();
-    let blocks: Vec<serde_json::Value> = state
-        .blocks
-        .iter()
-        .filter(|b| b.active)
-        .map(|b| {
-            serde_json::json!({
-                "block_id": b.block_id,
-                "state": format!("{:?}", b.state),
-                "size_tokens": b.size_tokens,
-                "repress_count": b.repress_count,
-            })
-        })
-        .collect();
-    let input = serde_json::json!({
-        "protocol_version": ADVISOR_PROTOCOL_VERSION,
-        "strategy": strategy,
-        "hot_tokens": hot_tokens,
-        "aggressive": aggressive,
-        "item_cap": item_cap,
-        "target_freed": target_freed,
-        "snapshot_len": snapshot.len(),
-        "costs": costs,
-        "blocks": blocks,
-        "thresholds": {
-            "h_target": thresholds.h_target,
-            "t_handoff": thresholds.t_handoff,
-            "t_compact": thresholds.t_compact,
-            "t_hard": thresholds.t_hard,
-        },
-    });
-    let output = match advisor.advise(input) {
-        Ok(output) => output,
-        Err(error) => {
-            tracing::warn!(strategy = %strategy, error = %error, "compaction advisor failed; falling back to built-in plan");
-            return None;
-        }
-    };
-    // Explicit protocol negotiation: advisors that declare a version must
-    // speak the engine's; silence keeps older advisors working, mismatch
-    // rejects loudly instead of misreading new fields as old ones.
-    if let Some(version) = output.get("protocol_version").and_then(|v| v.as_u64()) {
-        if version != u64::from(ADVISOR_PROTOCOL_VERSION) {
-            tracing::warn!(strategy = %strategy, version, "compaction advisor protocol mismatch; falling back to built-in plan");
-            return None;
-        }
-    }
-    let mut plan = CompactionPlan::empty();
-    let known: std::collections::HashSet<&str> = state
-        .blocks
-        .iter()
-        .filter(|b| b.active)
-        .map(|b| b.block_id.as_str())
-        .collect();
-    let raw_ids: std::collections::HashSet<&str> = state
-        .blocks
-        .iter()
-        .filter(|b| b.active && b.state == BlockState::Raw)
-        .map(|b| b.block_id.as_str())
-        .collect();
-    if let Some(items) = output.get("items").and_then(|v| v.as_array()) {
-        for item in items {
-            if plan.items.len() >= item_cap {
-                break;
-            }
-            let block_id = item.get("block_id").and_then(|v| v.as_str()).unwrap_or("");
-            if block_id.is_empty() || !known.contains(block_id) {
-                continue;
-            }
-            let start = item
-                .get("start")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(u64::MAX) as usize;
-            let end = item.get("end").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            if start >= end || end > snapshot.len() {
-                continue;
-            }
-            let depth = item.get("depth").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-            let mut extras = Vec::new();
-            if let Some(extra_ids) = item.get("extra_block_ids").and_then(|v| v.as_array()) {
-                for extra in extra_ids {
-                    if let Some(id) = extra.as_str() {
-                        if !id.is_empty()
-                            && known.contains(id)
-                            && id != block_id
-                            && !extras.contains(&id.to_string())
-                        {
-                            extras.push(id.to_string());
-                        }
-                    }
-                }
-            }
-            let covered: u64 = (start..end)
-                .map(|i| costs.get(i).copied().unwrap_or(0))
-                .sum();
-            plan.freed_tokens = plan.freed_tokens.saturating_add(covered);
-            plan.items.push(CompactionPlanItem {
-                block_id: block_id.to_string(),
-                start,
-                end,
-                depth,
-                extra_block_ids: extras,
-            });
-        }
-    }
-    if let Some(drops) = output.get("drops").and_then(|v| v.as_array()) {
-        for drop in drops {
-            if let Some(id) = drop.as_str() {
-                if id.is_empty() || raw_ids.contains(id) || plan.drops.iter().any(|d| d == id) {
-                    continue;
-                }
-                if !known.contains(id) {
-                    continue;
-                }
-                if let Some(block) = state.blocks.iter().find(|b| b.block_id == id) {
-                    plan.freed_tokens = plan.freed_tokens.saturating_add(block.size_tokens);
-                    plan.drops.push(id.to_string());
-                }
-            }
-        }
-    }
-    match sanitize_directive(output.get("directive").and_then(|v| v.as_str())) {
-        Ok(directive) => plan.directive = directive,
-        Err(()) => {
-            tracing::warn!(strategy = %strategy, "compaction advisor directive over limit; falling back to built-in plan");
-            return None;
-        }
-    }
-    if plan.is_empty() {
-        return None;
-    }
-    plan.capped = plan.items.len() >= item_cap && plan.freed_tokens < target_freed;
-    Some(plan)
-}
-
 /// Merge adjacent first-compression items in snapshot order while the
 /// merged slice fits the single-call budget. Only `depth == 0` items
 /// merge; re-compressions keep their identity. Merged coverage beyond the
@@ -393,11 +213,11 @@ fn merge_adjacent_items(items: &mut Vec<CompactionPlanItem>, costs: &[u64], budg
 pub const DIRECTIVE_MAX_CHARS: usize = 2000;
 pub const DIRECTIVE_MAX_EST_TOKENS: u64 = 500;
 
-/// Sanitize a suggested request-level directive: trim, drop empties, and
-/// reject over-long values under the dual constraint. `Ok(None)` means no
-/// directive was suggested; `Err` means one was suggested but over-long,
-/// and the caller must reject the whole suggestion for the built-in plan.
-fn sanitize_directive(raw: Option<&str>) -> Result<Option<String>, ()> {
+/// Sanitize a request-level directive supplied by a compaction engine:
+/// trim, drop empties, and reject over-long values under the dual
+/// constraint. `Ok(None)` means no directive was supplied; `Err` means one
+/// was supplied but over-long, and the caller must reject the outcome.
+pub fn sanitize_directive(raw: Option<&str>) -> Result<Option<String>, ()> {
     let Some(trimmed) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(None);
     };
@@ -469,9 +289,6 @@ pub fn build_plan(
     // Compact decision.
     if is_single_summary_strategy(&compaction_strategy_name(limits)) {
         return CompactionPlan::empty();
-    }
-    if let Some(advised) = try_advisor_plan(state, snapshot, hot_tokens, limits, aggressive) {
-        return advised;
     }
     let r_min = if aggressive { 0 } else { r_min_range(limits) };
     let r_rep = r_repress(limits);

@@ -148,11 +148,6 @@ impl NativeRegistrar {
         self.record_json("trigger", trigger);
     }
 
-    /// Register compaction advice; dispatched on `compaction`.
-    pub fn register_compaction_advisor(&self, name: &str) {
-        self.record("compaction-advisor", name);
-    }
-
     /// Register a full-text analyzer; dispatched on `text-analyzer`.
     pub fn register_text_analyzer(&self, name: &str) {
         self.record("text-analyzer", name);
@@ -494,7 +489,6 @@ pub mod __private {
                 "agent-template" => host.register_agent_template.map(|f| f(ctx, first_ptr)),
                 "node-template" => host.register_node_template.map(|f| f(ctx, first_ptr)),
                 "trigger" => host.register_trigger.map(|f| f(ctx, first_ptr)),
-                "compaction-advisor" => host.register_compaction_advisor.map(|f| f(ctx, first_ptr)),
                 "text-analyzer" => host.register_text_analyzer.map(|f| f(ctx, first_ptr)),
                 "retrieval-advisor" => host.register_retrieval_advisor.map(|f| f(ctx, first_ptr)),
                 "metadata-extractor" => host.register_metadata_extractor.map(|f| f(ctx, first_ptr)),
@@ -975,7 +969,6 @@ mod tests {
             "register_agent_template",
             "register_node_template",
             "register_trigger",
-            "register_compaction_advisor",
             "register_text_analyzer",
             "register_retrieval_advisor",
             "register_vector_encoding",

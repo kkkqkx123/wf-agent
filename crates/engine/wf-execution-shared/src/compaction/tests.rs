@@ -1,4 +1,3 @@
-use super::plan::try_advisor_plan_with;
 use super::*;
 use wf_types::config::limits::CompactionLimits;
 use wf_types::message::{
@@ -20,6 +19,8 @@ fn limits() -> CompactionLimits {
         plan_max_items: None,
         summary_call_budget_tokens: None,
         strategy: None,
+        engine: None,
+        engine_config: None,
     }
 }
 
@@ -248,139 +249,6 @@ fn sync_after_table_clear_only_covers_new_messages() {
     assert_eq!(state.blocks.len(), 1);
     assert_eq!(state.blocks[0].spans, vec![SeqRange { start: 6, end: 6 }]);
     assert_eq!(state.synced_through_seq, 6);
-}
-
-struct ScriptedAdvisor {
-    output: serde_json::Value,
-}
-
-impl wf_plugin_sdk::PluginCompactionAdvisor for ScriptedAdvisor {
-    fn advise(&self, _input: serde_json::Value) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
-        Ok(self.output.clone())
-    }
-}
-
-#[test]
-fn advisor_suggestion_applies_to_every_strategy_including_builtin() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> = std::sync::Arc::new(
-        ScriptedAdvisor {
-            output: serde_json::json!({"items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}]}),
-        },
-    );
-    let plan = try_advisor_plan_with(
-        "builtin", &advisor, &state, &messages, 90_000, &limits, false,
-    )
-    .expect("valid suggestion applies to every strategy including builtin");
-    assert_eq!(plan.items.len(), 1);
-    assert_eq!(plan.items[0].block_id, "b0000");
-}
-
-#[test]
-fn advisor_unknown_blocks_fall_back_to_builtin() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
-        std::sync::Arc::new(ScriptedAdvisor {
-            output: serde_json::json!({"items": [{"block_id": "b9999", "start": 0, "end": 2}]}),
-        });
-    assert!(
-        try_advisor_plan_with("builtin", &advisor, &state, &messages, 90_000, &limits, false)
-            .is_none()
-    );
-}
-
-#[test]
-fn advisor_directive_trims_and_travels_with_plan() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
-        std::sync::Arc::new(ScriptedAdvisor {
-            output: serde_json::json!({
-                "items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}],
-                "directive": "  focus on decisions  ",
-            }),
-        });
-    let plan = try_advisor_plan_with(
-        "builtin", &advisor, &state, &messages, 90_000, &limits, false,
-    )
-    .expect("directive rides alongside the items");
-    assert_eq!(plan.directive.as_deref(), Some("focus on decisions"));
-    assert_eq!(plan.items.len(), 1);
-}
-
-#[test]
-fn advisor_blank_directive_means_no_directive() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
-        std::sync::Arc::new(ScriptedAdvisor {
-            output: serde_json::json!({
-                "items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}],
-                "directive": "   ",
-            }),
-        });
-    let plan = try_advisor_plan_with(
-        "builtin", &advisor, &state, &messages, 90_000, &limits, false,
-    )
-    .expect("blank directive keeps the plan");
-    assert_eq!(plan.directive, None);
-}
-
-#[test]
-fn advisor_directive_only_defers_to_builtin() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
-        std::sync::Arc::new(ScriptedAdvisor {
-            output: serde_json::json!({"directive": "focus on decisions"}),
-        });
-    assert!(
-        try_advisor_plan_with("builtin", &advisor, &state, &messages, 90_000, &limits, false)
-            .is_none()
-    );
-}
-
-#[test]
-fn advisor_overlong_directive_rejects_whole_suggestion() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let long = "x".repeat(DIRECTIVE_MAX_CHARS + 1);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> =
-        std::sync::Arc::new(ScriptedAdvisor {
-            output: serde_json::json!({
-                "items": [{"block_id": "b0000", "start": 0, "end": 2, "depth": 0}],
-                "directive": long,
-            }),
-        });
-    assert!(
-        try_advisor_plan_with("builtin", &advisor, &state, &messages, 90_000, &limits, false)
-            .is_none(),
-        "over-long directive falls back to the built-in plan"
-    );
-}
-
-#[test]
-fn advisor_protocol_mismatch_falls_back_to_builtin() {
-    let limits = limits();
-    let messages: Vec<Message> = (0..4).map(|i| plan_message(&format!("m{i}"))).collect();
-    let state = plan_state(vec![raw_block("b0000", 0, 1, 20_000)]);
-    let advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor> = std::sync::Arc::new(
-        ScriptedAdvisor {
-            output: serde_json::json!({"protocol_version": 999, "items": [{"block_id": "b0000", "start": 0, "end": 2}]}),
-        },
-    );
-    assert!(
-        try_advisor_plan_with("builtin", &advisor, &state, &messages, 90_000, &limits, false)
-            .is_none()
-    );
 }
 
 #[test]

@@ -1,7 +1,10 @@
 pub mod blocks;
 pub mod budget;
+pub mod builtin;
 pub mod decision;
+pub mod engine;
 pub mod plan;
+pub mod registry;
 pub mod strategy;
 
 #[cfg(test)]
@@ -22,16 +25,25 @@ pub use decision::{
     decide_compaction, CompactionDecision, REASON_ALL_BLOCKS_SMALL, REASON_HARD_LIMIT,
     REASON_NO_COMPRESSIBLE_TARGET, REASON_POST_COMPACT_STILL_HIGH,
 };
+pub use engine::{
+    CompactionCall, CompactionEngine, CompactionEngineError, CompactionEngineFactory,
+    CompactionEngineResult, CompactionOutcome, EngineCapabilities, ManualRequest, NoopProgressSink,
+    ProgressSink, Replacement, ShrinkProof, ViewPlan, BUILTIN_ENGINE_NAME, ENGINE_API_VERSION,
+    recompute_shrink_proof, validate_replacement,
+};
+pub use registry::{
+    build_compaction_engine, build_compaction_engine_with_config, has_compaction_engine,
+    register_compaction_engine, registered_compaction_engines, unregister_compaction_engine,
+};
 pub use plan::{
     build_plan, build_stateless_plan, outcomes_match_plan, plan_covers_snapshot,
-    stateless_plan_for_estimate, CompactionPlan, DIRECTIVE_MAX_CHARS, DIRECTIVE_MAX_EST_TOKENS,
+    sanitize_directive, stateless_plan_for_estimate, CompactionPlan, DIRECTIVE_MAX_CHARS,
+    DIRECTIVE_MAX_EST_TOKENS,
 };
 pub use strategy::{
-    compaction_strategy_name, get_compaction_advisor, is_builtin_strategy,
-    is_single_summary_strategy, process_compaction_limits, register_compaction_advisor,
-    resolve_effective_compaction_limits, set_process_compaction_limits, strategy_workflow_ids,
-    unregister_compaction_advisor, ADVISOR_PROTOCOL_VERSION, BUILTIN_COMPRESSION_STRATEGY_NAME,
-    SINGLE_SUMMARY_STRATEGY_NAME,
+    compaction_strategy_name, is_builtin_strategy, is_single_summary_strategy,
+    process_compaction_limits, resolve_effective_compaction_limits, set_process_compaction_limits,
+    strategy_workflow_ids, BUILTIN_COMPRESSION_STRATEGY_NAME, SINGLE_SUMMARY_STRATEGY_NAME,
 };
 pub use wf_types::message::{
     BlockOutcome, CompactionMode, CompactionPlanItem, CompactionThresholds, FileReadEntry,

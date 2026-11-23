@@ -17,14 +17,6 @@ impl ContributionManager {
         self.tool_type_registry.all()
     }
 
-    pub fn get_compaction_advisor(&self, name: &str) -> Option<Arc<dyn PluginCompactionAdvisor>> {
-        self.compaction_advisor_registry.get(name)
-    }
-
-    pub fn all_compaction_advisors(&self) -> Vec<(String, String)> {
-        self.compaction_advisor_registry.all()
-    }
-
     pub fn get_text_analyzer(&self, name: &str) -> Option<Arc<dyn PluginTextAnalyzer>> {
         self.text_analyzer_registry.get(name)
     }

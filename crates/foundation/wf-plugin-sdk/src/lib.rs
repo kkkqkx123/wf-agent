@@ -19,7 +19,7 @@ pub use contributions::{
     apply_markdown_rules, parse_middleware_outcome, render_tool_summary, AuthDescriptor,
     CodecHttpRequest, MiddlewareOutcome, NextFn, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
     PluginAuthPrompt, PluginChunkSplitter, PluginCliCommand, PluginCliCondition,
-    PluginCompactionAdvisor, PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
+    PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
     PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
     PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMarkdownRule,
     PluginMetadataExtractor, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,

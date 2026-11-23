@@ -1,4 +1,4 @@
-use std::sync::{OnceLock, RwLock};
+use std::sync::RwLock;
 
 use wf_types::config::limits::CompactionLimits;
 
@@ -34,10 +34,6 @@ pub fn is_single_summary_strategy(name: &str) -> bool {
     name.trim() == SINGLE_SUMMARY_STRATEGY_NAME
 }
 
-/// Version of the advisor planning protocol. Sent with every advisor
-/// input so future protocol evolution can branch on it.
-pub const ADVISOR_PROTOCOL_VERSION: u32 = 1;
-
 /// Candidate summary workflow ids for a strategy name, before registry
 /// lookup. Built-in names keep the fold-summary chains; any other name
 /// resolves to the strategy id with `-repress` suffixed for the
@@ -53,44 +49,6 @@ pub fn strategy_workflow_ids(strategy: &str) -> (String, Option<String>) {
         let repress = format!("{trimmed}-repress");
         (trimmed, Some(repress))
     }
-}
-
-/// Process-wide compaction advisor registry backing named strategies.
-/// Advisors are pure shaping hooks contributed by plugins; the engine
-/// validates every suggestion and falls back to the built-in planner.
-static COMPACTION_ADVISORS: OnceLock<
-    dashmap::DashMap<String, std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>>,
-> = OnceLock::new();
-
-fn compaction_advisors(
-) -> &'static dashmap::DashMap<String, std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>> {
-    COMPACTION_ADVISORS.get_or_init(dashmap::DashMap::new)
-}
-
-/// Register planning advice for a named strategy. Returns false when the
-/// name is already taken; unregister first to replace it.
-pub fn register_compaction_advisor(
-    name: &str,
-    advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>,
-) -> bool {
-    let key = name.trim().to_string();
-    if key.is_empty() || compaction_advisors().contains_key(&key) {
-        return false;
-    }
-    compaction_advisors().insert(key, advisor);
-    true
-}
-
-/// Remove planning advice for a named strategy.
-pub fn unregister_compaction_advisor(name: &str) -> bool {
-    compaction_advisors().remove(name.trim()).is_some()
-}
-
-/// Planning advice for a named strategy, if registered.
-pub fn get_compaction_advisor(
-    name: &str,
-) -> Option<std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>> {
-    compaction_advisors().get(name.trim()).map(|e| e.clone())
 }
 
 static PROCESS_LIMITS: RwLock<Option<CompactionLimits>> = RwLock::new(None);

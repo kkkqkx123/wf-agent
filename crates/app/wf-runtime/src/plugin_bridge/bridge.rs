@@ -6,7 +6,7 @@ use wf_plugin::{ContributionBridge, ContributionManager, PluginRegistry, PluginR
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::registry::ToolRegistry;
 
-use super::{advisors, auth, hooks, images, llm, network, resources, retrieval};
+use super::{auth, hooks, images, llm, network, resources, retrieval};
 
 pub struct WfPluginBridge {
     registries: Arc<ResourceRegistries>,
@@ -55,7 +55,6 @@ impl ContributionBridge for WfPluginBridge {
         llm::sync_llm(&self.llm_gateway, plugin_id, manager)?;
         auth::sync_auth(&self.llm_gateway, plugin_id, manager)?;
         images::sync_images(plugin_id, manager);
-        advisors::sync_advisors(plugin_id, manager)?;
         retrieval::sync_retrieval(plugin_id, manager)?;
         // Hook handlers resolve through the manifest mapping; registries
         // without a manifest (tests, minimal embedding) skip this step.
@@ -73,7 +72,6 @@ impl ContributionBridge for WfPluginBridge {
         llm::unsync_llm(&self.llm_gateway, plugin_id, manager);
         auth::unsync_auth(&self.llm_gateway, plugin_id, manager);
         images::unsync_images(plugin_id, manager);
-        advisors::unsync_advisors(plugin_id, manager);
         retrieval::unsync_retrieval(plugin_id, manager);
         hooks::unsync_hooks(plugin_id, manager, &self.hook_registry);
 

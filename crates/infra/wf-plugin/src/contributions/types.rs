@@ -7,7 +7,7 @@ pub use wf_plugin_sdk::contributions::{
     parse_middleware_outcome, render_tool_summary, AuthDescriptor, CliInputOutcome,
     CodecHttpRequest, MiddlewareOutcome, NextFn, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
     PluginAuthPrompt, PluginChunkSplitter, PluginCliCommand, PluginCliCondition,
-    PluginCompactionAdvisor, PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
+    PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
     PluginEventData, PluginEventHandler, PluginExecutionContext, PluginHookHandler,
     PluginHookOutcome, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
     PluginLoginStep, PluginMarkdownRule, PluginMetadataExtractor, PluginMiddlewareHandler,
@@ -46,10 +46,6 @@ pub enum ContributionType {
     Trigger,
     ToolDescription,
     Tool,
-    /// Compaction planning advice (`compaction-advisor`). Pure shaping
-    /// hook; the engine validates every suggestion and falls back to the
-    /// built-in planner on any failure.
-    CompactionAdvisor,
     /// Full-text analyzer (`text-analyzer`). Advisory only; native-dispatched.
     TextAnalyzer,
     /// Retrieval shaping advice (`retrieval-advisor`). Advisory only; native-dispatched.
@@ -108,7 +104,6 @@ impl ContributionType {
             Self::Trigger => "trigger",
             Self::ToolDescription => "tool-description",
             Self::Tool => "tool",
-            Self::CompactionAdvisor => "compaction-advisor",
             Self::TextAnalyzer => "text-analyzer",
             Self::RetrievalAdvisor => "retrieval-advisor",
             Self::VectorEncoding => "vector-encoding",
@@ -145,7 +140,6 @@ impl ContributionType {
             Self::Trigger,
             Self::ToolDescription,
             Self::Tool,
-            Self::CompactionAdvisor,
             Self::TextAnalyzer,
             Self::RetrievalAdvisor,
             Self::VectorEncoding,

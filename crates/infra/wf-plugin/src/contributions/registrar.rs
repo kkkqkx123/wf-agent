@@ -75,13 +75,6 @@ pub trait ContributionRegistrar {
     ) -> PluginResult<()>;
     /// Register an executable tool definition (`ToolRegistry`).
     fn register_tool(&mut self, id: &str, tool: ToolDef) -> PluginResult<()>;
-    /// Register compaction planning advice; `name` selects the compression
-    /// strategy the advice serves. The engine validates every suggestion.
-    fn register_compaction_advisor(
-        &mut self,
-        name: &str,
-        advisor: Arc<dyn PluginCompactionAdvisor>,
-    ) -> PluginResult<()>;
     /// Reserve a deferred full-text analyzer; `name` selects the analyzer.
     /// Stage 3 reservation only; the host owns backend translation.
     fn register_text_analyzer(

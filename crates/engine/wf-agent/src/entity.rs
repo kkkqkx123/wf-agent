@@ -106,6 +106,12 @@ pub struct AgentLoopEntity {
     /// and copied into the persisted record. `None` marks engine-origin
     /// runs without a requesting directory.
     directory: std::sync::RwLock<Option<String>>,
+    /// The single compaction engine bound to this execution, installed once
+    /// at assembly and frozen for the run. Stored here so an external
+    /// caller holding the registered entity can trigger manual compaction.
+    compaction_engine: std::sync::RwLock<Option<Arc<dyn wf_execution_shared::CompactionEngine>>>,
+    /// Effective compaction tuning used to build the manual-compaction call.
+    compaction_limits: std::sync::RwLock<Option<wf_types::config::limits::CompactionLimits>>,
 }
 
 impl AgentLoopEntity {
@@ -148,7 +154,67 @@ impl AgentLoopEntity {
             steering_inputs: tokio::sync::Mutex::new(Vec::new()),
             followup_inputs: tokio::sync::Mutex::new(Vec::new()),
             directory: std::sync::RwLock::new(None),
+            compaction_engine: std::sync::RwLock::new(None),
+            compaction_limits: std::sync::RwLock::new(None),
         }
+    }
+
+    /// Bind the compaction engine and its tuning to this execution. Called
+    /// once at assembly; later calls are ignored so the run stays frozen.
+    pub fn bind_compaction(
+        &self,
+        engine: Arc<dyn wf_execution_shared::CompactionEngine>,
+        limits: wf_types::config::limits::CompactionLimits,
+    ) {
+        let mut guard = wf_common::lock::write_ok(self.compaction_engine.write());
+        if guard.is_none() {
+            *guard = Some(engine);
+            *wf_common::lock::write_ok(self.compaction_limits.write()) = Some(limits);
+        }
+    }
+
+    /// Whether a compaction engine is bound to this execution.
+    pub fn has_compaction_engine(&self) -> bool {
+        wf_common::lock::read_ok(self.compaction_engine.read()).is_some()
+    }
+
+    /// Trigger one manual compaction through the bound engine and return its
+    /// outcome for the caller to apply through the host write-back path.
+    /// Returns `None` when no engine is bound (compaction disabled).
+    pub async fn compact_now(
+        &self,
+        reason: &str,
+    ) -> Option<wf_execution_shared::CompactionEngineResult<wf_execution_shared::CompactionOutcome>>
+    {
+        let engine = wf_common::lock::read_ok(self.compaction_engine.read())
+            .as_ref()
+            .cloned()?;
+        let limits = wf_common::lock::read_ok(self.compaction_limits.read()).clone()?;
+        let conversation = self.conversation().read().await;
+        let snapshot = conversation.view_messages();
+        let cancel = self.get_abort_signal();
+        let request = wf_execution_shared::ManualRequest {
+            reason: reason.to_string(),
+            force: true,
+        };
+        let call = wf_execution_shared::CompactionCall {
+            execution_id: self.id(),
+            messages: &snapshot,
+            history: conversation.messages(),
+            seqs: conversation.message_seqs(),
+            view: conversation.active_view(),
+            state: conversation.compaction_state(),
+            limits: &limits,
+            hot_tokens: conversation.compaction_state().hot_tokens,
+            window_tokens: conversation.compaction_window(),
+            context_limit: conversation.context_limit(),
+            version: conversation.conversation_version(),
+            cancel: &cancel,
+        };
+        let outcome = engine
+            .compact_now(&call, &wf_execution_shared::NoopProgressSink, &request)
+            .await;
+        Some(outcome)
     }
 
     pub fn hierarchy_manager(&self) -> Arc<wf_core::hierarchy::ExecutionHierarchyManager> {
@@ -767,6 +833,22 @@ impl wf_execution_shared::execution_loop::HasInterruption for AgentLoopEntity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn manual_compaction_requires_a_bound_engine() {
+        let entity = AgentLoopEntity::new(Id::from("exec-compact-1".to_string()));
+        assert!(!entity.has_compaction_engine());
+        assert!(entity.compact_now("test").await.is_none());
+
+        let engine = Arc::new(wf_execution_shared::compaction::builtin::BuiltinEngine);
+        entity.bind_compaction(engine, wf_types::config::limits::CompactionLimits::default());
+        assert!(entity.has_compaction_engine());
+        let result = entity.compact_now("test").await;
+        assert!(matches!(
+            result,
+            Some(Ok(wf_execution_shared::CompactionOutcome::Noop))
+        ));
+    }
 
     #[test]
     fn general_outer_ids_are_unique_within_a_run() {

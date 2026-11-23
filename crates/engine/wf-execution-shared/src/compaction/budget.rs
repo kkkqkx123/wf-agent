@@ -86,6 +86,8 @@ pub fn builtin_compaction_limits() -> CompactionLimits {
         plan_max_items: Some(PLAN_MAX_ITEMS_DEFAULT),
         summary_call_budget_tokens: None,
         strategy: None,
+        engine: None,
+        engine_config: None,
     }
 }
 

@@ -113,6 +113,10 @@ pub struct AgentIterationCoordinator {
     /// install so existing tests keep passing while bootstrap injects
     /// the resolved config.
     compaction_limits: Option<wf_types::config::limits::CompactionLimits>,
+    /// The single compaction engine bound to this execution. Resolved once
+    /// at assembly from the configured engine name and frozen for the run,
+    /// so no two compaction mechanisms act on the same execution.
+    compaction_engine: Arc<dyn wf_execution_shared::CompactionEngine>,
     /// Explicit settle budget for compression waits; `None` falls back
     /// to the process-wide install.
     settle_timeout_ms: Option<u64>,
@@ -142,6 +146,7 @@ impl AgentIterationCoordinator {
             message_interval: None,
             message_checkpoint_watermark: std::sync::Mutex::new(0),
             compaction_limits: None,
+            compaction_engine: Arc::new(wf_execution_shared::compaction::builtin::BuiltinEngine),
             settle_timeout_ms: None,
         }
     }
@@ -358,6 +363,21 @@ impl AgentIterationCoordinator {
     ) -> Self {
         self.compaction_limits = Some(limits);
         self
+    }
+
+    /// Bind the single compaction engine for this execution. Called once at
+    /// assembly; the engine is frozen for the lifetime of the run.
+    pub fn with_compaction_engine(
+        mut self,
+        engine: Arc<dyn wf_execution_shared::CompactionEngine>,
+    ) -> Self {
+        self.compaction_engine = engine;
+        self
+    }
+
+    /// The engine bound to this execution.
+    pub(crate) fn compaction_engine(&self) -> &dyn wf_execution_shared::CompactionEngine {
+        self.compaction_engine.as_ref()
     }
 
     /// Inject the settle budget for compression waits; explicit values win

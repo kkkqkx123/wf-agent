@@ -43,7 +43,7 @@ pub use contributions::{
     ContributionBridge, ContributionManager, ContributionRegistrar, ContributionType,
     MiddlewareOutcome, NextFn, OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption,
     PluginAuthPrompt, PluginChunkSplitter, PluginCliCommand, PluginCliCondition,
-    PluginCompactionAdvisor, PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
+    PluginCompletionItem, PluginCompletionSource, PluginEvalJudge,
     PluginEventData, PluginEventHandler, PluginExecutionContext, PluginHookHandler,
     PluginHookOutcome, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
     PluginLoginStep, PluginMarkdownRule, PluginMetadataExtractor, PluginMiddlewareHandler,

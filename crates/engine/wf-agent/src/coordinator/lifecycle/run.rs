@@ -235,7 +235,24 @@ impl AgentLoopCoordinator {
         .with_checkpoint(self.checkpoint_integration_for_config(config))
         .with_message_interval(config.checkpoint_message_interval);
         if let Some(limits) = self.compaction_limits.clone() {
-            coordinator = coordinator.with_compaction_limits(limits);
+            let engine_name = limits
+                .engine
+                .clone()
+                .unwrap_or_else(|| wf_execution_shared::BUILTIN_ENGINE_NAME.to_string());
+            let engine = wf_execution_shared::build_compaction_engine_with_config(
+                &engine_name,
+                limits.engine_config.clone().unwrap_or(serde_json::Value::Null),
+            )
+            .ok_or_else(|| {
+                crate::error::AgentError::Validation(format!(
+                    "unknown compaction engine '{engine_name}' for execution; \
+                     register a native engine factory or use 'builtin'"
+                ))
+            })?;
+            entity.bind_compaction(engine.clone(), limits.clone());
+            coordinator = coordinator
+                .with_compaction_limits(limits)
+                .with_compaction_engine(engine);
         }
         if let Some(timeout_ms) = self.settle_timeout_ms {
             coordinator = coordinator.with_settle_timeout_ms(timeout_ms);

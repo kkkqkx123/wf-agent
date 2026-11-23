@@ -162,7 +162,12 @@ impl DigestIndex {
             return false;
         }
         match self.base(&node.id) {
-            Some(base) => reply.based_on != base,
+            Some(base) => {
+                // An accepted stale answer is still stale in content, but the
+                // user chose to keep it. A later upstream change moves `base`
+                // again and makes it stale anew.
+                reply.based_on != base && reply.acknowledged.as_deref() != Some(base)
+            }
             None => false,
         }
     }

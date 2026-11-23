@@ -798,7 +798,7 @@ stop(reason=done)
 
 约束：所有端点先校验会话属于 `ExecutionType::Chat`，否则 400；所有变更端点接受可选 `if_version`；所有手术端点返回 `dirtyCount`，让 UI 立刻知道"这次改动要重算几条"。
 
-**实现位置**：`crates/app/wf-server/src/api/conversation.rs`（23 个端点全部实现并挂载，见 §11.0）。尚未登记 utoipa，故 `openapi.json` 与 `schema.d.ts` 里暂不出现——这是 §11.3 第 8 步的剩余项。
+**实现位置**：`crates/app/wf-server/src/api/conversation.rs`（24 个端点全部实现并挂载，见 §11.0）。处理器已登记 utoipa，`openapi.json` 与 `schema.d.ts` 已同步。
 
 ### 10.2 SSE 帧
 
@@ -854,7 +854,7 @@ stop(reason=done)
 
 ### 11.0 实施状态
 
-按 §11.3 的 8 步推进，**第 1–6 步已落地并通过编译与测试**，第 7–8 步未做。
+按 §11.3 的 8 步推进，**第 1–6 步与第 8 步的后端/API/前端最小可用部分已落地并通过编译与测试**，第 7 步（只读工具轮）仍未做。
 
 | 步 | 内容 | 状态 | 验证方式 |
 | --- | --- | --- | --- |
@@ -864,11 +864,12 @@ stop(reason=done)
 | 4 | 内容操作 + 脏传播 | **完成** | 原位改 ⇒ 下游全脏；分支改 ⇒ 原分支不脏 |
 | 5 | 步进（single / forward） | **完成** | `single` 后下游仍脏（用例断言脏数 2→1） |
 | 6 | 手术（insert / splice / reparent / detach / attach + 池） | **完成** | 往返复原、`carry_prefix` 保新鲜、成环被拒 |
-| 7 | 只读工具轮 + 白名单 | **未做** | 依赖 F15–F18，当前 `ChatSession` 仍无 tools |
-| 8 | web-app + TUI + codegen + 文档 | **未做** | `openapi.json` / `schema.d.ts` / TUI 树视图待补 |
+| 7 | 只读工具轮 + 白名单 | **未做** | 保持 `ChatSession` 无工具边界，等待单独的窄驱动设计 |
+| 8 | web-app + TUI + codegen + 文档 | **部分完成** | 端点/OpenAPI/TS 类型/文档与最小树栏已落地；TUI 只读树装配已提供入口，深度交互未做 |
 
-测试实测：`cargo test -p wf-execution-shared --lib conversation_tree` → **20 passed**；
+测试实测：`cargo test -p wf-execution-shared --lib conversation_tree` → **19 passed**；
 `cargo test -p wf-api --lib conversation` → **7 passed**（含 1 个既有 `chat::` 用例）。
+编译与测试均在 `devs` 编译服务器执行，日志见 `docs/plan/conversation-branch-tree-remaining-work.md`。
 
 ### 11.0b 落地过程中修正的四个实现事实
 
@@ -898,10 +899,10 @@ stop(reason=done)
 | `wf-api` | 新增 `src/conversation/{mod,store,runtime,events,query,turn,step,surgery,stream,tests}.rs` | 会话树服务：加载/adopt、会话级写锁与在飞槽、事件发布、快照/路径/脏清单、提交轮与驱动、步进作业、手术与内容操作、订阅（replay + live） |
 | `wf-api` | `src/lib.rs` | `pub mod conversation` |
 | `wf-server` | 新增 `src/api/conversation.rs`；`src/api.rs`、`src/router.rs` | 23 个端点 + SSE 处理器；路由挂在 `/api/v1/chat/sessions/*` |
-| `wf-server` | **未做**：`src/openapi.rs` 的 `paths(...)` 清单 | 新处理器尚未登记 utoipa；`openapi.json` 快照与 `schema.d.ts` 待重生成 |
+| `wf-server` | `src/openapi.rs` 的 `paths(...)` 清单 | 24 个处理器已登记 utoipa；`openapi.json` 快照与 `schema.d.ts` 已重生成 |
 | `wf-api` | **未做**：`src/infra/context.rs` 增字段 | 运行时表改用进程内 `OnceLock<DashMap>`（`conversation/runtime.rs`），不动 `ApiContext` 构造点 |
 | `wf-runtime` | **未做** | 无需注入：配额/锁都在进程内表里，默认值即上线值 |
-| `wf-client` / `web-app` / `wf-tui` | **未做** | 端点常量、订阅/提交拆分、树侧栏、脏徽标、TUI 树装配 |
+| `wf-client` / `web-app` / `wf-tui` | 已落地最小集成 | 端点常量、订阅/提交拆分、树侧栏、脏/模型漂移徽标、单步/顺序重算入口、TUI 只读树装配入口 |
 
 依赖方向不变（箭头 = 依赖）：`wf-storage → wf-types`、`wf-server → wf-api → wf-execution-shared → wf-types`，无新增环。摘要在 `wf-execution-shared` 而非 `wf-api`，是为了让 CLI 与未来的桌面端复用同一套判定，避免"服务端一套、TUI 一套"。`runtime.rs` 用进程内表而非 `ApiContext` 字段，是刻意的取舍：多进程部署本就需要分布式锁，进程内表不假装解决它，也避免改动 `ApiContext` 的每个构造点（`wf-api` 里有多处）。
 

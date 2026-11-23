@@ -12,7 +12,6 @@ pub struct ConversationTreeListOptions {
     pub offset: Option<u64>,
     pub limit: Option<u64>,
     pub session_id_filter: Option<String>,
-    pub kind_filter: Option<String>,
 }
 
 impl From<ConversationTreeListOptions> for QueryFilter {
@@ -26,9 +25,6 @@ impl From<ConversationTreeListOptions> for QueryFilter {
         }
         if let Some(value) = opts.session_id_filter {
             filter.add_op(FilterOp::Eq("sessionId".into(), value));
-        }
-        if let Some(value) = opts.kind_filter {
-            filter.add_op(FilterOp::Eq("kind".into(), value));
         }
         filter
     }

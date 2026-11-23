@@ -10,7 +10,10 @@
 //! records what is being generated so a reconnecting client can be told
 //! exactly that, and a second turn is refused instead of interleaving.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicI64, AtomicUsize, Ordering},
+    Arc, Mutex, OnceLock,
+};
 
 use dashmap::DashMap;
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
@@ -41,32 +44,48 @@ struct Slot {
     turn: InflightTurn,
     text: String,
     reasoning: String,
+    /// Present while a stepping job owns the slot across several turns.
+    job_id: Option<String>,
 }
 
 pub struct SessionRuntime {
     write: AsyncMutex<()>,
     slot: Mutex<Option<Slot>>,
+    subscribers: AtomicUsize,
+    last_used_ms: AtomicI64,
 }
+
+/// An idle session is evicted from the process-local table. The tree is
+/// durable, so eviction only drops locks and cached event text.
+const IDLE_TTL_MS: i64 = 5 * 60 * 1000;
 
 impl Default for SessionRuntime {
     fn default() -> Self {
         Self {
             write: AsyncMutex::new(()),
             slot: Mutex::new(None),
+            subscribers: AtomicUsize::new(0),
+            last_used_ms: AtomicI64::new(wf_common::now()),
         }
     }
 }
 
 impl SessionRuntime {
+    fn touch(&self) {
+        self.last_used_ms.store(wf_common::now(), Ordering::Relaxed);
+    }
+
     /// Serialise a tree mutation. Hold it across the read-modify-write, not
     /// across a model call.
     pub async fn write(&self) -> MutexGuard<'_, ()> {
+        self.touch();
         self.write.lock().await
     }
 
     /// Claim the in-flight slot. A second concurrent turn is a conflict: the
     /// tree has one head and one generating answer.
     pub fn begin_turn(&self, turn: InflightTurn) -> ApiResult<()> {
+        self.touch();
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(current) = slot.as_ref() {
             return Err(ApiError::Conflict(format!(
@@ -78,12 +97,68 @@ impl SessionRuntime {
             turn,
             text: String::new(),
             reasoning: String::new(),
+            job_id: None,
         });
         Ok(())
     }
 
+    /// Claim the slot for a whole stepping job. Individual steps reuse it, so
+    /// a turn cannot interleave between two steps.
+    pub fn begin_job(
+        &self,
+        job_id: impl Into<String>,
+        node_id: impl Into<String>,
+        cancel: CancellationToken,
+    ) -> ApiResult<()> {
+        self.touch();
+        let job_id = job_id.into();
+        let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(current) = slot.as_ref() {
+            return Err(ApiError::Conflict(format!(
+                "session is already generating turn '{}'",
+                current.turn.turn_id
+            )));
+        }
+        *slot = Some(Slot {
+            turn: InflightTurn {
+                turn_id: job_id.clone(),
+                node_id: node_id.into(),
+                cancel,
+            },
+            text: String::new(),
+            reasoning: String::new(),
+            job_id: Some(job_id),
+        });
+        Ok(())
+    }
+
+    /// Point a job's slot at one step's generation. Partial text starts fresh
+    /// for every step.
+    pub fn advance_job(
+        &self,
+        job_id: &str,
+        turn_id: impl Into<String>,
+        node_id: impl Into<String>,
+    ) -> ApiResult<()> {
+        self.touch();
+        let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
+        match slot.as_mut() {
+            Some(current) if current.job_id.as_deref() == Some(job_id) => {
+                current.turn.turn_id = turn_id.into();
+                current.turn.node_id = node_id.into();
+                current.text.clear();
+                current.reasoning.clear();
+                Ok(())
+            }
+            _ => Err(ApiError::Conflict(format!(
+                "stepping job '{job_id}' no longer owns the session"
+            ))),
+        }
+    }
+
     /// Append streamed text to the in-flight partial answer.
     pub fn push_text(&self, turn_id: &str, delta: &str) {
+        self.touch();
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(current) = slot.as_mut() {
             if current.turn.turn_id == turn_id {
@@ -94,6 +169,7 @@ impl SessionRuntime {
 
     /// Append streamed reasoning to the in-flight partial answer.
     pub fn push_reasoning(&self, turn_id: &str, delta: &str) {
+        self.touch();
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(current) = slot.as_mut() {
             if current.turn.turn_id == turn_id {
@@ -106,9 +182,19 @@ impl SessionRuntime {
     /// finisher cannot clear a newer turn's claim.
     pub fn finish_turn(&self, turn_id: &str) {
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
+        if slot.as_ref().is_some_and(|current| {
+            current.job_id.is_none() && current.turn.turn_id == turn_id
+        }) {
+            *slot = None;
+        }
+    }
+
+    /// Release a stepping job's slot. Only the owning job can do that.
+    pub fn finish_job(&self, job_id: &str) {
+        let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
         if slot
             .as_ref()
-            .is_some_and(|current| current.turn.turn_id == turn_id)
+            .is_some_and(|current| current.job_id.as_deref() == Some(job_id))
         {
             *slot = None;
         }
@@ -124,13 +210,41 @@ impl SessionRuntime {
         })
     }
 
+    fn has_inflight(&self) -> bool {
+        let slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
+        slot.is_some()
+    }
+
+    pub fn add_subscriber(&self) {
+        self.touch();
+        self.subscribers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn remove_subscriber(&self) {
+        self.touch();
+        self.subscribers.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers.load(Ordering::Relaxed)
+    }
+
+    pub fn last_used_ms(&self) -> i64 {
+        self.last_used_ms.load(Ordering::Relaxed)
+    }
+
     /// Cancellation token of the in-flight turn, when it matches `turn_id`
     /// (or any turn when `None`).
     pub fn cancel_token(&self, turn_id: Option<&str>) -> Option<CancellationToken> {
         let slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
         let current = slot.as_ref()?;
         match turn_id {
-            Some(id) if current.turn.turn_id != id => None,
+            Some(id)
+                if current.turn.turn_id != id
+                    && current.job_id.as_deref() != Some(id) =>
+            {
+                None
+            }
             _ => Some(current.turn.cancel.clone()),
         }
     }
@@ -146,11 +260,27 @@ fn runtimes() -> &'static DashMap<String, Arc<SessionRuntime>> {
 
 /// Runtime of one session, created on first use.
 pub fn runtime_for(session_id: &str) -> Arc<SessionRuntime> {
-    if let Some(existing) = runtimes().get(session_id) {
+    let table = runtimes();
+    let now = wf_common::now();
+    let expired: Vec<String> = table
+        .iter()
+        .filter(|entry| {
+            let runtime = entry.value();
+            now - runtime.last_used_ms() > IDLE_TTL_MS
+                && !runtime.has_inflight()
+                && runtime.subscriber_count() == 0
+        })
+        .map(|entry| entry.key().clone())
+        .collect();
+    for id in expired {
+        table.remove(&id);
+    }
+    if let Some(existing) = table.get(session_id) {
+        existing.value().touch();
         return existing.clone();
     }
     let fresh = Arc::new(SessionRuntime::default());
-    runtimes()
+    table
         .entry(session_id.to_string())
         .or_insert(fresh)
         .clone()

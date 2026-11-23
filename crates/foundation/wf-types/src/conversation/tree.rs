@@ -54,8 +54,6 @@ pub enum ReplyState {
     Interrupted,
     /// Generation failed; no usable content.
     Failed,
-    /// Replaced by a regeneration or a manual rewrite. Read-only archive.
-    Superseded,
 }
 
 impl ReplyState {

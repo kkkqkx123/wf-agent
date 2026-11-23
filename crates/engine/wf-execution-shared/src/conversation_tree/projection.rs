@@ -83,18 +83,3 @@ pub fn project(tree: &ConversationTree, leaf: &str) -> Vec<ProjectedRef> {
     out
 }
 
-/// Project the active leaf's path.
-pub fn project_active(tree: &ConversationTree) -> Vec<ProjectedRef> {
-    match tree.active_leaf.as_deref() {
-        Some(leaf) => project(tree, leaf),
-        None => Vec::new(),
-    }
-}
-
-/// Ordered message ids of a projected path, i.e. the request history.
-pub fn project_ids(tree: &ConversationTree, leaf: &str) -> Vec<String> {
-    project(tree, leaf)
-        .into_iter()
-        .map(|entry| entry.message.id)
-        .collect()
-}

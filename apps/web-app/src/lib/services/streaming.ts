@@ -1,3 +1,4 @@
+import { request } from '#lib/api/client';
 import { openGetStream, openPostStream } from '#lib/api/stream';
 import type { StreamFailure } from '#lib/api/stream';
 import type { RunConversationMessage } from '#lib/types/models';
@@ -128,6 +129,135 @@ export function streamChat(
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),
 		onError: (failure) => callbacks.onError?.(failure),
+	});
+}
+
+/** Minimal tree snapshot view used by the branch panel. */
+export interface ChatTreeNodeView {
+	id: string;
+	parent: string;
+	ordinal: number;
+	kind: 'turn' | 'premise';
+	dirty: boolean;
+	deleted: boolean;
+	base_version: number;
+	label?: string;
+	reply?: {
+		state: string;
+		origin: string;
+		acknowledged: boolean;
+		model_drift: boolean;
+	};
+}
+
+export interface ChatTreeSnapshot {
+	session_id: string;
+	version: number;
+	active_leaf?: string;
+	nodes: ChatTreeNodeView[];
+	pool: Array<{ graft_id: string; label?: string; node_count: number }>;
+	inflight?: { turn_id: string; node_id: string; text: string };
+	dirty?: { entries: Array<{ node_id: string; index: number }> };
+}
+
+interface ChatEnvelope<T> {
+	success: boolean;
+	data?: T;
+	error?: { message?: string };
+}
+
+async function chatRequest<T>(
+	method: 'GET' | 'POST' | 'DELETE',
+	path: string,
+	body?: unknown,
+): Promise<T> {
+	const res = await request(method, path, body === undefined ? undefined : { body });
+	const envelope = (res.data ?? res.error) as ChatEnvelope<T> | null;
+	if (res.error || !envelope?.success || envelope.data === undefined) {
+		throw new Error(envelope?.error?.message ?? `Chat request failed (HTTP ${res.status})`);
+	}
+	return envelope.data;
+}
+
+export function fetchChatTree(sessionId: string): Promise<ChatTreeSnapshot> {
+	return chatRequest<ChatTreeSnapshot>(
+		'GET',
+		`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}`,
+	);
+}
+
+export interface ChatTurnResult {
+	turn_id: string;
+	node_id: string;
+	parent: string;
+	version: number;
+}
+
+/** Submit a turn without opening a stream: the session owns the driver. */
+export function submitChatTurn(
+	sessionId: string,
+	body: {
+		profileId: string;
+		message: string;
+		parent?: string;
+		ifVersion?: number;
+	},
+): Promise<ChatTurnResult> {
+	return chatRequest<ChatTurnResult>(
+		'POST',
+		`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/turns`,
+		{
+			profile_id: body.profileId,
+			message: body.message,
+			...(body.parent ? { parent: body.parent } : {}),
+			...(body.ifVersion === undefined ? {} : { if_version: body.ifVersion }),
+		},
+	);
+}
+
+export interface ChatStepResult {
+	job_id: string;
+	plan: string[];
+}
+
+export function stepChatSession(
+	sessionId: string,
+	body: { mode?: 'single' | 'forward'; leaf?: string; nodeId?: string },
+): Promise<ChatStepResult> {
+	return chatRequest<ChatStepResult>(
+		'POST',
+		`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/step`,
+		{
+			mode: body.mode ?? 'single',
+			...(body.leaf ? { leaf: body.leaf } : {}),
+			...(body.nodeId ? { node_id: body.nodeId } : {}),
+		},
+	);
+}
+
+export function cancelChatStep(
+	sessionId: string,
+	jobId: string,
+): Promise<{ cancelled: boolean }> {
+	return chatRequest<{ cancelled: boolean }>(
+		'POST',
+		`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/step/${encodeURIComponent(jobId)}/cancel`,
+	);
+}
+
+/** Subscribe to a tree session. First frame is always `session.snapshot`. */
+export function subscribeChatSession(
+	sessionId: string,
+	onFrame: (event: string, data: unknown) => void,
+	signal: AbortSignal,
+): Promise<void> {
+	return openGetStream({
+		path: `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/stream`,
+		signal,
+		onFrame,
+		onError: (failure) => {
+			onFrame('session.error', failure);
+		},
 	});
 }
 

@@ -8,7 +8,7 @@
 use serde::Serialize;
 use wf_execution_shared::conversation_tree::{self, DigestIndex};
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_types::{ConversationTree, NodeKind, ReplyState};
+use wf_types::{ConversationTree, NodeKind, ParamsFingerprint, ReplyState};
 
 pub use wf_execution_shared::conversation_tree::{DirtyEntry, DirtyList};
 
@@ -44,6 +44,10 @@ pub struct ReplyView {
     pub message_id: String,
     pub based_on_version: u64,
     pub origin: &'static str,
+    /// The user accepted this exact stale baseline.
+    pub acknowledged: bool,
+    /// Recorded generation parameters differ from the session's current ones.
+    pub model_drift: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<i64>,
     pub superseded: Vec<String>,
@@ -90,7 +94,6 @@ fn state_name(state: ReplyState) -> &'static str {
         ReplyState::Discarded => "discarded",
         ReplyState::Interrupted => "interrupted",
         ReplyState::Failed => "failed",
-        ReplyState::Superseded => "superseded",
     }
 }
 
@@ -109,7 +112,11 @@ fn origin_name(origin: wf_types::ReplyOrigin) -> &'static str {
 }
 
 /// Node views of a tree, in document order.
-pub fn node_views(tree: &ConversationTree, index: &DigestIndex) -> Vec<NodeView> {
+pub fn node_views(
+    tree: &ConversationTree,
+    index: &DigestIndex,
+    current_params: Option<&ParamsFingerprint>,
+) -> Vec<NodeView> {
     tree.nodes
         .values()
         .map(|node| NodeView {
@@ -124,6 +131,8 @@ pub fn node_views(tree: &ConversationTree, index: &DigestIndex) -> Vec<NodeView>
                 message_id: reply.message.id.clone(),
                 based_on_version: reply.based_on_version,
                 origin: origin_name(reply.origin),
+                acknowledged: index.is_acknowledged(node),
+                model_drift: current_params.is_some_and(|current| reply.params.as_ref() != Some(current)),
                 edited_at: reply.edited_at,
                 superseded: reply.superseded.iter().map(|m| m.id.clone()).collect(),
             }),
@@ -142,9 +151,15 @@ pub async fn snapshot(
     session_id: &str,
     leaf: Option<&str>,
 ) -> ApiResult<SessionSnapshot> {
+    super::require_chat_session(ctx, session_id).await?;
     let tree = store::load_or_adopt(ctx, session_id).await?;
     let index = store::digests(&tree);
     let dirty = conversation_tree::evaluate_dirty(&tree, &index, leaf);
+    let params = session_profile(ctx, &tree).await.map(|profile_id| ParamsFingerprint {
+        profile_id,
+        parameters: None,
+        tools: Vec::new(),
+    });
     let inflight: Option<InflightSnapshot> = runtime::runtime_for(session_id).inflight();
     Ok(SessionSnapshot {
         session_id: session_id.to_string(),
@@ -159,7 +174,7 @@ pub async fn snapshot(
             reasoning: snapshot.reasoning,
         }),
         dirty,
-        nodes: node_views(&tree, &index),
+        nodes: node_views(&tree, &index, params.as_ref()),
         pool: tree
             .pool
             .iter()
@@ -206,6 +221,7 @@ pub async fn path_messages(
     session_id: &str,
     leaf: Option<&str>,
 ) -> ApiResult<Vec<PathEntry>> {
+    super::require_chat_session(ctx, session_id).await?;
     let tree = store::load_or_adopt(ctx, session_id).await?;
     let index = store::digests(&tree);
     let Some(leaf) = leaf
@@ -252,6 +268,7 @@ pub async fn dirty_list(
     session_id: &str,
     leaf: Option<&str>,
 ) -> ApiResult<DirtyList> {
+    super::require_chat_session(ctx, session_id).await?;
     let tree = store::load_or_adopt(ctx, session_id).await?;
     let index = store::digests(&tree);
     Ok(conversation_tree::evaluate_dirty(&tree, &index, leaf))

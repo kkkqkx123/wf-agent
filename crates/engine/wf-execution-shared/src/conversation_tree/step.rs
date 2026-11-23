@@ -87,11 +87,6 @@ pub fn still_stale(tree: &ConversationTree, index: &DigestIndex, node: &str) -> 
     tree.node(node).is_some_and(|node| index.is_dirty(node))
 }
 
-/// Position of `stop_at` in the plan, when the caller named one.
-pub fn stop_index(plan: &StepPlan, stop_at: Option<&str>) -> Option<usize> {
-    let stop_at = stop_at?;
-    plan.nodes.iter().position(|node| node == stop_at)
-}
 
 #[cfg(test)]
 mod tests {
@@ -148,13 +143,4 @@ mod tests {
         assert!(!still_stale(&tree, &index, &a));
     }
 
-    #[test]
-    fn stop_index_finds_named_node() {
-        let plan = StepPlan {
-            leaf: Some("n3".into()),
-            nodes: vec!["n2".into(), "n3".into()],
-        };
-        assert_eq!(stop_index(&plan, Some("n3")), Some(1));
-        assert_eq!(stop_index(&plan, None), None);
-    }
 }

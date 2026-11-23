@@ -6,6 +6,7 @@
 	import ChatTranscript from '#lib/components/chat/ChatTranscript.svelte';
 	import ChatComposerBar from '#lib/components/chat/ChatComposerBar.svelte';
 	import ChatSessionRail from '#lib/components/chat/ChatSessionRail.svelte';
+	import ChatTreeRail from '#lib/components/chat/ChatTreeRail.svelte';
 	import ChatInspectorPanel from '#lib/components/chat/ChatInspectorPanel.svelte';
 	import { ChatSessionController } from '#lib/chat/chat-session.svelte';
 	import { parseListParams } from '#lib/utils/route';
@@ -36,6 +37,7 @@
 >
 	<div class="flex h-full min-h-0">
 		<ChatSessionRail {controller} />
+		<ChatTreeRail {controller} />
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			<ChatSessionHeader {controller} />
 			{#if !composerExpanded}

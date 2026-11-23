@@ -21,6 +21,7 @@
 //! shape event and a dirty event.
 
 use wf_execution_shared::conversation_tree::{self, DigestIndex, SurgeryOutcome, TreeEditor};
+use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::message::MessageStorageAdapter;
 use wf_types::message::MessageRole;
 use wf_types::{ConversationNode, ConversationTree, MessageRef, ReplyState};
@@ -89,6 +90,13 @@ fn change_of(outcome: &SurgeryOutcome) -> NodeChange {
     }
 }
 
+/// Documents a mutation writes besides the session tree.
+#[derive(Default)]
+struct SideWrites {
+    trees: Vec<ConversationTree>,
+    deletes: Vec<String>,
+}
+
 /// Run one mutation under the session lock.
 async fn mutate<T, F>(
     ctx: &ApiContext,
@@ -100,6 +108,29 @@ async fn mutate<T, F>(
 ) -> ApiResult<(T, SurgeryOutcome)>
 where
     F: FnOnce(&mut ConversationTree, &mut DigestIndex) -> ApiResult<(T, SurgeryOutcome)>,
+{
+    mutate_with_side(ctx, session_id, if_version, change, node, move |tree, digests| {
+        let (value, outcome) = body(tree, digests)?;
+        Ok((value, outcome, SideWrites::default()))
+    })
+    .await
+}
+
+/// Mutation with side documents. Grafts are saved before the main tree so a
+/// failed side write cannot leave a pool entry pointing at a missing document.
+async fn mutate_with_side<T, F>(
+    ctx: &ApiContext,
+    session_id: &str,
+    if_version: Option<u64>,
+    change: &str,
+    node: Option<&str>,
+    body: F,
+) -> ApiResult<(T, SurgeryOutcome)>
+where
+    F: FnOnce(
+        &mut ConversationTree,
+        &mut DigestIndex,
+    ) -> ApiResult<(T, SurgeryOutcome, SideWrites)>,
 {
     super::require_chat_session(ctx, session_id).await?;
     let runtime = runtime::runtime_for(session_id);
@@ -119,8 +150,21 @@ where
         }
     }
     let mut digests = store::digests(&tree);
-    let (value, outcome) = body(&mut tree, &mut digests)?;
+    let (value, outcome, side) = body(&mut tree, &mut digests)?;
+    for side_tree in &side.trees {
+        store::save_tree(ctx, side_tree).await?;
+    }
     store::save_tree(ctx, &tree).await?;
+    for id in &side.deletes {
+        if let Err(error) = ctx.storage.conversation_tree.delete(id).await {
+            tracing::warn!(
+                target: "wf_api::conversation",
+                document_id = %id,
+                error = %error,
+                "failed to remove a consumed tree document"
+            );
+        }
+    }
     let dirty = conversation_tree::evaluate_dirty(&tree, &digests, None);
     events::tree_changed(ctx, session_id, outcome.version, change, node);
     events::dirty_changed(ctx, session_id, outcome.version, &dirty);
@@ -167,17 +211,8 @@ pub async fn insert_before(
         "insert_before",
         Some(target),
         move |tree, digests| {
-            let version = {
-                let mut editor = TreeEditor::new(tree, digests, now);
-                editor
-                    .insert_before(target, node)
-                    .map_err(tree_error)?
-                    .version
-            };
-            let outcome = SurgeryOutcome {
-                version,
-                ..SurgeryOutcome::default()
-            };
+            let mut editor = TreeEditor::new(tree, digests, now);
+            let outcome = editor.insert_before(target, node).map_err(tree_error)?;
             Ok(((), outcome))
         },
     )
@@ -329,22 +364,11 @@ pub async fn edit_branch(
         "edit_branch",
         Some(&node_id),
         move |tree, digests| {
-            let version = {
-                let mut editor = TreeEditor::new(tree, digests, now);
-                editor
-                    .append_turn(fresh, &parent)
-                    .map_err(tree_error)?
-                    .version
-            };
             // The new branch becomes the head, which is what "try this instead"
             // means: the old branch stays reachable but is no longer sent.
-            Ok((
-                (),
-                SurgeryOutcome {
-                    version,
-                    ..SurgeryOutcome::default()
-                },
-            ))
+            let mut editor = TreeEditor::new(tree, digests, now);
+            let outcome = editor.append_turn(fresh, &parent).map_err(tree_error)?;
+            Ok(((), outcome))
         },
     )
     .await?;
@@ -482,10 +506,8 @@ pub async fn detach_subtree(
     label: Option<String>,
 ) -> ApiResult<DetachView> {
     let graft_id = wf_common::generate_id();
-    let graft_for_save = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let sink = graft_for_save.clone();
     let graft_id_for_edit = graft_id.clone();
-    let (_, outcome) = mutate(
+    let (nodes, outcome) = mutate_with_side(
         ctx,
         &request.session_id,
         request.if_version,
@@ -498,20 +520,17 @@ pub async fn detach_subtree(
                 .detach(node, carry_prefix, label, graft_id_for_edit)
                 .map_err(tree_error)?;
             let nodes = detached.graft.nodes.len();
-            *sink.lock().unwrap_or_else(|error| error.into_inner()) = Some((detached.graft, nodes));
-            Ok(((), detached.outcome))
+            Ok((
+                nodes,
+                detached.outcome,
+                SideWrites {
+                    trees: vec![detached.graft],
+                    deletes: Vec::new(),
+                },
+            ))
         },
     )
     .await?;
-    let taken = graft_for_save
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .take();
-    let (graft, nodes) =
-        taken.ok_or_else(|| ApiError::execution("detach produced no graft document"))?;
-    // The graft is a document of its own: the source tree only keeps a pool
-    // entry, so the subtree must be written separately or it would be lost.
-    store::save_tree(ctx, &graft).await?;
     Ok(DetachView {
         graft_id,
         nodes,
@@ -528,16 +547,23 @@ pub async fn attach_graft(
     replace: Option<&str>,
 ) -> ApiResult<AttachView> {
     let graft = store::load_graft(ctx, graft_id).await?;
-    if graft.session_id != request.session_id {
-        return Err(ApiError::Validation(format!(
-            "graft '{graft_id}' belongs to another session"
-        )));
+    let graft_source_session = graft.session_id.clone();
+    let cross_session = graft_source_session != request.session_id;
+    if cross_session {
+        if let Ok(Some(target)) = store::load_existing(ctx, &request.session_id).await {
+            if target.profile_id != graft.profile_id {
+                tracing::warn!(
+                    target: "wf_api::conversation",
+                    graft_id,
+                    "grafted subtree comes from a different profile"
+                );
+            }
+        }
     }
-    let replaced_sink = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let sink = replaced_sink.clone();
     let parent_owned = parent.to_string();
     let replace_owned = replace.map(str::to_string);
-    let (moved, outcome) = mutate(
+    let graft_id_for_delete = graft_id.to_string();
+    let (moved, outcome) = mutate_with_side(
         ctx,
         &request.session_id,
         request.if_version,
@@ -554,19 +580,21 @@ pub async fn attach_graft(
             let attached = editor
                 .attach(graft, &parent_owned, mode, replace_owned.as_deref())
                 .map_err(tree_error)?;
-            *sink.lock().unwrap_or_else(|error| error.into_inner()) = attached.replaced;
-            Ok((attached.moved, attached.outcome))
+            let replaced_graft_id = attached.replaced.as_ref().map(|tree| tree.id.clone());
+            Ok((
+                (attached.moved, replaced_graft_id),
+                attached.outcome,
+                SideWrites {
+                    trees: attached.replaced.into_iter().collect(),
+                    deletes: vec![graft_id_for_delete],
+                },
+            ))
         },
     )
     .await?;
-    let replaced = replaced_sink
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .take();
-    let mut replaced_graft_id = None;
-    if let Some(replaced) = replaced {
-        store::save_tree(ctx, &replaced).await?;
-        replaced_graft_id = Some(replaced.id.clone());
+    let (moved, replaced_graft_id) = moved;
+    if cross_session {
+        store::remove_pool_entry(ctx, &graft_source_session, graft_id).await?;
     }
     Ok(AttachView {
         moved,
@@ -577,6 +605,7 @@ pub async fn attach_graft(
 
 /// Grafts waiting in the session's pool.
 pub async fn list_grafts(ctx: &ApiContext, session_id: &str) -> ApiResult<Vec<PoolView>> {
+    super::require_chat_session(ctx, session_id).await?;
     let tree = store::load_or_adopt(ctx, session_id).await?;
     Ok(tree
         .pool
@@ -648,6 +677,7 @@ pub async fn delete_node(
 /// the session accumulated.
 pub async fn delete_session(ctx: &ApiContext, session_id: &str) -> ApiResult<()> {
     use wf_storage::adapter::base::BaseStorageAdapter;
+    super::require_chat_session(ctx, session_id).await?;
     let runtime = runtime::runtime_for(session_id);
     let _guard = runtime.write().await;
     if let Some(token) = runtime.cancel_token(None) {

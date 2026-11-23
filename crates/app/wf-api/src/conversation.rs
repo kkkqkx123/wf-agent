@@ -102,7 +102,7 @@ pub(crate) async fn require_chat_session(
     use wf_types::execution::ExecutionType;
 
     let Some(record) = ctx.storage.agent_execution.load(session_id).await? else {
-        return Ok(());
+        return Err(ApiError::not_found("chat session", session_id));
     };
     if record.execution_type == ExecutionType::Chat {
         return Ok(());

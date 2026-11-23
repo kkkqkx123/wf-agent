@@ -52,6 +52,9 @@ pub(crate) struct GeneratedAnswer {
     pub usage: Option<TokenUsageStats>,
     pub state: ReplyState,
     pub error: Option<String>,
+    /// Prefix digest captured before generation. Convergence must not replace
+    /// it with a later base, or a stale answer would look fresh.
+    pub base: Option<String>,
 }
 
 impl GeneratedAnswer {
@@ -61,6 +64,7 @@ impl GeneratedAnswer {
             usage: None,
             state: ReplyState::Failed,
             error: Some(error.into()),
+            base: None,
         }
     }
 
@@ -70,6 +74,7 @@ impl GeneratedAnswer {
             usage: None,
             state: ReplyState::Interrupted,
             error: None,
+            base: None,
         }
     }
 }
@@ -94,16 +99,16 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
 
     super::require_chat_session(&ctx, &request.session_id).await?;
     let runtime = runtime::runtime_for(&request.session_id);
-    // Refuse before writing anything: a second turn would have to append a
-    // second pending answer under a head that is still generating.
-    if runtime.inflight().is_some() {
-        return Err(ApiError::Conflict(
-            "session is already generating a turn".into(),
-        ));
-    }
     let handle;
     {
         let _guard = runtime.write().await;
+        // The check and the slot claim share the write lock with the tree
+        // write, so a concurrent submit cannot leave an orphan pending node.
+        if runtime.inflight().is_some() {
+            return Err(ApiError::Conflict(
+                "session is already generating a turn".into(),
+            ));
+        }
         let mut tree = store::load_or_adopt(&ctx, &request.session_id).await?;
         if let Some(expected) = request.if_version {
             if tree.version != expected {
@@ -224,6 +229,7 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             version,
         };
 
+        let turn_id_for_task = turn_id.clone();
         let driver = Driver {
             ctx: ctx.clone(),
             session_id: request.session_id.clone(),
@@ -233,7 +239,9 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             cancel,
             runtime: runtime.clone(),
         };
-        tokio::spawn(async move { driver.run().await });
+        let task = tokio::spawn(async move { driver.run().await });
+        ctx.execution_tasks
+            .register(turn_id_for_task.clone(), task.abort_handle());
     }
     Ok(handle)
 }
@@ -349,6 +357,7 @@ impl Driver {
         )
         .await;
         self.runtime.finish_turn(&self.turn_id);
+        self.ctx.execution_tasks.unregister(&self.turn_id);
     }
 }
 
@@ -365,11 +374,11 @@ pub(crate) async fn generate_answer(
     cancel: &CancellationToken,
     runtime: &Arc<SessionRuntime>,
 ) -> GeneratedAnswer {
-    let request = {
+    let (request, base) = {
         let runtime = runtime.clone();
         let _guard = runtime.write().await;
         match prepare_request(ctx, session_id, node_id, profile_id).await {
-            Ok(request) => request,
+            Ok(prepared) => prepared,
             Err(error) => return GeneratedAnswer::failed(error.to_string()),
         }
     };
@@ -445,6 +454,7 @@ pub(crate) async fn generate_answer(
             usage,
             state: ReplyState::Kept,
             error: None,
+            base: Some(base),
         },
         None => {
             // A stream that ends without a message still produced text in
@@ -461,6 +471,7 @@ pub(crate) async fn generate_answer(
                     usage,
                     state: ReplyState::Interrupted,
                     error: Some(reason),
+                    base: Some(base),
                 }
             }
         }
@@ -478,7 +489,7 @@ async fn prepare_request(
     session_id: &str,
     node_id: &str,
     profile_id: &str,
-) -> ApiResult<wf_types::llm::LlmRequest> {
+) -> ApiResult<(wf_types::llm::LlmRequest, String)> {
     use wf_storage::adapter::base::BaseStorageAdapter;
     let tree = store::load_existing(ctx, session_id)
         .await?
@@ -518,9 +529,14 @@ async fn prepare_request(
     {
         session.restore(vec![record.message]);
     }
-    session
+    let base = store::digests(&tree)
+        .base(node_id)
+        .map(str::to_string)
+        .ok_or_else(|| ApiError::not_found("conversation node", node_id))?;
+    let request = session
         .continue_turn(Some(session_id))
-        .map_err(|error| ApiError::Validation(error.to_string()))
+        .map_err(|error| ApiError::Validation(error.to_string()))?;
+    Ok((request, base))
 }
 
 /// Write the answer into the tree and tell subscribers how it ended.
@@ -593,6 +609,19 @@ pub(crate) async fn converge_answer(
 
     let now = wf_common::now();
     let mut digests = store::digests(&tree);
+    let current_base = digests
+        .base(node_id)
+        .map(str::to_string)
+        .unwrap_or_default();
+    let based_on = answer.base.clone().unwrap_or_else(|| current_base.clone());
+    if based_on != current_base {
+        tracing::warn!(
+            target: "wf_api::conversation",
+            session_id = %session_id,
+            node_id = %node_id,
+            "tree changed while the answer was generating; keeping it stale"
+        );
+    }
     let outcome = {
         let mut editor = TreeEditor::new(&mut tree, &mut digests, now);
         match answer.message.clone() {
@@ -602,7 +631,7 @@ pub(crate) async fn converge_answer(
                     conversation_tree::message_hash(&message),
                 );
                 editor
-                    .finish_reply(&node_id, reference, Vec::new(), answer.state, None)
+                    .finish_reply(&node_id, reference, Vec::new(), answer.state, None, &based_on)
                     .map_err(super::tree_error)
             }
             None => editor

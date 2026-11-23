@@ -17,10 +17,10 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use wf_execution_shared::conversation_tree::{self, TreeEditor};
-use wf_types::{ParamsFingerprint, ReplyState};
+use wf_types::{ParamsFingerprint, ReplyOrigin, ReplyState};
 
 use super::query::session_profile;
-use super::runtime::{self, InflightTurn, SessionRuntime};
+use super::runtime::{self, SessionRuntime};
 use super::{events, store, turn};
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
@@ -58,6 +58,10 @@ pub struct StepRequest {
     pub max_steps: usize,
     pub profile_id: Option<String>,
     pub if_version: Option<u64>,
+    /// Regenerate this node instead of the first stale node on the path.
+    pub node_id: Option<String>,
+    /// `keep_human` refuses to overwrite a human-written answer.
+    pub policy: Option<String>,
 }
 
 impl Default for StepMode {
@@ -82,8 +86,16 @@ pub struct StepHandle {
 pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult<StepHandle> {
     super::require_chat_session(&ctx, &request.session_id).await?;
     let runtime = runtime::runtime_for(&request.session_id);
+    let job_id = wf_common::generate_id();
+    let cancel = CancellationToken::new();
+    let keep_human = request.policy.as_deref() != Some("overwrite_human");
     let (plan, leaf, profile_id) = {
         let _guard = runtime.write().await;
+        if runtime.inflight().is_some() {
+            return Err(ApiError::Conflict(
+                "session is generating a turn; wait for it to settle".into(),
+            ));
+        }
         let tree = store::load_or_adopt(&ctx, &request.session_id).await?;
         if let Some(expected) = request.if_version {
             if tree.version != expected {
@@ -94,7 +106,31 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
             }
         }
         let digests = store::digests(&tree);
-        let plan = conversation_tree::plan_steps(&tree, &digests, request.leaf.as_deref());
+        let mut plan = conversation_tree::plan_steps(&tree, &digests, request.leaf.as_deref());
+        if let Some(node_id) = request.node_id.as_deref() {
+            if !plan.nodes.iter().any(|candidate| candidate == node_id) {
+                let exists = tree.node(node_id).is_some();
+                plan.nodes.clear();
+                if !exists {
+                    return Err(ApiError::not_found("conversation node", node_id));
+                }
+            } else {
+                plan.nodes.retain(|candidate| candidate == node_id);
+            }
+        }
+        if keep_human {
+            for node_id in &plan.nodes {
+                if tree
+                    .node(node_id)
+                    .and_then(|node| node.reply.as_ref())
+                    .is_some_and(|reply| reply.origin == ReplyOrigin::Human)
+                {
+                    return Err(ApiError::Conflict(format!(
+                        "node '{node_id}' was written by a human; set policy to overwrite_human to regenerate it"
+                    )));
+                }
+            }
+        }
         let leaf = request.leaf.clone().or_else(|| tree.active_leaf.clone());
         let profile_id = match request
             .profile_id
@@ -114,11 +150,6 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
             plan: Vec::new(),
         });
     }
-    if runtime.inflight().is_some() {
-        return Err(ApiError::Conflict(
-            "session is generating a turn; wait for it to settle".into(),
-        ));
-    }
     let profile_id = profile_id
         .filter(|profile| !profile.trim().is_empty())
         .ok_or_else(|| ApiError::Validation("stepping requires a profile id".into()))?;
@@ -127,8 +158,7 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
     if request.mode == StepMode::Single {
         nodes.truncate(1);
     }
-    let job_id = wf_common::generate_id();
-    let cancel = CancellationToken::new();
+    runtime.begin_job(&job_id, &nodes[0], cancel.clone())?;
     events::step_started(
         &ctx,
         &request.session_id,
@@ -149,10 +179,13 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
             request.max_steps
         },
         profile_id,
+        keep_human,
         cancel,
         runtime,
     };
-    tokio::spawn(async move { job.run().await });
+    let task = tokio::spawn(async move { job.run().await });
+    ctx.execution_tasks
+        .register(job_id.clone(), task.abort_handle());
     Ok(StepHandle {
         job_id,
         leaf,
@@ -168,6 +201,7 @@ struct StepJob {
     stop_at: Option<String>,
     max_steps: usize,
     profile_id: String,
+    keep_human: bool,
     cancel: CancellationToken,
     runtime: Arc<SessionRuntime>,
 }
@@ -192,13 +226,21 @@ impl StepJob {
                 reason = "cancelled";
                 break;
             }
-            let Some(turn_id) = self.regenerate(&node_id).await else {
+            let turn_id = wf_common::generate_id();
+            let Some(parent) = self.regenerate(&node_id, &turn_id).await else {
                 if self.cancel.is_cancelled() {
                     reason = "cancelled";
                     break;
                 }
                 continue;
             };
+            events::turn_started(
+                &self.ctx,
+                &self.session_id,
+                &turn_id,
+                &node_id,
+                &parent,
+            );
             let answer = turn::generate_answer(
                 &self.ctx,
                 &self.session_id,
@@ -219,7 +261,6 @@ impl StepJob {
                 &self.runtime,
             )
             .await;
-            self.runtime.finish_turn(&turn_id);
             done += 1;
             last = Some(node_id.clone());
             events::step_progress(
@@ -244,27 +285,41 @@ impl StepJob {
             done,
             last.as_deref(),
         );
+        self.runtime.finish_job(&self.job_id);
+        self.ctx.execution_tasks.unregister(&self.job_id);
     }
 
-    /// Claim the slot for one node and put its reply into the pending state.
+    /// Put one node into the pending state inside the job's existing slot.
     ///
-    /// Returns `None` when the node no longer needs generating — the plan was
-    /// snapshotted, and an upstream regeneration that reproduced the same body
-    /// leaves the downstream answer fresh.
-    async fn regenerate(&self, node_id: &str) -> Option<String> {
-        let turn_id = wf_common::generate_id();
+    /// Returns the parent id when generation should proceed, `None` when the
+    /// plan is already stale by the time this step runs.
+    async fn regenerate(&self, node_id: &str, turn_id: &str) -> Option<String> {
         let runtime = self.runtime.clone();
         let _guard = runtime.write().await;
-        let tree = store::load_existing(&self.ctx, &self.session_id)
-            .await
-            .ok()
-            .flatten()?;
+        let Ok(Some(tree)) = store::load_existing(&self.ctx, &self.session_id).await else {
+            return None;
+        };
         let digests = store::digests(&tree);
-        let node = tree.node(node_id)?;
-        if node.is_deleted() {
+        let Some(node) = tree.node(node_id) else {
+            return None;
+        };
+        if node.is_deleted() || !conversation_tree::still_stale(&tree, &digests, node_id) {
             return None;
         }
-        if !conversation_tree::still_stale(&tree, &digests, node_id) {
+        if self.keep_human
+            && node
+                .reply
+                .as_ref()
+                .is_some_and(|reply| reply.origin == ReplyOrigin::Human)
+        {
+            return None;
+        }
+        let parent = node.parent.clone();
+        if self
+            .runtime
+            .advance_job(&self.job_id, turn_id, node_id)
+            .is_err()
+        {
             return None;
         }
         let needs_placeholder = node.reply.is_none();
@@ -300,19 +355,6 @@ impl StepJob {
             );
             return None;
         }
-        if let Err(error) = self.runtime.begin_turn(InflightTurn {
-            turn_id: turn_id.clone(),
-            node_id: node_id.to_string(),
-            cancel: self.cancel.clone(),
-        }) {
-            tracing::info!(
-                target: "wf_api::conversation",
-                node_id,
-                error = %error,
-                "step skipped: the session is busy"
-            );
-            return None;
-        }
-        Some(turn_id)
+        Some(parent)
     }
 }

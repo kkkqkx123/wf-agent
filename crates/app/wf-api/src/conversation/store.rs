@@ -4,10 +4,10 @@
 //! documents waiting in its pool. Both live in the same table, keyed by
 //! document id, and are filtered by `sessionId`.
 
-use wf_execution_shared::conversation_tree::{self, adopt, DigestIndex};
+use wf_execution_shared::conversation_tree::{self, adopt, DigestIndex, TreeEditor};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::conversation_tree::ConversationTreeStorageAdapter;
-use wf_types::{ConversationTree, TreeKind};
+use wf_types::{ConversationTree, ReplyState, TreeKind};
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
@@ -47,19 +47,68 @@ pub async fn load_existing(
     ctx: &ApiContext,
     session_id: &str,
 ) -> ApiResult<Option<ConversationTree>> {
-    let tree = ctx
+    let mut tree = ctx
         .storage
         .conversation_tree
         .load_session_tree(session_id)
         .await
         .map_err(ApiError::from)?;
-    if let Some(tree) = &tree {
+    if let Some(tree) = tree.as_mut() {
         // A document that fails the invariants would project into a wrong
         // context, so it is rejected instead of repaired in place.
         conversation_tree::validate_tree(tree)
             .map_err(|error| ApiError::Conflict(format!("tree of '{session_id}': {error}")))?;
+        recover_pending(ctx, tree, session_id).await?;
     }
     Ok(tree)
+}
+
+/// A `Pending` reply whose driver is gone cannot ever settle. Turning it into
+/// an interrupted answer on load keeps the stepper able to regenerate it.
+async fn recover_pending(
+    ctx: &ApiContext,
+    tree: &mut ConversationTree,
+    session_id: &str,
+) -> ApiResult<()> {
+    let pending: Vec<String> = tree
+        .nodes
+        .values()
+        .filter(|node| {
+            node.reply
+                .as_ref()
+                .is_some_and(|reply| reply.state == ReplyState::Pending)
+        })
+        .map(|node| node.id.clone())
+        .collect();
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let driver_node = super::runtime::runtime_for(session_id)
+        .inflight()
+        .map(|inflight| inflight.node_id);
+    if pending.iter().all(|id| Some(id.as_str()) == driver_node.as_deref()) {
+        return Ok(());
+    }
+    let now = wf_common::now();
+    let mut digests = conversation_tree::build(tree);
+    {
+        let mut editor = TreeEditor::new(tree, &mut digests, now);
+        for id in &pending {
+            if Some(id.as_str()) == driver_node.as_deref() {
+                continue;
+            }
+            if tree_node_is_pending(editor.tree(), id) {
+                let _ = editor.set_reply_state(id, ReplyState::Interrupted);
+            }
+        }
+    }
+    save_tree(ctx, tree).await
+}
+
+fn tree_node_is_pending(tree: &ConversationTree, id: &str) -> bool {
+    tree.node(id)
+        .and_then(|node| node.reply.as_ref())
+        .is_some_and(|reply| reply.state == ReplyState::Pending)
 }
 
 /// Load a tree and fail when it does not exist.
@@ -216,6 +265,31 @@ pub async fn touch_session_status(
 /// it claims to summarise, and every staleness decision would inherit the lie.
 pub fn digests(tree: &ConversationTree) -> DigestIndex {
     conversation_tree::build(tree)
+}
+
+/// Remove a consumed graft from its source session's pool.
+///
+/// Cross-session grafting moves the document into the target tree, so the
+/// source tree must drop its index entry without touching the moved nodes.
+pub async fn remove_pool_entry(
+    ctx: &ApiContext,
+    session_id: &str,
+    graft_id: &str,
+) -> ApiResult<()> {
+    let runtime = super::runtime::runtime_for(session_id);
+    let _guard = runtime.write().await;
+    let mut tree = match load_existing(ctx, session_id).await? {
+        Some(tree) => tree,
+        None => return Ok(()),
+    };
+    let before = tree.pool.len();
+    tree.pool.retain(|entry| entry.graft_id != graft_id);
+    if tree.pool.len() == before {
+        return Ok(());
+    }
+    tree.version += 1;
+    tree.updated_at = wf_common::now();
+    save_tree(ctx, &tree).await
 }
 
 /// Delete the session's tree documents: the session tree and every pooled

@@ -1,14 +1,16 @@
 //! Session tree browser: a read-only navigable tree of one session.
 //!
-//! The trunk is linear (conversation messages oldest-first with checkpoint
-//! section markers interleaved by timestamp), which is all the server model
-//! offers: message-level branches do not exist, so there is no pi-style leaf
-//! pointer to move. Checkpoint headers own foldable sections; the nearest
-//! checkpoint at-or-before each node is recorded so phase 2 can branch from
-//! any selected node via checkpoint restore into a new tab.
+//! Legacy sessions expose a linear trunk: conversation messages oldest-first
+//! with checkpoint section markers interleaved by timestamp. Tree sessions
+//! additionally carry parent edges and an active leaf, so the same browser can
+//! show a real branch tree. Checkpoint headers own foldable sections on the
+//! linear view; the nearest checkpoint at-or-before each node is recorded for
+//! checkpoint-based branching in legacy sessions.
 //!
 //! All assembly, filtering, searching, folding and selection-keep rules are
 //! pure functions over plain data so they unit-test without a client.
+
+use std::collections::BTreeMap;
 
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
@@ -471,6 +473,67 @@ pub enum RestoreScope {
     Workspace,
     /// Restore both state and workspace files.
     Both,
+}
+
+/// Read-only assembly of a persisted conversation tree.
+///
+/// One row per node, depth-first in sibling order. The active leaf gets a
+/// leading `*`; the remaining formatting rules match the linear view so the
+/// draw layer needs no second renderer.
+pub fn assemble_conversation_tree(
+    tree: &wf_types::ConversationTree,
+    messages: &BTreeMap<String, Message>,
+    active_leaf: Option<&str>,
+) -> AssembledTree {
+    let mut nodes = Vec::new();
+    let mut stack = vec![tree.root.clone()];
+    while let Some(parent) = stack.pop() {
+        let children = tree.children(&parent);
+        for child in children.iter().rev() {
+            stack.push(child.id.clone());
+        }
+        for child in children {
+            let user = messages.get(&child.user.id);
+            let text = user
+                .map(|message| message.text_content().to_string())
+                .unwrap_or_else(|| child.user.id.clone());
+            let mut row = TreeNode {
+                id: child.id.clone(),
+                kind: TreeNodeKind::User,
+                text: String::new(),
+                full_text: text.clone(),
+                timestamp: child.created_at,
+                checkpoint_id: None,
+                tool_name: None,
+                success: None,
+            };
+            let marker = if active_leaf == Some(child.id.as_str()) {
+                "* "
+            } else {
+                ""
+            };
+            row.text = format!("{marker}{}", summarize(&text, SESSION_TREE_ROW_CHARS));
+            if nodes.len() < SESSION_TREE_NODE_CAP {
+                nodes.push(row);
+            }
+        }
+    }
+    let total_messages = tree.nodes.len();
+    let truncated = total_messages > nodes.len();
+    AssembledTree {
+        nodes,
+        truncated,
+        total_messages,
+    }
+}
+
+fn summarize(text: &str, limit: usize) -> String {
+    let flat = text.replace('\n', " ");
+    if flat.chars().count() <= limit {
+        return flat;
+    }
+    let head: String = flat.chars().take(limit.saturating_sub(1)).collect();
+    format!("{head}…")
 }
 
 mod view;

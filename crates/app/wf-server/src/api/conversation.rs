@@ -12,6 +12,7 @@ use axum::{Json, Router};
 use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use utoipa::ToSchema;
 use std::convert::Infallible;
 
 use wf_types::events::{BaseEvent, EventType};
@@ -37,6 +38,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_cancel_turn),
         )
         .route("/chat/sessions/{id}/step", post(handle_step))
+        .route(
+            "/chat/sessions/{id}/step/{job_id}/cancel",
+            post(handle_cancel_step),
+        )
         .route("/chat/sessions/{id}/leaf", post(handle_set_leaf))
         .route("/chat/sessions/{id}/detach", post(handle_detach))
         .route("/chat/sessions/{id}/attach", post(handle_attach))
@@ -112,19 +117,20 @@ struct StreamQuery {
     since: Option<i64>,
 }
 
-#[derive(Deserialize)]
-struct CreateBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct CreateBody {
     #[serde(default)]
     profile_id: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct TurnBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct TurnBody {
     #[serde(default)]
     profile_id: Option<String>,
     #[serde(default)]
     message: String,
     #[serde(default)]
+    #[schema(value_type = Option<Vec<serde_json::Value>>)]
     images: Option<Vec<wf_types::message::UserImageInput>>,
     /// Parent node. Absent appends under the active leaf.
     #[serde(default)]
@@ -133,8 +139,8 @@ struct TurnBody {
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct StepBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct StepBody {
     #[serde(default)]
     leaf: Option<String>,
     /// `single` (default) or `forward`.
@@ -148,17 +154,29 @@ struct StepBody {
     profile_id: Option<String>,
     #[serde(default)]
     if_version: Option<u64>,
+    /// Regenerate this node instead of the first stale node on the path.
+    #[serde(default)]
+    node_id: Option<String>,
+    /// `keep_human` (default) refuses to overwrite human-written bodies.
+    #[serde(default)]
+    policy: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct LeafBody {
+struct StepJobPath {
+    id: String,
+    job_id: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LeafBody {
     node_id: String,
     #[serde(default)]
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct InsertBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct InsertBody {
     text: String,
     /// Insert a premise instead of a turn.
     #[serde(default)]
@@ -169,34 +187,35 @@ struct InsertBody {
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct ReparentBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct ReparentBody {
     new_parent: String,
     #[serde(default)]
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct ContentBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct ContentBody {
     text: String,
     #[serde(default)]
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct DetachBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct DetachBody {
     node_id: String,
     /// Copy the ancestors into the graft so the subtree keeps its freshness.
+    /// Absent means carried, matching the default freshness-preserving mode.
     #[serde(default)]
-    carry_prefix: bool,
+    carry_prefix: Option<bool>,
     #[serde(default)]
     label: Option<String>,
     #[serde(default)]
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct AttachBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct AttachBody {
     graft_id: String,
     parent: String,
     /// Predecessor to replace. Absent links the subtree as a new child.
@@ -206,8 +225,8 @@ struct AttachBody {
     if_version: Option<u64>,
 }
 
-#[derive(Deserialize)]
-struct VersionBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct VersionBody {
     #[serde(default)]
     if_version: Option<u64>,
 }
@@ -219,6 +238,14 @@ fn surgery(session_id: &str, if_version: Option<u64>) -> wf_api::conversation::S
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions",
+    tag = "chat",
+    request_body = CreateBody,
+    responses((status = 200, description = "Session created", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_create_session(
     State(state): State<ApiState>,
     Json(body): Json<CreateBody>,
@@ -234,6 +261,13 @@ async fn handle_create_session(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/chat/sessions/{id}",
+    tag = "chat",
+    responses((status = 200, description = "Tree snapshot", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_snapshot(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -245,6 +279,13 @@ async fn handle_snapshot(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/chat/sessions/{id}/path",
+    tag = "chat",
+    responses((status = 200, description = "Projected path", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_path(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -256,6 +297,13 @@ async fn handle_path(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/chat/sessions/{id}/dirty",
+    tag = "chat",
+    responses((status = 200, description = "Stale answers of one path", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_dirty(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -267,6 +315,13 @@ async fn handle_dirty(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/chat/sessions/{id}/grafts",
+    tag = "chat",
+    responses((status = 200, description = "Graft pool", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_grafts(State(state): State<ApiState>, Path(path): Path<SessionPath>) -> Response {
     match wf_api::conversation::list_grafts(&state.ctx, &path.id).await {
         Ok(grafts) => ok(grafts).into_response(),
@@ -274,6 +329,14 @@ async fn handle_grafts(State(state): State<ApiState>, Path(path): Path<SessionPa
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/turns",
+    tag = "chat",
+    request_body = TurnBody,
+    responses((status = 202, description = "Turn accepted", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_submit_turn(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -298,12 +361,27 @@ async fn handle_submit_turn(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/turns/{turn_id}/cancel",
+    tag = "chat",
+    responses((status = 200, description = "Cancellation result", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_cancel_turn(State(state): State<ApiState>, Path(path): Path<TurnPath>) -> Response {
     let cancelled = wf_api::conversation::cancel_turn(&path.id, Some(&path.turn_id)).await;
     let _ = &state;
     ok(json!({ "cancelled": cancelled })).into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/step",
+    tag = "chat",
+    request_body = StepBody,
+    responses((status = 202, description = "Stepping job accepted", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_step(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -326,6 +404,8 @@ async fn handle_step(
         max_steps: body.max_steps.unwrap_or(0),
         profile_id: body.profile_id,
         if_version: body.if_version,
+        node_id: body.node_id,
+        policy: body.policy,
     };
     match wf_api::conversation::start_step(state.ctx.clone(), request).await {
         Ok(handle) => (axum::http::StatusCode::ACCEPTED, ok(handle)).into_response(),
@@ -333,6 +413,30 @@ async fn handle_step(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/step/{job_id}/cancel",
+    tag = "chat",
+    responses((status = 200, description = "Cancellation result", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
+async fn handle_cancel_step(
+    State(state): State<ApiState>,
+    Path(path): Path<StepJobPath>,
+) -> Response {
+    let cancelled = wf_api::conversation::cancel_turn(&path.id, Some(&path.job_id)).await;
+    let _ = &state;
+    ok(json!({ "cancelled": cancelled })).into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/leaf",
+    tag = "chat",
+    request_body = LeafBody,
+    responses((status = 200, description = "New tree version", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_set_leaf(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -350,6 +454,14 @@ async fn handle_set_leaf(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/insert-before",
+    tag = "chat",
+    request_body = InsertBody,
+    responses((status = 202, description = "Predecessor inserted", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_insert_before(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -373,6 +485,14 @@ async fn handle_insert_before(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/splice",
+    tag = "chat",
+    request_body = VersionBody,
+    responses((status = 200, description = "Predecessor removed", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_splice(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -390,6 +510,14 @@ async fn handle_splice(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reparent",
+    tag = "chat",
+    request_body = ReparentBody,
+    responses((status = 200, description = "Subtree moved", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_reparent(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -408,6 +536,14 @@ async fn handle_reparent(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/content",
+    tag = "chat",
+    request_body = ContentBody,
+    responses((status = 202, description = "User message replaced", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_write_content(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -426,6 +562,14 @@ async fn handle_write_content(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/edit",
+    tag = "chat",
+    request_body = ContentBody,
+    responses((status = 202, description = "Sibling branch created", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_edit_branch(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -444,6 +588,14 @@ async fn handle_edit_branch(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply",
+    tag = "chat",
+    request_body = ContentBody,
+    responses((status = 200, description = "Reply rewritten", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_write_reply(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -462,6 +614,14 @@ async fn handle_write_reply(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/discard",
+    tag = "chat",
+    request_body = VersionBody,
+    responses((status = 200, description = "Reply discarded", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_discard_reply(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -479,6 +639,14 @@ async fn handle_discard_reply(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/restore",
+    tag = "chat",
+    request_body = VersionBody,
+    responses((status = 200, description = "Reply restored", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_restore_reply(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -496,6 +664,14 @@ async fn handle_restore_reply(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/acknowledge",
+    tag = "chat",
+    request_body = VersionBody,
+    responses((status = 200, description = "Staleness acknowledged", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_acknowledge(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -513,6 +689,14 @@ async fn handle_acknowledge(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/detach",
+    tag = "chat",
+    request_body = DetachBody,
+    responses((status = 201, description = "Subtree detached", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_detach(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -522,7 +706,7 @@ async fn handle_detach(
         &state.ctx,
         surgery(&path.id, body.if_version),
         &body.node_id,
-        body.carry_prefix,
+        body.carry_prefix.unwrap_or(true),
         body.label,
     )
     .await
@@ -532,6 +716,14 @@ async fn handle_detach(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/attach",
+    tag = "chat",
+    request_body = AttachBody,
+    responses((status = 200, description = "Subtree attached", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_attach(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -551,6 +743,13 @@ async fn handle_attach(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/chat/sessions/{id}/nodes/{node_id}",
+    tag = "chat",
+    responses((status = 200, description = "Subtree soft-deleted", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_delete_node(
     State(state): State<ApiState>,
     Path(path): Path<NodePath>,
@@ -574,6 +773,13 @@ struct VersionQuery {
     if_version: Option<u64>,
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/chat/sessions/{id}",
+    tag = "chat",
+    responses((status = 200, description = "Session deleted", body = serde_json::Value)),
+    security(("api_key" = []))
+)]
 async fn handle_delete_session(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -584,6 +790,13 @@ async fn handle_delete_session(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/chat/sessions/{id}/stream",
+    tag = "chat",
+    responses((status = 200, description = "Session event stream", content_type = "text/event-stream")),
+    security(("api_key" = []))
+)]
 async fn handle_stream(
     State(state): State<ApiState>,
     Path(path): Path<SessionPath>,
@@ -646,13 +859,11 @@ fn frame_of(event: &BaseEvent) -> (&'static str, String) {
         EventType::ConversationTreeChanged => "tree.changed",
         EventType::ConversationDirtyChanged => "dirty.changed",
         EventType::ConversationStepStarted => "step.started",
-        EventType::ConversationStepCompleted => {
-            if reason == "step" {
-                "step.progress"
-            } else {
-                "step.completed"
-            }
-        }
+        EventType::ConversationStepCompleted => match reason {
+            "step" => "step.progress",
+            "completed" | "done" => "step.completed",
+            _ => "step.stopped",
+        },
         _ => "session.event",
     };
     let payload = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());

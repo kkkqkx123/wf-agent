@@ -12,9 +12,8 @@
 //! version without re-folding, or move a node without marking what it broke.
 
 use wf_types::{
-    ConversationNode, ConversationTree, GraftOrigin, MessageRef, NodeId, NodeKind, OpRecord,
-    ParamsFingerprint, PoolEntry, Reply, ReplyOrigin, ReplyState, TreeKind,
-    CONVERSATION_MAX_OP_RECORDS, CONVERSATION_ROOT,
+    ConversationNode, ConversationTree, GraftOrigin, MessageRef, NodeId, OpRecord,
+    ParamsFingerprint, PoolEntry, Reply, ReplyOrigin, ReplyState, CONVERSATION_MAX_OP_RECORDS,
 };
 
 use super::digest::{self, DigestIndex};
@@ -175,7 +174,7 @@ impl<'a> TreeEditor<'a> {
 
     /// Move a subtree under another parent inside the same tree.
     pub fn reparent(&mut self, node: &str, new_parent: &str) -> Result<SurgeryOutcome, TreeError> {
-        if self.tree.node(new_parent).is_none() {
+        if new_parent != self.tree.root && self.tree.node(new_parent).is_none() {
             return Err(TreeError::MissingNode(new_parent.to_string()));
         }
         if invariants::would_cycle(self.tree, node, new_parent) {
@@ -233,6 +232,7 @@ impl<'a> TreeEditor<'a> {
                 prefix = chain
                     .iter()
                     .take(chain.len().saturating_sub(1))
+                    .filter(|ancestor| !ancestor.is_deleted())
                     .map(|ancestor| digest::segment_from_node(ancestor))
                     .collect();
             }
@@ -310,7 +310,7 @@ impl<'a> TreeEditor<'a> {
         mode: AttachMode,
         replace: Option<&str>,
     ) -> Result<AttachOutcome, TreeError> {
-        if self.tree.node(new_parent).is_none() {
+        if new_parent != self.tree.root && self.tree.node(new_parent).is_none() {
             return Err(TreeError::MissingNode(new_parent.to_string()));
         }
 
@@ -490,9 +490,7 @@ impl<'a> TreeEditor<'a> {
         let previous = target.reply.take();
         let mut pending = Reply::pending(placeholder, params, now);
         if let Some(previous) = previous {
-            if previous.state != ReplyState::Superseded {
-                pending.superseded.push(previous.message);
-            }
+            pending.superseded.push(previous.message);
             pending.superseded.extend(previous.superseded);
         }
         target.reply = Some(pending);
@@ -512,12 +510,11 @@ impl<'a> TreeEditor<'a> {
         trace: Vec<MessageRef>,
         state: ReplyState,
         params: Option<ParamsFingerprint>,
+        based_on: &str,
     ) -> Result<SurgeryOutcome, TreeError> {
-        let base = self
-            .digests
-            .base(node)
-            .map(str::to_string)
-            .ok_or_else(|| TreeError::MissingNode(node.to_string()))?;
+        if self.digests.base(node).is_none() {
+            return Err(TreeError::MissingNode(node.to_string()));
+        }
         let version = self.tree.version + 1;
         let now = self.now;
 
@@ -532,7 +529,7 @@ impl<'a> TreeEditor<'a> {
         reply.trace = trace;
         reply.state = state;
         reply.origin = ReplyOrigin::Model;
-        reply.based_on = base;
+        reply.based_on = based_on.to_string();
         reply.based_on_version = version;
         reply.generated_at = now;
         if params.is_some() {
@@ -737,20 +734,6 @@ pub fn graft_index(graft: &ConversationTree) -> DigestIndex {
     digest::build_with_seed(graft, seed)
 }
 
-/// Node id of a tree's root, re-exported so callers do not hard-code it.
-pub fn root_id() -> &'static str {
-    CONVERSATION_ROOT
-}
-
-/// `true` when the node can carry an answer at all.
-pub fn can_answer(node: &ConversationNode) -> bool {
-    node.kind == NodeKind::Turn && !node.is_deleted()
-}
-
-/// `true` when the tree is a detached subtree rather than a session tree.
-pub fn is_graft(tree: &ConversationTree) -> bool {
-    tree.kind == TreeKind::Graft
-}
 
 #[cfg(test)]
 mod tests {
@@ -944,7 +927,14 @@ mod tests {
         assert_eq!(reply.superseded.len(), 1);
 
         TreeEditor::new(&mut tree, &mut index, 1)
-            .finish_reply("n1", reference("a1-v2"), Vec::new(), ReplyState::Kept, None)
+            .finish_reply(
+                "n1",
+                reference("a1-v2"),
+                Vec::new(),
+                ReplyState::Kept,
+                None,
+                "base-at-generation",
+            )
             .expect("finish");
         let reply = tree
             .node("n1")
@@ -953,7 +943,7 @@ mod tests {
             .as_ref()
             .expect("reply");
         assert_eq!(reply.state, ReplyState::Kept);
-        assert_eq!(reply.based_on, index.base("n1").expect("base"));
+        assert_eq!(reply.based_on, "base-at-generation");
         let _ = build(&tree);
     }
 }

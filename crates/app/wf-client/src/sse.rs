@@ -175,6 +175,14 @@ pub mod endpoints {
     /// `POST /api/v1/chat/stream`
     pub const CHAT_STREAM: &str = "/api/v1/chat/stream";
 
+    /// `POST /api/v1/chat/sessions`
+    pub const CHAT_SESSIONS: &str = "/api/v1/chat/sessions";
+
+    /// `GET /api/v1/chat/sessions/{id}/stream`
+    pub fn chat_session_stream(id: &str) -> String {
+        format!("/api/v1/chat/sessions/{id}/stream")
+    }
+
     /// `GET /api/v1/events/stream`
     pub const EVENTS_STREAM: &str = "/api/v1/events/stream";
 
@@ -329,6 +337,11 @@ mod tests {
         );
         assert_eq!(endpoints::EVENTS_STREAM, "/api/v1/events/stream");
         assert_eq!(endpoints::CHAT_STREAM, "/api/v1/chat/stream");
+        assert_eq!(endpoints::CHAT_SESSIONS, "/api/v1/chat/sessions");
+        assert_eq!(
+            endpoints::chat_session_stream("s1"),
+            "/api/v1/chat/sessions/s1/stream"
+        );
     }
 
     #[test]
@@ -399,6 +412,7 @@ mod tests {
         table.insert(endpoints::agent_loop_attach("w1", None));
         table.insert(endpoints::LLM_GENERATE_STREAM.to_string());
         table.insert(endpoints::CHAT_STREAM.to_string());
+        table.insert(endpoints::chat_session_stream("w1"));
         table.insert(endpoints::EVENTS_STREAM.to_string());
         table.insert(endpoints::error_chain_stream("e1").replace("e1", "w1"));
         // Normalize templated ids in the snapshot the same way the table

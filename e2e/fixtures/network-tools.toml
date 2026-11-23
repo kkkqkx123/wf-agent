@@ -1,0 +1,15 @@
+# E2E-only network configuration copied into the isolated workspace when
+# --tier=network is selected. The proxy is route-only; credentials, when
+# needed, come from the host credential store.
+[network.web_search]
+mode = "all"
+timeout_ms = 20000
+default_backends = ["duckduckgo"]
+
+[[network.web_search.backends]]
+id = "duckduckgo"
+kind = "duckduckgo_html"
+enabled = true
+timeout_ms = 20000
+endpoint = "https://html.duckduckgo.com/html/"
+proxy = { url = "http://127.0.0.1:7890", no_proxy = ["localhost", "127.0.0.1"] }

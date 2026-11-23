@@ -1,0 +1,31 @@
+{
+  "query": "Rust async programming",
+  "endpoint": "https://html.duckduckgo.com/html/",
+  "results": [
+    {
+      "title": "Introduction - Asynchronous Programming in Rust",
+      "url": "https://rust-lang.github.io/async-book/",
+      "snippet": "In particular, async programming in Rust has a powerful concept of cancellation and supports many different flavours of concurrency (expressed using constructs including spawn and its variations, join, select, for_each_concurrent, etc.)."
+    },
+    {
+      "title": "Fundamentals of Asynchronous Programming: Async, Await ... - Learn Rust",
+      "url": "https://doc.rust-lang.org/book/ch17-00-async-await.html",
+      "snippet": "That is exactly what Rust's async (short for asynchronous) abstraction gives us. In this chapter, you'll learn all about async as we cover the following topics: How to use Rust's async and await syntax and execute asynchronous functions with a runtime How to use the async model to solve some of the same challenges we looked at in Chapter 16"
+    },
+    {
+      "title": "Introduction - Asynchronous Programming in Rust",
+      "url": "https://rust-lang.github.io/async-book/part-guide/intro.html",
+      "snippet": "Asynchronous Programming in Rust Part 1: A guide to asynchronous programming in Rust This part of the book is a tutorial-style guide to async Rust. It is aimed at newcomers to async programming in Rust. It should be useful whether or not you've done async programming in other languages."
+    },
+    {
+      "title": "Applying Concurrency with Async - The Rust Programming Language",
+      "url": "https://doc.rust-lang.org/stable/book/ch17-02-concurrency-with-async.html",
+      "snippet": "With async Rust, the runtime decides which task to check. (In practice, the details get complicated because an async runtime might use operating system threads under the hood as part of how it manages concurrency, so guaranteeing fairness can be more work for a runtime—but it's still possible!)"
+    },
+    {
+      "title": "Introduction - Async Rust: From Futures to Production",
+      "url": "https://microsoft.github.io/RustTraining/async-book/",
+      "snippet": "A deep-dive guide to asynchronous programming in Rust. Unlike most async tutorials that start with tokio::main and hand-wave the internals, this guide builds understanding from first principles — the Future trait, polling, state machines — then progresses to real-world patterns, runtime selection, and production pitfalls."
+    }
+  ]
+}

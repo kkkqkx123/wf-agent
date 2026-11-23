@@ -15,5 +15,7 @@
 | `workflow-loop.json` | 计数循环流程定义，循环体按次数运行 | 节点执行分组专用输入，不依赖外部大模型 |
 | `workflow-visibility.json` | 工具屏蔽与上下文变换串联流程定义 | 节点执行分组专用输入，不依赖外部大模型 |
 | `prompt-smoke.txt` | 手工真模型会话提示词 | 仅手工运行，不进入默认门禁 |
+| `network-web-search.params.json` | web_search 调用参数（真实查询与结果上限） | `--tier=network` 显式联网用例 |
+| `network-tools.toml` | web_search 后端配置，走 127.0.0.1:7890 代理 | `--tier=network` 启动前复制到工作区 `.wf/infrastructure/tools.toml` |
 
 固件遵循最小可用原则：管理链路只用最小流程，避免与脚本注册表耦合；执行层单独使用脚本流程，环境不支持时明确跳过。新增用例需要新输入时，在此目录新增具名文件并在此表登记，不复用已有文件的副作用。

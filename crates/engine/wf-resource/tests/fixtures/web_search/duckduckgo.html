@@ -1,0 +1,626 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<!--[if IE 6]><html class="ie6" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if IE 7]><html class="lt-ie8 lt-ie9" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if IE 8]><html class="lt-ie9" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if gt IE 8]><!--><html xmlns="http://www.w3.org/1999/xhtml"><!--<![endif]-->
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=1" />
+  <meta name="referrer" content="origin" />
+  <meta name="HandheldFriendly" content="true" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Rust async programming at DuckDuckGo</title>
+  <link title="DuckDuckGo (HTML)" type="application/opensearchdescription+xml" rel="search" href="//duckduckgo.com/opensearch_html_v2.xml" />
+  <link href="//duckduckgo.com/favicon.ico" rel="shortcut icon" />
+  <link rel="icon" href="//duckduckgo.com/favicon.ico" type="image/x-icon" />
+  <link id="icon60" rel="apple-touch-icon" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_60x60.png?v=2"/>
+  <link id="icon76" rel="apple-touch-icon" sizes="76x76" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_76x76.png?v=2"/>
+  <link id="icon120" rel="apple-touch-icon" sizes="120x120" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_120x120.png?v=2"/>
+  <link id="icon152" rel="apple-touch-icon" sizes="152x152" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_152x152.png?v=2"/>
+  <link rel="image_src" href="//duckduckgo.com/assets/icons/meta/DDG-icon_256x256.png">
+  <link rel="stylesheet" media="handheld, all" href="//duckduckgo.com/dist/h.5e485425356583f3072f.css" type="text/css"/>
+</head>
+
+<body class="body--html">
+  <a name="top" id="top"></a>
+
+  <form action="/html/" method="post">
+    <input type="text" name="state_hidden" id="state_hidden" />
+  </form>
+
+  <div>
+    <div class="site-wrapper-border"></div>
+
+    <div id="header" class="header cw header--html">
+      <a title="DuckDuckGo" href="/html/" class="header__logo-wrap"></a>
+
+      <form name="x" class="header__form" action="/html/" method="post">
+        <div class="search search--header">
+          <input name="q" autocomplete="off" class="search__input" id="search_form_input_homepage" type="text" value="Rust async programming" />
+          <input name="b" id="search_button_homepage" class="search__button search__button--html" value="" title="Search" alt="Search" type="submit" />
+        </div>
+
+        
+        
+        
+        
+
+        <div class="frm__select">
+          <select name="kl">
+            
+              <option value="" >All Regions</option>
+            
+              <option value="ar-es" >Argentina</option>
+            
+              <option value="au-en" >Australia</option>
+            
+              <option value="at-de" >Austria</option>
+            
+              <option value="be-fr" >Belgium (fr)</option>
+            
+              <option value="be-nl" >Belgium (nl)</option>
+            
+              <option value="br-pt" >Brazil</option>
+            
+              <option value="bg-bg" >Bulgaria</option>
+            
+              <option value="ca-en" >Canada (en)</option>
+            
+              <option value="ca-fr" >Canada (fr)</option>
+            
+              <option value="ct-ca" >Catalonia</option>
+            
+              <option value="cl-es" >Chile</option>
+            
+              <option value="cn-zh" >China</option>
+            
+              <option value="co-es" >Colombia</option>
+            
+              <option value="hr-hr" >Croatia</option>
+            
+              <option value="cz-cs" >Czech Republic</option>
+            
+              <option value="dk-da" >Denmark</option>
+            
+              <option value="ee-et" >Estonia</option>
+            
+              <option value="fi-fi" >Finland</option>
+            
+              <option value="fr-fr" >France</option>
+            
+              <option value="de-de" >Germany</option>
+            
+              <option value="gr-el" >Greece</option>
+            
+              <option value="hk-tzh" >Hong Kong</option>
+            
+              <option value="hu-hu" >Hungary</option>
+            
+              <option value="is-is" >Iceland</option>
+            
+              <option value="in-en" >India (en)</option>
+            
+              <option value="id-en" >Indonesia (en)</option>
+            
+              <option value="ie-en" >Ireland</option>
+            
+              <option value="il-en" >Israel (en)</option>
+            
+              <option value="it-it" >Italy</option>
+            
+              <option value="jp-jp" >Japan</option>
+            
+              <option value="kr-kr" >Korea</option>
+            
+              <option value="lv-lv" >Latvia</option>
+            
+              <option value="lt-lt" >Lithuania</option>
+            
+              <option value="my-en" >Malaysia (en)</option>
+            
+              <option value="mx-es" >Mexico</option>
+            
+              <option value="nl-nl" >Netherlands</option>
+            
+              <option value="nz-en" >New Zealand</option>
+            
+              <option value="no-no" >Norway</option>
+            
+              <option value="pk-en" >Pakistan (en)</option>
+            
+              <option value="pe-es" >Peru</option>
+            
+              <option value="ph-en" >Philippines (en)</option>
+            
+              <option value="pl-pl" >Poland</option>
+            
+              <option value="pt-pt" >Portugal</option>
+            
+              <option value="ro-ro" >Romania</option>
+            
+              <option value="ru-ru" >Russia</option>
+            
+              <option value="xa-ar" >Saudi Arabia</option>
+            
+              <option value="sg-en" >Singapore</option>
+            
+              <option value="sk-sk" >Slovakia</option>
+            
+              <option value="sl-sl" >Slovenia</option>
+            
+              <option value="za-en" >South Africa</option>
+            
+              <option value="es-ca" >Spain (ca)</option>
+            
+              <option value="es-es" >Spain (es)</option>
+            
+              <option value="se-sv" >Sweden</option>
+            
+              <option value="ch-de" >Switzerland (de)</option>
+            
+              <option value="ch-fr" >Switzerland (fr)</option>
+            
+              <option value="tw-tzh" >Taiwan</option>
+            
+              <option value="th-en" >Thailand (en)</option>
+            
+              <option value="tr-tr" >Turkey</option>
+            
+              <option value="us-en" >US (English)</option>
+            
+              <option value="us-es" >US (Spanish)</option>
+            
+              <option value="ua-uk" >Ukraine</option>
+            
+              <option value="uk-en" >United Kingdom</option>
+            
+              <option value="vn-en" >Vietnam (en)</option>
+            
+          </select>
+        </div>
+
+        <div class="frm__select frm__select--last">
+          <select class="" name="df">
+            
+              <option value="" selected>Any Time</option>
+            
+              <option value="d" >Past Day</option>
+            
+              <option value="w" >Past Week</option>
+            
+              <option value="m" >Past Month</option>
+            
+              <option value="y" >Past Year</option>
+            
+          </select>
+        </div>
+      </form>
+    </div>
+
+    
+
+    
+      <!-- Web results are present -->
+      <div>
+        <div class="serp__results">
+          <div id="links" class="results">
+            
+
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2F&amp;rut=e6e707c96e638ec61a655311860b99a68680a132342f11712f60a3a843b00ce2">Introduction - Asynchronous Programming in Rust</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2F&amp;rut=e6e707c96e638ec61a655311860b99a68680a132342f11712f60a3a843b00ce2">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/rust-lang.github.io.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2F&amp;rut=e6e707c96e638ec61a655311860b99a68680a132342f11712f60a3a843b00ce2">
+                            rust-lang.github.io/async-book/
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2F&amp;rut=e6e707c96e638ec61a655311860b99a68680a132342f11712f60a3a843b00ce2">In particular, <b>async</b> <b>programming</b> in <b>Rust</b> has a powerful concept of cancellation and supports many different flavours of concurrency (expressed using constructs including spawn and its variations, join, select, for_each_concurrent, etc.).</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fbook%2Fch17%2D00%2Dasync%2Dawait.html&amp;rut=3bf2c05fdc8bb1e6d04efca4c0bd8c623914b7910ba597411ae3e0de5b5a9a2c">Fundamentals of Asynchronous Programming: Async, Await ... - Learn Rust</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fbook%2Fch17%2D00%2Dasync%2Dawait.html&amp;rut=3bf2c05fdc8bb1e6d04efca4c0bd8c623914b7910ba597411ae3e0de5b5a9a2c">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/doc.rust-lang.org.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fbook%2Fch17%2D00%2Dasync%2Dawait.html&amp;rut=3bf2c05fdc8bb1e6d04efca4c0bd8c623914b7910ba597411ae3e0de5b5a9a2c">
+                            doc.rust-lang.org/book/ch17-00-async-await.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fbook%2Fch17%2D00%2Dasync%2Dawait.html&amp;rut=3bf2c05fdc8bb1e6d04efca4c0bd8c623914b7910ba597411ae3e0de5b5a9a2c">That is exactly what <b>Rust&#x27;s</b> <b>async</b> (short for asynchronous) abstraction gives us. In this chapter, you&#x27;ll learn all about <b>async</b> as we cover the following topics: How to use <b>Rust&#x27;s</b> <b>async</b> and await syntax and execute asynchronous functions with a runtime How to use the <b>async</b> model to solve some of the same challenges we looked at in Chapter 16</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2Fpart%2Dguide%2Fintro.html&amp;rut=53a212a063c9a4f34f81d17a48f4f0b748efd2fd75d2a2094a18a9c43abd9799">Introduction - Asynchronous Programming in Rust</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2Fpart%2Dguide%2Fintro.html&amp;rut=53a212a063c9a4f34f81d17a48f4f0b748efd2fd75d2a2094a18a9c43abd9799">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/rust-lang.github.io.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2Fpart%2Dguide%2Fintro.html&amp;rut=53a212a063c9a4f34f81d17a48f4f0b748efd2fd75d2a2094a18a9c43abd9799">
+                            rust-lang.github.io/async-book/part-guide/intro.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.github.io%2Fasync%2Dbook%2Fpart%2Dguide%2Fintro.html&amp;rut=53a212a063c9a4f34f81d17a48f4f0b748efd2fd75d2a2094a18a9c43abd9799">Asynchronous <b>Programming</b> in <b>Rust</b> Part 1: A guide to asynchronous <b>programming</b> in <b>Rust</b> This part of the book is a tutorial-style guide to <b>async</b> <b>Rust</b>. It is aimed at newcomers to <b>async</b> <b>programming</b> in <b>Rust</b>. It should be useful whether or not you&#x27;ve done <b>async</b> <b>programming</b> in other languages.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fstable%2Fbook%2Fch17%2D02%2Dconcurrency%2Dwith%2Dasync.html&amp;rut=8f382751641060713d4427286f2cd0e222fd45ae90a92365ad3af3dafef072f0">Applying Concurrency with Async - The Rust Programming Language</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fstable%2Fbook%2Fch17%2D02%2Dconcurrency%2Dwith%2Dasync.html&amp;rut=8f382751641060713d4427286f2cd0e222fd45ae90a92365ad3af3dafef072f0">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/doc.rust-lang.org.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fstable%2Fbook%2Fch17%2D02%2Dconcurrency%2Dwith%2Dasync.html&amp;rut=8f382751641060713d4427286f2cd0e222fd45ae90a92365ad3af3dafef072f0">
+                            doc.rust-lang.org/stable/book/ch17-02-concurrency-with-async.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdoc.rust%2Dlang.org%2Fstable%2Fbook%2Fch17%2D02%2Dconcurrency%2Dwith%2Dasync.html&amp;rut=8f382751641060713d4427286f2cd0e222fd45ae90a92365ad3af3dafef072f0">With <b>async</b> <b>Rust</b>, the runtime decides which task to check. (In practice, the details get complicated because an <b>async</b> runtime might use operating system threads under the hood as part of how it manages concurrency, so guaranteeing fairness can be more work for a runtime—but it&#x27;s still possible!)</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fmicrosoft.github.io%2FRustTraining%2Fasync%2Dbook%2F&amp;rut=97c0ef7957b4021b0564c9e25df0cb9e57fe3a532755daa18d1550b387a053d1">Introduction - Async Rust: From Futures to Production</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fmicrosoft.github.io%2FRustTraining%2Fasync%2Dbook%2F&amp;rut=97c0ef7957b4021b0564c9e25df0cb9e57fe3a532755daa18d1550b387a053d1">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/microsoft.github.io.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fmicrosoft.github.io%2FRustTraining%2Fasync%2Dbook%2F&amp;rut=97c0ef7957b4021b0564c9e25df0cb9e57fe3a532755daa18d1550b387a053d1">
+                            microsoft.github.io/RustTraining/async-book/
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fmicrosoft.github.io%2FRustTraining%2Fasync%2Dbook%2F&amp;rut=97c0ef7957b4021b0564c9e25df0cb9e57fe3a532755daa18d1550b387a053d1">A deep-dive guide to asynchronous <b>programming</b> in <b>Rust</b>. Unlike most <b>async</b> tutorials that start with tokio::main and hand-wave the internals, this guide builds understanding from first principles — the Future trait, polling, state machines — then progresses to real-world patterns, runtime selection, and production pitfalls.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flearningrust.org%2Flessons%2F23%2Dasync%2Dawait&amp;rut=7485a0f3b0706f6496a9c17da8de8abbff14e3fd7784ea9de9a1bef7a595ac83">Async/Await · Learn Rust | LearningRust.org</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flearningrust.org%2Flessons%2F23%2Dasync%2Dawait&amp;rut=7485a0f3b0706f6496a9c17da8de8abbff14e3fd7784ea9de9a1bef7a595ac83">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/learningrust.org.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flearningrust.org%2Flessons%2F23%2Dasync%2Dawait&amp;rut=7485a0f3b0706f6496a9c17da8de8abbff14e3fd7784ea9de9a1bef7a595ac83">
+                            learningrust.org/lessons/23-async-await
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flearningrust.org%2Flessons%2F23%2Dasync%2Dawait&amp;rut=7485a0f3b0706f6496a9c17da8de8abbff14e3fd7784ea9de9a1bef7a595ac83"><b>Async</b>/Await Asynchronous <b>programming</b> lets your program handle multiple tasks concurrently without blocking on slow operations like network requests, file I/O, or timers. <b>Rust&#x27;s</b> <b>async</b>/await syntax makes this feel as natural as writing sequential code while giving you full control over performance and memory. In this lesson you will learn how <b>Rust&#x27;s</b> Future trait works under the hood, how to ...</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.guide%2Fguide%2Flearn%2Dasync%2Drust%2Findex.html&amp;rut=9fffc16bb92e5f34fbd6392a41adf91527b2f9a64110efc6a3f89e4195e5193d">Learn Async Rust - Rust 101</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.guide%2Fguide%2Flearn%2Dasync%2Drust%2Findex.html&amp;rut=9fffc16bb92e5f34fbd6392a41adf91527b2f9a64110efc6a3f89e4195e5193d">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/rust-lang.guide.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.guide%2Fguide%2Flearn%2Dasync%2Drust%2Findex.html&amp;rut=9fffc16bb92e5f34fbd6392a41adf91527b2f9a64110efc6a3f89e4195e5193d">
+                            rust-lang.guide/guide/learn-async-rust/index.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Frust%2Dlang.guide%2Fguide%2Flearn%2Dasync%2Drust%2Findex.html&amp;rut=9fffc16bb92e5f34fbd6392a41adf91527b2f9a64110efc6a3f89e4195e5193d">Learn <b>Async</b> <b>Rust</b> There is no standard / official Asynchronous runtime. This in contrast to actual CPU threads which you can create from within the std library. The most popular and recommended by many <b>Async</b> Runtime is the Tokio runtime. Which brings us to the next chapter: To start with your <b>Async</b> Learning Journey you might want to start with: Getting Started - Asynchronous <b>Programming</b> in <b>Rust</b> ...</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbook.async.rs%2F&amp;rut=1d4bb580bceec6604f3857534dae643270d65e63d1cabbcc6a40e9e033af1d20">Introduction - Async programming in Rust with async-std</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbook.async.rs%2F&amp;rut=1d4bb580bceec6604f3857534dae643270d65e63d1cabbcc6a40e9e033af1d20">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/book.async.rs.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbook.async.rs%2F&amp;rut=1d4bb580bceec6604f3857534dae643270d65e63d1cabbcc6a40e9e033af1d20">
+                            book.async.rs
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbook.async.rs%2F&amp;rut=1d4bb580bceec6604f3857534dae643270d65e63d1cabbcc6a40e9e033af1d20">Introduction This book serves as high-level documentation for <b>async</b>-std and a way of learning <b>async</b> <b>programming</b> in <b>Rust</b> through it. As such, it focuses on the <b>async</b>-std API and the task model it gives you.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fartur%2Dsulej.github.io%2Frust%2Debooks%2Fasync%2Dbook.pdf&amp;rut=7046d1da9e15f068167e240553b6462ab73040805f925fa960b604290b813167"><span class="result__type">PDF</span> Asynchronous Programming in Rust - artur-sulej.github.io</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fartur%2Dsulej.github.io%2Frust%2Debooks%2Fasync%2Dbook.pdf&amp;rut=7046d1da9e15f068167e240553b6462ab73040805f925fa960b604290b813167">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/artur-sulej.github.io.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fartur%2Dsulej.github.io%2Frust%2Debooks%2Fasync%2Dbook.pdf&amp;rut=7046d1da9e15f068167e240553b6462ab73040805f925fa960b604290b813167">
+                            artur-sulej.github.io/rust-ebooks/async-book.pdf
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fartur%2Dsulej.github.io%2Frust%2Debooks%2Fasync%2Dbook.pdf&amp;rut=7046d1da9e15f068167e240553b6462ab73040805f925fa960b604290b813167">With <b>async</b> <b>programming</b>, concurrency happens entirely within your program (the operating system is not involved). An <b>async</b> runtime (which is just another crate in <b>Rust</b>) manages <b>async</b> tasks in conjunction with the programmer explicitly yielding control by using the await keyword.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rusttutorial.org%2Fasync%2Dawait%2F&amp;rut=4b73822d18a4302f0ac81a836c78c4467cf9be9f94ee772ceeacff4f551f1cb4">Rust Async/Await | Rust Tutorial</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rusttutorial.org%2Fasync%2Dawait%2F&amp;rut=4b73822d18a4302f0ac81a836c78c4467cf9be9f94ee772ceeacff4f551f1cb4">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/www.rusttutorial.org.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rusttutorial.org%2Fasync%2Dawait%2F&amp;rut=4b73822d18a4302f0ac81a836c78c4467cf9be9f94ee772ceeacff4f551f1cb4">
+                            www.rusttutorial.org/async-await/
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rusttutorial.org%2Fasync%2Dawait%2F&amp;rut=4b73822d18a4302f0ac81a836c78c4467cf9be9f94ee772ceeacff4f551f1cb4">A beginner-friendly guide to <b>async</b>/await in <b>Rust</b> with tokio — <b>async</b> fn, .await, lazy futures, join!, spawn, and when to choose <b>async</b> over threads.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+
+            
+              
+              
+                <div class="nav-link">
+                  <form action="/html/" method="post">
+                    <input type="submit" class='btn btn--alt' value="Next" />
+                    <input type="hidden" name="q" value="Rust async programming" />
+                    <input type="hidden" name="s" value="10" />
+                    <input type="hidden" name="nextParams" value="" />
+                    <input type="hidden" name="v" value="l" />
+                    <input type="hidden" name="o" value="json" />
+                    <input type="hidden" name="dc" value="11" />
+                    <input type="hidden" name="api" value="d.js" />
+                    <input type="hidden" name="vqd" value="4-264526012624851527992185226638563054450" />
+
+                    
+                    
+                    
+                      <input name="kl" value="wt-wt" type="hidden" />
+                    
+                    
+                    
+                    
+                  </form>
+                </div>
+              
+            
+
+            <div class="feedback-btn">
+              <a rel="nofollow" href="//duckduckgo.com/feedback.html" target="_new">Feedback</a>
+            </div>
+            <div class="clear"></div>
+          </div>
+        </div>
+      </div> <!-- links wrapper //-->
+    
+  </div>
+
+  <div id="bottom_spacing2"></div>
+
+  
+    <img src="//duckduckgo.com/t/sl_h"/>
+  
+</body>
+</html>

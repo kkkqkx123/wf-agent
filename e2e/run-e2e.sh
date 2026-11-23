@@ -26,7 +26,7 @@ for arg in "$@"; do
     --skip-local-execution) SKIP_LOCAL_EXECUTION=1 ;;
     --keep-running) KEEP_RUNNING=1 ;;
     --help|-h)
-      echo "usage: run-e2e.sh [--tier=default|full] [--skip-local-execution] [--keep-running]"
+      echo "usage: run-e2e.sh [--tier=default|full|network] [--skip-local-execution] [--keep-running]"
       exit 0
       ;;
     *) echo "e2e: unknown argument: $arg" >&2; exit 2 ;;
@@ -40,6 +40,12 @@ require_cmd python3
 
 mkdir -p "$ACTUAL_DIR"
 WORK_DIR="$(mktemp -d "$ACTUAL_DIR/workspace.XXXXXX")"
+SERVER_CONFIG_ARGS=()
+if [ "$TIER" = "network" ]; then
+  mkdir -p "$WORK_DIR/.wf/infrastructure"
+  cp "$FIX_DIR/network-tools.toml" "$WORK_DIR/.wf/infrastructure/tools.toml"
+  SERVER_CONFIG_ARGS=(--config "$WORK_DIR")
+fi
 SERVER_LOG="$ACTUAL_DIR/server.log"
 PORT="$(free_port)"
 REMOTE="http://127.0.0.1:$PORT"
@@ -56,7 +62,7 @@ trap cleanup EXIT
 
 section "start isolated server on $REMOTE"
 "$SERVER_BIN" --addr "127.0.0.1:$PORT" --storage memory \
-  --directory "$WORK_DIR" >"$SERVER_LOG" 2>&1 &
+  --directory "$WORK_DIR" "${SERVER_CONFIG_ARGS[@]}" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 wait_for_health "$REMOTE" 30 || { echo "e2e: server did not become ready, see $SERVER_LOG" >&2; exit 1; }
 
@@ -517,6 +523,27 @@ if [ "$TIER" = "full" ]; then
   section "manual model session (informational only)"
   echo "full tier selected, but model sessions stay manual:"
   echo "  wf-headless --remote $REMOTE --directory $WORK_DIR --output json --no-color run \"\$(cat $FIX_DIR/prompt-smoke.txt)\""
+fi
+
+if [ "$TIER" = "network" ]; then
+  section "network tool tier (live DuckDuckGo via 127.0.0.1:7890)"
+  NETWORK_PARAMS="$(cat "$FIX_DIR/network-web-search.params.json")"
+  run_case network-web-search tool execute web_search --params "$NETWORK_PARAMS"
+  if python3 - "$ACTUAL_DIR/network-web-search.stdout.json" <<'EOF'
+import json, sys
+v = json.load(open(sys.argv[1]))
+data = v.get("data") or {}
+result = data.get("result") if isinstance(data, dict) else None
+items = result.get("results") if isinstance(result, dict) else None
+raise SystemExit(0 if v.get("success") is True and isinstance(items, list) and items else 1)
+EOF
+  then
+    echo "PASS network-web-search-results"
+    PASS=$((PASS+1))
+  else
+    echo "FAIL network-web-search-results (missing non-empty results)"
+    FAIL=$((FAIL+1))
+  fi
 fi
 
 section "result: $PASS passed, $SKIP skipped, $FAIL failed"

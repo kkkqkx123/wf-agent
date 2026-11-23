@@ -87,6 +87,8 @@ web 聚合器从注册表快照读取后端，不缓存固定列表，因此插�
 
 ## 验证
 
+- 集成测试放在 `wf-resource/tests/`，使用真实 DDG 响应固件 `tests/fixtures/web_search/duckduckgo.html` 与其归一化结果 `duckduckgo.expected.json`；本地 mock server 重放固件，覆盖声明式后端请求与解析，不访问外网；
+- E2E 默认门禁保持无外部依赖；`run-e2e.sh --tier=network` 把 `e2e/fixtures/network-tools.toml` 复制到隔离工作区，用 127.0.0.1:7890 代理执行 `tool execute web_search`，只判定包络成功且结果非空，不固化易变的搜索排名；
 - DDG 解析使用迁移后的 fixture 单测；
 - 声明式后端用本地 mock HTTP server 覆盖 GET/POST、查询参数、JSON 请求体与响应映射；
 - 聚合器用 fake backend 覆盖去重、部分失败、指定后端、优先级模式和超时；

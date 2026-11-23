@@ -1,0 +1,7 @@
+{
+  "tool": "rag_search",
+  "description": "Retrieval delegates to the injected backend",
+  "tier": "stub",
+  "parameters": { "query": "storage layout" },
+  "expect": { "success": true, "result_contains": "Retrieved: storage layout" }
+}

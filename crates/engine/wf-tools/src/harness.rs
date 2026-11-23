@@ -16,7 +16,7 @@ use std::io;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use async_trait::async_trait;
 use regex::Regex;
@@ -27,11 +27,17 @@ use crate::callback::{
     AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
     LoopFinishReason, SpawnedAgentLoop, SpawnedWorkflow, WorkflowInput, WorkflowOutput,
 };
+use crate::error::ToolResult;
 use crate::executor::trait_def::ToolExecutionContext;
 use crate::filesystem::FsToolConfig;
 use crate::general::GeneralToolInvoker;
 use crate::handlers::{register_builtin_handlers, BuiltinHandlersConfig};
 use crate::predefined;
+use crate::predefined::rag::{RagHit, RagSearchBackend, RagSearchQuery};
+use crate::predefined::web::{
+    SearchBackend, WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse,
+    WebSearchResult,
+};
 use crate::registry::ToolRegistry;
 use crate::skill::SkillLoader;
 use wf_shell::config::ShellToolConfig;
@@ -627,6 +633,106 @@ pub fn mock_http_base() -> &'static str {
 /// snippet) so `web_search`'s parser produces stable output.
 const MOCK_SEARCH_HTML: &str = "<html><body>\n<a class=\"result__a\" href=\"//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Frust-async\">Rust Async Programming</a>\n<div class=\"result__snippet\">Learn async Rust from the book.</div>\n</body></html>\n";
 
+/// Test-only retrieval backend returning deterministic hits.
+struct HarnessRagBackend;
+
+#[async_trait]
+impl RagSearchBackend for HarnessRagBackend {
+    async fn search(&self, query: RagSearchQuery) -> ToolResult<Vec<RagHit>> {
+        Ok(vec![RagHit {
+            chunk_id: "doc#0".into(),
+            document_id: "doc".into(),
+            source: "fixture".into(),
+            content: format!("Retrieved: {}", query.query),
+            score: 0.9,
+        }])
+    }
+}
+
+/// Test-only search backend serving the fixture HTML through the mock server.
+/// Production backends live in the resource layer; the harness stays
+/// independent of that crate.
+struct HarnessSearchBackend {
+    endpoint: String,
+    client: reqwest::Client,
+}
+
+impl HarnessSearchBackend {
+    fn new(endpoint: String) -> ToolResult<Self> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(TIMEOUT_MS))
+            .build()
+            .map_err(|e| crate::error::ToolError::ExecutionError(e.to_string()))?;
+        Ok(Self { endpoint, client })
+    }
+}
+
+impl SearchBackend for HarnessSearchBackend {
+    fn id(&self) -> &str {
+        "harness"
+    }
+
+    fn kind(&self) -> &str {
+        "harness-mock"
+    }
+}
+
+#[async_trait]
+impl WebSearchBackend for HarnessSearchBackend {
+    async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError> {
+        let url = reqwest::Url::parse_with_params(&self.endpoint, &[("q", query.query.as_str())])
+            .map_err(|e| WebSearchError::Backend(self.id().into(), e.to_string()))?;
+        let html = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .and_then(|response| response.error_for_status())
+            .map_err(|e| WebSearchError::Backend(self.id().into(), e.to_string()))?
+            .text()
+            .await
+            .map_err(|e| WebSearchError::Backend(self.id().into(), e.to_string()))?;
+        let results = parse_harness_results(&html)
+            .into_iter()
+            .take(query.max_results)
+            .collect();
+        Ok(WebSearchResponse::new(results))
+    }
+}
+
+static HARNESS_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#)
+        .expect("invariant: fixed regex literal compiles")
+});
+static HARNESS_SNIPPET_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"<div[^>]*class="result__snippet"[^>]*>(.*?)</div>"#)
+        .expect("invariant: fixed regex literal compiles")
+});
+static HARNESS_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^>]*>").expect("invariant: fixed regex literal compiles"));
+
+fn parse_harness_results(html: &str) -> Vec<WebSearchResult> {
+    let snippets: Vec<String> = HARNESS_SNIPPET_RE
+        .captures_iter(html)
+        .map(|captures| {
+            HARNESS_TAG_RE
+                .replace_all(captures.get(1).map_or("", |m| m.as_str()), "")
+                .to_string()
+        })
+        .collect();
+    HARNESS_LINK_RE
+        .captures_iter(html)
+        .enumerate()
+        .map(|(index, captures)| WebSearchResult {
+            title: HARNESS_TAG_RE
+                .replace_all(captures.get(2).map_or("", |m| m.as_str()), "")
+                .to_string(),
+            url: captures.get(1).map_or("", |m| m.as_str()).to_string(),
+            snippet: snippets.get(index).cloned().unwrap_or_default(),
+        })
+        .collect()
+}
+
 /// Canned HTML page returned for `/page`, used by `web_fetch`.
 const MOCK_PAGE_HTML: &str =
     "<!DOCTYPE html>\n<html><body><h1>Mock Page</h1><p>Mock page body.</p></body></html>";
@@ -706,8 +812,16 @@ async fn build_registry(sandbox: &Path) -> crate::error::ToolResult<ToolRegistry
             ..Default::default()
         },
         web: predefined::web::WebToolConfig {
-            search_endpoint: Some(format!("{}/search", mock_http_base())),
+            backend: Some(Arc::new(HarnessSearchBackend::new(format!(
+                "{}/search",
+                mock_http_base()
+            ))?)),
             ..Default::default()
+        },
+        rag: predefined::rag::RagToolConfig {
+            backend: Some(Arc::new(HarnessRagBackend)),
+            default_collection: "fixtures".into(),
+            default_namespace: "harness".into(),
         },
         ..Default::default()
     };

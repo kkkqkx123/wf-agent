@@ -18,6 +18,11 @@ dashmap.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 wf-config = { path = "../../infra/wf-config" }
+reqwest.workspace = true
+llm-proxy = { package = "llm-suite-proxy", path = "../../infra/llm-suite/crates/llm-suite-proxy" }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["time"] }
+regex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

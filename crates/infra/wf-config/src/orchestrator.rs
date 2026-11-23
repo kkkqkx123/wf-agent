@@ -19,6 +19,7 @@ use crate::processor::infrastructure::{
     merge_metrics_with_defaults, merge_storage_with_defaults, RuntimeEnvironment,
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
+use crate::processor::network::{transform_network_config, NetworkConfig};
 use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
 use crate::processor::retention::{merge_retention_with_defaults, validate_retention_config};
 use crate::processor::sandbox_global::{merge_sandbox_global_config, validate_sandbox_global};
@@ -76,7 +77,7 @@ pub fn default_infra_file_mapping() -> InfrastructurePresetFiles {
 }
 
 /// Tool-specific configuration sections (read_file / glob / list_files /
-/// shell / code_context).
+/// shell / code_context / network).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ToolConfigs {
     pub glob: Option<GlobConfig>,
@@ -88,6 +89,8 @@ pub struct ToolConfigs {
     /// Code-context service config backing file folding and the retrieval
     /// tools. `None` (the default) disables the service.
     pub code_context: Option<CodeContextConfig>,
+    /// Network search backends. `None` uses the built-in DuckDuckGo default.
+    pub network: Option<NetworkConfig>,
 }
 
 /// Fully assembled configuration produced by the orchestrator.
@@ -749,9 +752,20 @@ pub fn load_tool_configs(
                     })?;
                 tools.shell = Some(config);
             }
+            "network" => {
+                let config = serde_json::from_value::<NetworkConfig>(json)
+                    .map_err(ConfigError::from)
+                    .and_then(transform_network_config)
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "invalid [network] section in {sources}: {e}"
+                        ))
+                    })?;
+                tools.network = Some(config);
+            }
             _ => {
                 return Err(ConfigError::Validation(format!(
-                    "unknown [{section}] section in {sources}: expected read_file, glob, list_files, shell or code_context",
+                    "unknown [{section}] section in {sources}: expected read_file, glob, list_files, shell, code_context or network",
                 )));
             }
         }

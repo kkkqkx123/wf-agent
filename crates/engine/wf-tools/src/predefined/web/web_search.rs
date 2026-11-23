@@ -1,14 +1,20 @@
-//! Definition and handler of the web_search tool (DuckDuckGo HTML parsing).
+//! Definition and handler of the web_search tool.
+//!
+//! The tool owns the model-facing schema and the execution handler. HTTP
+//! clients, parsing and backend selection live behind [`WebSearchBackend`],
+//! which the host implements in its resource layer.
 
-use serde_json::Value;
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use thiserror::Error;
 use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatelessAsyncHandler;
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
-use crate::predefined::web::{strip_html_tags, unescape_entities, WebToolConfig};
 use crate::registry::ToolRegistry;
 
 pub static WEB_SEARCH: ToolDefinition = ToolDefinition {
@@ -37,197 +43,161 @@ pub static WEB_SEARCH: ToolDefinition = ToolDefinition {
             default_json: Some("5"),
             constraints: None,
         },
+        ToolParameter {
+            name: "backend",
+            r#type: "string",
+            required: false,
+            description: "Optional search backend id; omit to use the configured aggregation",
+            default_json: None,
+            constraints: None,
+        },
     ],
     tips: Some(&["Be specific in your queries for better results"]),
     examples: Some(&["web_search(\"Rust async programming best practices\")"]),
 };
 
-/// A single web search result.
-#[derive(Debug, Clone, PartialEq)]
+/// Identity shared by every search backend, independent of result domain.
+pub trait SearchBackend: Send + Sync {
+    /// Stable registry id, also accepted by the tool's `backend` parameter.
+    fn id(&self) -> &str;
+    /// Implementation kind, used for diagnostics only.
+    fn kind(&self) -> &str;
+}
+
+/// Normalized request passed to a web search backend.
+#[derive(Debug, Clone)]
+pub struct WebSearchQuery {
+    pub query: String,
+    pub max_results: usize,
+    /// Backend id requested by the caller. Individual backends ignore this;
+    /// aggregators use it for routing.
+    pub backend: Option<String>,
+}
+
+/// One normalized web result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WebSearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
 }
 
-/// Percent-decode a URL-encoded string (UTF-8, lossy).
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
-                out.push(h * 16 + l);
-                i += 3;
-                continue;
-            }
-        }
-        if bytes[i] == b'+' {
-            out.push(b' ');
-            i += 1;
-            continue;
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).to_string()
+/// Backend output plus optional aggregation metadata merged into the tool result.
+#[derive(Debug, Clone, Default)]
+pub struct WebSearchResponse {
+    pub results: Vec<WebSearchResult>,
+    pub metadata: Value,
 }
 
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
-}
-
-/// Extract the real destination URL from a DuckDuckGo redirect link
-/// (`//duckduckgo.com/l/?uddg=<encoded-url>&...`).
-fn extract_search_url(href: &str) -> String {
-    if let Some(pos) = href.find("uddg=") {
-        let rest = &href[pos + 5..];
-        let end = rest.find('&').unwrap_or(rest.len());
-        return percent_decode(&rest[..end]);
-    }
-    href.to_string()
-}
-
-/// Extract the value of an HTML attribute from a tag line.
-fn extract_attr(line: &str, attr: &str) -> Option<String> {
-    let needle = format!("{}=\"", attr);
-    let start = line.find(&needle)? + needle.len();
-    let rest = &line[start..];
-    let end = rest.find('"').unwrap_or(rest.len());
-    Some(rest[..end].to_string())
-}
-
-/// Extract the content between the first '>' and the last '<'.
-fn extract_tag_content(line: &str) -> String {
-    let start = line.find('>').map(|i| i + 1).unwrap_or(0);
-    let end = line.rfind('<').unwrap_or(line.len());
-    if end > start {
-        line[start..end].to_string()
-    } else {
-        String::new()
-    }
-}
-
-/// Parse DuckDuckGo HTML search results. Pure function, unit-tested with
-/// fixtures.
-pub fn parse_duckduckgo_results(html: &str) -> Vec<WebSearchResult> {
-    let mut results = Vec::new();
-    let mut current: Option<(String, String, String)> = None;
-
-    for line in html.split('\n') {
-        if line.contains("class=\"result__a\"") {
-            if let Some(prev) = current.take() {
-                results.push(WebSearchResult {
-                    title: prev.0,
-                    url: prev.1,
-                    snippet: prev.2,
-                });
-            }
-            let href = extract_attr(line, "href").unwrap_or_default();
-            let title = unescape_entities(&strip_html_tags(&extract_tag_content(line)));
-            current = Some((title, extract_search_url(&href), String::new()));
-        } else if line.contains("class=\"result__snippet\"") {
-            if let Some(entry) = current.as_mut() {
-                let snippet = unescape_entities(&strip_html_tags(&extract_tag_content(line)));
-                entry.2 = snippet;
-            }
+impl WebSearchResponse {
+    pub fn new(results: Vec<WebSearchResult>) -> Self {
+        Self {
+            results,
+            metadata: Value::Object(serde_json::Map::new()),
         }
     }
-    if let Some(last) = current.take() {
-        results.push(WebSearchResult {
-            title: last.0,
-            url: last.1,
-            snippet: last.2,
-        });
+
+    pub fn with_metadata(results: Vec<WebSearchResult>, metadata: Value) -> Self {
+        Self { results, metadata }
     }
-    results
+}
+
+/// Failure modes surfaced by the tool without exposing transport details.
+#[derive(Debug, Error)]
+pub enum WebSearchError {
+    #[error("missing or invalid 'query' parameter")]
+    InvalidQuery,
+    #[error("invalid '{0}' parameter")]
+    InvalidParameter(&'static str),
+    #[error("web search backend is not configured")]
+    NoBackend,
+    #[error("search backend '{0}' is not registered")]
+    BackendNotFound(String),
+    #[error("search backend '{0}' failed: {1}")]
+    Backend(String, String),
+    #[error("no search backend produced a result")]
+    NoResults,
+}
+
+impl From<WebSearchError> for ToolError {
+    fn from(error: WebSearchError) -> Self {
+        ToolError::ExecutionError(error.to_string())
+    }
+}
+
+/// Host-provided web search capability. Built-in, declarative and plugin
+/// backends all implement this contract.
+#[async_trait]
+pub trait WebSearchBackend: SearchBackend {
+    async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError>;
 }
 
 /// Create the async handler for the web_search tool.
-pub fn web_search_handler(config: &WebToolConfig) -> StatelessAsyncHandler {
-    let config = config.clone();
-    // Build the client once per handler so the connection pool is reused.
-    let client: Arc<Result<reqwest::Client, String>> = Arc::new(
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(config.timeout_ms))
-            .user_agent(&config.user_agent)
-            .build()
-            .map_err(|e| e.to_string()),
-    );
+pub fn web_search_handler(config: &crate::predefined::web::WebToolConfig) -> StatelessAsyncHandler {
+    let backend = config.backend.clone();
+    let default_max_results = config.max_results;
     Arc::new(move |parameters: Value, _ctx| {
-        let config = config.clone();
-        let client = client.clone();
+        let backend = backend.clone();
         Box::pin(async move {
-            let client = client
-                .as_ref()
-                .clone()
-                .map_err(|e| ToolError::ExecutionError(format!("Failed to build client: {}", e)))?;
+            let backend = backend.ok_or(WebSearchError::NoBackend)?;
             let query = parameters
                 .get("query")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    ToolError::ValidationFailed("Missing or invalid 'query' parameter".into())
-                })?;
-            let max_results = parameters
-                .get("max_results")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(config.max_results as u64)
-                .min(50) as usize;
-
-            let endpoint = config
-                .search_endpoint
-                .clone()
-                .unwrap_or_else(|| "https://html.duckduckgo.com/html/".into());
-            let url = reqwest::Url::parse_with_params(&endpoint, &[("q", query)]).map_err(|e| {
-                ToolError::ExecutionError(format!("Invalid search endpoint: {}", e))
-            })?;
-
-            let response =
-                client.get(url).send().await.map_err(|e| {
-                    ToolError::ExecutionError(format!("Search request failed: {}", e))
-                })?;
-            let status = response.status();
-            if !status.is_success() {
-                return Err(ToolError::ExecutionError(format!(
-                    "Search request failed with status {}",
-                    status
-                )));
+                .ok_or(WebSearchError::InvalidQuery)?
+                .to_string();
+            let backend_id = match parameters.get("backend") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(id)) if id.is_empty() => None,
+                Some(Value::String(id)) => Some(id.clone()),
+                Some(_) => return Err(WebSearchError::InvalidParameter("backend").into()),
+            };
+            let max_results = match parameters.get("max_results") {
+                None | Some(Value::Null) => default_max_results,
+                Some(Value::Number(n)) => n.as_u64().unwrap_or(default_max_results as u64) as usize,
+                Some(_) => return Err(WebSearchError::InvalidParameter("max_results").into()),
             }
-            let html = response.text().await.map_err(|e| {
-                ToolError::ExecutionError(format!("Failed to read response: {}", e))
-            })?;
+            .min(50);
 
-            let all = parse_duckduckgo_results(&html);
-            let results: Vec<Value> = all
+            let response = backend
+                .search(WebSearchQuery {
+                    query: query.clone(),
+                    max_results,
+                    backend: backend_id,
+                })
+                .await?;
+            let results: Vec<Value> = response
+                .results
                 .into_iter()
                 .take(max_results)
-                .map(|r| {
+                .map(|result| {
                     serde_json::json!({
-                        "title": r.title,
-                        "url": r.url,
-                        "snippet": r.snippet,
+                        "title": result.title,
+                        "url": result.url,
+                        "snippet": result.snippet,
                     })
                 })
                 .collect();
-
-            Ok(serde_json::json!({
+            let mut output = serde_json::json!({
                 "query": query,
                 "results": results,
                 "total": results.len(),
-            }))
+            });
+            if let Value::Object(metadata) = response.metadata {
+                for (key, value) in metadata {
+                    output[key] = value;
+                }
+            }
+            Ok(output)
         })
     })
 }
 
 /// Register the web_search handler into the registry.
-pub fn register(registry: &ToolRegistry, config: &WebToolConfig) -> ToolResult<()> {
+pub fn register(
+    registry: &ToolRegistry,
+    config: &crate::predefined::web::WebToolConfig,
+) -> ToolResult<()> {
     registry.register_stateless_async_handler("web_search", web_search_handler(config));
     Ok(())
 }
@@ -236,53 +206,54 @@ pub fn register(registry: &ToolRegistry, config: &WebToolConfig) -> ToolResult<(
 mod tests {
     use super::*;
 
-    const FIXTURE: &str = r#"<html><body>
-        <div class="result results_links">
-        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Frust&amp;rut=x">Rust <b>Programming</b> Language</a>
-        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=...">A language empowering everyone to build reliable software</a>
-        </div>
-        <div class="result results_links">
-        <a rel="nofollow" class="result__a" href="https://docs.rs">Docs.rs</a>
-        <a class="result__snippet" href="https://docs.rs">Package documentation for crates</a>
-        </div>
-    </body></html>"#;
+    struct StubBackend;
 
-    #[test]
-    fn test_parse_duckduckgo_results() {
-        let results = parse_duckduckgo_results(FIXTURE);
-        assert_eq!(results.len(), 2);
-
-        assert_eq!(results[0].title, "Rust Programming Language");
-        assert_eq!(results[0].url, "https://example.com/rust");
-        assert!(results[0].snippet.contains("reliable software"));
-
-        assert_eq!(results[1].title, "Docs.rs");
-        assert_eq!(results[1].url, "https://docs.rs");
+    impl SearchBackend for StubBackend {
+        fn id(&self) -> &str {
+            "stub"
+        }
+        fn kind(&self) -> &str {
+            "test"
+        }
     }
 
-    #[test]
-    fn test_parse_empty_html() {
-        assert!(parse_duckduckgo_results("").is_empty());
-        assert!(parse_duckduckgo_results("<html><body>no results</body></html>").is_empty());
+    #[async_trait]
+    impl WebSearchBackend for StubBackend {
+        async fn search(&self, query: WebSearchQuery) -> Result<WebSearchResponse, WebSearchError> {
+            Ok(WebSearchResponse::with_metadata(
+                vec![WebSearchResult {
+                    title: query.query,
+                    url: "https://example.com".into(),
+                    snippet: "snippet".into(),
+                }],
+                serde_json::json!({ "backends": ["stub"] }),
+            ))
+        }
     }
 
-    #[test]
-    fn test_extract_search_url_plain() {
-        assert_eq!(extract_search_url("https://docs.rs"), "https://docs.rs");
-    }
-
-    #[test]
-    fn test_percent_decode() {
-        assert_eq!(percent_decode("hello%20world"), "hello world");
-        assert_eq!(percent_decode("a+b"), "a b");
-        assert_eq!(percent_decode("caf%C3%A9"), "caf\u{e9}");
+    #[tokio::test]
+    async fn handler_merges_backend_metadata() {
+        let config = crate::predefined::web::WebToolConfig {
+            backend: Some(Arc::new(StubBackend)),
+            ..Default::default()
+        };
+        let handler = web_search_handler(&config);
+        let output = handler(
+            serde_json::json!({ "query": "rust", "backend": "stub" }),
+            crate::executor::trait_def::ToolExecutionContext::new("exec-1".into()),
+        )
+        .await
+        .expect("stub search succeeds");
+        assert_eq!(output["total"], 1);
+        assert_eq!(output["backends"][0], "stub");
     }
 
     #[test]
     fn test_web_definitions_schema() {
         let def = WEB_SEARCH.tool_def();
         assert_eq!(def.name, "web_search");
-        let params = def.parameters.unwrap();
+        let params = def.parameters.expect("schema");
         assert!(params.required.contains(&"query".to_string()));
+        assert!(params.properties.contains_key("backend"));
     }
 }

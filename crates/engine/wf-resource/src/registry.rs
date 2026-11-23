@@ -95,6 +95,9 @@ impl RegisterOptions {
 }
 
 pub struct ResourceRegistries {
+    /// Shared network search backends; plugins append backends here through
+    /// the runtime bridge while the tool handler reads a live snapshot.
+    pub network: crate::network::NetworkRegistry,
     pub fragments: ConcurrentRegistry<SystemPromptFragment>,
     /// Unified templateable prompt texts: system-prompt templates
     /// (`system.default` et al.) plus tool-visibility texts (activation/block
@@ -110,6 +113,7 @@ pub struct ResourceRegistries {
 impl ResourceRegistries {
     pub fn new() -> Self {
         Self {
+            network: crate::network::NetworkRegistry::new(),
             fragments: ConcurrentRegistry::new(),
             templates: ConcurrentRegistry::new(),
             tool_descriptions: ConcurrentRegistry::new(),

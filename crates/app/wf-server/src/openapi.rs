@@ -1156,6 +1156,48 @@ mod tests {
         );
     }
 
+    /// Path templates must declare every parameter they interpolate. The
+    /// generated Rust client otherwise fails with an opaque codegen panic.
+    #[test]
+    fn every_path_placeholder_is_declared() {
+        let doc = doc();
+        let mut missing = Vec::new();
+        for (path, item) in doc["paths"].as_object().expect("paths object") {
+            let mut placeholders = Vec::new();
+            let mut segment = path.as_str();
+            while let Some(start) = segment.find('{') {
+                let rest = &segment[start + 1..];
+                let Some(end) = rest.find('}') else { break };
+                placeholders.push(rest[..end].to_string());
+                segment = &rest[end + 1..];
+            }
+            if placeholders.is_empty() {
+                continue;
+            }
+            for (method, operation) in item.as_object().expect("path item object") {
+                if !HTTP_METHODS.contains(&method.as_str()) || !operation.is_object() {
+                    continue;
+                }
+                let declared: Vec<&str> = operation["parameters"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|parameter| parameter["in"].as_str() == Some("path"))
+                    .filter_map(|parameter| parameter["name"].as_str())
+                    .collect();
+                for name in &placeholders {
+                    if !declared.contains(&name.as_str()) {
+                        missing.push(format!("{method} {path}: {name}"));
+                    }
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "path parameters missing in OpenAPI: {missing:?}"
+        );
+    }
+
     #[test]
     fn document_version_matches_router_constant() {
         let v = doc();
@@ -1246,13 +1288,13 @@ mod tests {
         }
         let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| {
             panic!(
-                "missing OpenAPI snapshot at {}: {e}; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document to create it",
+                "missing OpenAPI snapshot at {}: {e}; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --all-features --lib openapi::tests::committed_snapshot_matches_document to create it",
                 path.display()
             )
         });
         assert_eq!(
             actual, expected,
-            "OpenAPI snapshot drifted; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document to refresh it"
+            "OpenAPI snapshot drifted; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --all-features --lib openapi::tests::committed_snapshot_matches_document to refresh it"
         );
     }
 

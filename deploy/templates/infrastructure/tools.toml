@@ -63,3 +63,34 @@
 # default_project_id = 1                 # explicit override, not the source of truth
 # default_limit = 10
 # max_results = 100
+
+# Web search backends. When this whole section is absent, one DuckDuckGo
+# HTML backend named "duckduckgo" is used with the aggregation mode "all".
+# Each backend may declare its own route-only proxy; proxy credentials are
+# read from the credential store by route and never live in this file.
+#[network.web_search]
+# mode = "all"                         # all | priority_first_success
+# timeout_ms = 20000                   # whole aggregation
+# default_backends = ["duckduckgo"]    # omit to use every enabled backend
+
+# [[network.web_search.backends]]
+# id = "duckduckgo"
+# kind = "duckduckgo_html"
+# enabled = true
+# timeout_ms = 20000
+# endpoint = "https://html.duckduckgo.com/html/"
+# proxy = { url = "http://127.0.0.1:7890", no_proxy = ["localhost"] }
+
+# Declarative JSON search API. `$query` and `$max_results` are the only
+# supported placeholders; secrets use environment expansion, e.g.
+# "X-Api-Key" = "${WF_SEARCH_API_KEY}".
+# [[network.web_search.backends]]
+# id = "example_api"
+# kind = "http"
+# enabled = false
+# timeout_ms = 15000
+# request = { method = "POST", url = "https://api.example.com/search",
+#             headers = { "Content-Type" = "application/json" },
+#             json_body = { q = "$query", count = "$max_results" } }
+# response = { format = "json", items_path = "results",
+#              map = { title = "title", url = "url", snippet = "description" } }

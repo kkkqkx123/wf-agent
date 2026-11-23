@@ -1,0 +1,8 @@
+# rag_search (knowledge)
+Search the indexed knowledge base and return ranked passages with content, score, source and citation locator. Read-only; takes no side effects.
+
+tips:
+- Prefer specific questions over single keywords for dense retrieval
+
+examples:
+- rag_search("How does ownership work?")

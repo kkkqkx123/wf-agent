@@ -6,6 +6,7 @@ pub(crate) mod handler_source;
 pub(crate) mod hooks;
 mod images;
 mod llm;
+mod network;
 mod resources;
 mod retrieval;
 

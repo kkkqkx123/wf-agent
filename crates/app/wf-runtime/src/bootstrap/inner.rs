@@ -29,6 +29,7 @@ use super::llm::{create_auth_registry, create_llm_gateway, register_llm_config};
 #[cfg(feature = "mcp")]
 use super::mcp::init_mcp;
 use super::metrics::init_metrics_context;
+use super::network::build_web_search_backend;
 #[cfg(feature = "plugins")]
 use super::plugin::init_plugins;
 use super::plugin::init_plugins_and_resources;
@@ -216,6 +217,16 @@ impl Runtime {
             config.mcp.project_root.as_deref(),
         )
         .await;
+        // Auth surfaces are available before tool registration because proxy
+        // credentials for every search backend are resolved at bootstrap.
+        let auth_registry =
+            create_auth_registry(&config.llm.auth, config.mcp.project_root.as_deref())?;
+        let web_search_backend = build_web_search_backend(
+            config.tools.network.as_ref(),
+            Some(&auth_registry),
+            &registries,
+        )
+        .await?;
         let tool_registry = init_tool_registry_with_mcp(
             &mut shell_config,
             &sandbox_runtime,
@@ -223,6 +234,7 @@ impl Runtime {
             &mcp_manager,
             &event_bus,
             Some(code_context.clone()),
+            web_search_backend,
         )
         .await?;
 
@@ -265,8 +277,6 @@ impl Runtime {
         // activation: plugin-provided surfaces register on the same registry
         // (fixed startup order, no lazy backfill) and file-layer profiles can
         // reference every surface by id.
-        let auth_registry =
-            create_auth_registry(&config.llm.auth, config.mcp.project_root.as_deref())?;
         let llm_gateway = create_llm_gateway(
             metrics.as_ref().map(|m| m.registry().as_ref()),
             Some(pricing_resolver),

@@ -17,6 +17,7 @@
 /// - `file_checkpoint` — merge/validate file checkpoint configs
 /// - `file_scope` — merge/validate/expand execution file scopes
 /// - `node_template` — validate/transform node templates
+/// - `network` — validate/transform network search backends
 /// - `presets` — merge presets with defaults
 /// - `retention` — merge/validate execution history cleanup policy
 /// - `sandbox_global` — validate/transform global sandbox configs
@@ -36,6 +37,7 @@ pub mod infrastructure;
 pub mod limits;
 pub mod llm_auth;
 pub mod llm_profile;
+pub mod network;
 pub mod node_config;
 pub mod node_template;
 pub mod presets;

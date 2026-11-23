@@ -12,8 +12,8 @@ use axum::{Json, Router};
 use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use utoipa::ToSchema;
 use std::convert::Infallible;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_types::events::{BaseEvent, EventType};
 
@@ -87,30 +87,35 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 struct SessionPath {
     id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 struct NodePath {
     id: String,
     node_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 struct TurnPath {
     id: String,
     turn_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 struct LeafQuery {
     #[serde(default)]
     leaf: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 struct StreamQuery {
     /// Replay events strictly newer than this timestamp.
     #[serde(default)]
@@ -162,7 +167,8 @@ pub(crate) struct StepBody {
     policy: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 struct StepJobPath {
     id: String,
     job_id: String,
@@ -265,6 +271,7 @@ async fn handle_create_session(
     get,
     path = "/api/v1/chat/sessions/{id}",
     tag = "chat",
+    params(SessionPath, LeafQuery),
     responses((status = 200, description = "Tree snapshot", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -283,6 +290,7 @@ async fn handle_snapshot(
     get,
     path = "/api/v1/chat/sessions/{id}/path",
     tag = "chat",
+    params(SessionPath, LeafQuery),
     responses((status = 200, description = "Projected path", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -301,6 +309,7 @@ async fn handle_path(
     get,
     path = "/api/v1/chat/sessions/{id}/dirty",
     tag = "chat",
+    params(SessionPath, LeafQuery),
     responses((status = 200, description = "Stale answers of one path", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -319,6 +328,7 @@ async fn handle_dirty(
     get,
     path = "/api/v1/chat/sessions/{id}/grafts",
     tag = "chat",
+    params(SessionPath),
     responses((status = 200, description = "Graft pool", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -333,6 +343,7 @@ async fn handle_grafts(State(state): State<ApiState>, Path(path): Path<SessionPa
     post,
     path = "/api/v1/chat/sessions/{id}/turns",
     tag = "chat",
+    params(SessionPath),
     request_body = TurnBody,
     responses((status = 202, description = "Turn accepted", body = serde_json::Value)),
     security(("api_key" = []))
@@ -352,11 +363,7 @@ async fn handle_submit_turn(
         directory: None,
     };
     match wf_api::conversation::submit_turn(state.ctx.clone(), request).await {
-        Ok(handle) => (
-            axum::http::StatusCode::ACCEPTED,
-            ok(handle),
-        )
-            .into_response(),
+        Ok(handle) => (axum::http::StatusCode::ACCEPTED, ok(handle)).into_response(),
         Err(error) => error_response(error),
     }
 }
@@ -365,6 +372,7 @@ async fn handle_submit_turn(
     post,
     path = "/api/v1/chat/sessions/{id}/turns/{turn_id}/cancel",
     tag = "chat",
+    params(TurnPath),
     responses((status = 200, description = "Cancellation result", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -378,6 +386,7 @@ async fn handle_cancel_turn(State(state): State<ApiState>, Path(path): Path<Turn
     post,
     path = "/api/v1/chat/sessions/{id}/step",
     tag = "chat",
+    params(SessionPath),
     request_body = StepBody,
     responses((status = 202, description = "Stepping job accepted", body = serde_json::Value)),
     security(("api_key" = []))
@@ -417,6 +426,7 @@ async fn handle_step(
     post,
     path = "/api/v1/chat/sessions/{id}/step/{job_id}/cancel",
     tag = "chat",
+    params(StepJobPath),
     responses((status = 200, description = "Cancellation result", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -433,6 +443,7 @@ async fn handle_cancel_step(
     post,
     path = "/api/v1/chat/sessions/{id}/leaf",
     tag = "chat",
+    params(SessionPath),
     request_body = LeafBody,
     responses((status = 200, description = "New tree version", body = serde_json::Value)),
     security(("api_key" = []))
@@ -458,6 +469,7 @@ async fn handle_set_leaf(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/insert-before",
     tag = "chat",
+    params(NodePath),
     request_body = InsertBody,
     responses((status = 202, description = "Predecessor inserted", body = serde_json::Value)),
     security(("api_key" = []))
@@ -489,6 +501,7 @@ async fn handle_insert_before(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/splice",
     tag = "chat",
+    params(NodePath),
     request_body = VersionBody,
     responses((status = 200, description = "Predecessor removed", body = serde_json::Value)),
     security(("api_key" = []))
@@ -514,6 +527,7 @@ async fn handle_splice(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reparent",
     tag = "chat",
+    params(NodePath),
     request_body = ReparentBody,
     responses((status = 200, description = "Subtree moved", body = serde_json::Value)),
     security(("api_key" = []))
@@ -540,6 +554,7 @@ async fn handle_reparent(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/content",
     tag = "chat",
+    params(NodePath),
     request_body = ContentBody,
     responses((status = 202, description = "User message replaced", body = serde_json::Value)),
     security(("api_key" = []))
@@ -566,6 +581,7 @@ async fn handle_write_content(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/edit",
     tag = "chat",
+    params(NodePath),
     request_body = ContentBody,
     responses((status = 202, description = "Sibling branch created", body = serde_json::Value)),
     security(("api_key" = []))
@@ -592,6 +608,7 @@ async fn handle_edit_branch(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply",
     tag = "chat",
+    params(NodePath),
     request_body = ContentBody,
     responses((status = 200, description = "Reply rewritten", body = serde_json::Value)),
     security(("api_key" = []))
@@ -618,6 +635,7 @@ async fn handle_write_reply(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/discard",
     tag = "chat",
+    params(NodePath),
     request_body = VersionBody,
     responses((status = 200, description = "Reply discarded", body = serde_json::Value)),
     security(("api_key" = []))
@@ -643,6 +661,7 @@ async fn handle_discard_reply(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/restore",
     tag = "chat",
+    params(NodePath),
     request_body = VersionBody,
     responses((status = 200, description = "Reply restored", body = serde_json::Value)),
     security(("api_key" = []))
@@ -668,6 +687,7 @@ async fn handle_restore_reply(
     post,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}/acknowledge",
     tag = "chat",
+    params(NodePath),
     request_body = VersionBody,
     responses((status = 200, description = "Staleness acknowledged", body = serde_json::Value)),
     security(("api_key" = []))
@@ -693,6 +713,7 @@ async fn handle_acknowledge(
     post,
     path = "/api/v1/chat/sessions/{id}/detach",
     tag = "chat",
+    params(SessionPath),
     request_body = DetachBody,
     responses((status = 201, description = "Subtree detached", body = serde_json::Value)),
     security(("api_key" = []))
@@ -720,6 +741,7 @@ async fn handle_detach(
     post,
     path = "/api/v1/chat/sessions/{id}/attach",
     tag = "chat",
+    params(SessionPath),
     request_body = AttachBody,
     responses((status = 200, description = "Subtree attached", body = serde_json::Value)),
     security(("api_key" = []))
@@ -747,6 +769,7 @@ async fn handle_attach(
     delete,
     path = "/api/v1/chat/sessions/{id}/nodes/{node_id}",
     tag = "chat",
+    params(NodePath),
     responses((status = 200, description = "Subtree soft-deleted", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -777,6 +800,7 @@ struct VersionQuery {
     delete,
     path = "/api/v1/chat/sessions/{id}",
     tag = "chat",
+    params(SessionPath, LeafQuery),
     responses((status = 200, description = "Session deleted", body = serde_json::Value)),
     security(("api_key" = []))
 )]
@@ -794,6 +818,7 @@ async fn handle_delete_session(
     get,
     path = "/api/v1/chat/sessions/{id}/stream",
     tag = "chat",
+    params(SessionPath, StreamQuery),
     responses((status = 200, description = "Session event stream", content_type = "text/event-stream")),
     security(("api_key" = []))
 )]
@@ -808,21 +833,24 @@ async fn handle_stream(
         Ok(snapshot) => snapshot,
         Err(error) => return error_response(error),
     };
-    let events = match wf_api::conversation::subscribe(state.ctx.clone(), path.id.clone(), query.since)
-        .await
+    let events = match wf_api::conversation::subscribe(
+        state.ctx.clone(),
+        path.id.clone(),
+        query.since,
+    )
+    .await
     {
         Ok(events) => events,
         Err(error) => return error_response(error),
     };
     let head = serde_json::to_string(&snapshot).unwrap_or_default();
     let head_frame = format!("event: session.snapshot\ndata: {head}\n\n");
-    let stream = futures::stream::once(async move { Ok::<Bytes, Infallible>(Bytes::from(head_frame)) })
-        .chain(events.map(|event| {
-            let (name, payload) = frame_of(&event);
-            Ok::<Bytes, Infallible>(Bytes::from(format!(
-                "event: {name}\ndata: {payload}\n\n"
-            )))
-        }));
+    let stream =
+        futures::stream::once(async move { Ok::<Bytes, Infallible>(Bytes::from(head_frame)) })
+            .chain(events.map(|event| {
+                let (name, payload) = frame_of(&event);
+                Ok::<Bytes, Infallible>(Bytes::from(format!("event: {name}\ndata: {payload}\n\n")))
+            }));
     sse_response(Box::pin(stream))
 }
 

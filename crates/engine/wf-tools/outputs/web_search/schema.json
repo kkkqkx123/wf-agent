@@ -1,32 +1,36 @@
 {
-  "description": "Search the web for information. Returns relevant results with titles, URLs and snippets.",
-  "enabled": true,
   "id": "web_search",
-  "metadata": {
-    "category": "web",
-    "risk_level": "network",
-    "tags": [
-      "search"
-    ]
-  },
   "name": "web_search",
+  "description": "Search the web for information. Returns relevant results with titles, URLs and snippets.",
+  "tool_type": "stateless",
   "parameters": {
-    "additionalProperties": false,
+    "type": "object",
     "properties": {
+      "backend": {
+        "type": "string",
+        "description": "Optional search backend id; omit to use the configured aggregation"
+      },
       "max_results": {
-        "default": 5,
+        "type": "number",
         "description": "Maximum number of results to return",
-        "type": "number"
+        "default": 5
       },
       "query": {
-        "description": "The search query",
-        "type": "string"
+        "type": "string",
+        "description": "The search query"
       }
     },
     "required": [
       "query"
     ],
-    "type": "object"
+    "additionalProperties": false
   },
-  "tool_type": "stateless"
+  "metadata": {
+    "category": "web",
+    "tags": [
+      "search"
+    ],
+    "risk_level": "network"
+  },
+  "enabled": true
 }

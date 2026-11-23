@@ -6,7 +6,7 @@ use wf_plugin::{ContributionBridge, ContributionManager, PluginRegistry, PluginR
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::registry::ToolRegistry;
 
-use super::{advisors, auth, hooks, images, llm, resources, retrieval};
+use super::{advisors, auth, hooks, images, llm, network, resources, retrieval};
 
 pub struct WfPluginBridge {
     registries: Arc<ResourceRegistries>,
@@ -45,6 +45,12 @@ impl ContributionBridge for WfPluginBridge {
         let bundle = resources::collect_bundle(plugin_id, manager);
         resources::install_resources(&self.registries, &self.tool_registry, &bundle, plugin_id);
 
+        network::sync_network(
+            &self.registries.network,
+            plugin_id,
+            manager,
+            &self.plugin_registry,
+        );
         llm::sync_llm(&self.llm_gateway, plugin_id, manager)?;
         auth::sync_auth(&self.llm_gateway, plugin_id, manager)?;
         images::sync_images(plugin_id, manager);
@@ -62,6 +68,7 @@ impl ContributionBridge for WfPluginBridge {
     async fn unsync_all(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
         tracing::info!("[bridge] unsyncing contributions for '{}'", plugin_id);
 
+        network::unsync_network(&self.registries.network, plugin_id);
         llm::unsync_llm(&self.llm_gateway, plugin_id, manager);
         auth::unsync_auth(&self.llm_gateway, plugin_id, manager);
         images::unsync_images(plugin_id, manager);

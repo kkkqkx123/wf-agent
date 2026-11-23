@@ -1,6 +1,7 @@
 pub mod custom;
 pub mod dynamic;
 pub mod embedded_assets;
+pub mod network;
 pub mod predefined;
 pub mod registry;
 pub mod resource_assembler;
@@ -16,6 +17,10 @@ pub use custom::{
 };
 pub use dynamic::{
     build_system_context, build_user_context, current_time_text, SystemConfig, UserInput,
+};
+pub use network::{
+    build_web_backends, DuckDuckGoBackend, HttpSearchBackend, NetworkRegistry, ResolvedProxy,
+    WebSearchAggregator,
 };
 pub use predefined::resource_assembler::{
     GoalReviewConfig, GoalReviewResourceAssembler, SpecWorkflowConfig,

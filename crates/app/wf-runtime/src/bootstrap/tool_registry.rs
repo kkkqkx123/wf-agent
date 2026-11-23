@@ -11,6 +11,7 @@ pub async fn init_tool_registry_with_mcp(
     mcp_manager: &Option<Arc<wf_tools::mcp::connection::McpConnectionManager>>,
     event_bus: &Arc<wf_core::event::EventBus>,
     code_context: Option<wf_integration::SharedCodeContextService>,
+    web_search_backend: Arc<dyn wf_tools::WebSearchBackend>,
 ) -> RuntimeResult<Arc<wf_tools::registry::ToolRegistry>> {
     if shell_config.output_event_enabled && shell_config.event_sink.is_none() {
         shell_config.event_sink = Some(Arc::new(
@@ -38,6 +39,10 @@ pub async fn init_tool_registry_with_mcp(
                 ..Default::default()
             },
             code_context: Some(code_context.unwrap_or_default()),
+            web: wf_tools::WebToolConfig {
+                backend: Some(web_search_backend),
+                ..Default::default()
+            },
             ..Default::default()
         },
     )

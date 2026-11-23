@@ -5,8 +5,10 @@
     "query": "storage layout"
   },
   "result": {
-    "error": "Execution error: context archive tools need a checkpoint session; the execution runs without file checkpointing",
+    "error": "context archive tools need a checkpoint session; the execution runs without file checkpointing",
+    "error_code": "internal",
     "execution_time": 0,
+    "retryable": false,
     "retry_count": 0,
     "success": false
   },

@@ -8,6 +8,7 @@ mod llm;
 #[cfg(feature = "mcp")]
 mod mcp;
 mod metrics;
+mod network;
 mod plugin;
 mod runtime;
 mod shutdown;
@@ -33,6 +34,7 @@ pub use llm::{create_auth_registry, create_llm_gateway, init_llm_gateway, regist
 #[cfg(feature = "mcp")]
 pub use mcp::init_mcp;
 pub use metrics::init_metrics_context;
+pub use network::build_web_search_backend;
 #[cfg(feature = "plugins")]
 pub use plugin::init_plugins;
 pub use plugin::init_plugins_and_resources;

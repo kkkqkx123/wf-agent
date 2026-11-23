@@ -13,7 +13,7 @@
       "binary": false,
       "deletions": 1,
       "diff": "@@ -1,2 +1,2 @@\n-line1\n+line1x\n line2\n",
-      "display": "Diff applied successfully to <WORKSPACE>/diff.txt\n1 block(s) processed",
+      "display": "Diff applied to <WORKSPACE>/diff.txt: 1 of 1 block(s) processed",
       "failed": 0,
       "first_changed_line": 1,
       "success": true

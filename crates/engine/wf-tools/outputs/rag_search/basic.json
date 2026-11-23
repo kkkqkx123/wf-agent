@@ -1,0 +1,23 @@
+{
+  "tool": "rag_search",
+  "case": "basic",
+  "tier": "stub",
+  "description": "Retrieval delegates to the injected backend",
+  "parameters": {
+    "query": "storage layout"
+  },
+  "result": {
+    "success": true,
+    "result": [
+      {
+        "chunk_id": "doc#0",
+        "document_id": "doc",
+        "source": "fixture",
+        "content": "Retrieved: storage layout",
+        "score": 0.8999999761581421
+      }
+    ],
+    "execution_time": 0,
+    "retry_count": 0
+  }
+}

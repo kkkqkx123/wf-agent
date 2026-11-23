@@ -1,0 +1,49 @@
+{
+  "id": "rag_search",
+  "name": "rag_search",
+  "description": "Search the indexed knowledge base and return ranked passages with content, score, source and citation locator. Read-only; takes no side effects.",
+  "tool_type": "stateless",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "collection": {
+        "type": "string",
+        "description": "Vector collection to search (falls back to the configured default)"
+      },
+      "fields": {
+        "type": "object",
+        "description": "Extra exact-match metadata constraints merged with the namespace scope"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Knowledge-base namespace to search (falls back to the configured default)"
+      },
+      "query": {
+        "type": "string",
+        "description": "Natural-language question to retrieve passages for"
+      },
+      "score_threshold": {
+        "type": "number",
+        "description": "Lower bound for hit scores; hits below it are dropped"
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "Maximum passages to return (default 5)",
+        "default": 5
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  },
+  "metadata": {
+    "category": "knowledge",
+    "tags": [
+      "rag",
+      "search"
+    ],
+    "risk_level": "read_only"
+  },
+  "enabled": true
+}

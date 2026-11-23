@@ -92,7 +92,16 @@
     `POST .../dead-letters/retry`（可为空 `files` 表示全部）、`POST .../dead-letters/acknowledge`（可限定 `module`）
     执行重试与确认，`POST /api/v1/system/code-context/reindex` 重新跑当前 workspace 的全量索引——索引失败不会自动重试，
     这个动作是唯一的人工恢复入口（外部供给模式下被拒绝，重索引归属在部署方）。
-- 未知段：启动失败；`tools.toml` 只接受 `read_file`、`glob`、`list_files`、`shell`、`code_context` 五个段，段名拼写错误不会被静默忽略
+- `[network]`：network 工具组的搜索后端配置，见下文；未声明时使用内置 DuckDuckGo 后端
+- 未知段：启动失败；`tools.toml` 只接受 `read_file`、`glob`、`list_files`、`shell`、`code_context`、`network` 六个段，段名拼写错误不会被静默忽略
+
+### network 搜索后端
+
+`tools.toml [network.web_search]` 包含 `mode`（`all` 聚合并发配置的所有后端，或 `priority_first_success` 按优先级取第一个非空结果）、`timeout_ms`（整次聚合的硬上限）、`default_backends`（省略 `backend` 参数时使用的后端 id 列表，缺省为全部启用后端）以及 `backends` 数组。
+
+后端通过 `kind` 区分：`duckduckgo_html` 接受 `endpoint`、`user_agent`、超时与代理；`http` 接受 `request`（`method`、`url`、`headers`、`query`、`json_body`）与 `response`（`format`、`items_path`、`map`、`url_prefix`）。请求模板只支持 `$query` 和 `$max_results` 两个占位符；请求头中的密钥用环境变量占位符注入，配置校验拒绝未知占位符。
+
+每个后端可独立设置 `proxy.url` 与 `proxy.no_proxy`。代理 URL 只允许路由，不能内嵌 userinfo；凭据按路由从 credential store 读取并仅在构建该后端的 HTTP client 时临时组合。插件贡献的搜索后端使用 `tool` + `tool-type` 声明，并为工具标记 `search-backend:web`；联网插件限定 native 后端且需要 `network` 权限，插件停用时会同步注销其后端。
 
 ## limits.toml
 

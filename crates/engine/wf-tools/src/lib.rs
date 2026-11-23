@@ -38,7 +38,10 @@ pub use general::{GeneralToolInvoker, GENERAL_TOOL_NAME};
 pub use handlers::{
     create_default_tool_registry, register_builtin_handlers, BuiltinHandlersConfig,
 };
-pub use predefined::web::WebToolConfig;
+pub use predefined::web::{
+    SearchBackend, WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse,
+    WebSearchResult, WebToolConfig,
+};
 pub use shell::execute_command_handler;
 pub use skill::{SkillLoader, SkillResourceContent};
 pub use tool_call::ToolCallEvent;

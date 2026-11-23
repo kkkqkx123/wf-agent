@@ -5,8 +5,10 @@
     "path": "does/not/exist.txt"
   },
   "result": {
-    "error": "Execution error: not_found: file '<WORKSPACE>/does/not/exist.txt' does not exist. Use list_files to confirm the path or write_file to create it.",
+    "error": "not_found: file '<WORKSPACE>/does/not/exist.txt' does not exist. Use list_files to confirm the path or write_file to create it.",
+    "error_code": "internal",
     "execution_time": 0,
+    "retryable": false,
     "retry_count": 0,
     "success": false
   },

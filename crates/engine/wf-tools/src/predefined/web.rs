@@ -1,17 +1,20 @@
-//! Predefined web tools: definitions + handlers.
+//! Predefined network tools: definitions + handlers.
 //!
-//! Tools: web_search (configurable HTML search endpoint, DuckDuckGo by
-//! default) and web_fetch (HTTP fetch with text extraction). Each tool
-//! lives in its own file; the shared [`WebToolConfig`] and HTML helpers
-//! stay here.
+//! Tools: web_search (backend-driven search) and web_fetch (HTTP fetch with
+//! text extraction). Search transports and parsing live behind the backend
+//! contract; this module only owns shared tool configuration and HTML text
+//! helpers used by the fetch path.
 
 pub mod web_fetch;
 pub mod web_search;
 
 pub use web_fetch::WEB_FETCH;
-pub use web_search::{parse_duckduckgo_results, WebSearchResult, WEB_SEARCH};
+pub use web_search::{
+    SearchBackend, WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse,
+    WebSearchResult, WEB_SEARCH,
+};
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use super::schema::ToolDefinition;
 use crate::error::ToolResult;
@@ -21,30 +24,41 @@ use crate::registry::ToolRegistry;
 pub const ALL: &[&ToolDefinition] = &[&WEB_SEARCH, &WEB_FETCH];
 
 /// Configuration for the web tools.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WebToolConfig {
-    /// Search endpoint for web_search. Defaults to the DuckDuckGo HTML
-    /// endpoint when None.
-    pub search_endpoint: Option<String>,
-    /// Request timeout in milliseconds.
+    /// Web search backend injected by the host resource layer.
+    pub backend: Option<Arc<dyn WebSearchBackend>>,
+    /// Request timeout in milliseconds for the fetch tool.
     pub timeout_ms: u64,
     /// Maximum response body size in bytes for web_fetch.
     pub max_content_bytes: usize,
     /// Default maximum number of search results.
     pub max_results: usize,
-    /// User-Agent header to send.
+    /// User-Agent header to send by the fetch tool.
     pub user_agent: String,
 }
 
 impl Default for WebToolConfig {
     fn default() -> Self {
         Self {
-            search_endpoint: None,
+            backend: None,
             timeout_ms: 20_000,
             max_content_bytes: 2_000_000,
             max_results: 5,
             user_agent: "wf-agent/0.1 (Modular Agent Framework)".into(),
         }
+    }
+}
+
+impl std::fmt::Debug for WebToolConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebToolConfig")
+            .field("backend_configured", &self.backend.is_some())
+            .field("timeout_ms", &self.timeout_ms)
+            .field("max_content_bytes", &self.max_content_bytes)
+            .field("max_results", &self.max_results)
+            .field("user_agent", &self.user_agent)
+            .finish()
     }
 }
 
@@ -74,19 +88,6 @@ pub(crate) fn strip_html_tags(input: &str) -> String {
     out.trim().to_string()
 }
 
-/// Decode common HTML entities.
-pub(crate) fn unescape_entities(input: &str) -> String {
-    input
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#x27;", "'")
-        .replace("&#39;", "'")
-        .replace("&#x2F;", "/")
-        .replace("&nbsp;", " ")
-}
-
 /// Register web tool handlers into the registry.
 pub fn register(registry: &ToolRegistry, config: &WebToolConfig) -> ToolResult<()> {
     web_fetch::register(registry, config)?;
@@ -102,14 +103,6 @@ mod tests {
     fn test_strip_html_tags() {
         assert_eq!(strip_html_tags("<b>bold</b> text"), "bold text");
         assert_eq!(strip_html_tags("plain"), "plain");
-    }
-
-    #[test]
-    fn test_unescape_entities() {
-        assert_eq!(
-            unescape_entities("a &amp; b &lt;c&gt; &quot;d&quot;"),
-            "a & b <c> \"d\""
-        );
     }
 
     #[test]

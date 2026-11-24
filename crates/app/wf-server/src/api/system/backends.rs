@@ -13,6 +13,7 @@ use crate::backends::deploy::{
     DeployJobView, DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest,
     DeploySourceView, DEFAULT_INSTALL_ROOT,
 };
+use crate::backends::manager::DeployJobCancel;
 use crate::backends::types::{
     BackendEntry, BackendEntryView, BackupExportView, BackupRecordView, BackupRelinkReport,
     BackupVerificationView, SyncStateView,
@@ -25,6 +26,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/system/backends", get(handle_list).post(handle_create))
         .route("/system/backends/import", post(handle_import))
+        .route("/system/deploy-jobs", get(handle_list_all_deploy_jobs))
         .route("/system/backups", get(handle_list_all_backups))
         .route("/system/backups/sync-state", get(handle_list_sync_states))
         .route(
@@ -67,6 +69,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route(
             "/system/backends/{name}/deploy",
             get(handle_deploy_status).post(handle_deploy_apply),
+        )
+        .route(
+            "/system/backends/{name}/deploy/jobs",
+            get(handle_list_deploy_jobs),
         )
         .route(
             "/system/backends/{name}/deploy/jobs/{id}",
@@ -664,7 +670,7 @@ pub(crate) async fn handle_deploy_apply(
     if !backends.is_enabled() {
         return disabled();
     }
-    match backends.submit_deploy_job(&name, body) {
+    match backends.submit_deploy_job(&name, body).await {
         Ok(job) => (axum::http::StatusCode::ACCEPTED, ok(job)).into_response(),
         Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
             entity_type: "backend".to_string(),
@@ -687,10 +693,9 @@ pub(crate) async fn handle_deploy_apply(
     }
 }
 
-#[utoipa::path(get, path = "/api/v1/system/backends/{name}/deploy/jobs/{id}", operation_id = "get_system_backend_deploy_job", tag = "system", params(crate::extract::NamePath, crate::extract::IdPath), responses((status = 200, description = "Deployment job status and progress", body = crate::envelope::ApiEnvelope<DeployJobView>), (status = 404, description = "Unknown job", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
-pub(crate) async fn handle_deploy_job_status(
+#[utoipa::path(get, path = "/api/v1/system/deploy-jobs", operation_id = "list_system_deploy_jobs", tag = "system", responses((status = 200, description = "Deployment jobs across all backends, newest first", body = crate::envelope::ApiEnvelope<Vec<DeployJobView>>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_list_all_deploy_jobs(
     State(state): State<ApiState>,
-    Path((_name, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let Some(backends) = state.backends.clone() else {
         return disabled();
@@ -698,7 +703,41 @@ pub(crate) async fn handle_deploy_job_status(
     if !backends.is_enabled() {
         return disabled();
     }
-    match backends.deploy_job_status(&id) {
+    match backends.list_deploy_jobs(None).await {
+        Ok(jobs) => ok(jobs).into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/system/backends/{name}/deploy/jobs", operation_id = "list_system_backend_deploy_jobs", tag = "system", params(crate::extract::NamePath), responses((status = 200, description = "Deployment jobs for one backend, newest first", body = crate::envelope::ApiEnvelope<Vec<DeployJobView>>), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_list_deploy_jobs(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.list_deploy_jobs(Some(&name)).await {
+        Ok(jobs) => ok(jobs).into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/system/backends/{name}/deploy/jobs/{id}", operation_id = "get_system_backend_deploy_job", tag = "system", params(crate::extract::NamePath, crate::extract::IdPath), responses((status = 200, description = "Deployment job status and progress", body = crate::envelope::ApiEnvelope<DeployJobView>), (status = 404, description = "Unknown job", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_deploy_job_status(
+    State(state): State<ApiState>,
+    Path((name, id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    match backends.deploy_job_status(&name, &id).await {
         Some(job) => ok(job).into_response(),
         None => error_response(wf_api::ApiError::NotFound {
             entity_type: "deploy-job".to_string(),
@@ -711,7 +750,7 @@ pub(crate) async fn handle_deploy_job_status(
 #[utoipa::path(post, path = "/api/v1/system/backends/{name}/deploy/jobs/{id}/cancel", operation_id = "cancel_system_backend_deploy_job", tag = "system", params(crate::extract::NamePath, crate::extract::IdPath), responses((status = 202, description = "Cancellation requested"), (status = 404, description = "Unknown job", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_deploy_job_cancel(
     State(state): State<ApiState>,
-    Path((_name, id)): Path<(String, String)>,
+    Path((name, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let Some(backends) = state.backends.clone() else {
         return disabled();
@@ -719,18 +758,23 @@ pub(crate) async fn handle_deploy_job_cancel(
     if !backends.is_enabled() {
         return disabled();
     }
-    if backends.cancel_deploy_job(&id) {
-        (
+    match backends.cancel_deploy_job(&name, &id).await {
+        DeployJobCancel::Accepted => (
             axum::http::StatusCode::ACCEPTED,
             ok(serde_json::json!({ "job_id": id })),
         )
+            .into_response(),
+        DeployJobCancel::Settled => error_response(wf_api::ApiError::Conflict(
+            format!("deployment job '{id}' already reached a terminal state"),
+        ))
+        .into_response(),
+        DeployJobCancel::Unknown | DeployJobCancel::BackendMismatch => {
+            error_response(wf_api::ApiError::NotFound {
+                entity_type: "deploy-job".to_string(),
+                id,
+            })
             .into_response()
-    } else {
-        error_response(wf_api::ApiError::NotFound {
-            entity_type: "deploy-job".to_string(),
-            id,
-        })
-        .into_response()
+        }
     }
 }
 

@@ -336,7 +336,7 @@ pub async fn serve_api_with_config(
     let backends = backend_manager_for_config(&config.backends, registry).await?;
     #[cfg(feature = "backends")]
     if let Some(manager) = backends.as_ref() {
-        manager.start_background();
+        manager.start_background().await;
     }
     #[cfg(not(feature = "backends"))]
     let _ = &backends;
@@ -428,7 +428,7 @@ pub async fn serve_full_with_config(
     let backends = backend_manager_for_config(&config.backends, Arc::clone(&registry)).await?;
     #[cfg(feature = "backends")]
     if let Some(manager) = backends.as_ref() {
-        manager.start_background();
+        manager.start_background().await;
     }
     #[cfg(not(feature = "backends"))]
     let _ = &backends;

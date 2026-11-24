@@ -7562,6 +7562,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backends/{name}/deploy/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_system_backend_deploy_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backends/{name}/deploy/jobs/{id}": {
         parameters: {
             query?: never;
@@ -7879,6 +7895,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_system_debug_location"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/deploy-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_system_deploy_jobs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10724,6 +10756,8 @@ export interface components {
             data?: {
                 action: string;
                 backend: string;
+                /** @description Cancellation was requested for this job. */
+                cancel_requested: boolean;
                 current_step?: string | null;
                 /** Format: int64 */
                 finished_ms?: number | null;
@@ -10734,6 +10768,8 @@ export interface components {
                 steps?: components["schemas"]["DeployStepResultView"][];
                 /** Format: int64 */
                 submitted_ms: number;
+                /** @description Number of steps in the plan that the background task settled on. */
+                total_steps: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -11939,6 +11975,28 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_Vec_DeployJobView: {
+            data?: {
+                action: string;
+                backend: string;
+                /** @description Cancellation was requested for this job. */
+                cancel_requested: boolean;
+                current_step?: string | null;
+                /** Format: int64 */
+                finished_ms?: number | null;
+                job_id: string;
+                outcome?: null | components["schemas"]["DeployOutcomeView"];
+                /** @description `queued`, `running`, `succeeded`, `failed` or `interrupted`. */
+                status: string;
+                steps?: components["schemas"]["DeployStepResultView"][];
+                /** Format: int64 */
+                submitted_ms: number;
+                /** @description Number of steps in the plan that the background task settled on. */
+                total_steps: number;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Vec_ExecutionPathStatsDoc: {
             data?: {
                 edge_count: number;
@@ -12945,6 +13003,8 @@ export interface components {
         DeployJobView: {
             action: string;
             backend: string;
+            /** @description Cancellation was requested for this job. */
+            cancel_requested: boolean;
             current_step?: string | null;
             /** Format: int64 */
             finished_ms?: number | null;
@@ -12955,6 +13015,8 @@ export interface components {
             steps?: components["schemas"]["DeployStepResultView"][];
             /** Format: int64 */
             submitted_ms: number;
+            /** @description Number of steps in the plan that the background task settled on. */
+            total_steps: number;
         };
         /**
          * @description Result of one applied action, followed by a fresh probe so the caller
@@ -25711,9 +25773,13 @@ export interface operations {
     };
     handle_snapshot: {
         parameters: {
-            query?: never;
+            query?: {
+                leaf?: string;
+            };
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -25766,9 +25832,13 @@ export interface operations {
     };
     handle_delete_session: {
         parameters: {
-            query?: never;
+            query?: {
+                leaf?: string;
+            };
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -25823,7 +25893,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -25882,7 +25954,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -25939,9 +26013,13 @@ export interface operations {
     };
     handle_dirty: {
         parameters: {
-            query?: never;
+            query?: {
+                leaf?: string;
+            };
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -25996,7 +26074,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -26051,7 +26131,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26110,7 +26192,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -26165,7 +26250,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26224,7 +26312,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26283,7 +26374,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26342,7 +26436,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26401,7 +26498,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26460,7 +26560,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26519,7 +26622,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26578,7 +26684,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26637,7 +26746,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                node_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26694,9 +26806,13 @@ export interface operations {
     };
     handle_path: {
         parameters: {
-            query?: never;
+            query?: {
+                leaf?: string;
+            };
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -26751,7 +26867,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26810,7 +26928,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                job_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -26863,9 +26984,14 @@ export interface operations {
     };
     handle_stream: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Replay events strictly newer than this timestamp. */
+                since?: number;
+            };
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -26920,7 +27046,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -26979,7 +27107,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+                turn_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -53743,6 +53874,65 @@ export interface operations {
             };
         };
     };
+    list_system_backend_deploy_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deployment jobs for one backend, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_DeployJobView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_system_backend_deploy_job: {
         parameters: {
             query?: never;
@@ -55079,6 +55269,63 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_system_deploy_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deployment jobs across all backends, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_DeployJobView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Gateway timeout: upstream operation timed out */
             504: {

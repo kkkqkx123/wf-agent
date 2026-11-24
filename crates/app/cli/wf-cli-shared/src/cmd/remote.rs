@@ -15,10 +15,12 @@ use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
     apply_server_default_port, apply_server_deploy, collect_backend_candidates,
-    create_server_backend, export_server_backup, fetch_server_backends, fetch_server_backups,
-    fetch_server_sync_states, import_server_backends, load_registry, management_client,
-    plan_server_deploy, probe_backends, relink_server_backups, remove_server_backend,
-    reset_server_sync_state, restore_server_backup, start_server_tunnel, stop_server_tunnel,
+    cancel_server_deploy_job, create_server_backend, export_server_backup,
+    fetch_server_backends, fetch_server_backups, fetch_server_sync_states,
+    get_server_deploy_job, import_server_backends, list_server_deploy_jobs, load_registry,
+    management_client, plan_server_deploy, probe_backends, relink_server_backups,
+    remove_server_backend, reset_server_sync_state, restore_server_backup, start_server_tunnel,
+    stop_server_tunnel, submit_server_deploy,
     trigger_server_backup, update_server_backend, verify_server_backup, RemoteHost,
     ServerBackupRecord,
 };
@@ -305,6 +307,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             from,
             scope,
             apply,
+            no_wait,
             force,
         } => {
             let body = build_deploy_body(
@@ -318,12 +321,45 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 *force,
             )?;
             let client = management_client(cli);
-            let data = if *apply {
+            let kind = if *no_wait {
+                "remote-deploy-submitted"
+            } else if *apply {
+                "remote-deploy"
+            } else {
+                "remote-deploy-plan"
+            };
+            let data = if *no_wait {
+                submit_server_deploy(&client, name, &body).await?
+            } else if *apply {
                 apply_server_deploy(&client, name, &body).await?
             } else {
                 plan_server_deploy(&client, name, &body).await?
             };
-            render_envelope(cli.output, OutputEnvelope::success("remote-deploy", data))
+            render_envelope(cli.output, OutputEnvelope::success(kind, data))
+        }
+        RemoteSub::DeployJobs { name } => {
+            let client = management_client(cli);
+            let data = list_server_deploy_jobs(&client, name.as_deref()).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-deploy-jobs", data),
+            )
+        }
+        RemoteSub::DeployJob { name, job_id } => {
+            let client = management_client(cli);
+            let data = get_server_deploy_job(&client, name, job_id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-deploy-job", data),
+            )
+        }
+        RemoteSub::DeployJobCancel { name, job_id } => {
+            let client = management_client(cli);
+            let data = cancel_server_deploy_job(&client, name, job_id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("remote-deploy-job-cancel", data),
+            )
         }
         RemoteSub::DeployInit { dir, scope, force } => {
             let written = init_deploy_source(std::path::Path::new(dir), scope, *force)?;

@@ -462,8 +462,12 @@ pub struct DeployJobView {
     pub action: String,
     /// `queued`, `running`, `succeeded`, `failed` or `interrupted`.
     pub status: String,
+    /// Number of steps in the plan that the background task settled on.
+    pub total_steps: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_step: Option<String>,
+    /// Cancellation was requested for this job.
+    pub cancel_requested: bool,
     #[serde(default)]
     pub steps: Vec<DeployStepResultView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -471,6 +475,36 @@ pub struct DeployJobView {
     pub submitted_ms: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_ms: Option<i64>,
+}
+
+/// One step transition reported by `apply` to the job owner.
+#[derive(Debug, Clone)]
+pub struct DeployStepProgress {
+    pub step_id: String,
+    /// `running` before the command starts, `done` after it settles.
+    pub state: &'static str,
+    pub total_steps: usize,
+    pub result: Option<DeployStepResultView>,
+}
+
+impl DeployStepProgress {
+    fn running(step_id: &str, total_steps: usize) -> Self {
+        Self {
+            step_id: step_id.to_string(),
+            state: "running",
+            total_steps,
+            result: None,
+        }
+    }
+
+    fn done(result: DeployStepResultView, total_steps: usize) -> Self {
+        Self {
+            step_id: result.id.clone(),
+            state: "done",
+            total_steps,
+            result: Some(result),
+        }
+    }
 }
 
 /// One finished remote command.
@@ -589,8 +623,9 @@ impl<'a> DeployChannel<'a> {
 
     /// Run one remote command, optionally feeding stdin.
     ///
-    /// `kill_on_drop` plus the outer timeout bound every call, so a wedged
-    /// remote command cannot pin an HTTP handler indefinitely.
+    /// `kill_on_drop` plus one timeout around the payload write and the
+    /// command wait bounds every call, including a host that never reads
+    /// the uploaded binary.
     pub(crate) async fn run(
         &self,
         command: &str,
@@ -614,23 +649,30 @@ impl<'a> DeployChannel<'a> {
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("cannot start ssh for backend '{}': {e}", self.entry.host))?;
-        if let Some(bytes) = stdin {
-            if let Some(mut pipe) = child.stdin.take() {
-                pipe.write_all(&bytes)
-                    .await
-                    .map_err(|e| format!("cannot write deployment payload: {e}"))?;
-                pipe.shutdown().await.ok();
+        let command = async {
+            if let Some(bytes) = stdin {
+                if let Some(mut pipe) = child.stdin.take() {
+                    pipe.write_all(&bytes)
+                        .await
+                        .map_err(|e| format!("cannot write deployment payload: {e}"))?;
+                    pipe.shutdown()
+                        .await
+                        .map_err(|e| format!("cannot close deployment payload: {e}"))?;
+                }
             }
-        }
-        let waited = tokio::time::timeout(self.timeout, child.wait_with_output()).await;
-        match waited {
+            child
+                .wait_with_output()
+                .await
+                .map_err(|e| format!("ssh command failed: {e}"))
+        };
+        match tokio::time::timeout(self.timeout, command).await {
             Ok(Ok(output)) => Ok(ExecOutput {
                 status: output.status.code(),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                 timed_out: false,
             }),
-            Ok(Err(e)) => Err(format!("ssh command failed: {e}")),
+            Ok(Err(e)) => Err(e),
             Err(_) => Ok(ExecOutput {
                 status: None,
                 stdout: String::new(),
@@ -1868,6 +1910,33 @@ async fn run_step(
     }
 }
 
+/// Build the one terminal shape used when an operator or shutdown stops a
+/// job. Every interrupt carries a fresh probe so the view never hides a
+/// half-applied remote change.
+fn interrupted_outcome(
+    backend: &str,
+    action: DeployAction,
+    root: &str,
+    version: Option<String>,
+    steps: Vec<DeployStepResultView>,
+    probe: Option<DeployProbeView>,
+    error: &str,
+) -> DeployOutcomeView {
+    DeployOutcomeView {
+        backend: backend.to_string(),
+        action: action.as_str().to_string(),
+        ok: false,
+        install_root: root.to_string(),
+        version,
+        steps,
+        error: Some(error.to_string()),
+        probe,
+        finished_ms: wf_common::epoch_ms(),
+        status: Some("interrupted".to_string()),
+        ..DeployOutcomeView::default()
+    }
+}
+
 /// Apply one action and re-probe at the end.
 ///
 /// The step list is recomputed here rather than taken from a previous plan
@@ -1880,13 +1949,36 @@ pub async fn apply(
     request: &DeployRequest,
     local_port: u16,
     cancel: &CancellationToken,
-    mut on_progress: impl FnMut(DeployStepResultView),
+    mut on_progress: impl FnMut(DeployStepProgress),
 ) -> Result<DeployOutcomeView, String> {
     let action = request.parsed_action()?;
     let root = normalize_install_root(&settings.install_root)?;
     let layout = Layout::new(&root);
     let port = entry.effective_server_port();
+    if cancel.is_cancelled() {
+        return Ok(interrupted_outcome(
+            backend,
+            action,
+            &root,
+            None,
+            Vec::new(),
+            Some(probe(backend, entry, settings, local_port).await),
+            "deployment interrupted",
+        ));
+    }
     let planned = plan(backend, entry, settings, request, local_port).await?;
+    let total_steps = planned.steps.len();
+    if cancel.is_cancelled() {
+        return Ok(interrupted_outcome(
+            backend,
+            action,
+            &root,
+            None,
+            Vec::new(),
+            Some(probe(backend, entry, settings, local_port).await),
+            "deployment interrupted",
+        ));
+    }
     if let Some(reason) = planned.blocked.clone() {
         return Ok(DeployOutcomeView {
             backend: backend.to_string(),
@@ -1925,44 +2017,40 @@ pub async fn apply(
     // Every branch runs its steps in plan order and stops at the first
     // failure, so `steps` read as the prefix that succeeded. A cancellation
     // is checked before each step and races each step, so it converges to an
-    // `interrupted` outcome rather than a `failed` one. Each completed step
-    // is reported through `on_progress` for the background job view.
+    // `interrupted` outcome rather than a `failed` one. Progress reports the
+    // in-flight step before it starts and its result after it settles.
     macro_rules! push_step {
         ($step:expr, $stdin:expr) => {{
+            let step = &$step;
+            on_progress(DeployStepProgress::running(&step.id, total_steps));
             if cancel.is_cancelled() {
-                return Ok(DeployOutcomeView {
-                    backend: backend.to_string(),
-                    action: action.as_str().to_string(),
-                    ok: false,
-                    install_root: root,
+                return Ok(interrupted_outcome(
+                    backend,
+                    action,
+                    &root,
                     version,
-                    steps: results,
-                    error: Some("deployment interrupted".to_string()),
-                    finished_ms: wf_common::epoch_ms(),
-                    status: Some("interrupted".to_string()),
-                    ..DeployOutcomeView::default()
-                });
+                    results,
+                    Some(probe(backend, entry, settings, local_port).await),
+                    "deployment interrupted",
+                ));
             }
             let result = tokio::select! {
                 _ = cancel.cancelled() => {
-                    return Ok(DeployOutcomeView {
-                        backend: backend.to_string(),
-                        action: action.as_str().to_string(),
-                        ok: false,
-                        install_root: root,
+                    return Ok(interrupted_outcome(
+                        backend,
+                        action,
+                        &root,
                         version,
-                        steps: results,
-                        error: Some("deployment interrupted".to_string()),
-                        finished_ms: wf_common::epoch_ms(),
-                        status: Some("interrupted".to_string()),
-                        ..DeployOutcomeView::default()
-                    });
+                        results,
+                        Some(probe(backend, entry, settings, local_port).await),
+                        "deployment interrupted",
+                    ));
                 }
-                result = run_step(&channel, &$step, $stdin) => result,
+                result = run_step(&channel, step, $stdin) => result,
             };
             let ok = result.ok;
             results.push(result.clone());
-            on_progress(result);
+            on_progress(DeployStepProgress::done(result, total_steps));
             if !ok {
                 return Ok(DeployOutcomeView {
                     backend: backend.to_string(),
@@ -1996,6 +2084,17 @@ pub async fn apply(
         // Step 2 activates and prints the version it settled on.
         let activate = steps[2].clone();
         push_step!(activate, None);
+        if cancel.is_cancelled() {
+            return Ok(interrupted_outcome(
+                backend,
+                action,
+                &root,
+                version,
+                results,
+                Some(probe(backend, entry, settings, local_port).await),
+                "deployment interrupted",
+            ));
+        }
         version = probe(backend, entry, settings, local_port)
             .await
             .installation
@@ -2058,11 +2157,33 @@ pub async fn apply(
         }
     }
 
+    if cancel.is_cancelled() {
+        return Ok(interrupted_outcome(
+            backend,
+            action,
+            &root,
+            version,
+            results,
+            Some(probe(backend, entry, settings, local_port).await),
+            "deployment interrupted",
+        ));
+    }
     if version.is_none() {
         version = probe(backend, entry, settings, local_port)
             .await
             .installation
             .and_then(|i| i.version.clone());
+    }
+    if cancel.is_cancelled() {
+        return Ok(interrupted_outcome(
+            backend,
+            action,
+            &root,
+            version,
+            results,
+            Some(probe(backend, entry, settings, local_port).await),
+            "deployment interrupted",
+        ));
     }
     Ok(DeployOutcomeView {
         backend: backend.to_string(),

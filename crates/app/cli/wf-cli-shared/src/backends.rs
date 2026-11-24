@@ -691,6 +691,77 @@ pub async fn plan_server_deploy(
 const DEPLOY_JOB_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 const DEPLOY_JOB_MAX_POLLS: u32 = 1800;
 
+/// Submit a deployment job without waiting for its terminal state.
+pub async fn submit_server_deploy(
+    client: &wf_client::WfClient,
+    name: &str,
+    body: &serde_json::Value,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json(&format!("/api/v1/system/backends/{name}/deploy"), body)
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+/// List deployment jobs for one backend, or every backend when no name is
+/// given.
+pub async fn list_server_deploy_jobs(
+    client: &wf_client::WfClient,
+    name: Option<&str>,
+) -> CliResult<serde_json::Value> {
+    let path = match name {
+        Some(name) => format!("/api/v1/system/backends/{name}/deploy/jobs"),
+        None => "/api/v1/system/deploy-jobs".to_string(),
+    };
+    let result: wf_client::ClientResult<serde_json::Value> = client.get_json(&path).await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+/// Read one deployment job, including its step prefix and outcome.
+pub async fn get_server_deploy_job(
+    client: &wf_client::WfClient,
+    name: &str,
+    job_id: &str,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .get_json(&format!(
+            "/api/v1/system/backends/{name}/deploy/jobs/{job_id}"
+        ))
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
+/// Ask the management server to cancel one live deployment job.
+pub async fn cancel_server_deploy_job(
+    client: &wf_client::WfClient,
+    name: &str,
+    job_id: &str,
+) -> CliResult<serde_json::Value> {
+    let result: wf_client::ClientResult<serde_json::Value> = client
+        .post_json(
+            &format!("/api/v1/system/backends/{name}/deploy/jobs/{job_id}/cancel"),
+            &serde_json::Value::Null,
+        )
+        .await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
 /// Submit a deployment job and wait for its terminal state. The server runs
 /// the job in the background; the CLI only polls and renders the outcome, so
 /// the synchronous `--apply` user experience is preserved without holding a
@@ -700,16 +771,7 @@ pub async fn apply_server_deploy(
     name: &str,
     body: &serde_json::Value,
 ) -> CliResult<serde_json::Value> {
-    let submitted: wf_client::ClientResult<serde_json::Value> = client
-        .post_json(&format!("/api/v1/system/backends/{name}/deploy"), body)
-        .await;
-    let job = match submitted {
-        Ok(data) => data,
-        Err(e) if is_fallback_error(&e) => {
-            return Err(CliError::Unavailable(server_unavailable_hint()));
-        }
-        Err(e) => return Err(CliError::from(e)),
-    };
+    let job = submit_server_deploy(client, name, body).await?;
     let job_id = job
         .get("job_id")
         .and_then(|v| v.as_str())
@@ -717,24 +779,17 @@ pub async fn apply_server_deploy(
         .to_string();
 
     for _ in 0..DEPLOY_JOB_MAX_POLLS {
-        let polled: wf_client::ClientResult<serde_json::Value> = client
-            .get_json(&format!(
-                "/api/v1/system/backends/{name}/deploy/jobs/{job_id}"
-            ))
-            .await;
-        let view = match polled {
-            Ok(data) => data,
-            Err(e) if is_fallback_error(&e) => {
-                return Err(CliError::Unavailable(server_unavailable_hint()));
-            }
-            Err(e) => return Err(CliError::from(e)),
-        };
+        let view = get_server_deploy_job(client, name, &job_id).await?;
         let status = view.get("status").and_then(|v| v.as_str()).unwrap_or("");
         if matches!(status, "succeeded" | "failed" | "interrupted") {
-            if let Some(outcome) = view.get("outcome") {
-                return Ok(outcome.clone());
+            if let Some(outcome) = view.get("outcome").cloned() {
+                return Ok(outcome);
             }
-            return Ok(view);
+            let mut outcome = view;
+            if let Some(object) = outcome.as_object_mut() {
+                object.insert("job_id".to_string(), serde_json::json!(job_id));
+            }
+            return Ok(outcome);
         }
         tokio::time::sleep(DEPLOY_JOB_POLL_INTERVAL).await;
     }

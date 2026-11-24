@@ -189,9 +189,36 @@ pub enum RemoteSub {
         /// Execute the plan instead of only printing it.
         #[arg(long)]
         apply: bool,
+        /// Return the job immediately instead of waiting for a terminal state.
+        #[arg(long)]
+        no_wait: bool,
         /// Allow a plan whose version or platform check reported blocked.
         #[arg(long)]
         force: bool,
+    },
+    /// List deployment jobs for one backend or across all backends.
+    DeployJobs {
+        /// Optional registered host name.
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+    },
+    /// Read one deployment job, including its steps and outcome.
+    DeployJob {
+        /// Registered host name.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Deployment job id.
+        #[arg(value_name = "JOB_ID")]
+        job_id: String,
+    },
+    /// Cancel one live deployment job.
+    DeployJobCancel {
+        /// Registered host name.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Deployment job id.
+        #[arg(value_name = "JOB_ID")]
+        job_id: String,
     },
     /// Create a local deploy source tree that can be edited before use.
     /// `config` produces only `server/*.toml`; `full` also creates scripts.

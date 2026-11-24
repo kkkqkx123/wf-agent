@@ -11,11 +11,13 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
+use super::deploy::DeployJobView;
 use super::types::{BackendEntry, BackupRecordView, SyncStateView};
 
 const REGISTRY_TABLE: &str = "wf_backends";
 const BACKUP_TABLE: &str = "wf_backup_index";
 const SYNC_STATE_TABLE: &str = "wf_sync_state";
+const DEPLOY_JOB_TABLE: &str = "wf_deploy_jobs";
 
 /// Stored registry row: the whole entry as JSON plus an update timestamp.
 /// Host names are the unique key; writes only flow through the manager so
@@ -38,6 +40,7 @@ pub struct MemoryBackendStore {
     rows: DashMap<String, StoredRow>,
     backups: DashMap<String, BackupRecordView>,
     sync_states: DashMap<(String, String), SyncStateView>,
+    deploy_jobs: DashMap<String, DeployJobView>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,11 +136,11 @@ impl BackendStore {
         Self::Memory(Arc::new(MemoryBackendStore::default()))
     }
 
-    /// Open a sqlite-backed store, creating both tables when missing.
+    /// Open a sqlite-backed store, creating all tables when missing.
     /// A present but corrupt database fails loud so a broken registry
     /// cannot masquerade as an empty one.
     pub async fn new_sqlite(pool: sqlx::SqlitePool) -> Result<Self, String> {
-        for table in [REGISTRY_TABLE, BACKUP_TABLE, SYNC_STATE_TABLE] {
+        for table in [REGISTRY_TABLE, BACKUP_TABLE, SYNC_STATE_TABLE, DEPLOY_JOB_TABLE] {
             let create = if table == REGISTRY_TABLE {
                 format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
@@ -161,7 +164,7 @@ impl BackendStore {
                         payload_digest TEXT NOT NULL
                     )"
                 )
-            } else {
+            } else if table == SYNC_STATE_TABLE {
                 format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
                         backend TEXT NOT NULL,
@@ -176,6 +179,16 @@ impl BackendStore {
                         local_status TEXT NOT NULL DEFAULT 'unverified',
                         error TEXT,
                         PRIMARY KEY (backend, execution)
+                    )"
+                )
+            } else {
+                format!(
+                    "CREATE TABLE IF NOT EXISTS {table} (
+                        job_id TEXT PRIMARY KEY,
+                        backend TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        submitted_ms INTEGER NOT NULL,
+                        view_json TEXT NOT NULL
                     )"
                 )
             };
@@ -227,6 +240,13 @@ impl BackendStore {
         .execute(&pool)
         .await
         .map_err(|e| format!("cannot init sync state index: {e}"))?;
+        sqlx::query(&format!(
+            "CREATE INDEX IF NOT EXISTS idx_{DEPLOY_JOB_TABLE}_backend
+             ON {DEPLOY_JOB_TABLE} (backend, submitted_ms DESC)"
+        ))
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("cannot init deploy job index: {e}"))?;
         Ok(Self::Sqlite(Arc::new(SqliteBackendStore { pool })))
     }
 
@@ -352,6 +372,104 @@ impl BackendStore {
                 Ok(result.rows_affected() > 0)
             }
         }
+    }
+
+    pub async fn put_deploy_job(&self, job: &DeployJobView) -> Result<(), String> {
+        let raw = serde_json::to_string(job)
+            .map_err(|e| format!("cannot encode deploy job '{}': {e}", job.job_id))?;
+        match self {
+            Self::Memory(inner) => {
+                inner.deploy_jobs.insert(job.job_id.clone(), job.clone());
+                Ok(())
+            }
+            Self::Sqlite(inner) => {
+                sqlx::query(&format!(
+                    "INSERT INTO {DEPLOY_JOB_TABLE} (job_id, backend, status, submitted_ms, view_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(job_id) DO UPDATE SET backend = excluded.backend,
+                       status = excluded.status, submitted_ms = excluded.submitted_ms,
+                       view_json = excluded.view_json"
+                ))
+                .bind(&job.job_id)
+                .bind(&job.backend)
+                .bind(&job.status)
+                .bind(job.submitted_ms)
+                .bind(&raw)
+                .execute(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot write deploy job '{}': {e}", job.job_id))?;
+                Ok(())
+            }
+        }
+    }
+
+    pub async fn get_deploy_job(&self, id: &str) -> Result<Option<DeployJobView>, String> {
+        match self {
+            Self::Memory(inner) => Ok(inner.deploy_jobs.get(id).map(|row| row.value().clone())),
+            Self::Sqlite(inner) => {
+                let row: Option<(String,)> = sqlx::query_as(&format!(
+                    "SELECT view_json FROM {DEPLOY_JOB_TABLE} WHERE job_id = ?1"
+                ))
+                .bind(id)
+                .fetch_optional(&inner.pool)
+                .await
+                .map_err(|e| format!("cannot read deploy job '{id}': {e}"))?;
+                match row {
+                    None => Ok(None),
+                    Some((raw,)) => {
+                        let job = serde_json::from_str::<DeployJobView>(&raw)
+                            .map_err(|e| format!("invalid deploy job row '{id}': {e}"))?;
+                        Ok(Some(job))
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn list_deploy_jobs(
+        &self,
+        backend: Option<&str>,
+    ) -> Result<Vec<DeployJobView>, String> {
+        let mut jobs = match self {
+            Self::Memory(inner) => inner
+                .deploy_jobs
+                .iter()
+                .map(|row| row.value().clone())
+                .collect::<Vec<_>>(),
+            Self::Sqlite(inner) => {
+                let rows: Vec<(String,)> = if let Some(backend) = backend {
+                    sqlx::query_as(&format!(
+                        "SELECT view_json FROM {DEPLOY_JOB_TABLE} WHERE backend = ?1 ORDER BY submitted_ms DESC"
+                    ))
+                    .bind(backend)
+                    .fetch_all(&inner.pool)
+                    .await
+                    .map_err(|e| format!("cannot list deploy jobs: {e}"))?
+                } else {
+                    sqlx::query_as(&format!(
+                        "SELECT view_json FROM {DEPLOY_JOB_TABLE} ORDER BY submitted_ms DESC"
+                    ))
+                    .fetch_all(&inner.pool)
+                    .await
+                    .map_err(|e| format!("cannot list deploy jobs: {e}"))?
+                };
+                let mut jobs = Vec::with_capacity(rows.len());
+                for (raw,) in rows {
+                    jobs.push(
+                        serde_json::from_str::<DeployJobView>(&raw)
+                            .map_err(|e| format!("invalid deploy job row: {e}"))?,
+                    );
+                }
+                jobs
+            }
+        };
+        if matches!(self, Self::Memory(_)) {
+            if let Some(backend) = backend {
+                jobs.retain(|job| job.backend == backend);
+            }
+            jobs.sort_by_key(|job| std::cmp::Reverse(job.submitted_ms));
+        }
+        Ok(jobs)
     }
 
     pub async fn record_backup(&self, record: &BackupRecordView) -> Result<(), String> {
@@ -737,6 +855,32 @@ mod tests {
         let listed = store.list_backups(Some("alpha")).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert!(store.remove_backup("backup-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn deploy_job_round_trip_and_backend_filter() {
+        let store = BackendStore::new_memory();
+        let base = DeployJobView {
+            job_id: "deploy-1".to_string(),
+            backend: "alpha".to_string(),
+            action: "upgrade".to_string(),
+            status: "succeeded".to_string(),
+            total_steps: 3,
+            current_step: None,
+            cancel_requested: false,
+            steps: Vec::new(),
+            outcome: None,
+            submitted_ms: 10,
+            finished_ms: Some(20),
+        };
+        let mut other = base.clone();
+        other.job_id = "deploy-2".to_string();
+        other.backend = "beta".to_string();
+        store.put_deploy_job(&base).await.unwrap();
+        store.put_deploy_job(&other).await.unwrap();
+        assert_eq!(store.get_deploy_job("deploy-1").await.unwrap().unwrap().total_steps, 3);
+        assert_eq!(store.list_deploy_jobs(Some("alpha")).await.unwrap().len(), 1);
+        assert_eq!(store.list_deploy_jobs(None).await.unwrap().len(), 2);
     }
 
     #[tokio::test]

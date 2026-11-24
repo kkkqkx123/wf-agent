@@ -10793,6 +10793,24 @@
           "chat"
         ],
         "operationId": "handle_snapshot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "leaf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Tree snapshot",
@@ -10822,7 +10840,13 @@
           {
             "api_key": []
           }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_delete_session",
         "parameters": [
           {
             "name": "id",
@@ -10840,13 +10864,7 @@
               "type": "string"
             }
           }
-        ]
-      },
-      "delete": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_delete_session",
         "responses": {
           "200": {
             "description": "Session deleted",
@@ -10876,24 +10894,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "leaf",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -10903,6 +10903,16 @@
           "chat"
         ],
         "operationId": "handle_attach",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10942,16 +10952,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -10961,6 +10961,16 @@
           "chat"
         ],
         "operationId": "handle_detach",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11000,16 +11010,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -11019,6 +11019,24 @@
           "chat"
         ],
         "operationId": "handle_dirty",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "leaf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Stale answers of one path",
@@ -11048,24 +11066,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "leaf",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -11075,6 +11075,16 @@
           "chat"
         ],
         "operationId": "handle_grafts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Graft pool",
@@ -11104,16 +11114,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -11123,6 +11123,16 @@
           "chat"
         ],
         "operationId": "handle_set_leaf",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11162,16 +11172,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -11181,6 +11181,24 @@
           "chat"
         ],
         "operationId": "handle_delete_node",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Subtree soft-deleted",
@@ -11210,7 +11228,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/acknowledge": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_acknowledge",
         "parameters": [
           {
             "name": "id",
@@ -11228,15 +11254,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/acknowledge": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_acknowledge",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11276,7 +11294,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/content": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_write_content",
         "parameters": [
           {
             "name": "id",
@@ -11294,15 +11320,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/content": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_write_content",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11342,7 +11360,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/edit": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_edit_branch",
         "parameters": [
           {
             "name": "id",
@@ -11360,15 +11386,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/edit": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_edit_branch",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11408,7 +11426,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/insert-before": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_insert_before",
         "parameters": [
           {
             "name": "id",
@@ -11426,15 +11452,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/insert-before": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_insert_before",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11474,7 +11492,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reparent": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_reparent",
         "parameters": [
           {
             "name": "id",
@@ -11492,15 +11518,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reparent": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_reparent",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11540,7 +11558,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_write_reply",
         "parameters": [
           {
             "name": "id",
@@ -11558,15 +11584,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_write_reply",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11606,7 +11624,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/discard": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_discard_reply",
         "parameters": [
           {
             "name": "id",
@@ -11624,15 +11650,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/discard": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_discard_reply",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11672,7 +11690,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/restore": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_restore_reply",
         "parameters": [
           {
             "name": "id",
@@ -11690,15 +11716,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/reply/restore": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_restore_reply",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11738,7 +11756,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/nodes/{node_id}/splice": {
+      "post": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_splice",
         "parameters": [
           {
             "name": "id",
@@ -11756,15 +11782,7 @@
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/nodes/{node_id}/splice": {
-      "post": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_splice",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11804,7 +11822,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/path": {
+      "get": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_path",
         "parameters": [
           {
             "name": "id",
@@ -11815,22 +11841,14 @@
             }
           },
           {
-            "name": "node_id",
-            "in": "path",
-            "required": true,
+            "name": "leaf",
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "string"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/path": {
-      "get": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_path",
         "responses": {
           "200": {
             "description": "Projected path",
@@ -11860,24 +11878,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "leaf",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -11887,6 +11887,16 @@
           "chat"
         ],
         "operationId": "handle_step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11926,16 +11936,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -11945,6 +11945,24 @@
           "chat"
         ],
         "operationId": "handle_cancel_step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Cancellation result",
@@ -11974,7 +11992,15 @@
           {
             "api_key": []
           }
+        ]
+      }
+    },
+    "/api/v1/chat/sessions/{id}/stream": {
+      "get": {
+        "tags": [
+          "chat"
         ],
+        "operationId": "handle_stream",
         "parameters": [
           {
             "name": "id",
@@ -11985,22 +12011,16 @@
             }
           },
           {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
+            "name": "since",
+            "in": "query",
+            "description": "Replay events strictly newer than this timestamp.",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
-        ]
-      }
-    },
-    "/api/v1/chat/sessions/{id}/stream": {
-      "get": {
-        "tags": [
-          "chat"
         ],
-        "operationId": "handle_stream",
         "responses": {
           "200": {
             "description": "Session event stream",
@@ -12028,26 +12048,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "since",
-            "in": "query",
-            "description": "Replay events strictly newer than this timestamp.",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
         ]
       }
     },
@@ -12057,6 +12057,16 @@
           "chat"
         ],
         "operationId": "handle_submit_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -12096,16 +12106,6 @@
           {
             "api_key": []
           }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
         ]
       }
     },
@@ -12115,6 +12115,24 @@
           "chat"
         ],
         "operationId": "handle_cancel_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Cancellation result",
@@ -12143,24 +12161,6 @@
         "security": [
           {
             "api_key": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "turn_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ]
       }
@@ -38030,6 +38030,63 @@
         ]
       }
     },
+    "/api/v1/system/backends/{name}/deploy/jobs": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_system_backend_deploy_jobs",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment jobs for one backend, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_DeployJobView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/backends/{name}/deploy/jobs/{id}": {
       "get": {
         "tags": [
@@ -39261,6 +39318,53 @@
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/deploy-jobs": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_system_deploy_jobs",
+        "responses": {
+          "200": {
+            "description": "Deployment jobs across all backends, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_DeployJobView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "504": {
             "description": "Gateway timeout: upstream operation timed out"
@@ -54041,6 +54145,8 @@
               "backend",
               "action",
               "status",
+              "total_steps",
+              "cancel_requested",
               "submitted_ms"
             ],
             "properties": {
@@ -54049,6 +54155,10 @@
               },
               "backend": {
                 "type": "string"
+              },
+              "cancel_requested": {
+                "type": "boolean",
+                "description": "Cancellation was requested for this job."
               },
               "current_step": {
                 "type": [
@@ -54089,6 +54199,11 @@
               "submitted_ms": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "total_steps": {
+                "type": "integer",
+                "description": "Number of steps in the plan that the background task settled on.",
+                "minimum": 0
               }
             }
           },
@@ -58577,6 +58692,100 @@
           }
         }
       },
+      "ApiEnvelope_Vec_DeployJobView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Status of one background deployment job.",
+              "required": [
+                "job_id",
+                "backend",
+                "action",
+                "status",
+                "total_steps",
+                "cancel_requested",
+                "submitted_ms"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "backend": {
+                  "type": "string"
+                },
+                "cancel_requested": {
+                  "type": "boolean",
+                  "description": "Cancellation was requested for this job."
+                },
+                "current_step": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finished_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "job_id": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DeployOutcomeView"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "description": "`queued`, `running`, `succeeded`, `failed` or `interrupted`."
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DeployStepResultView"
+                  }
+                },
+                "submitted_ms": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "total_steps": {
+                  "type": "integer",
+                  "description": "Number of steps in the plan that the background task settled on.",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Vec_ExecutionPathStatsDoc": {
         "type": "object",
         "required": [
@@ -61727,6 +61936,8 @@
           "backend",
           "action",
           "status",
+          "total_steps",
+          "cancel_requested",
           "submitted_ms"
         ],
         "properties": {
@@ -61735,6 +61946,10 @@
           },
           "backend": {
             "type": "string"
+          },
+          "cancel_requested": {
+            "type": "boolean",
+            "description": "Cancellation was requested for this job."
           },
           "current_step": {
             "type": [
@@ -61775,6 +61990,11 @@
           "submitted_ms": {
             "type": "integer",
             "format": "int64"
+          },
+          "total_steps": {
+            "type": "integer",
+            "description": "Number of steps in the plan that the background task settled on.",
+            "minimum": 0
           }
         }
       },

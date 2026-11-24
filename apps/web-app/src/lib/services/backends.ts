@@ -173,7 +173,9 @@ export interface DeployJob {
 	backend: string;
 	action: string;
 	status: DeployJobStatus;
+	totalSteps: number;
 	currentStep: string | null;
+	cancelRequested: boolean;
 	steps: DeployStepResult[];
 	outcome: DeployOutcome | null;
 	submittedMs: number;
@@ -268,7 +270,9 @@ function toJob(view: DeployJobView): DeployJob {
 		backend: view.backend,
 		action: view.action,
 		status: view.status as DeployJobStatus,
+		totalSteps: view.total_steps,
 		currentStep: view.current_step ?? null,
+		cancelRequested: view.cancel_requested,
 		steps: (view.steps ?? []).map((step) => ({
 			id: step.id,
 			ok: step.ok,
@@ -325,6 +329,16 @@ export async function getBackendDeployJob(name: string, jobId: string): Promise<
 		}),
 	);
 	return toJob(view);
+}
+
+/** List deployment jobs for one backend, newest first. */
+export async function listBackendDeployJobs(name: string): Promise<DeployJob[]> {
+	const view = await call<DeployJobView[]>(
+		client.GET('/api/v1/system/backends/{name}/deploy/jobs', {
+			params: { path: { name } },
+		}),
+	);
+	return view.map(toJob);
 }
 
 /** Ask the server to cancel a live deployment job. */

@@ -7,7 +7,9 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import {
 		applyBackendDeploy,
+		cancelBackendDeployJob,
 		fetchDeploySources,
+		listBackendDeployJobs,
 		listBackends,
 		planBackendDeploy,
 		probeBackendDeploy,
@@ -67,6 +69,7 @@
 	let outcome = $state<DeployOutcome | null>(null);
 	let probe = $state<DeployProbe | null>(null);
 	let deployJob = $state<DeployJob | null>(null);
+	let jobs = $state<DeployJob[]>([]);
 
 	const actionOptions = $derived(
 		ACTIONS.map((value) => ({ value, label: ACTION_LABEL[value] })),
@@ -113,6 +116,30 @@
 		return e instanceof Error ? e.message : String(e);
 	}
 
+	async function refreshJobs(): Promise<void> {
+		if (!selected) {
+			jobs = [];
+			return;
+		}
+		try {
+			jobs = await listBackendDeployJobs(selected);
+		} catch {
+			jobs = [];
+		}
+	}
+
+	async function cancelJob(job: DeployJob): Promise<void> {
+		if (!selected || job.cancelRequested) return;
+		try {
+			await cancelBackendDeployJob(selected, job.jobId);
+			job.cancelRequested = true;
+			if (deployJob?.jobId === job.jobId) deployJob.status = 'interrupted';
+			await refreshJobs();
+		} catch (e) {
+			toasts.error(describeFailure(e));
+		}
+	}
+
 	async function load(): Promise<void> {
 		loading = true;
 		error = null;
@@ -127,6 +154,7 @@
 					// no deploy status route and simply yields no choices.
 					sources = [];
 				}
+				await refreshJobs();
 			}
 		} catch (e) {
 			error = describeFailure(e);
@@ -169,6 +197,7 @@
 			outcome = await applyBackendDeploy(selected, buildPayload(), (job) => {
 				deployJob = job;
 			});
+			await refreshJobs();
 			if (outcome.ok) {
 				toasts.success(t('page.settings.remoteApplied'));
 			} else {
@@ -213,6 +242,7 @@
 						void fetchDeploySources(value)
 							.then((found) => (sources = found))
 							.catch(() => (sources = []));
+						void refreshJobs();
 					}}
 				/>
 				<Select
@@ -395,11 +425,46 @@
 						{t('page.settings.remoteJobProgress', {
 							step: deployJob.currentStep ?? '—',
 							done: deployJob.steps.length,
-							total: deployJob.steps.length + (deployJob.currentStep ? 1 : 0),
+							total: deployJob.totalSteps || deployJob.steps.length,
 						})}
 					</p>
 					<p class="text-micro text-muted-foreground font-mono">{deployJob.jobId}</p>
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={deployJob.cancelRequested}
+						onclick={() => deployJob && void cancelJob(deployJob)}
+					>
+						{t('page.settings.remoteCancelJob')}
+					</Button>
 				</div>
+			{/if}
+
+			{#if jobs.length > 0}
+				<div class="space-y-1 rounded-md border border-border p-3">
+					<p class="text-small font-medium">{t('page.settings.remoteJobs')}</p>
+					{#each jobs as job (job.jobId)}
+						<div class="flex flex-wrap items-center gap-2 text-small">
+							<span class="font-mono">{job.jobId}</span>
+							<span>{job.action}</span>
+							<span class:text-destructive={job.status === 'failed' || job.status === 'interrupted'}>
+								{job.status}
+							</span>
+							{#if job.status === 'queued' || job.status === 'running'}
+								<Button
+									size="sm"
+									variant="ghost"
+									disabled={job.cancelRequested}
+									onclick={() => void cancelJob(job)}
+								>
+									{t('page.settings.remoteCancelJob')}
+								</Button>
+							{/if}
+						</div>
+						{/each}
+					</div>
+			{:else}
+				<p class="text-small text-muted-foreground">{t('page.settings.remoteNoJobs')}</p>
 			{/if}
 
 			{#if outcome}

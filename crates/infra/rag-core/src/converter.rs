@@ -1,6 +1,7 @@
 //! Document conversion: built-in light formats plus the external port.
 //!
-//! Built-in converters stay dependency-free and deterministic. Heavy
+//! Built-in converters stay dependency-free and deterministic. Structured
+//! web pages are converted by the host before they reach this crate. Heavy
 //! formats (PDF layout, formulas, tables, scanned pages) go through the
 //! [`DocumentConverter`] port, implemented by external services such as
 //! minerU over HTTP, MCP or plugins. Ingest normalizes every converter
@@ -143,60 +144,6 @@ fn collect_strings(value: &serde_json::Value, parts: &mut Vec<String>) {
     }
 }
 
-/// HTML converter: strips tags, scripts, styles and comments, decodes
-/// common entities and lifts the title element into metadata.
-pub struct HtmlConverter;
-
-#[async_trait]
-impl DocumentConverter for HtmlConverter {
-    fn name(&self) -> &'static str {
-        "html"
-    }
-
-    fn extensions(&self) -> &[&str] {
-        &["html", "htm"]
-    }
-
-    async fn convert(&self, _filename: &str, bytes: &[u8]) -> Result<ConvertedDocument> {
-        let raw = String::from_utf8_lossy(bytes).to_string();
-        let title = extract_title(&raw);
-        let mut text = raw;
-        for tag in ["script", "style"] {
-            text = strip_block(&text, tag);
-        }
-        text = strip_comments(&text);
-        let mut plain = String::with_capacity(text.len());
-        let mut inside = false;
-        for ch in text.chars() {
-            match ch {
-                '<' => {
-                    inside = true;
-                    plain.push('\n');
-                }
-                '>' => inside = false,
-                _ if !inside => plain.push(ch),
-                _ => {}
-            }
-        }
-        let content = plain
-            .lines()
-            .map(|line| decode_entities(line.trim()))
-            .filter(|line| !line.trim().is_empty())
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim()
-            .to_string();
-        if content.is_empty() {
-            return Err(RagError::Conversion("html input has no text".to_string()));
-        }
-        let mut metadata = HashMap::new();
-        if let Some(title) = title {
-            metadata.insert("title".to_string(), title);
-        }
-        Ok(ConvertedDocument { content, metadata })
-    }
-}
-
 /// JSON converter preserving structure: emits one `path: value` line per
 /// scalar, with object keys joined by dots and array items indexed.
 /// Claims the same extension as [`JsonConverter`]; register it first to
@@ -260,73 +207,6 @@ fn collect_paths(prefix: &str, value: &serde_json::Value, parts: &mut Vec<String
     }
 }
 
-fn strip_block(text: &str, tag: &str) -> String {
-    let lower = text.to_lowercase();
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    let mut lower_rest = lower.as_str();
-    loop {
-        let open = lower_rest.find(&format!("<{tag}"));
-        let Some(start) = open else {
-            out.push_str(rest);
-            break;
-        };
-        out.push_str(&rest[..start]);
-        let close_tag = format!("</{tag}>");
-        match lower_rest[start..].find(&close_tag) {
-            Some(end) => {
-                let skip = start + end + close_tag.len();
-                rest = &rest[skip..];
-                lower_rest = &lower_rest[skip..];
-            }
-            None => break,
-        }
-    }
-    out
-}
-
-fn strip_comments(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    loop {
-        match rest.find("<!--") {
-            Some(start) => {
-                out.push_str(&rest[..start]);
-                match rest[start..].find("-->") {
-                    Some(end) => rest = &rest[start + end + 3..],
-                    None => break,
-                }
-            }
-            None => {
-                out.push_str(rest);
-                break;
-            }
-        }
-    }
-    out
-}
-
-fn extract_title(text: &str) -> Option<String> {
-    let lower = text.to_lowercase();
-    let start = lower.find("<title>")? + "<title>".len();
-    let end = lower[start..].find("</title>")? + start;
-    let title = decode_entities(text[start..end].trim());
-    if title.is_empty() {
-        None
-    } else {
-        Some(title)
-    }
-}
-
-fn decode_entities(text: &str) -> String {
-    text.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&nbsp;", " ")
-}
 /// Routes a file to the first converter claiming its extension.
 pub fn converter_for<'a>(
     filename: &str,
@@ -381,27 +261,7 @@ mod tests {
     async fn empty_inputs_fail() {
         assert!(PlainConverter.convert("a.txt", b"   ").await.is_err());
         assert!(JsonConverter.convert("a.json", b"{}").await.is_err());
-        assert!(HtmlConverter.convert("a.html", b"<br>").await.is_err());
         assert!(PathJsonConverter.convert("a.json", b"{}").await.is_err());
-    }
-
-    #[tokio::test]
-    async fn html_strips_tags_and_scripts() {
-        let converted = HtmlConverter
-            .convert(
-                "a.html",
-                b"<html><head><title>Doc</title><style>x{}</style></head><body><!-- hi --><script>bad()</script><h1>A &amp; B</h1><p>text</p></body></html>",
-            )
-            .await
-            .expect("html");
-        assert_eq!(
-            converted.metadata.get("title").map(String::as_str),
-            Some("Doc")
-        );
-        assert!(converted.content.contains("A & B"));
-        assert!(converted.content.contains("text"));
-        assert!(!converted.content.contains("bad()"));
-        assert!(!converted.content.contains('<'));
     }
 
     #[tokio::test]

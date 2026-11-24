@@ -16,7 +16,7 @@
 - 传输原语：`NetworkDomainPolicy` 与 `normalize_host` / `domain_matches` 位于 `wf-tools/src/network.rs:66/118/141`，被审批模块直接复用（`approval/network_policy.rs:8`、`approval.rs:291/304`）。
 - 声明式搜索：`HttpSearchBackend`（`wf-resource/src/network/http_backend.rs:24`）支持 GET/POST、请求头、JSON body、`items_path` 点路径与字段映射（`wf-config/src/processor/network.rs:100/123/115`）。
 - 密钥注入：配置加载阶段对整份文件做 `${VAR}` 环境展开（`wf-config/src/env.rs:130`，入口 `layered.rs:82`），声明式后端 header 可用环境变量承载 API key（`config-examples/infrastructure/tools.toml:88-96` 有示例）。
-- RAG 摄入能力：`rag-core` 的 converter 只做 Plain/Markdown/JSON/HTML 的字符串转换（`converter.rs:38/63/95/148`），`reqwest` 仅用于 Elastic 索引（`elastic_index.rs:32`），**没有任何在线网页抓取入口**；`RagDocument.source` 只是标签（`document.rs:37`）。
+- RAG 摄入能力：`rag-core` 的 converter 只做 Plain/Markdown/JSON 的字符串转换（`converter.rs`），`reqwest` 仅用于 Elastic 索引（`elastic_index.rs`），**没有任何在线网页抓取入口**；网页正文由宿主页面抽取管线转换后交给 RAG，`RagDocument.source` 只是标签（`document.rs`）。
 - 无桥接：`rag-core` 不引用 `web_search`，两个 rag 工具模块也不引用 `web_search`（检索为空）。
 
 ## "network 抽象"的三层拆解

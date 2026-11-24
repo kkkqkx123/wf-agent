@@ -60,8 +60,8 @@ pub use config::{
     RerankOptions,
 };
 pub use converter::{
-    ConvertedDocument, DocumentConverter, HtmlConverter, JsonConverter, MarkdownConverter,
-    PathJsonConverter, PlainConverter,
+    ConvertedDocument, DocumentConverter, JsonConverter, MarkdownConverter, PathJsonConverter,
+    PlainConverter,
 };
 pub use document::{RagChunk, RagDocument};
 #[cfg(feature = "elastic")]

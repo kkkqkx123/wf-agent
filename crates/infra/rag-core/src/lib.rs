@@ -50,12 +50,14 @@ pub mod transform;
 
 pub use chunker::{count_tokens, ChunkerConfig, RecursiveChunker};
 pub use citation::{
-    build_citations, check_completeness, render_context, render_no_hits, Citation,
-    CitationCompleteness, NoHitContext,
+    build_citations, build_citations_with_style, check_answer_citations, check_completeness,
+    render_context, render_context_with_style, render_no_hits, render_no_hits_with_style, Citation,
+    CitationCompleteness, CitationIssues, CitationStyle, NoHitContext,
 };
 pub use cleaner::{clean_text, CleanerConfig};
 pub use config::{
-    DuplicatePolicy, FusionConfig, FusionMode, RagIndexConfig, RagQueryConfig, RerankOptions,
+    ChunkPreset, DuplicatePolicy, FusionConfig, FusionMode, RagIndexConfig, RagQueryConfig,
+    RerankOptions,
 };
 pub use converter::{
     ConvertedDocument, DocumentConverter, HtmlConverter, JsonConverter, MarkdownConverter,
@@ -65,7 +67,9 @@ pub use document::{RagChunk, RagDocument};
 #[cfg(feature = "elastic")]
 pub use elastic_index::ElasticKeywordIndex;
 pub use error::{RagError, Result};
-pub use eval::{score_case, summarize, EvalCase, EvalOutcome, EvalSummary};
+pub use eval::{
+    run_eval_cases, score_case, summarize, EvalCase, EvalOutcome, EvalRun, EvalSummary,
+};
 pub use keyword_index::KeywordIndex;
 pub use llm::CompletionLlm;
 pub use metrics::{rank_pairs, RetrievalMetrics};
@@ -105,8 +109,9 @@ pub use rewrite::{
 pub use router::{query_routed, resolve_targets, RouteRule, RouteTarget, RouterConfig};
 pub use sqlite_index::SqliteKeywordIndex;
 pub use sync::{
-    content_hash, decisions_for_documents, hash_sources, pending_sources, plan_sync, remove_by_ids,
-    remove_source, source_point_count, stale_sources, SyncAction, SyncDecision,
+    content_hash, decisions_for_documents, hash_sources, pending_sources, plan_http_sync,
+    plan_sync, remove_by_ids, remove_source, source_point_count, stale_sources, HttpSyncDecision,
+    HttpValidator, SyncAction, SyncBasis, SyncDecision,
 };
 pub use synth::{
     query_and_synthesize, synthesize, SynthesisConfig, SynthesisInvocation, SynthesisMode,

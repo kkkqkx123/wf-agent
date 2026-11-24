@@ -21,6 +21,7 @@ pub mod mention;
 pub mod pty;
 pub mod query;
 pub mod rag;
+pub mod rag_capabilities;
 pub mod recap;
 pub mod retention;
 pub mod template;
@@ -143,6 +144,7 @@ pub use query::{
     ExportFormat, FilterCriteria, FilterExpression, FilterOperator, PaginationOptions,
     QueryBuilder, SortOptions,
 };
+pub use rag_capabilities::{RagCapabilityService, RagCapabilitySettings};
 pub use template::builder::NodeTemplateBuilder;
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};

@@ -8,8 +8,8 @@ pub mod web_fetch;
 pub mod web_search;
 
 pub use web_fetch::{
-    FetchBackendInfo, FetchToolConfig, WebFetchBackend, WebFetchError, WebFetchQuery,
-    WebFetchResponse, WEB_FETCH, WEB_FETCH_BACKENDS,
+    render_fetched_page, FetchBackendInfo, FetchToolConfig, RenderedFetch, WebFetchBackend,
+    WebFetchError, WebFetchQuery, WebFetchResponse, WEB_FETCH, WEB_FETCH_BACKENDS,
 };
 pub use web_search::{
     SearchBackend, SearchBackendInfo, WebSearchBackend, WebSearchError, WebSearchQuery,

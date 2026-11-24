@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wf_types::tool::{ToolRiskLevel, ToolType};
 
+use super::FetchTextConverter;
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatelessAsyncHandler;
 use crate::predefined::schema::{ToolDefinition, ToolParameter, ToolParameterConstraint};
@@ -84,8 +85,7 @@ pub static WEB_FETCH: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "web",
     tags: &["fetch"],
-    description:
-        "Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.",
+    description: "Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.",
     parameters: &[
         ToolParameter {
             name: "url",
@@ -99,8 +99,7 @@ pub static WEB_FETCH: ToolDefinition = ToolDefinition {
             name: "format",
             r#type: "string",
             required: false,
-            description:
-                "Output format: markdown, text, clean_html (pruned markup) or html (raw body)",
+            description: "Output format: markdown, text, clean_html (pruned markup) or html (raw body)",
             default_json: Some("\"markdown\""),
             constraints: Some(&FORMAT_CONSTRAINT),
         },
@@ -116,8 +115,7 @@ pub static WEB_FETCH: ToolDefinition = ToolDefinition {
             name: "selector",
             r#type: "string",
             required: false,
-            description:
-                "Limit content to simple CSS selectors such as main, #article or .content; comma-separated",
+            description: "Limit content to simple CSS selectors such as main, #article or .content; comma-separated",
             default_json: None,
             constraints: None,
         },
@@ -527,6 +525,115 @@ fn table_summaries(tables: Vec<crate::web_text::HtmlTable>) -> serde_json::Value
     serde_json::Value::Array(values)
 }
 
+/// Cleaned page content shared by the fetch tool and the RAG ingest bridge.
+#[derive(Debug, Clone)]
+pub struct RenderedFetch {
+    pub title: String,
+    pub metadata: serde_json::Value,
+    pub links: serde_json::Value,
+    pub tables: serde_json::Value,
+    pub content: String,
+}
+
+/// Renders a transport response without spilling or model-facing truncation.
+/// Host consumers reuse this path so DOM cleaning and focus filtering have
+/// one implementation.
+pub fn render_fetched_page(
+    query: &WebFetchQuery,
+    response: &WebFetchResponse,
+    format: &str,
+    converter: Option<&FetchTextConverter>,
+) -> Result<RenderedFetch, WebFetchError> {
+    if !matches!(format, "markdown" | "text" | "html" | "clean_html") {
+        return Err(WebFetchError::InvalidParameter("format"));
+    }
+    if format == "html"
+        && (query.selector.is_some()
+            || query.exclude_selector.is_some()
+            || query.focus.is_some()
+            || query.min_words > 0)
+    {
+        return Err(WebFetchError::InvalidParameter("format"));
+    }
+    let mut title = response.title.clone().unwrap_or_default();
+    let mut metadata = response
+        .metadata
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut links = response
+        .links
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({ "internal": [], "external": [] }));
+    let mut tables = response
+        .tables
+        .clone()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let content =
+        if format == "html" || !is_html_response(&response.content_type, &response.content) {
+            response.content.clone()
+        } else {
+            let document = HtmlDocument::parse(&response.content, Some(&response.final_url));
+            title = document.title.clone();
+            metadata =
+                serde_json::to_value(&document.metadata).unwrap_or_else(|_| serde_json::json!({}));
+            links = split_links(document.links.clone(), &response.final_url, 20);
+            tables = table_summaries(document.tables.clone());
+            let selectors = if response.options_applied {
+                None
+            } else {
+                query
+                    .selector
+                    .as_deref()
+                    .and_then(|value| parse_selector(value).ok())
+            };
+            let excluded = if response.options_applied {
+                None
+            } else {
+                query
+                    .exclude_selector
+                    .as_deref()
+                    .and_then(|value| parse_selector(value).ok())
+            };
+            let options = HtmlRenderOptions {
+                mode: if format == "text" {
+                    HtmlRenderMode::Plain
+                } else {
+                    HtmlRenderMode::Markdown
+                },
+                link_mode: query.link_mode,
+                selector: selectors,
+                exclude: excluded,
+                min_words: if response.options_applied {
+                    0
+                } else {
+                    query.min_words
+                },
+                focus: if response.options_applied {
+                    None
+                } else {
+                    query.focus.clone()
+                },
+                prune: !response.options_applied,
+                max_chars: None,
+            };
+            if format == "clean_html" {
+                document.render_clean_html(&options)
+            } else {
+                match converter {
+                    Some(converter) => converter(&document, &options),
+                    None => document.render(Some(&response.final_url), &options),
+                }
+            }
+        };
+    Ok(RenderedFetch {
+        title,
+        metadata,
+        links,
+        tables,
+        content,
+    })
+}
+
 /// Create the async handler for the web_fetch tool.
 pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> StatelessAsyncHandler {
     let backend = config.fetch_backend.clone();
@@ -563,82 +670,15 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
             }
             let original_url = query.url.clone();
             let max_chars = query.max_chars;
-            let selector = query.selector.clone();
-            let exclude = query.exclude_selector.clone();
-            let focus = query.focus.clone();
-            let min_words = query.min_words;
-            let link_mode = query.link_mode;
-            let response = backend.fetch(query).await?;
-
-            let mut title = response.title.clone().unwrap_or_default();
-            let mut metadata = response
-                .metadata
-                .clone()
-                .unwrap_or_else(|| serde_json::json!({}));
-            let mut links = response
-                .links
-                .clone()
-                .unwrap_or_else(|| serde_json::json!({ "internal": [], "external": [] }));
-            let mut tables = response
-                .tables
-                .clone()
-                .unwrap_or_else(|| serde_json::json!([]));
-            let content = if raw_format
-                || !is_html_response(&response.content_type, &response.content)
-            {
-                response.content.clone()
-            } else {
-                let document = HtmlDocument::parse(&response.content, Some(&response.final_url));
-                title = document.title.clone();
-                metadata = serde_json::to_value(&document.metadata)
-                    .unwrap_or_else(|_| serde_json::json!({}));
-                links = split_links(document.links.clone(), &response.final_url, 20);
-                tables = table_summaries(document.tables.clone());
-                let selectors = if response.options_applied {
-                    None
-                } else {
-                    selector
-                        .as_deref()
-                        .and_then(|value| parse_selector(value).ok())
-                };
-                let excluded = if response.options_applied {
-                    None
-                } else {
-                    exclude
-                        .as_deref()
-                        .and_then(|value| parse_selector(value).ok())
-                };
-                let options = HtmlRenderOptions {
-                    mode: if format == "text" {
-                        HtmlRenderMode::Plain
-                    } else {
-                        HtmlRenderMode::Markdown
-                    },
-                    link_mode,
-                    selector: selectors,
-                    exclude: excluded,
-                    min_words: if response.options_applied {
-                        0
-                    } else {
-                        min_words
-                    },
-                    focus: if response.options_applied {
-                        None
-                    } else {
-                        focus.clone()
-                    },
-                    prune: !response.options_applied,
-                    max_chars: None,
-                };
-                if format == "clean_html" {
-                    document.render_clean_html(&options)
-                } else {
-                    match &text_converter {
-                        Some(converter) => converter(&document, &options),
-                        None => document.render(Some(&response.final_url), &options),
-                    }
-                }
-            };
+            let response = backend.fetch(query.clone()).await?;
+            let rendered = render_fetched_page(&query, &response, format, text_converter.as_ref())?;
+            let RenderedFetch {
+                title,
+                metadata,
+                links,
+                tables,
+                content,
+            } = rendered;
 
             let spill_dir = resolve_spill_dir(
                 ctx.file_scope

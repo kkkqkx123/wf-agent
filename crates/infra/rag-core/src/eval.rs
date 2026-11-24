@@ -8,6 +8,8 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::RagQueryConfig;
+use crate::error::Result;
 use crate::retriever::RetrievedChunk;
 
 /// One rerunnable retrieval case.
@@ -19,6 +21,9 @@ pub struct EvalCase {
     pub query: String,
     /// Sources considered a hit when surfaced.
     pub expected_sources: Vec<String>,
+    /// Chunk locators considered a hit when surfaced.
+    #[serde(default)]
+    pub expected_locators: Vec<String>,
     /// Namespace queried.
     #[serde(default)]
     pub namespace: String,
@@ -28,7 +33,7 @@ pub struct EvalCase {
 }
 
 /// Outcome of running one case.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvalOutcome {
     /// Case id.
     pub case_id: String,
@@ -38,6 +43,8 @@ pub struct EvalOutcome {
     pub recall: f64,
     /// Rank of the first expected source (0-based, when hit).
     pub first_hit_rank: Option<usize>,
+    /// Fraction of expected locators surfaced (1 when none expected).
+    pub locator_recall: f64,
     /// Sources surfaced by the run.
     pub surfaced_sources: Vec<String>,
 }
@@ -52,20 +59,70 @@ pub fn score_case(case: &EvalCase, hits: &[RetrievedChunk]) -> EvalOutcome {
     } else {
         matched as f64 / expected.len() as f64
     };
+    let surfaced_locators: HashSet<&str> = hits.iter().map(|hit| hit.chunk_id.as_str()).collect();
+    let expected_locators: HashSet<&str> =
+        case.expected_locators.iter().map(String::as_str).collect();
+    let locator_matched = surfaced_locators.intersection(&expected_locators).count();
+    let locator_recall = if expected_locators.is_empty() {
+        1.0
+    } else {
+        locator_matched as f64 / expected_locators.len() as f64
+    };
     let first_hit_rank = hits
         .iter()
         .enumerate()
         .find(|(_, hit)| expected.contains(hit.source.as_str()))
         .map(|(rank, _)| rank);
     let required = case.min_hits.max(1).min(hits.len().max(1));
-    let hit = first_hit_rank.is_some() && hits.len() >= required.min(hits.len());
+    let hit =
+        first_hit_rank.is_some() && hits.len() >= required.min(hits.len()) && locator_recall > 0.0;
     EvalOutcome {
         case_id: case.id.clone(),
         hit,
         recall,
         first_hit_rank,
+        locator_recall,
         surfaced_sources: hits.iter().map(|hit| hit.source.clone()).collect(),
     }
+}
+
+/// One completed evaluation run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalRun {
+    /// Per-case outcomes in input order.
+    pub outcomes: Vec<EvalOutcome>,
+    /// Aggregate hit rate and recall.
+    pub summary: EvalSummary,
+}
+
+/// Runs every case through the standard query pipeline and scores the hits.
+/// Namespace and query shaping come from the host; each case may override
+/// only its namespace.
+pub async fn run_eval_cases<S, E>(
+    store: &S,
+    embedder: &E,
+    collection: &str,
+    namespace: &str,
+    cases: &[EvalCase],
+    config: &RagQueryConfig,
+) -> Result<EvalRun>
+where
+    S: vector_contracts::VectorStorage + ?Sized,
+    E: llm_embedding::provider::EmbeddingProvider + ?Sized,
+{
+    let mut outcomes = Vec::with_capacity(cases.len());
+    for case in cases {
+        let scope = if case.namespace.trim().is_empty() {
+            namespace
+        } else {
+            &case.namespace
+        };
+        let hits =
+            crate::pipeline::query(store, embedder, collection, scope, &case.query, config).await?;
+        outcomes.push(score_case(case, &hits));
+    }
+    let summary = summarize(&outcomes);
+    Ok(EvalRun { outcomes, summary })
 }
 
 /// Aggregates outcomes into hit-rate and mean recall.
@@ -83,7 +140,7 @@ pub fn summarize(outcomes: &[EvalOutcome]) -> EvalSummary {
 }
 
 /// Aggregate over one eval run.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EvalSummary {
     /// Cases scored.
     pub cases: usize,
@@ -118,6 +175,7 @@ mod tests {
             id: "c1".to_string(),
             query: "ownership".to_string(),
             expected_sources: vec!["rust.md".to_string()],
+            expected_locators: Vec::new(),
             namespace: "kb".to_string(),
             min_hits: 1,
         }
@@ -137,6 +195,21 @@ mod tests {
         assert!(!outcome.hit);
         assert_eq!(outcome.recall, 0.0);
         assert_eq!(outcome.first_hit_rank, None);
+    }
+
+    #[test]
+    fn locator_expectations_are_scored() {
+        let mut case = case();
+        case.expected_locators = vec!["rust.md#0".to_string()];
+        let mut matching = hit("rust.md");
+        matching.chunk_id = "rust.md#0".to_string();
+        let outcome = score_case(&case, &[matching]);
+        assert!(outcome.hit);
+        assert_eq!(outcome.locator_recall, 1.0);
+        case.expected_locators = vec!["rust.md#9".to_string()];
+        let outcome = score_case(&case, &[hit("rust.md")]);
+        assert!(!outcome.hit);
+        assert_eq!(outcome.locator_recall, 0.0);
     }
 
     #[test]

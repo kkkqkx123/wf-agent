@@ -18,6 +18,21 @@ use crate::error::{ToolError, ToolResult};
 use crate::executor::StatelessAsyncHandler;
 use crate::registry::ToolRegistry;
 
+pub mod evaluate;
+pub mod ingest_url;
+pub mod status;
+
+pub use evaluate::{
+    rag_evaluate_handler, RagEvalBackend, RagEvaluateQuery, RagEvaluateResult, RAG_EVALUATE,
+};
+pub use ingest_url::{
+    rag_ingest_url_handler, RagIngestBackend, RagIngestUrlQuery, RagIngestUrlResult, RAG_INGEST_URL,
+};
+pub use status::{
+    rag_index_status_handler, RagIndexStatus, RagIndexStatusQuery, RagOperationStats,
+    RagSourceStatus, RagStatusBackend, RAG_INDEX_STATUS,
+};
+
 pub static RAG_SEARCH: ToolDefinition = ToolDefinition {
     id: "rag_search",
     tool_type: wf_types::tool::ToolType::Stateless,
@@ -27,19 +42,66 @@ pub static RAG_SEARCH: ToolDefinition = ToolDefinition {
     tags: &["rag", "search"],
     description: "Search the indexed knowledge base and return ranked passages with content, score, source and citation locator. Read-only; takes no side effects.",
     parameters: &[
-        ToolParameter { name: "query", r#type: "string", required: true, description: "Natural-language question to retrieve passages for", default_json: None, constraints: None },
-        ToolParameter { name: "collection", r#type: "string", required: false, description: "Vector collection to search (falls back to the configured default)", default_json: None, constraints: None },
-        ToolParameter { name: "namespace", r#type: "string", required: false, description: "Knowledge-base namespace to search (falls back to the configured default)", default_json: None, constraints: None },
-        ToolParameter { name: "top_k", r#type: "integer", required: false, description: "Maximum passages to return (default 5)", default_json: Some("5"), constraints: None },
-        ToolParameter { name: "score_threshold", r#type: "number", required: false, description: "Lower bound for hit scores; hits below it are dropped", default_json: None, constraints: None },
-        ToolParameter { name: "fields", r#type: "object", required: false, description: "Extra exact-match metadata constraints merged with the namespace scope", default_json: None, constraints: None },
+        ToolParameter {
+            name: "query",
+            r#type: "string",
+            required: true,
+            description: "Natural-language question to retrieve passages for",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "collection",
+            r#type: "string",
+            required: false,
+            description: "Vector collection to search (falls back to the configured default)",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "namespace",
+            r#type: "string",
+            required: false,
+            description: "Knowledge-base namespace to search (falls back to the configured default)",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "top_k",
+            r#type: "integer",
+            required: false,
+            description: "Maximum passages to return (default 5)",
+            default_json: Some("5"),
+            constraints: None,
+        },
+        ToolParameter {
+            name: "score_threshold",
+            r#type: "number",
+            required: false,
+            description: "Lower bound for hit scores; hits below it are dropped",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "fields",
+            r#type: "object",
+            required: false,
+            description: "Extra exact-match metadata constraints merged with the namespace scope",
+            default_json: None,
+            constraints: None,
+        },
     ],
     tips: Some(&["Prefer specific questions over single keywords for dense retrieval"]),
     examples: Some(&["rag_search(\"How does ownership work?\")"]),
 };
 
 /// All retrieval tool definitions in registration order.
-pub const ALL: &[&ToolDefinition] = &[&RAG_SEARCH];
+pub const ALL: &[&ToolDefinition] = &[
+    &RAG_SEARCH,
+    &RAG_INGEST_URL,
+    &RAG_INDEX_STATUS,
+    &RAG_EVALUATE,
+];
 
 /// Parsed `rag_search` parameters after schema validation.
 #[derive(Debug, Deserialize)]
@@ -99,7 +161,26 @@ pub trait RagSearchBackend: Send + Sync {
     async fn search(&self, query: RagSearchQuery) -> ToolResult<Vec<RagHit>>;
 }
 
-/// Wiring for the `rag_search` tool. Without a backend the handler reports
+/// Optional backends for the enhanced RAG tools. Every slot is empty by
+/// default, so hosts opt in to each capability independently.
+#[derive(Clone, Default)]
+pub struct RagCapabilitiesConfig {
+    pub ingest: Option<Arc<dyn RagIngestBackend>>,
+    pub status: Option<Arc<dyn RagStatusBackend>>,
+    pub evaluate: Option<Arc<dyn RagEvalBackend>>,
+}
+
+impl std::fmt::Debug for RagCapabilitiesConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RagCapabilitiesConfig")
+            .field("ingest_configured", &self.ingest.is_some())
+            .field("status_configured", &self.status.is_some())
+            .field("evaluate_configured", &self.evaluate.is_some())
+            .finish()
+    }
+}
+
+/// Wiring for the retrieval tools. Without a backend the handler reports
 /// the service as unavailable instead of failing silently.
 #[derive(Clone, Default)]
 pub struct RagToolConfig {
@@ -110,6 +191,8 @@ pub struct RagToolConfig {
     pub default_collection: String,
     /// Default namespace used when the call omits one.
     pub default_namespace: String,
+    /// Optional enhanced capabilities; all disabled by default.
+    pub capabilities: RagCapabilitiesConfig,
 }
 
 impl std::fmt::Debug for RagToolConfig {
@@ -118,6 +201,7 @@ impl std::fmt::Debug for RagToolConfig {
             .field("backend_configured", &self.backend.is_some())
             .field("default_collection", &self.default_collection)
             .field("default_namespace", &self.default_namespace)
+            .field("capabilities", &self.capabilities)
             .finish()
     }
 }
@@ -133,6 +217,7 @@ impl RagToolConfig {
             backend: Some(backend),
             default_collection: collection.into(),
             default_namespace: namespace.into(),
+            capabilities: RagCapabilitiesConfig::default(),
         }
     }
 }
@@ -273,10 +358,13 @@ pub fn rag_search_handler(config: &RagToolConfig) -> StatelessAsyncHandler {
     })
 }
 
-/// Registers the handler and the tool definition.
+/// Registers the read path and every explicitly configured enhancement.
 pub fn register(registry: &ToolRegistry, config: &RagToolConfig) -> ToolResult<()> {
     registry.register_stateless_async_handler("rag_search", rag_search_handler(config));
     registry.register_tool(RAG_SEARCH.tool_def());
+    ingest_url::register(registry, config);
+    status::register(registry, config);
+    evaluate::register(registry, config);
     Ok(())
 }
 

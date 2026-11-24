@@ -166,6 +166,10 @@ pub struct RuntimeConfig {
     /// derives from the storage configuration unless set explicitly.
     /// Environment overrides apply at open time (see `wf_api::rag`).
     pub keyword: KeywordIndexConfig,
+    /// Optional RAG enhancements. Master switch and every sub-capability
+    /// default to disabled; the runtime does not construct a service until
+    /// a host supplies concrete retrieval and fetch handles.
+    pub rag: wf_types::config::rag::RagCapabilitiesConfig,
     /// Fixed Tokio worker count. `None` keeps the runtime's core-derived
     /// default; embedded hosts pin a small value.
     pub worker_threads: Option<usize>,

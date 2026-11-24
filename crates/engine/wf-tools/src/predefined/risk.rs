@@ -142,6 +142,8 @@ mod tests {
             "skill",
             "update_todo_list",
             "memory_list",
+            "rag_index_status",
+            "rag_evaluate",
         ] {
             assert_eq!(
                 get_tool_risk_level(id),
@@ -199,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_network_classification() {
-        for id in ["web_fetch", "web_search"] {
+        for id in ["web_fetch", "web_search", "rag_ingest_url"] {
             assert_eq!(
                 get_tool_risk_level(id),
                 Some(ToolRiskLevel::Network),

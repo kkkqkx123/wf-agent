@@ -778,6 +778,7 @@ async fn build_registry(sandbox: &Path) -> crate::error::ToolResult<ToolRegistry
             backend: Some(Arc::new(HarnessRagBackend)),
             default_collection: "fixtures".into(),
             default_namespace: "harness".into(),
+            ..Default::default()
         },
         ..Default::default()
     };

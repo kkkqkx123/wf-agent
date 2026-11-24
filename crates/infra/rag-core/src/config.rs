@@ -48,9 +48,30 @@ pub struct RagIndexConfig {
     pub chunk_splitter: Option<String>,
 }
 
+/// Named chunking behavior. A preset only selects separators and
+/// pre/post-processing; explicit size parameters still win.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChunkPreset {
+    /// Generic recursive separators.
+    #[default]
+    Default,
+    /// Markdown headings and lists define section boundaries.
+    Markdown,
+    /// Sentence boundaries are preferred.
+    Sentence,
+    /// Blank lines and code block boundaries are preferred.
+    Code,
+    /// Markdown tables and fenced blocks stay intact.
+    Table,
+}
+
 /// Chunking parameters in serializable form.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkerConfigData {
+    /// Named behavior applied before explicit size overrides.
+    #[serde(default)]
+    pub preset: ChunkPreset,
     /// Soft target length of a leaf chunk in characters.
     pub target_chars: usize,
     /// Overlap between consecutive leaf chunks in characters.
@@ -62,6 +83,7 @@ pub struct ChunkerConfigData {
 
 fn default_chunker_config() -> ChunkerConfigData {
     ChunkerConfigData {
+        preset: ChunkPreset::Default,
         target_chars: 800,
         overlap_chars: 100,
         token_budget: None,
@@ -87,14 +109,20 @@ impl RagIndexConfig {
         }
     }
 
-    /// Converts to the runtime chunker config with default separators.
+    /// Converts to the runtime chunker config, applying the named preset
+    /// first and the explicit size parameters afterwards.
     pub fn chunker_config(&self) -> ChunkerConfig {
-        ChunkerConfig {
-            target_chars: self.chunking.target_chars,
-            overlap_chars: self.chunking.overlap_chars,
-            token_budget: self.chunking.token_budget,
-            ..ChunkerConfig::default()
-        }
+        let mut config = match self.chunking.preset {
+            ChunkPreset::Default => ChunkerConfig::default(),
+            ChunkPreset::Markdown => ChunkerConfig::markdown(),
+            ChunkPreset::Sentence => ChunkerConfig::sentence(),
+            ChunkPreset::Code => ChunkerConfig::code(),
+            ChunkPreset::Table => ChunkerConfig::table(),
+        };
+        config.target_chars = self.chunking.target_chars;
+        config.overlap_chars = self.chunking.overlap_chars;
+        config.token_budget = self.chunking.token_budget;
+        config
     }
 }
 
@@ -245,4 +273,29 @@ pub struct RerankOptions {
 
 fn default_truncate_chars() -> usize {
     500
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preset_selects_separators_and_explicit_sizes_win() {
+        let index = RagIndexConfig {
+            chunking: ChunkerConfigData {
+                preset: ChunkPreset::Code,
+                target_chars: 120,
+                overlap_chars: 12,
+                token_budget: None,
+            },
+            ..RagIndexConfig::new("kb")
+        };
+        let runtime = index.chunker_config();
+        assert_eq!(runtime.target_chars, 120);
+        assert_eq!(runtime.overlap_chars, 12);
+        assert!(runtime
+            .separators
+            .iter()
+            .any(|separator| separator == "}\n"));
+    }
 }

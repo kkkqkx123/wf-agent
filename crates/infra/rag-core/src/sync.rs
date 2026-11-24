@@ -28,6 +28,50 @@ pub enum SyncAction {
     Skip,
 }
 
+/// Basis used to decide whether an incoming source changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncBasis {
+    /// Compare a stable hash of the document content.
+    #[default]
+    ContentHash,
+    /// Compare HTTP validation headers from the fetch response.
+    HttpValidation,
+}
+
+/// HTTP validation metadata carried by a fetched source.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HttpValidator {
+    /// `ETag` reported by the fetch transport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    /// `Last-Modified` reported by the fetch transport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+}
+
+impl HttpValidator {
+    /// Builds a validator, dropping blank header values.
+    pub fn new(etag: Option<String>, last_modified: Option<String>) -> Self {
+        Self {
+            etag: etag.filter(|value| !value.trim().is_empty()),
+            last_modified: last_modified.filter(|value| !value.trim().is_empty()),
+        }
+    }
+
+    /// Whether at least one validation header is usable.
+    pub fn has_validator(&self) -> bool {
+        self.etag.is_some() || self.last_modified.is_some()
+    }
+
+    /// Whether the incoming and indexed states can be proven unchanged.
+    /// An absent or differing validator never yields a skip.
+    pub fn matches(&self, indexed: &Self) -> bool {
+        (self.etag.is_some() && self.etag == indexed.etag)
+            || (self.last_modified.is_some() && self.last_modified == indexed.last_modified)
+    }
+}
+
 /// One source sync decision with its hashes for logging.
 #[derive(Debug, Clone)]
 pub struct SyncDecision {
@@ -76,6 +120,48 @@ pub fn plan_sync(
         })
         .collect();
     decisions.sort_by(|a, b| a.source.cmp(&b.source));
+    decisions
+}
+
+/// Sync decision produced from HTTP validation metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpSyncDecision {
+    /// Source label the decision applies to.
+    pub source: String,
+    /// Action to take.
+    pub action: SyncAction,
+    /// Validation metadata from the incoming fetch.
+    pub incoming: HttpValidator,
+    /// Validation metadata from the indexed state, when known.
+    pub indexed: Option<HttpValidator>,
+}
+
+/// Plans sync actions from HTTP validation headers.
+///
+/// A matching ETag or Last-Modified skips re-embedding; every other state
+/// rebuilds the source so a missing validator cannot silently keep stale text.
+pub fn plan_http_sync(
+    incoming: &HashMap<String, HttpValidator>,
+    indexed: &HashMap<String, HttpValidator>,
+) -> Vec<HttpSyncDecision> {
+    let mut decisions: Vec<HttpSyncDecision> = incoming
+        .iter()
+        .map(|(source, validator)| {
+            let known = indexed.get(source);
+            let action = match known {
+                None => SyncAction::Insert,
+                Some(existing) if validator.matches(existing) => SyncAction::Skip,
+                Some(_) => SyncAction::Update,
+            };
+            HttpSyncDecision {
+                source: source.clone(),
+                action,
+                incoming: validator.clone(),
+                indexed: known.cloned(),
+            }
+        })
+        .collect();
+    decisions.sort_by(|left, right| left.source.cmp(&right.source));
     decisions
 }
 
@@ -189,6 +275,35 @@ mod tests {
     fn hashes_are_stable_and_content_sensitive() {
         assert_eq!(content_hash("hello"), content_hash("hello"));
         assert_ne!(content_hash("hello"), content_hash("world"));
+    }
+
+    #[test]
+    fn http_validator_skips_only_on_matching_header() {
+        let incoming = HttpValidator::new(Some("v2".into()), None);
+        let indexed = HttpValidator::new(Some("v2".into()), None);
+        assert!(incoming.matches(&indexed));
+        assert!(!incoming.matches(&HttpValidator::new(Some("v1".into()), None)));
+        assert!(!HttpValidator::default().matches(&HttpValidator::default()));
+
+        let plans = plan_http_sync(
+            &HashMap::from([
+                ("same".to_string(), incoming.clone()),
+                ("changed".to_string(), incoming),
+            ]),
+            &HashMap::from([
+                ("same".to_string(), indexed),
+                (
+                    "changed".to_string(),
+                    HttpValidator::new(Some("old".into()), None),
+                ),
+            ]),
+        );
+        let actions: HashMap<&str, &SyncAction> = plans
+            .iter()
+            .map(|decision| (decision.source.as_str(), &decision.action))
+            .collect();
+        assert_eq!(actions["same"], &SyncAction::Skip);
+        assert_eq!(actions["changed"], &SyncAction::Update);
     }
 
     #[test]

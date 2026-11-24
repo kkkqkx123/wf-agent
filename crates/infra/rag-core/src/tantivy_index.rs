@@ -242,12 +242,12 @@ impl TantivyKeywordIndex {
         let current = format.id();
         let mut readonly = false;
         match existing {
+            None => {}
             Some(existing) if existing == current => {}
-            existing => {
+            Some(existing) => {
                 if format.policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
                     readonly = true;
                 } else {
-                    let existing = existing.unwrap_or_else(|| "legacy-unstamped".to_string());
                     return Err(crate::keyword_index::KeywordFormat::mismatch_error(
                         &existing, &current,
                     ));

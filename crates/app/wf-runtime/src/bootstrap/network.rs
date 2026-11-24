@@ -134,5 +134,9 @@ pub async fn build_web_fetch_config(
         max_redirects: config.web_fetch.max_redirects,
         proxy,
         domain_policy: domain_policy.clone(),
+        respect_robots_txt: config.web_fetch.respect_robots_txt,
+        cache_ttl_ms: config.web_fetch.cache_ttl_ms,
+        cache_capacity: config.web_fetch.cache_capacity,
+        min_interval_ms: config.web_fetch.min_interval_ms,
     })
 }

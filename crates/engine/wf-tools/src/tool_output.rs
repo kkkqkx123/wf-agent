@@ -38,6 +38,8 @@ pub struct SpillOutcome {
     pub spilled_path: Option<PathBuf>,
     /// Total line count of the full text.
     pub total_lines: usize,
+    /// Whether the inline text was shortened.
+    pub truncated: bool,
 }
 
 /// Resolve the spill directory: the execution workdir's volatile tmp tree
@@ -59,6 +61,7 @@ pub fn truncate_with_spill(text: &str, spill_dir: &Path) -> SpillOutcome {
             kept_text: text.to_string(),
             spilled_path: None,
             total_lines,
+            truncated: false,
         };
     }
 
@@ -84,7 +87,36 @@ pub fn truncate_with_spill(text: &str, spill_dir: &Path) -> SpillOutcome {
         kept_text,
         spilled_path,
         total_lines,
+        truncated: true,
     }
+}
+
+/// Truncate to a caller-provided character budget while keeping the unified
+/// line and byte limits. The complete text is spilled before truncation.
+pub fn truncate_with_char_budget(
+    text: &str,
+    max_chars: Option<usize>,
+    spill_dir: &Path,
+) -> SpillOutcome {
+    let Some(limit) = max_chars else {
+        return truncate_with_spill(text, spill_dir);
+    };
+    if text.chars().count() <= limit {
+        return truncate_with_spill(text, spill_dir);
+    }
+    let mut outcome = truncate_with_spill(text, spill_dir);
+    if outcome.spilled_path.is_none() {
+        outcome.spilled_path = spill_full_text(text, spill_dir);
+    }
+    let head: String = text.chars().take(limit).collect();
+    let marker = spill_marker(
+        1,
+        text.lines().count().max(1),
+        outcome.spilled_path.as_deref(),
+    );
+    outcome.kept_text = format!("{head}\n{marker}");
+    outcome.truncated = true;
+    outcome
 }
 
 /// Pointer marker appended to a truncated prefix.

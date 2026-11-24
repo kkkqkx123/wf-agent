@@ -680,7 +680,9 @@ impl WebFetchBackend for HarnessFetchBackend {
     async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
         Ok(WebFetchResponse {
             final_url: query.url,
+            status_code: 200,
             content_type: "text/html".into(),
+            headers: std::collections::BTreeMap::new(),
             content: MOCK_PAGE_HTML.to_string(),
             size: MOCK_PAGE_HTML.len(),
         })

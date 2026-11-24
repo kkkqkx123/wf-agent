@@ -23,6 +23,9 @@ const DEFAULT_RETRY_DELAY_MS: u64 = 100;
 const MAX_RETRIES: usize = 3;
 const MAX_RATE_INTERVAL_MS: u64 = 60_000;
 const MAX_CACHE_TTL_MS: u64 = 3_600_000;
+const DEFAULT_FETCH_CACHE_TTL_MS: u64 = 60_000;
+const DEFAULT_FETCH_CACHE_CAPACITY: usize = 256;
+const MAX_FETCH_CACHE_CAPACITY: usize = 10_000;
 const MAX_RESULTS_CAP: usize = 50;
 const PROXY_SCHEMES: [&str; 6] = ["http", "https", "socks4", "socks4a", "socks5", "socks5h"];
 
@@ -48,6 +51,14 @@ fn default_user_agent() -> String {
 
 fn default_max_redirects() -> usize {
     DEFAULT_MAX_REDIRECTS
+}
+
+fn default_fetch_cache_ttl_ms() -> u64 {
+    DEFAULT_FETCH_CACHE_TTL_MS
+}
+
+fn default_fetch_cache_capacity() -> usize {
+    DEFAULT_FETCH_CACHE_CAPACITY
 }
 
 fn default_max_results() -> usize {
@@ -264,6 +275,14 @@ pub struct WebFetchConfig {
     pub backend: Option<String>,
     #[serde(default)]
     pub proxy: Option<ProxyConfig>,
+    #[serde(default)]
+    pub respect_robots_txt: bool,
+    #[serde(default = "default_fetch_cache_ttl_ms")]
+    pub cache_ttl_ms: u64,
+    #[serde(default = "default_fetch_cache_capacity")]
+    pub cache_capacity: usize,
+    #[serde(default)]
+    pub min_interval_ms: u64,
 }
 
 impl Default for WebFetchConfig {
@@ -275,6 +294,10 @@ impl Default for WebFetchConfig {
             max_redirects: DEFAULT_MAX_REDIRECTS,
             backend: None,
             proxy: None,
+            respect_robots_txt: false,
+            cache_ttl_ms: DEFAULT_FETCH_CACHE_TTL_MS,
+            cache_capacity: DEFAULT_FETCH_CACHE_CAPACITY,
+            min_interval_ms: 0,
         }
     }
 }
@@ -483,6 +506,21 @@ fn validate_fetch_config(fetch: &WebFetchConfig) -> ConfigResult<()> {
             "web_fetch max_redirects must not exceed {MAX_REDIRECTS}"
         )));
     }
+    if fetch.cache_ttl_ms > MAX_CACHE_TTL_MS {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch cache_ttl_ms must not exceed {MAX_CACHE_TTL_MS}"
+        )));
+    }
+    if fetch.cache_capacity == 0 || fetch.cache_capacity > MAX_FETCH_CACHE_CAPACITY {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch cache_capacity must be between 1 and {MAX_FETCH_CACHE_CAPACITY}"
+        )));
+    }
+    if fetch.min_interval_ms > MAX_RATE_INTERVAL_MS {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch min_interval_ms must not exceed {MAX_RATE_INTERVAL_MS}"
+        )));
+    }
     if let Some(proxy) = &fetch.proxy {
         validate_proxy(proxy, "web_fetch")?;
     }
@@ -641,6 +679,12 @@ mod tests {
             DEFAULT_MAX_CONTENT_BYTES
         );
         assert_eq!(config.web_fetch.max_redirects, DEFAULT_MAX_REDIRECTS);
+        assert_eq!(config.web_fetch.cache_ttl_ms, DEFAULT_FETCH_CACHE_TTL_MS);
+        assert_eq!(
+            config.web_fetch.cache_capacity,
+            DEFAULT_FETCH_CACHE_CAPACITY
+        );
+        assert!(!config.web_fetch.respect_robots_txt);
         validate_network_config(&config).expect("default fetch config validates");
     }
 
@@ -696,6 +740,12 @@ mod tests {
         assert!(validate_network_config(&config).is_err());
         config = NetworkConfig::default();
         config.web_fetch.max_redirects = MAX_REDIRECTS + 1;
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_fetch.cache_capacity = 0;
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_fetch.min_interval_ms = MAX_RATE_INTERVAL_MS + 1;
         assert!(validate_network_config(&config).is_err());
         config = NetworkConfig::default();
         config.web_fetch.proxy = Some(ProxyConfig {

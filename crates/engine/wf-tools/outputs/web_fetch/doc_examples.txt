@@ -1,8 +1,11 @@
 # web_fetch (web)
-Fetch the content of a web page. Returns the page content in the requested format.
+Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.
 
 tips:
-- Prefer text for readability; use html when markup is needed
+- Use markdown for readable structure; use html when markup itself is needed
+- Use selector and max_chars to keep large pages within the model budget
+- Set render only when a JavaScript rendering backend is configured
 
 examples:
 - web_fetch("https://example.com")
+- web_fetch("https://example.com/blog", selector="article", max_chars=12000)

@@ -1,5 +1,5 @@
 {
-  "description": "Fetch the content of a web page. Returns the page content in the requested format.",
+  "description": "Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.",
   "enabled": true,
   "id": "web_fetch",
   "metadata": {
@@ -14,17 +14,39 @@
     "additionalProperties": false,
     "properties": {
       "format": {
-        "default": "text",
-        "description": "Output format: text (HTML stripped to readable text) or html (raw body)",
+        "default": "markdown",
+        "description": "Output format: markdown (structured text), text (plain text) or html (raw body)",
         "enum": [
+          "markdown",
           "text",
           "html"
         ],
         "type": "string"
       },
+      "max_chars": {
+        "description": "Maximum characters of inline content; full text is saved to a spill file",
+        "maximum": 2000000.0,
+        "minimum": 1.0,
+        "type": "integer"
+      },
+      "render": {
+        "default": false,
+        "description": "Require a backend that renders JavaScript; unsupported by the built-in HTTP backend",
+        "type": "boolean"
+      },
+      "selector": {
+        "description": "Limit content to simple CSS selectors such as main, #article or .content; comma-separated",
+        "type": "string"
+      },
       "url": {
         "description": "The URL to fetch",
         "type": "string"
+      },
+      "wait_for_ms": {
+        "description": "Milliseconds to wait for rendered content; only used by rendering backends",
+        "maximum": 300000.0,
+        "minimum": 1.0,
+        "type": "integer"
       }
     },
     "required": [

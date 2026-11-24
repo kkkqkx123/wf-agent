@@ -103,8 +103,8 @@
 # response = { format = "json", items_path = "results",
 #              map = { title = "title", url = "url", snippet = "description" } }
 
-# Web fetch transport. `format = "text"` strips scripts, styles and markup
-# and decodes HTML entities; `format = "html"` returns the raw body.
+# Web fetch transport. `format = "markdown"` renders structured text,
+# `format = "text"` returns plain text and `format = "html"` returns the raw body.
 #[network.web_fetch]
 # timeout_ms = 20000
 # max_content_bytes = 2000000          # hard cap while streaming the body
@@ -112,3 +112,7 @@
 # max_redirects = 10
 # backend = "http"                     # built-in id or a native plugin id
 # proxy = { url = "http://127.0.0.1:7890", no_proxy = ["localhost"] }
+# respect_robots_txt = false           # opt-in Disallow check for the built-in backend
+# cache_ttl_ms = 60000                 # 0 disables conditional request caching
+# cache_capacity = 256                 # cached URLs kept in memory
+# min_interval_ms = 0                  # minimum gap between requests to one host

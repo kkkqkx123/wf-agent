@@ -91,11 +91,16 @@ struct PluginWebFetchBackend {
 #[async_trait]
 impl WebFetchBackend for PluginWebFetchBackend {
     async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
+        let args = json!({
+            "url": query.url.clone(),
+            "render": query.render,
+            "wait_for_ms": query.wait_for_ms,
+            "selector": query.selector,
+            "max_chars": query.max_chars,
+        });
         let output = self
             .executor
-            .execute(PluginToolContext {
-                args: json!({ "url": query.url }),
-            })
+            .execute(PluginToolContext { args })
             .await
             .map_err(|error| WebFetchError::Transport(error.to_string()))?
             .result;
@@ -109,8 +114,30 @@ impl WebFetchBackend for PluginWebFetchBackend {
             .and_then(Value::as_str)
             .unwrap_or(&query.url)
             .to_string();
+        let status_code = output
+            .get("status_code")
+            .and_then(Value::as_u64)
+            .unwrap_or(200);
+        let headers = output
+            .get("headers")
+            .and_then(Value::as_object)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|(name, value)| {
+                        value
+                            .as_str()
+                            .map(|value| (name.clone(), value.to_string()))
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
         Ok(WebFetchResponse {
             final_url,
+            status_code: u16::try_from(status_code).map_err(|_| {
+                WebFetchError::Transport("plugin status_code is out of range".into())
+            })?,
+            headers,
             content_type: output
                 .get("content_type")
                 .and_then(Value::as_str)

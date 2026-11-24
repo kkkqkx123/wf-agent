@@ -33,6 +33,7 @@ similar.workspace = true
 unicode-normalization.workspace = true
 futures.workspace = true
 regex.workspace = true
+html5ever.workspace = true
 globset.workspace = true
 unicode-segmentation.workspace = true
 gix-ignore.workspace = true

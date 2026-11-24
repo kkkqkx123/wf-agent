@@ -1,5 +1,7 @@
 # 网络工具问题清单与加固方案
 
+> 后续内容管线改造见 `network-web-fetch-content-pipeline.md`；其中 `web_fetch` 的格式与页面渲染规则以该文档为准。
+
 ## 背景与范围
 
 本文梳理 `wf-tools` / `wf-resource` 中 web、network 相关工具的现状问题，并给出修改方案与落地状态。范围包括 `web_search`、`web_fetch`、搜索后端注册与聚合、`tools.toml [network]` 配置、代理凭据、审批域名规则以及测试覆盖。REST 执行器和 MCP 属于通用工具执行通道，不纳入本次网络工具组改造。

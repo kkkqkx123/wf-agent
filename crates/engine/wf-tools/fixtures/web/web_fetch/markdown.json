@@ -1,0 +1,7 @@
+{
+  "tool": "web_fetch",
+  "description": "Fetch a page from the in-process mock server and render it as Markdown",
+  "tier": "network",
+  "parameters": { "url": "<MOCK_HTTP_BASE>/page", "format": "markdown", "selector": "body" },
+  "expect": { "success": true, "result_contains": "# Mock Page" }
+}

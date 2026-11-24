@@ -62,4 +62,7 @@ pub use tool_exposure::{
     is_tool_callable, resolve_tool_exposure, AvailablePool, ExposureInput, ExposureResolution,
 };
 pub use tool_schema_formatter::ToolSchemaFormatter;
-pub use web_text::{decode_html_entities, html_to_text};
+pub use web_text::{
+    decode_html_entities, html_to_text, parse_selector, HtmlDocument, HtmlLink, HtmlRenderMode,
+    HtmlRenderOptions, HtmlSelector,
+};

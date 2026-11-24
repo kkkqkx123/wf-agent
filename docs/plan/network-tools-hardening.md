@@ -11,7 +11,7 @@
 - `web_search`：模型侧参数为 `query`、`max_results`、`backend`；返回标题、URL、摘要，并附带参与聚合的后端与部分失败信息。
 - 搜索后端：内置 DuckDuckGo HTML 解析、声明式 HTTP 搜索（GET/POST、占位符、JSON 字段映射）、native 插件贡献的后端。
 - 聚合：注册表按 owner 管理生命周期；支持并发全量与优先级首成功、URL 去重、整次超时。
-- `web_fetch`：按 URL 抓取，支持 `text` / `html` 输出，结果走统一落盘策略。
+- `web_fetch`：按 URL 抓取，支持 `markdown`（默认）/ `text` / `html` 输出，结果走统一落盘策略；格式细则以内容管线文档为准。
 - 配置：`[network.web_search]` 管理后端、模式、代理；凭据在运行时从 credential store 解析，传输错误脱敏。
 - 治理：两个工具均标记为 `Network` 风险，受审批策略约束；temporary 会话可用，ephemeral 会话禁用。
 
@@ -23,7 +23,7 @@
 
 ### markdown 输出名不副实
 
-`WEB_FETCH` 默认并推荐 `markdown`，但 handler 只在 `format == "text"` 时剥离标签；默认路径实际把 HTML 原样返回（`predefined/web/web_fetch.rs`）。工具 schema、提示语和实现语义相互矛盾。
+`WEB_FETCH` 默认并推荐 `markdown`，但 handler 只在 `format == "text"` 时剥离标签；默认路径实际把 HTML 原样返回（`predefined/web/web_fetch.rs`）。工具 schema、提示语和实现语义相互矛盾。该问题已由后续内容管线改造解决。
 
 ### 体积上限发生在完整缓冲之后
 
@@ -69,7 +69,7 @@ DDG 解析器依赖逐行字符串匹配，页面改版可能静默返回空结�
 
 ### 修正抓取语义与传输
 
-- 删除名不副实的 `markdown`，只保留 `text` 与 `html`；`text` 移除脚本、样式和标签，解码常见命名与数值实体，并在块级标签处补空格。
+- 由后续内容管线改造统一为 HTML5 DOM 渲染：`markdown`（默认）保留结构，`text` 输出无标记的纯文本，`html` 保留原始响应体；实体解码与块级换行共用同一解析规则。
 - 用响应流逐块累加并提前拒绝超限响应；返回 `final_url`，让重定向结果可见。
 - 用自定义重定向策略逐跳检查域名和跳数，初始 URL 也要先校验。
 - 搜索后端的 HTTP 客户端同样应用逐跳域名策略和流式体积上限。
@@ -101,7 +101,7 @@ DDG 解析器依赖逐行字符串匹配，页面改版可能静默返回空结�
 ## 已落地修改
 
 - 新增 `wf-tools` 网络原语模块；审批主机匹配改为复用该模块。
-- `web_fetch` 参数与实现收敛为 `text` / `html`；文本转换补齐脚本、样式、实体和空白处理。
+- `web_fetch` 参数与实现收敛为 `markdown`（默认）/ `text` / `html`；页面渲染补齐脚本、样式、实体和空白处理。
 - 搜索片段与抓取正文共用同一套 HTML 文本提取规则；DDG 解析器改为按锚点属性识别结果，结果与声明式后端统一做 URL 规范化与去重。
 - 抓取与搜索响应体均改为流式读取并在接收阶段执行体积上限。
 - 抓取支持 `[network.web_fetch]` 代理、超时、UA 与重定向上限；代理凭据沿用运行时解析与错误脱敏。

@@ -685,6 +685,7 @@ impl WebFetchBackend for HarnessFetchBackend {
             headers: std::collections::BTreeMap::new(),
             content: MOCK_PAGE_HTML.to_string(),
             size: MOCK_PAGE_HTML.len(),
+            options_applied: false,
         })
     }
 

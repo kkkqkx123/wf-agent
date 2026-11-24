@@ -148,6 +148,9 @@ impl WebFetchBackend for PluginWebFetchBackend {
                 .and_then(Value::as_u64)
                 .unwrap_or(content.len() as u64) as usize,
             content,
+            // Content options are forwarded to the plugin, so the handler must
+            // not apply them a second time to the returned content.
+            options_applied: true,
         })
     }
 
@@ -194,7 +197,6 @@ pub(crate) fn sync_network(
     manager: &ContributionManager,
     plugin_registry: &PluginRegistry,
 ) -> PluginResult<()> {
-    validate_plugin_network(plugin_id, plugin_registry)?;
     let search_backends: Vec<String> = manager
         .all_tools()
         .into_iter()
@@ -210,6 +212,7 @@ pub(crate) fn sync_network(
     if search_backends.is_empty() && fetch_backends.is_empty() {
         return Ok(());
     }
+    validate_plugin_network(plugin_id, plugin_registry)?;
     let executors: Vec<_> = manager
         .all_tool_types()
         .into_iter()
@@ -437,5 +440,46 @@ mod tests {
             .await
             .expect_err("executor failure propagates");
         assert!(error.to_string().contains("executor failed"));
+    }
+
+    struct FetchExecutor;
+
+    #[async_trait]
+    impl PluginToolExecutor for FetchExecutor {
+        async fn execute(&self, ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
+            assert_eq!(ctx.args["render"], json!(true));
+            assert_eq!(ctx.args["wait_for_ms"], json!(100));
+            assert_eq!(ctx.args["selector"], json!("main"));
+            assert_eq!(ctx.args["max_chars"], json!(500));
+            Ok(PluginToolResult {
+                result: json!({
+                    "content": "<main>Ready</main>",
+                    "status_code": 201,
+                    "headers": { "etag": "v1" },
+                    "content_type": "text/html",
+                    "size": 18
+                }),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_backend_forwards_options_and_reads_metadata() {
+        let backend = PluginWebFetchBackend {
+            id: "p1.fetch".into(),
+            executor: Arc::new(FetchExecutor),
+        };
+        let mut fetch_query = WebFetchQuery::new("https://example.com/page");
+        fetch_query.render = true;
+        fetch_query.wait_for_ms = Some(100);
+        fetch_query.selector = Some("main".into());
+        fetch_query.max_chars = Some(500);
+        let response = backend
+            .fetch(fetch_query)
+            .await
+            .expect("plugin fetch succeeds");
+        assert_eq!(response.status_code, 201);
+        assert_eq!(response.headers["etag"], "v1");
+        assert!(response.options_applied);
     }
 }

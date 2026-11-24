@@ -206,7 +206,7 @@ pub struct HttpFetchBackend {
     min_interval_ms: u64,
     cache: Cache<String, CachedFetch>,
     robots: Cache<String, RobotsRules>,
-    last_call: DashMap<String, Instant>,
+    last_call: DashMap<String, Arc<tokio::sync::Mutex<Instant>>>,
 }
 
 impl HttpFetchBackend {
@@ -244,24 +244,23 @@ impl HttpFetchBackend {
             return;
         }
         let interval = Duration::from_millis(self.min_interval_ms);
-        let wait = {
-            let mut last = self.last_call.entry(host.to_string()).or_insert_with(|| {
-                Instant::now()
-                    .checked_sub(interval)
-                    .unwrap_or_else(Instant::now)
-            });
-            let elapsed = last.elapsed();
-            if elapsed >= interval {
-                *last = Instant::now();
-                None
-            } else {
-                Some(interval - elapsed)
-            }
-        };
-        if let Some(wait) = wait {
-            tokio::time::sleep(wait).await;
-            self.last_call.insert(host.to_string(), Instant::now());
+        let clock = self
+            .last_call
+            .entry(host.to_string())
+            .or_insert_with(|| {
+                Arc::new(tokio::sync::Mutex::new(
+                    Instant::now()
+                        .checked_sub(interval)
+                        .unwrap_or_else(Instant::now),
+                ))
+            })
+            .clone();
+        let mut last = clock.lock().await;
+        let elapsed = last.elapsed();
+        if elapsed < interval {
+            tokio::time::sleep(interval - elapsed).await;
         }
+        *last = Instant::now();
     }
 
     async fn robots_for(&self, url: &reqwest::Url) -> RobotsRules {
@@ -315,6 +314,9 @@ impl WebFetchBackend for HttpFetchBackend {
     async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
         if query.render {
             return Err(WebFetchError::UnsupportedOption("render"));
+        }
+        if query.wait_for_ms.is_some() {
+            return Err(WebFetchError::UnsupportedOption("wait_for_ms"));
         }
         let parsed = reqwest::Url::parse(&query.url).map_err(|_| WebFetchError::InvalidUrl)?;
         if !matches!(parsed.scheme(), "http" | "https") {
@@ -404,6 +406,7 @@ impl WebFetchBackend for HttpFetchBackend {
             headers,
             content,
             size: bytes.len(),
+            options_applied: false,
         };
         self.store_response(&key, &result);
         Ok(result)
@@ -419,21 +422,33 @@ impl WebFetchBackend for HttpFetchBackend {
 }
 
 fn decode_body(bytes: &[u8], content_type: &str) -> String {
-    let (payload, encoding) = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        (&bytes[3..], UTF_8)
-    } else if bytes.starts_with(&[0xFF, 0xFE]) {
-        (&bytes[2..], encoding_rs::UTF_16LE)
-    } else if bytes.starts_with(&[0xFE, 0xFF]) {
-        (&bytes[2..], encoding_rs::UTF_16BE)
-    } else {
-        let label = charset_from_content_type(content_type)
-            .or_else(|| charset_from_meta(bytes))
-            .unwrap_or_default();
-        let encoding = Encoding::for_label(label.as_bytes()).unwrap_or(UTF_8);
-        (bytes, encoding)
+    let (bom_payload, bom_encoding) = strip_bom(bytes);
+    let label = charset_from_content_type(content_type)
+        .or_else(|| charset_from_meta(bytes))
+        .unwrap_or_default();
+    let declared = Encoding::for_label(label.as_bytes());
+    let (payload, encoding) = match declared {
+        Some(encoding) if Some(encoding) == bom_encoding => (bom_payload, encoding),
+        Some(encoding) => (bytes, encoding),
+        None => match bom_encoding {
+            Some(encoding) => (bom_payload, encoding),
+            None => (bytes, UTF_8),
+        },
     };
     let (text, _, _) = encoding.decode(payload);
     text.into_owned()
+}
+
+fn strip_bom(bytes: &[u8]) -> (&[u8], Option<&'static Encoding>) {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        (&bytes[3..], Some(UTF_8))
+    } else if bytes.starts_with(&[0xFF, 0xFE]) {
+        (&bytes[2..], Some(encoding_rs::UTF_16LE))
+    } else if bytes.starts_with(&[0xFE, 0xFF]) {
+        (&bytes[2..], Some(encoding_rs::UTF_16BE))
+    } else {
+        (bytes, None)
+    }
 }
 
 fn charset_from_content_type(content_type: &str) -> Option<String> {
@@ -455,6 +470,7 @@ fn charset_from_meta(bytes: &[u8]) -> Option<String> {
 fn parse_robots(text: &str, user_agent: &str) -> RobotsRules {
     let mut disallow = Vec::new();
     let mut applies = false;
+    let mut reading_agents = false;
     let agent_token = user_agent.split('/').next().unwrap_or("");
     for raw in text.lines() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -464,13 +480,23 @@ fn parse_robots(text: &str, user_agent: &str) -> RobotsRules {
         let key = key.trim().to_ascii_lowercase();
         let value = value.trim();
         if key == "user-agent" {
-            applies = value == "*"
+            if !reading_agents {
+                applies = false;
+                reading_agents = true;
+            }
+            if value == "*"
                 || value.eq_ignore_ascii_case(user_agent)
-                || value.eq_ignore_ascii_case(agent_token);
-        } else if key == "disallow" && applies {
-            let prefix = value.trim_end_matches('*').to_string();
-            if !prefix.is_empty() && !disallow.contains(&prefix) {
-                disallow.push(prefix);
+                || value.eq_ignore_ascii_case(agent_token)
+            {
+                applies = true;
+            }
+        } else {
+            reading_agents = false;
+            if key == "disallow" && applies {
+                let prefix = value.trim_end_matches('*').to_string();
+                if !prefix.is_empty() && !disallow.contains(&prefix) {
+                    disallow.push(prefix);
+                }
             }
         }
     }
@@ -496,6 +522,7 @@ mod tests {
                 headers: BTreeMap::new(),
                 content: self.tag.clone(),
                 size: self.tag.len(),
+                options_applied: false,
             })
         }
 
@@ -571,15 +598,47 @@ mod tests {
         assert_eq!(decoded, "中文");
         let meta = b"<html><head><meta charset='gbk'></head><body>x</body></html>";
         assert!(charset_from_meta(meta).is_some());
+        let with_bom = [&[0xEF, 0xBB, 0xBF][..], b"hello".as_slice()].concat();
+        assert_eq!(decode_body(&with_bom, "text/plain"), "hello");
+        assert_eq!(
+            decode_body(&with_bom, "text/plain; charset=utf-8"),
+            "hello"
+        );
     }
 
     #[test]
     fn parses_robots_rules_for_matching_agent() {
-        let text = "User-agent: *\nDisallow: /private\nUser-agent: wf-agent\nDisallow: /secret\n";
+        let text = "User-agent: otherbot\nUser-agent: wf-agent/0.1\nDisallow: /shared\n\
+                    User-agent: *\nDisallow: /private\n\
+                    User-agent: wf-agent\nDisallow: /secret\n";
         let rules = parse_robots(text, "wf-agent/0.1");
+        assert!(rules.disallows("/shared/x"));
         assert!(rules.disallows("/private/a"));
         assert!(rules.disallows("/secret"));
         assert!(!rules.disallows("/public"));
+    }
+
+    #[tokio::test]
+    async fn rejects_wait_option_on_http_backend() {
+        let backend =
+            HttpFetchBackend::new("http-test", &FetchToolConfig::default()).expect("backend builds");
+        let mut query = WebFetchQuery::new("https://example.com");
+        query.wait_for_ms = Some(10);
+        let error = backend.fetch(query).await.expect_err("wait is unsupported");
+        assert!(error.to_string().contains("wait_for_ms"));
+    }
+
+    #[tokio::test]
+    async fn throttle_serializes_requests_to_one_host() {
+        let config = FetchToolConfig {
+            min_interval_ms: 60,
+            ..Default::default()
+        };
+        let backend =
+            HttpFetchBackend::new("http-throttle", &config).expect("backend builds");
+        let started = Instant::now();
+        futures::future::join_all((0..3).map(|_| backend.throttle("example.com"))).await;
+        assert!(started.elapsed() >= Duration::from_millis(120));
     }
 
     fn spawn_conditional_server() -> (String, Arc<std::sync::atomic::AtomicUsize>) {

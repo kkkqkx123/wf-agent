@@ -628,16 +628,31 @@ impl HtmlDocument {
                 }
                 match tag {
                     "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                        let level: usize = tag[1..].parse().unwrap_or(1);
                         let text = self.inline_text(id, base, mode);
-                        push_block(out, &format!("{} {}", "#".repeat(level), text));
+                        if mode == HtmlRenderMode::Markdown {
+                            let level: usize = tag[1..].parse().unwrap_or(1);
+                            push_block(out, &format!("{} {}", "#".repeat(level), text));
+                        } else {
+                            push_block(out, &text);
+                        }
                     }
                     "ul" | "ol" => self.render_list(id, tag == "ol", base, mode, out),
-                    "li" => push_line(out, &format!("- {}", self.inline_text(id, base, mode))),
+                    "li" => {
+                        let text = self.inline_text(id, base, mode);
+                        if mode == HtmlRenderMode::Markdown {
+                            push_line(out, &format!("- {text}"));
+                        } else {
+                            push_line(out, &text);
+                        }
+                    }
                     "blockquote" => {
                         let text = self.inline_text(id, base, mode);
                         for line in text.lines() {
-                            push_line(out, &format!("> {line}"));
+                            if mode == HtmlRenderMode::Markdown {
+                                push_line(out, &format!("> {line}"));
+                            } else {
+                                push_line(out, line);
+                            }
                         }
                     }
                     "pre" => {
@@ -651,7 +666,11 @@ impl HtmlDocument {
                         }
                     }
                     "table" => self.render_table(id, base, mode, out),
-                    "hr" => push_block(out, "---"),
+                    "hr" => {
+                        if mode == HtmlRenderMode::Markdown {
+                            push_block(out, "---");
+                        }
+                    }
                     "br" => out.push('\n'),
                     "a" => {
                         let text = self.inline_text(id, base, mode);
@@ -688,9 +707,16 @@ impl HtmlDocument {
                             out.push_str(&text);
                         }
                     }
-                    "p" | "div" | "section" | "article" | "main" | "figcaption" | "details" => {
+                    "p" => {
                         let text = self.inline_text(id, base, mode);
                         push_block(out, &text);
+                    }
+                    "div" | "section" | "article" | "main" | "figcaption" | "details" => {
+                        let mut inner = String::new();
+                        for child in &self.dom.nodes[id.0].children {
+                            self.render_node(*child, base, mode, &mut inner);
+                        }
+                        push_block(out, inner.trim());
                     }
                     _ => {
                         for child in &self.dom.nodes[id.0].children {
@@ -724,12 +750,16 @@ impl HtmlDocument {
                 continue;
             }
             let text = self.inline_text(*child, base, mode);
-            let prefix = if ordered {
-                format!("{index}. ")
+            if mode == HtmlRenderMode::Markdown {
+                let prefix = if ordered {
+                    format!("{index}. ")
+                } else {
+                    "- ".to_string()
+                };
+                push_line(out, &format!("{prefix}{text}"));
             } else {
-                "- ".to_string()
-            };
-            push_line(out, &format!("{prefix}{text}"));
+                push_line(out, &text);
+            }
             index += 1;
         }
     }
@@ -747,7 +777,11 @@ impl HtmlDocument {
         for (index, row) in rows.iter().enumerate() {
             let mut cells: Vec<String> = row.iter().cloned().collect();
             cells.resize(columns, String::new());
-            let line = format!("| {} |", cells.join(" | "));
+            let line = if mode == HtmlRenderMode::Markdown {
+                format!("| {} |", cells.join(" | "))
+            } else {
+                cells.join(" ")
+            };
             push_line(out, &line);
             if index == 0 && mode == HtmlRenderMode::Markdown {
                 push_line(out, &format!("| {} |", vec!["---"; columns].join(" | ")));
@@ -943,5 +977,50 @@ mod tests {
     fn rejects_complex_selectors() {
         assert!(parse_selector("div > p").is_err());
         assert!(parse_selector("main, #content").is_ok());
+    }
+
+    #[test]
+    fn plain_mode_keeps_lines_without_markdown_markers() {
+        let html = "<h1>Title</h1><ul><li>A</li><li>B</li></ul>\
+                    <blockquote>quoted</blockquote>\
+                    <table><tr><th>K</th><th>V</th></tr><tr><td>a</td><td>1</td></tr></table>\
+                    <hr><p>tail</p>";
+        let document = HtmlDocument::parse(html, None);
+        let text = document.render(
+            None,
+            &HtmlRenderOptions {
+                mode: HtmlRenderMode::Plain,
+                ..Default::default()
+            },
+        );
+        assert_eq!(text, "Title\nA\nB\nquoted\nK V\na 1\ntail");
+        assert!(!text.contains('#'));
+        assert!(!text.contains('|'));
+        assert!(!text.contains("- "));
+    }
+
+    #[test]
+    fn render_respects_character_budget() {
+        let document = HtmlDocument::parse("<p>hello world</p>", None);
+        let rendered = document.render(
+            None,
+            &HtmlRenderOptions {
+                max_chars: Some(5),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            rendered,
+            "hello\n\n[content shortened to 5 characters]"
+        );
+    }
+
+    #[test]
+    fn parses_malformed_markup_without_losing_text() {
+        let document = HtmlDocument::parse("<p>one<div>two<p>three", None);
+        let rendered = document.render(None, &HtmlRenderOptions::default());
+        assert!(rendered.contains("one"));
+        assert!(rendered.contains("two"));
+        assert!(rendered.contains("three"));
     }
 }

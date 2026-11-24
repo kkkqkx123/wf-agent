@@ -155,6 +155,9 @@ pub struct WebFetchResponse {
     pub headers: BTreeMap<String, String>,
     pub content: String,
     pub size: usize,
+    /// Whether the backend already applied `selector` and `max_chars` to `content`.
+    /// Backends that only transport bytes leave this false so the handler owns rendering.
+    pub options_applied: bool,
 }
 
 /// Effective transport configuration consumed by the built-in HTTP backend.
@@ -338,8 +341,12 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
                 return Err(WebFetchError::InvalidParameter("format").into());
             }
             let query = request_options(&parameters)?;
+            if format == "html" && query.selector.is_some() {
+                return Err(WebFetchError::InvalidParameter("selector").into());
+            }
             let original_url = query.url.clone();
             let max_chars = query.max_chars;
+            let selector = query.selector.clone();
             let response = backend.fetch(query).await?;
 
             let mut title = String::new();
@@ -355,10 +362,13 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
                 metadata = serde_json::to_value(&document.metadata)
                     .unwrap_or_else(|_| serde_json::json!({}));
                 links = split_links(document.links.clone(), &response.final_url, 20);
-                let selectors = parameters
-                    .get("selector")
-                    .and_then(|value| value.as_str())
-                    .and_then(|value| parse_selector(value).ok());
+                let selectors = if response.options_applied {
+                    None
+                } else {
+                    selector
+                        .as_deref()
+                        .and_then(|value| parse_selector(value).ok())
+                };
                 let options = HtmlRenderOptions {
                     mode: if format == "text" {
                         HtmlRenderMode::Plain
@@ -440,6 +450,7 @@ mod tests {
                 headers: BTreeMap::new(),
                 content: "<h1>Hello &amp; world</h1><p><a href='/next'>Next</a></p>".into(),
                 size: 55,
+                options_applied: false,
             })
         }
         fn id(&self) -> &str {
@@ -508,6 +519,135 @@ mod tests {
         .await
         .expect_err("render is rejected");
         assert!(error.to_string().contains("render"));
+    }
+
+    #[tokio::test]
+    async fn keeps_preprocessed_backend_content_without_second_filtering() {
+        struct PreprocessedBackend;
+
+        #[async_trait]
+        impl WebFetchBackend for PreprocessedBackend {
+            async fn fetch(
+                &self,
+                query: WebFetchQuery,
+            ) -> Result<WebFetchResponse, WebFetchError> {
+                Ok(WebFetchResponse {
+                    final_url: query.url,
+                    status_code: 200,
+                    content_type: "text/html".into(),
+                    headers: BTreeMap::new(),
+                    content: "<h1>Ready</h1>".into(),
+                    size: 14,
+                    options_applied: true,
+                })
+            }
+            fn id(&self) -> &str {
+                "preprocessed"
+            }
+            fn kind(&self) -> &str {
+                "test"
+            }
+        }
+
+        let config = crate::predefined::web::WebToolConfig {
+            fetch_backend: Some(Arc::new(PreprocessedBackend)),
+            ..Default::default()
+        };
+        let output = handler(config)(
+            serde_json::json!({
+                "url": "https://example.com/page",
+                "selector": "#missing"
+            }),
+            crate::executor::trait_def::ToolExecutionContext::new("exec-6".into()),
+        )
+        .await
+        .expect("preprocessed fetch succeeds");
+        assert_eq!(output["content"], "# Ready");
+    }
+
+    #[tokio::test]
+    async fn rejects_selector_with_raw_html_format() {
+        let config = crate::predefined::web::WebToolConfig {
+            fetch_backend: Some(Arc::new(StubFetchBackend)),
+            ..Default::default()
+        };
+        let error = handler(config)(
+            serde_json::json!({
+                "url": "https://example.com/page",
+                "format": "html",
+                "selector": "main"
+            }),
+            crate::executor::trait_def::ToolExecutionContext::new("exec-4".into()),
+        )
+        .await
+        .expect_err("selector cannot scope a raw HTML response");
+        assert!(error.to_string().contains("selector"));
+    }
+
+    #[tokio::test]
+    async fn spills_long_content_with_character_budget() {
+        struct LongFetchBackend;
+
+        #[async_trait]
+        impl WebFetchBackend for LongFetchBackend {
+            async fn fetch(
+                &self,
+                query: WebFetchQuery,
+            ) -> Result<WebFetchResponse, WebFetchError> {
+                let content = "x".repeat(1000);
+                Ok(WebFetchResponse {
+                    final_url: query.url,
+                    status_code: 200,
+                    content_type: "text/plain".into(),
+                    headers: BTreeMap::new(),
+                    size: content.len(),
+                    content,
+                    options_applied: false,
+                })
+            }
+            fn id(&self) -> &str {
+                "long"
+            }
+            fn kind(&self) -> &str {
+                "test"
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "wf-web-fetch-spill-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create spill dir");
+        let workdir = dir.to_string_lossy().to_string();
+        let scope = wf_types::config::file_scope::ResolvedFileScope {
+            enabled: false,
+            read_prefixes: Vec::new(),
+            write_prefixes: Vec::new(),
+            checkpoint_prefixes: Vec::new(),
+            workdir: Some(workdir),
+        };
+        let config = crate::predefined::web::WebToolConfig {
+            fetch_backend: Some(Arc::new(LongFetchBackend)),
+            ..Default::default()
+        };
+        let output = handler(config)(
+            serde_json::json!({
+                "url": "https://example.com/page",
+                "max_chars": 10
+            }),
+            crate::executor::trait_def::ToolExecutionContext::new("exec-5".into())
+                .with_file_scope(Some(scope)),
+        )
+        .await
+        .expect("long fetch succeeds");
+        let path = output["content_path"]
+            .as_str()
+            .expect("long content is spilled")
+            .to_string();
+        assert_eq!(std::fs::read_to_string(&path).expect("read spill"), "x".repeat(1000));
+        assert_eq!(output["content_truncated"], serde_json::json!(true));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

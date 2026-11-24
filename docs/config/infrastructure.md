@@ -107,9 +107,9 @@
 
 `tools.toml [network.web_fetch]` 配置 `timeout_ms`、`max_content_bytes`（流式下载硬上限）、`user_agent`、`max_redirects`、`backend`（内置 `http` 或 native 插件后端 id）和 `proxy`。另可配置 `respect_robots_txt`（默认关闭，开启后按 robots.txt 的 Disallow 规则拒绝路径）、`cache_ttl_ms`（默认 60 秒，0 关闭条件请求缓存）、`cache_capacity`（默认 256）与 `min_interval_ms`（同一主机的最小请求间隔，默认 0）。
 
-`web_fetch` 的 `format` 为 `markdown`（默认）、`text` 与 `html`：前两者用 HTML5 DOM 解析页面并渲染结构化内容，其中 `markdown` 保留标题、列表、表格、代码块和绝对化链接，`text` 去掉标记但保留行结构；`html` 返回原始响应体。工具还支持 `selector`（仅支持标签、`#id`、`.class` 的简单组合）、`max_chars`、`render` 与 `wait_for_ms`；内置 HTTP 后端不支持 `render`，会显式报错，浏览器渲染可由插件后端提供。响应按 HTTP charset、HTML meta charset、BOM、UTF-8 的顺序解码。响应体超限在接收过程中立即失败，超长文本再走统一落盘。
+`web_fetch` 的 `format` 为 `markdown`（默认）、`text` 与 `html`：前两者用 HTML5 DOM 解析页面并渲染结构化内容，其中 `markdown` 保留标题、列表、表格、代码块和绝对化链接，`text` 去掉标记但保留行结构；`html` 返回原始响应体。工具还支持 `selector`（仅支持标签、`#id`、`.class` 的简单组合）、`max_chars`、`render` 与 `wait_for_ms`；内置 HTTP 后端不支持 `render` 与 `wait_for_ms`，会显式报错，浏览器渲染可由插件后端提供。`selector` 只作用于 HTML 正文，与 `format = "html"` 组合会报错。响应按 HTTP charset、HTML meta charset、BOM、UTF-8 的顺序解码。响应体超限在接收过程中立即失败，超长文本再走统一落盘。
 
-抓取后端注册表与搜索后端一样按插件 owner 管理生命周期；插件用 `fetch-backend:web` 标记贡献抓取能力，搜索后端仍使用 `search-backend:web`，两者都要求 native 实现、`network` 权限和唯一 executor。当前选中的抓取后端 id 由注册表持有，路由器在每次调用时读取，因此运行时可切换；当被移除的插件后端正是当前选中项时，自动回退到内置 `http` 后端。页面渲染与输出后处理是宿主可注入的扩展点，未注入时使用默认 HTML5 DOM 渲染规则。
+抓取后端注册表与搜索后端一样按插件 owner 管理生命周期；插件用 `fetch-backend:web` 标记贡献抓取能力，搜索后端仍使用 `search-backend:web`，两者都要求 native 实现、`network` 权限和唯一 executor。当前选中的抓取后端 id 由注册表持有，路由器在每次调用时读取，因此运行时可切换；当被移除的插件后端正是当前选中项时，自动回退到内置 `http` 后端。调用选项会透传给插件工具，由插件自行消费；此时 handler 不再重复应用选择器。页面渲染与输出后处理是宿主可注入的扩展点，未注入时使用默认 HTML5 DOM 渲染规则。
 
 审批配置中的网络域名规则会下推到内置传输层：拒绝列表始终生效；允许列表仅在 `always_allow_network = true` 时约束抓取目标，否则由人工审批决定。搜索后端只接收拒绝规则，因为搜索引擎端点并不是被搜索的目标站点；对每次重定向目标都会重新校验域名。`web_search_backends` 工具列出当前可用后端及能力；`web_search` 工具定义携带已解析的后端端点域名，审批阶段可据此执行域名策略，不再因为缺少 URL 参数而直接转人工。
 

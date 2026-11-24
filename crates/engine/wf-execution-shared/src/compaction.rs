@@ -26,19 +26,19 @@ pub use decision::{
     REASON_NO_COMPRESSIBLE_TARGET, REASON_POST_COMPACT_STILL_HIGH,
 };
 pub use engine::{
-    CompactionCall, CompactionEngine, CompactionEngineError, CompactionEngineFactory,
-    CompactionEngineResult, CompactionOutcome, EngineCapabilities, ManualRequest, NoopProgressSink,
-    ProgressSink, Replacement, ShrinkProof, TracingProgressSink, ViewPlan, BUILTIN_ENGINE_NAME,
-    ENGINE_API_VERSION, recompute_shrink_proof, validate_replacement,
-};
-pub use registry::{
-    build_compaction_engine, build_compaction_engine_with_config, has_compaction_engine,
-    register_compaction_engine, registered_compaction_engines, unregister_compaction_engine,
+    recompute_shrink_proof, validate_replacement, CompactionCall, CompactionEngine,
+    CompactionEngineError, CompactionEngineFactory, CompactionEngineResult, CompactionOutcome,
+    EngineCapabilities, ManualRequest, NoopProgressSink, ProgressSink, Replacement, ShrinkProof,
+    TracingProgressSink, ViewPlan, BUILTIN_ENGINE_NAME, ENGINE_API_VERSION,
 };
 pub use plan::{
     build_plan, build_stateless_plan, outcomes_match_plan, plan_covers_snapshot,
     sanitize_directive, stateless_plan_for_estimate, CompactionPlan, DIRECTIVE_MAX_CHARS,
     DIRECTIVE_MAX_EST_TOKENS,
+};
+pub use registry::{
+    build_compaction_engine, build_compaction_engine_with_config, has_compaction_engine,
+    register_compaction_engine, registered_compaction_engines, unregister_compaction_engine,
 };
 pub use strategy::{
     compaction_strategy_name, is_builtin_strategy, is_single_summary_strategy,

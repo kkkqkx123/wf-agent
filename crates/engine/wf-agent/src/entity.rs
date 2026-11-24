@@ -935,7 +935,10 @@ mod tests {
         assert!(entity.compact_now("test").await.is_none());
 
         let engine = Arc::new(wf_execution_shared::compaction::builtin::BuiltinEngine);
-        entity.bind_compaction(engine, wf_types::config::limits::CompactionLimits::default());
+        entity.bind_compaction(
+            engine,
+            wf_types::config::limits::CompactionLimits::default(),
+        );
         assert!(entity.has_compaction_engine());
         let result = entity.compact_now("test").await;
         assert!(matches!(

@@ -9,9 +9,9 @@ impl InteractiveController {
     /// remains responsive while the engine decides and writes back.
     pub(crate) fn request_compact_now(&self, argument: &str) {
         let Some(loop_id) = self.active_agent_loop_id.clone() else {
-            let _ = self
-                .tx
-                .send(InteractiveEvent::Notice("compact: no active agent loop".into()));
+            let _ = self.tx.send(InteractiveEvent::Notice(
+                "compact: no active agent loop".into(),
+            ));
             return;
         };
         let client = self.client.clone();
@@ -20,10 +20,7 @@ impl InteractiveController {
         tokio::spawn(async move {
             let body = serde_json::json!({ "reason": reason });
             let path = format!("/api/v1/agent-loops/{loop_id}/compact");
-            let notice = match client
-                .post_json::<_, serde_json::Value>(&path, &body)
-                .await
-            {
+            let notice = match client.post_json::<_, serde_json::Value>(&path, &body).await {
                 Ok(response) => {
                     let data = response.get("data");
                     let kind = data
@@ -38,7 +35,14 @@ impl InteractiveController {
                         .and_then(|d| d.get("detail"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    format!("compact [{engine}]: {kind}{}", if detail.is_empty() { String::new() } else { format!(" · {detail}") })
+                    format!(
+                        "compact [{engine}]: {kind}{}",
+                        if detail.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" · {detail}")
+                        }
+                    )
                 }
                 Err(e) => format!("compact failed: {e}"),
             };

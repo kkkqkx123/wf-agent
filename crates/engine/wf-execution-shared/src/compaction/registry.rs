@@ -23,9 +23,7 @@ fn factories() -> &'static DashMap<String, Arc<dyn CompactionEngineFactory>> {
 
 /// Register a native engine factory under its declared name. Returns false
 /// when the name is empty, collides with the built-in, or is already taken.
-pub fn register_compaction_engine(
-    factory: Arc<dyn CompactionEngineFactory>,
-) -> Result<(), String> {
+pub fn register_compaction_engine(factory: Arc<dyn CompactionEngineFactory>) -> Result<(), String> {
     let name = factory.name();
     let key = name.trim().to_string();
     if key.is_empty() {
@@ -56,9 +54,7 @@ pub fn unregister_compaction_engine(name: &str) -> bool {
 /// Whether a name resolves to an engine (built-in or registered factory).
 pub fn has_compaction_engine(name: &str) -> bool {
     let trimmed = name.trim();
-    trimmed.is_empty()
-        || trimmed == BUILTIN_ENGINE_NAME
-        || factories().contains_key(trimmed)
+    trimmed.is_empty() || trimmed == BUILTIN_ENGINE_NAME || factories().contains_key(trimmed)
 }
 
 /// Build a fresh engine instance for a name. Unknown names return `None` so
@@ -99,7 +95,7 @@ pub fn registered_compaction_engines() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, OnceLock, Mutex};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     use async_trait::async_trait;
     use wf_types::message::SeqRange;

@@ -56,12 +56,9 @@ pub async fn compact_now(ctx: &ApiContext, params: CompactParams) -> ApiResult<C
     } else {
         params.reason
     };
-    let outcome = entity
-        .compact_now_applied(&reason)
-        .await
-        .ok_or_else(|| {
-            ApiError::Validation("no compaction engine is bound to this execution".to_string())
-        })?;
+    let outcome = entity.compact_now_applied(&reason).await.ok_or_else(|| {
+        ApiError::Validation("no compaction engine is bound to this execution".to_string())
+    })?;
     match outcome {
         Ok((outcome, proof)) => {
             let (kind, applied, detail) = match outcome {

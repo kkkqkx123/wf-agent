@@ -99,14 +99,8 @@ impl ShrinkProof {
 /// permitted when the host independently measures a sufficient reclaim. This
 /// is the hard gate that makes destructive replacement safe to enable by
 /// default.
-pub fn recompute_shrink_proof(
-    call: &CompactionCall<'_>,
-    replacement: &Replacement,
-) -> ShrinkProof {
-    let old_tokens = replacement
-        .proof_hint
-        .old_tokens
-        .max(call.hot_tokens);
+pub fn recompute_shrink_proof(call: &CompactionCall<'_>, replacement: &Replacement) -> ShrinkProof {
+    let old_tokens = replacement.proof_hint.old_tokens.max(call.hot_tokens);
     let new_tokens =
         wf_llm::estimate_tokens(&wf_llm::extract_text_content(&replacement.summary)) as u64;
     ShrinkProof {
@@ -310,7 +304,8 @@ pub trait CompactionEngineFactory: Send + Sync {
     fn name(&self) -> String;
     fn api_version(&self) -> u32;
     fn capabilities(&self) -> EngineCapabilities;
-    fn build(&self, config: serde_json::Value) -> CompactionEngineResult<Arc<dyn CompactionEngine>>;
+    fn build(&self, config: serde_json::Value)
+        -> CompactionEngineResult<Arc<dyn CompactionEngine>>;
 }
 
 #[cfg(test)]

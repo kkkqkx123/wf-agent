@@ -102,10 +102,11 @@ impl ConversationSession {
                 message_id: summary_id,
             }],
         };
-        self.state
-            .compaction
-            .replacement_archives
-            .push((start_seq, end_seq, archive_ref.to_string()));
+        self.state.compaction.replacement_archives.push((
+            start_seq,
+            end_seq,
+            archive_ref.to_string(),
+        ));
         self.state.ledger.replace(CONVERSATION_CONTEXT_ID);
         self.tracker.reset_preflight_warning();
         true

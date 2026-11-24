@@ -191,7 +191,10 @@ impl wf_tools::WebSearchBackend for HttpSearchBackend {
 }
 
 fn resolve_string(value: &str, query: &WebSearchQuery) -> String {
-    let offset = query.page.saturating_sub(1).saturating_mul(query.max_results);
+    let offset = query
+        .page
+        .saturating_sub(1)
+        .saturating_mul(query.max_results);
     value
         .replace("$max_results", &query.max_results.to_string())
         .replace("$offset", &offset.to_string())

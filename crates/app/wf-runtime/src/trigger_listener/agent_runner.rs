@@ -170,8 +170,8 @@ impl TriggerActionRunner for AgentTriggerRunner {
             temporary_mode: None,
             checkpoint_message_interval: checkpoint_message_interval
                 .and_then(|n| (n > 0).then_some(n)),
-                compaction_engine: None,
-                compaction_engine_config: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         };
         let start = wf_common::now();
         let action_type = "execute_triggered_agent_execution";
@@ -412,8 +412,8 @@ impl AgentTriggerRunner {
             temporary_mode: None,
             checkpoint_message_interval: checkpoint_message_interval
                 .and_then(|n| (n > 0).then_some(n)),
-                compaction_engine: None,
-                compaction_engine_config: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         };
         let child_input = AgentLoopInput {
             message: prompt.clone().unwrap_or_else(|| template.name.clone()),

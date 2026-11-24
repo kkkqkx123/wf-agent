@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use wf_types::message::SeqRange;
 
 use super::engine::{
-    CompactionCall, CompactionEngine, CompactionEngineResult, CompactionOutcome, EngineCapabilities,
-    ManualRequest, ProgressSink, ViewPlan, BUILTIN_ENGINE_NAME,
+    CompactionCall, CompactionEngine, CompactionEngineResult, CompactionOutcome,
+    EngineCapabilities, ManualRequest, ProgressSink, ViewPlan, BUILTIN_ENGINE_NAME,
 };
 use super::plan::build_plan;
 use super::strategy::{compaction_strategy_name, is_single_summary_strategy};

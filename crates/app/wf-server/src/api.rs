@@ -2,12 +2,12 @@ pub mod agent;
 pub mod chat;
 pub mod checkpoint;
 pub mod cli;
+pub mod compact;
 pub mod conversation;
 pub mod definition;
 pub mod entity;
 #[cfg(feature = "git-fs")]
 pub mod fs;
-pub mod compact;
 #[cfg(feature = "git-fs")]
 pub mod git;
 pub mod llm;

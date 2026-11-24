@@ -10,8 +10,9 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use wf_execution_shared::conversation_tree::{self, TreeEditor};
+use wf_execution_shared::turn_accumulator::{AccumAction, TurnAccumulator};
 use wf_execution_shared::ChatSession;
-use wf_types::llm::{MessageStreamEvent, TokenUsageStats};
+use wf_types::llm::TokenUsageStats;
 use wf_types::message::{Message, MessageRole};
 use wf_types::{ConversationNode, MessageRef, ParamsFingerprint, Reply, ReplyState};
 
@@ -82,20 +83,13 @@ impl GeneratedAnswer {
 /// Submit one turn: write the user node, claim the slot, start the driver.
 pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResult<TurnHandle> {
     let text = request.message.trim().to_string();
-    if text.is_empty() && request.images.is_empty() {
-        return Err(ApiError::Validation("chat turn requires a message".into()));
-    }
     // Mentions touch other resources (files, definitions) and must not hold the
     // session lock while they resolve.
     let (mention_messages, mention_images, mention_receipts) =
         crate::agent::composition::resolve_mentions(&ctx, &text).await;
     let mut images = request.images;
     images.extend(mention_images);
-    if let Err(reason) = wf_types::message::validate_user_images(&images) {
-        return Err(ApiError::Validation(format!(
-            "chat turn carries invalid images: {reason}"
-        )));
-    }
+    crate::infra::validation::validate_chat_input(&text, &images)?;
 
     super::require_chat_session(&ctx, &request.session_id).await?;
     let runtime = runtime::runtime_for(&request.session_id);
@@ -205,15 +199,11 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
                 .map_err(super::tree_error)?
                 .version
         };
-        store::save_tree(&ctx, &tree).await?;
-        store::record_session(
-            &ctx,
-            &request.session_id,
-            Some(&profile_id),
-            request.directory.clone(),
-        )
-        .await?;
 
+        // Claim the in-flight slot before the Pending node becomes durable.
+        // `recover_pending` runs on reads without the write lock; if it saw a
+        // persisted Pending node before the slot existed it would mark this
+        // just-starting turn as Interrupted. Claiming first closes that window.
         let turn_id = wf_common::generate_id();
         let cancel = CancellationToken::new();
         runtime.begin_turn(InflightTurn {
@@ -221,6 +211,21 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             node_id: node_id.clone(),
             cancel: cancel.clone(),
         })?;
+        if let Err(error) = store::save_tree(&ctx, &tree).await {
+            runtime.finish_turn(&turn_id);
+            return Err(error);
+        }
+        if let Err(error) = store::record_session(
+            &ctx,
+            &request.session_id,
+            Some(&profile_id),
+            request.directory.clone(),
+        )
+        .await
+        {
+            runtime.finish_turn(&turn_id);
+            return Err(error);
+        }
         events::turn_started(&ctx, &request.session_id, &turn_id, &node_id, &parent);
         handle = TurnHandle {
             turn_id: turn_id.clone(),
@@ -391,55 +396,35 @@ pub(crate) async fn generate_answer(
         Err(error) => return GeneratedAnswer::failed(error.to_string()),
     };
 
-    let mut answer = String::new();
-    let mut usage: Option<TokenUsageStats> = None;
-    let mut assistant: Option<Message> = None;
-    let mut refusal: Option<String> = None;
+    // Event classification and text/usage folding are shared with the chat
+    // execution chain. This sink writes partial text into the runtime slot and
+    // publishes turn events, and keeps the per-event cancellation check that
+    // the detached driver needs.
+    let mut acc = TurnAccumulator::new();
     while let Some(event) = stream.next().await {
-        match event {
-            Ok(MessageStreamEvent::Text(text)) => {
-                answer.push_str(&text.text);
-                runtime.push_text(&turn_id, &text.text);
-                events::turn_delta(&ctx, &session_id, &turn_id, &node_id, &text.text);
+        let action = match event {
+            Ok(event) => acc.consume(event),
+            Err(error) => return GeneratedAnswer::failed(error.to_string()),
+        };
+        match action {
+            AccumAction::Text(delta) => {
+                runtime.push_text(turn_id, &delta);
+                events::turn_delta(ctx, session_id, turn_id, node_id, &delta);
             }
-            Ok(MessageStreamEvent::Stream(chunk)) => {
-                answer.push_str(&chunk.content);
-                runtime.push_text(&turn_id, &chunk.content);
-                events::turn_delta(&ctx, &session_id, &turn_id, &node_id, &chunk.content);
+            AccumAction::Reasoning(delta) => {
+                runtime.push_reasoning(turn_id, &delta);
+                events::turn_reasoning(ctx, session_id, turn_id, node_id, &delta);
             }
-            Ok(MessageStreamEvent::ReasoningText(reasoning)) => {
-                runtime.push_reasoning(&turn_id, &reasoning.reasoning);
-                events::turn_reasoning(&ctx, &session_id, &turn_id, &node_id, &reasoning.reasoning);
+            AccumAction::Usage(reported) => {
+                events::turn_usage(ctx, session_id, turn_id, node_id, &reported);
             }
-            Ok(MessageStreamEvent::Message(message)) => assistant = Some(message.message),
-            Ok(MessageStreamEvent::FinalMessage(final_message)) => {
-                if let Some(reported) = final_message.usage {
-                    merge_usage(&mut usage, &reported);
-                }
-                assistant = Some(final_message.message);
-            }
-            Ok(MessageStreamEvent::Usage(reported)) => {
-                merge_usage(&mut usage, &reported.usage);
-                events::turn_usage(&ctx, &session_id, &turn_id, &node_id, &reported.usage);
-            }
-            Ok(MessageStreamEvent::Error(error)) => {
-                return GeneratedAnswer::failed(error.error);
-            }
-            Ok(MessageStreamEvent::Refusal(refused)) => refusal = Some(refused.snapshot.clone()),
-            Ok(MessageStreamEvent::Abort(abort)) => {
+            AccumAction::Failed(error) => return GeneratedAnswer::failed(error),
+            AccumAction::Interrupted(reason) => {
                 let mut interrupted = GeneratedAnswer::interrupted();
-                interrupted.error = Some(abort.reason);
+                interrupted.error = Some(reason);
                 return interrupted;
             }
-            Ok(MessageStreamEvent::RedactedThinking(_))
-            | Ok(MessageStreamEvent::Annotation(_))
-            | Ok(MessageStreamEvent::NativeBlock(_))
-            | Ok(MessageStreamEvent::End(_))
-            | Ok(MessageStreamEvent::Connect(_))
-            | Ok(MessageStreamEvent::Start(_))
-            | Ok(MessageStreamEvent::InputJson(_))
-            | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
-            Err(error) => return GeneratedAnswer::failed(error.to_string()),
+            AccumAction::None => {}
         }
         if cancel.is_cancelled() {
             let mut interrupted = GeneratedAnswer::interrupted();
@@ -448,10 +433,10 @@ pub(crate) async fn generate_answer(
         }
     }
 
-    match assistant {
+    match acc.assistant {
         Some(message) => GeneratedAnswer {
             message: Some(message),
-            usage,
+            usage: acc.usage,
             state: ReplyState::Kept,
             error: None,
             base: Some(base),
@@ -460,15 +445,13 @@ pub(crate) async fn generate_answer(
             // A stream that ends without a message still produced text in
             // most providers; keeping it as an interrupted answer is more
             // honest than dropping what the user already saw.
-            let reason = refusal
-                .filter(|refusal| !refusal.is_empty())
-                .unwrap_or_else(|| "chat stream ended without a final message".to_string());
-            if answer.trim().is_empty() {
+            let reason = acc.missing_message_reason("chat stream ended without a final message");
+            if acc.answer.trim().is_empty() {
                 GeneratedAnswer::failed(reason)
             } else {
                 GeneratedAnswer {
                     message: None,
-                    usage,
+                    usage: acc.usage,
                     state: ReplyState::Interrupted,
                     error: Some(reason),
                     base: Some(base),
@@ -733,34 +716,6 @@ pub(crate) async fn converge_answer(
                 &error.to_string(),
                 "failed",
             );
-        }
-    }
-}
-
-/// Fold a reported usage block into the accumulated one, taking only the
-/// non-zero fields of the later block (providers report either the whole
-/// request or a delta of it).
-pub(crate) fn merge_usage(total: &mut Option<TokenUsageStats>, reported: &TokenUsageStats) {
-    match total {
-        None => *total = Some(reported.clone()),
-        Some(current) => {
-            if reported.prompt_tokens > 0 {
-                current.prompt_tokens = reported.prompt_tokens;
-            }
-            if reported.completion_tokens > 0 {
-                current.completion_tokens = reported.completion_tokens;
-            }
-            if reported.total_tokens > 0 {
-                current.total_tokens = reported.total_tokens;
-            }
-            current.reasoning_tokens = reported.reasoning_tokens.or(current.reasoning_tokens);
-            current.cache_read_tokens = reported.cache_read_tokens.or(current.cache_read_tokens);
-            current.cache_write_tokens = reported.cache_write_tokens.or(current.cache_write_tokens);
-            current.prompt_tokens_cost = reported.prompt_tokens_cost.or(current.prompt_tokens_cost);
-            current.completion_tokens_cost = reported
-                .completion_tokens_cost
-                .or(current.completion_tokens_cost);
-            current.total_cost = reported.total_cost.or(current.total_cost);
         }
     }
 }

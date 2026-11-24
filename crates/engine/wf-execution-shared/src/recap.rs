@@ -377,9 +377,6 @@ pub fn build_recap_request(profile_id: &str, transcript: &str) -> LlmRequest {
     let system = Message::system_text(RECAP_INSTRUCTIONS.to_string());
     let user = Message::user_text(transcript.to_string());
     LlmRequest {
-        profile_id: profile_id.to_string(),
-        messages: vec![system, user],
-        parameters: None,
         generation: Some(LlmGenerationParams {
             temperature: Some(RECAP_TEMPERATURE),
             thinking: Some(LlmThinkingConfig {
@@ -388,20 +385,9 @@ pub fn build_recap_request(profile_id: &str, transcript: &str) -> LlmRequest {
             }),
             ..Default::default()
         }),
-        tools: None,
-        tool_call_protocol: None,
-        locked_tool_call_protocol: None,
-        violation_policy: None,
         execution_id: Some("recap".to_string()),
-        stream: None,
-        dead_loop_detection: None,
-        protocol_auto_converted: None,
         timeout_ms: Some(RECAP_TIMEOUT_MS),
-        prompt_caching: None,
-        cached_content: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        extra_headers: None,
+        ..wf_types::llm::new_llm_request(profile_id, vec![system, user])
     }
 }
 

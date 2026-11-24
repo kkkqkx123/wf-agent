@@ -5,13 +5,33 @@
 use wf_core::registry::Registry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 
+use wf_types::message::UserImageInput;
+
 use crate::infra::context::ApiContext;
+use crate::infra::error::{ApiError, ApiResult};
 
 /// Re-export validation types from wf-types for backward compatibility
 pub use wf_types::{
     validate_hook_type, validate_profile_list, validate_profile_reference, validate_tool_list,
     validate_tool_reference, ValidationContext, ValidationError, ValidationResult,
 };
+
+/// Validate the shared user-input part of a chat turn: attached images must be
+/// well-formed and the turn must carry text or an image. Both the linear chat
+/// executor and the conversation tree run this gate at the API boundary; the
+/// model-facing primitive keeps its own engine-level check. `text` is expected
+/// to be trimmed by the caller.
+pub fn validate_chat_input(text: &str, images: &[UserImageInput]) -> ApiResult<()> {
+    if let Err(reason) = wf_types::message::validate_user_images(images) {
+        return Err(ApiError::Validation(format!(
+            "chat turn carries invalid images: {reason}"
+        )));
+    }
+    if text.is_empty() && images.is_empty() {
+        return Err(ApiError::Validation("chat turn requires a message".into()));
+    }
+    Ok(())
+}
 
 /// Build a ValidationContext from an ApiContext by reading live registry
 /// snapshots and stored metadata. All data is memory-known; no network or

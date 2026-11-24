@@ -13,14 +13,13 @@ use std::sync::Arc;
 use serde_json::Value;
 use tokio::sync::mpsc::{self, error::TrySendError};
 
+use wf_execution_shared::turn_accumulator::{AccumAction, TurnAccumulator};
 use wf_execution_shared::ChatSession;
 use wf_llm::MessageStream;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent_execution::AgentRuntimeConfig;
 use wf_types::events::ExecutionStreamEvent;
 use wf_types::execution::ExecutionType;
-use wf_types::llm::{MessageStreamEvent, TokenUsageStats};
-use wf_types::message::Message;
 use wf_types::{AgentExecution, ExecutionStatus, Id};
 
 use crate::infra::context::ApiContext;
@@ -64,14 +63,7 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
         crate::agent::composition::resolve_mentions(ctx, &message).await;
     let mut images = params.images;
     images.extend(mention_images);
-    if let Err(reason) = wf_types::message::validate_user_images(&images) {
-        return Err(ApiError::Validation(format!(
-            "chat turn carries invalid images: {reason}"
-        )));
-    }
-    if message.is_empty() && images.is_empty() {
-        return Err(ApiError::Validation("chat turn requires a message".into()));
-    }
+    crate::infra::validation::validate_chat_input(&message, &images)?;
     let session_id = resolve_session_id(params.session_id.as_deref());
     let directory = params.directory.clone();
     let history = crate::agent::agent_message::conversation_history(ctx, &session_id, None).await?;
@@ -166,146 +158,47 @@ async fn drive_turn(
     session: &mut ChatSession,
     tx: &mpsc::Sender<ExecutionStreamEvent>,
 ) -> TurnOutcome {
-    let mut answer = String::new();
-    let mut usage: Option<TokenUsageStats> = None;
-    let mut assistant: Option<Message> = None;
-    let mut refusal: Option<String> = None;
+    // Event classification and text/usage folding are shared with the
+    // conversation turn driver. Only this sink layer — SSE frames and the
+    // disconnect check — stays local to the chat chain.
+    let mut acc = TurnAccumulator::new();
     while let Some(event) = stream.next().await {
-        match event {
-            Ok(MessageStreamEvent::Text(text)) => {
-                answer.push_str(&text.text);
-                if !send_frame(tx, ExecutionStreamEvent::LlmDelta { content: text.text }).await {
-                    return TurnOutcome::Failed {
-                        error: "chat consumer disconnected".to_string(),
-                    };
-                }
-            }
-            Ok(MessageStreamEvent::Stream(chunk)) => {
-                answer.push_str(&chunk.content);
-                if !send_frame(
-                    tx,
-                    ExecutionStreamEvent::LlmDelta {
-                        content: chunk.content,
-                    },
-                )
-                .await
-                {
-                    return TurnOutcome::Failed {
-                        error: "chat consumer disconnected".to_string(),
-                    };
-                }
-            }
-            Ok(MessageStreamEvent::ReasoningText(reasoning)) => {
-                if !send_frame(
-                    tx,
-                    ExecutionStreamEvent::ReasoningDelta {
-                        content: reasoning.reasoning,
-                    },
-                )
-                .await
-                {
-                    return TurnOutcome::Failed {
-                        error: "chat consumer disconnected".to_string(),
-                    };
-                }
-            }
-            Ok(MessageStreamEvent::Message(message)) => {
-                assistant = Some(message.message);
-            }
-            Ok(MessageStreamEvent::FinalMessage(final_message)) => {
-                if let Some(reported) = final_message.usage {
-                    merge_usage(&mut usage, &reported);
-                }
-                assistant = Some(final_message.message);
-            }
-            Ok(MessageStreamEvent::Usage(reported)) => {
-                merge_usage(&mut usage, &reported.usage);
-                if !send_frame(
-                    tx,
-                    ExecutionStreamEvent::Usage {
-                        prompt_tokens: reported.usage.prompt_tokens,
-                        completion_tokens: reported.usage.completion_tokens,
-                        cost: reported.usage.total_cost,
-                        reasoning_tokens: reported.usage.reasoning_tokens,
-                        cache_read_tokens: reported.usage.cache_read_tokens,
-                        cache_write_tokens: reported.usage.cache_write_tokens,
-                        total_tokens: Some(reported.usage.total_tokens).filter(|total| *total > 0),
-                    },
-                )
-                .await
-                {
-                    return TurnOutcome::Failed {
-                        error: "chat consumer disconnected".to_string(),
-                    };
-                }
-            }
-            Ok(MessageStreamEvent::Error(error)) => {
-                return TurnOutcome::Failed { error: error.error };
-            }
-            // A refusal declines to answer instead of answering: it never
-            // mixes into the answer text. Remember it so a turn that ends
-            // without a final message still reports why.
-            Ok(MessageStreamEvent::Refusal(refused)) => {
-                refusal = Some(refused.snapshot.clone());
-            }
-            // Redacted thinking and annotations are folded into the final
-            // message by the accumulator; nothing to do per event.
-            Ok(MessageStreamEvent::RedactedThinking(_))
-            | Ok(MessageStreamEvent::Annotation(_))
-            | Ok(MessageStreamEvent::NativeBlock(_)) => {}
-            Ok(MessageStreamEvent::Abort(abort)) => {
-                return TurnOutcome::Interrupted {
-                    reason: abort.reason,
-                };
-            }
-            Ok(MessageStreamEvent::End(_))
-            | Ok(MessageStreamEvent::Connect(_))
-            | Ok(MessageStreamEvent::Start(_))
-            | Ok(MessageStreamEvent::InputJson(_))
-            | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
-            Err(error) => {
-                return TurnOutcome::Failed {
-                    error: error.to_string(),
-                };
-            }
+        let action = match event {
+            Ok(event) => acc.consume(event),
+            Err(error) => return TurnOutcome::Failed {
+                error: error.to_string(),
+            },
+        };
+        let frame = match action {
+            AccumAction::Text(content) => ExecutionStreamEvent::LlmDelta { content },
+            AccumAction::Reasoning(content) => ExecutionStreamEvent::ReasoningDelta { content },
+            AccumAction::Usage(usage) => ExecutionStreamEvent::Usage {
+                prompt_tokens: usage.prompt_tokens,
+                completion_tokens: usage.completion_tokens,
+                cost: usage.total_cost,
+                reasoning_tokens: usage.reasoning_tokens,
+                cache_read_tokens: usage.cache_read_tokens,
+                cache_write_tokens: usage.cache_write_tokens,
+                total_tokens: Some(usage.total_tokens).filter(|total| *total > 0),
+            },
+            AccumAction::Failed(error) => return TurnOutcome::Failed { error },
+            AccumAction::Interrupted(reason) => return TurnOutcome::Interrupted { reason },
+            AccumAction::None => continue,
+        };
+        if !send_frame(tx, frame).await {
+            return TurnOutcome::Failed {
+                error: "chat consumer disconnected".to_string(),
+            };
         }
     }
-    let Some(message) = assistant else {
+    let Some(message) = acc.assistant else {
         return TurnOutcome::Failed {
-            error: refusal
-                .filter(|refusal| !refusal.is_empty())
-                .unwrap_or_else(|| "chat stream ended without a final message".to_string()),
+            error: acc.missing_message_reason("chat stream ended without a final message"),
         };
     };
-    session.record_reply(message, usage.as_ref());
-    TurnOutcome::Completed { answer }
-}
-
-/// Merge a reported usage block into the accumulated one. Providers report
-/// either the whole request or a delta of it, so only the non-zero fields of
-/// the later block are taken.
-fn merge_usage(total: &mut Option<TokenUsageStats>, reported: &TokenUsageStats) {
-    match total {
-        None => *total = Some(reported.clone()),
-        Some(current) => {
-            if reported.prompt_tokens > 0 {
-                current.prompt_tokens = reported.prompt_tokens;
-            }
-            if reported.completion_tokens > 0 {
-                current.completion_tokens = reported.completion_tokens;
-            }
-            if reported.total_tokens > 0 {
-                current.total_tokens = reported.total_tokens;
-            }
-            current.reasoning_tokens = reported.reasoning_tokens.or(current.reasoning_tokens);
-            current.cache_read_tokens = reported.cache_read_tokens.or(current.cache_read_tokens);
-            current.cache_write_tokens = reported.cache_write_tokens.or(current.cache_write_tokens);
-            current.prompt_tokens_cost = reported.prompt_tokens_cost.or(current.prompt_tokens_cost);
-            current.completion_tokens_cost = reported
-                .completion_tokens_cost
-                .or(current.completion_tokens_cost);
-            current.total_cost = reported.total_cost.or(current.total_cost);
-        }
+    session.record_reply(message, acc.usage.as_ref());
+    TurnOutcome::Completed {
+        answer: acc.answer,
     }
 }
 

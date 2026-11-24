@@ -54,4 +54,4 @@
 
 ## 历史背景
 
-当初的争议——chat 为何双写、为何混入 `agent_execution` 表、无工具模式是否与 ChatSession 重复——的完整论证见 `docs/engine/chat-and-agent-loop.md`；本目录是该结论的实现侧整理。
+当初的争议——chat 为何双写、为何混入 `agent_execution` 表、无工具模式是否与 ChatSession 重复——的完整论证，以及 chat session / single shot / agent loop / 临时对话四种形态的统一说明，见 `docs/engine/execution-modes.md`；本目录是该结论的实现侧整理。

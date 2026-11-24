@@ -8,9 +8,13 @@
 
 pub mod execution_config;
 pub mod ledger;
+pub mod request_builder;
+pub mod usage_merge;
 
 pub use execution_config::*;
 pub use ledger::*;
+pub use request_builder::new_llm_request;
+pub use usage_merge::merge_usage_non_zero;
 
 pub use llm_types::llm::*;
 pub use llm_types::llm::{

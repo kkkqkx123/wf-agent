@@ -25,6 +25,7 @@ pub async fn run(
         .clone()
         .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
     reject_ephemeral_id_reuse(ctx, agent_loop_id.as_str(), &params.config).await?;
+    reject_live_restricted_reuse(ctx, agent_loop_id.as_str())?;
     let coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()))
         .with_agent_loop_id(agent_loop_id.clone());
     let timeout_ms = agent_timeout_ms(&params.config);
@@ -108,6 +109,7 @@ pub async fn stream_with_policy(
         .agent_loop_id
         .clone()
         .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
+    reject_live_restricted_reuse(&ctx, agent_loop_id.as_str())?;
     let mut coordinator = coordinator_for(&ctx, &params, Some(agent_loop_id.as_str()));
     coordinator = coordinator.with_agent_loop_id(agent_loop_id.clone());
     let engine_stream = coordinator
@@ -334,6 +336,43 @@ async fn reject_ephemeral_id_reuse(
     if previous == Some(wf_types::agent_execution::TemporaryMode::Ephemeral) {
         return Err(ApiError::Validation(format!(
             "execution {agent_loop_id} was an ephemeral read-only run: start a new execution id with explicit history instead of reusing it"
+        )));
+    }
+    Ok(())
+}
+
+/// Reject a full run that reuses the id of a still-running restricted run.
+///
+/// Restricted runs are promoted by rerunning the same id without the flag,
+/// but only *after* the restricted run settles — its terminal entity is what
+/// lets the promotion continue the checkpoint chain. Reusing the id while the
+/// restricted entity is still live replaces that entity and moves its
+/// capacity permit to a second driver, leaving two writers on one chain.
+///
+/// Unlike the ephemeral guard (which reads persisted history and fails open),
+/// this guard reads the live registry: the danger is a concurrent driver, not
+/// a stale persisted mode. A terminal restricted entity is allowed through so
+/// the documented promotion path still works.
+fn reject_live_restricted_reuse(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> crate::infra::error::ApiResult<()> {
+    if agent_loop_id.is_empty() {
+        return Ok(());
+    }
+    let Some(entity) = ctx.agent_loop(agent_loop_id) else {
+        return Ok(());
+    };
+    if entity.status().is_terminal() {
+        return Ok(());
+    }
+    let is_restricted = entity
+        .effective_config()
+        .and_then(|config| config.temporary_mode)
+        == Some(wf_types::agent_execution::TemporaryMode::Restricted);
+    if is_restricted {
+        return Err(ApiError::Validation(format!(
+            "execution {agent_loop_id} is still running as a restricted agent: wait for it to settle before promoting it by rerunning without the flag"
         )));
     }
     Ok(())

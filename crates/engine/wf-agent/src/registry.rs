@@ -152,6 +152,18 @@ impl AgentLoopRegistry {
     pub fn register(&self, entity: Arc<AgentLoopEntity>) -> AgentResult<()> {
         let id = entity.id().clone();
         if let Some(existing) = self.entities.get(&id) {
+            // Two replacements are legitimate: a spawn placeholder (no
+            // effective config yet) becoming the real entity, and a terminal
+            // source being continued in place (restricted promotion, resume).
+            // Replacing a *live real* entity would move its permit to a second
+            // driver while the first keeps writing the same execution — guard
+            // the engine boundary too, not only the wf-api entry points.
+            let existing_is_placeholder = existing.effective_config().is_none();
+            if !existing_is_placeholder && !Self::is_terminal(&existing) {
+                return Err(AgentError::IllegalStateTransition(format!(
+                    "execution {id} is still live: wait for it to settle before reusing its id"
+                )));
+            }
             let permit = existing.take_gate_permit();
             drop(existing);
             if Self::is_terminal(&entity) {
@@ -364,6 +376,54 @@ mod tests {
                 ExecutionStatus::Failed => {
                     state.start().unwrap();
                     state.fail("boom".to_string()).unwrap();
+                }
+                _ => {}
+            }
+        }
+        entity
+    }
+
+    /// Build a "real" entity (one that carries an effective config), as the
+    /// coordinator does when it replaces a spawn placeholder. A placeholder
+    /// has no config; the register guard distinguishes the two by this field.
+    async fn make_real_entity(id: &str, status: ExecutionStatus) -> Arc<AgentLoopEntity> {
+        let config = wf_types::agent_execution::AgentLoopConfig {
+            agent_id: Id::from("agent-1"),
+            model: "mock".to_string(),
+            file_scope: None,
+            max_iterations: None,
+            max_execution_time: None,
+            hooks: Vec::new(),
+            available_tool_names: None,
+            initial_tool_names: Vec::new(),
+            discoverable_tool_names: Vec::new(),
+            activated_tool_names: Vec::new(),
+            hidden_tool_names: Vec::new(),
+            enable_general_tool: None,
+            tool_call_protocol: None,
+            token_limit: None,
+            token_warning_threshold: None,
+            enable_token_tracking: None,
+            checkpoint_message_interval: None,
+            general_description: None,
+            discoverable_metadata_block: None,
+            history_normalization: false,
+            context_schema: None,
+            context_strict: None,
+            temporary_mode: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
+        };
+        let entity = AgentLoopEntity::new(Id::from(id.to_string()))
+            .with_effective_config(config);
+        let entity = Arc::new(entity);
+        {
+            let mut state = entity.state.write().await;
+            match status {
+                ExecutionStatus::Running => state.start().unwrap(),
+                ExecutionStatus::Completed => {
+                    state.start().unwrap();
+                    state.complete().unwrap();
                 }
                 _ => {}
             }
@@ -619,5 +679,37 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(registry.available_permits(), 1);
+    }
+
+    /// A real, still-live entity carries an effective config. Replacing it
+    /// while it runs would hand its capacity permit to a second writer, so
+    /// register must refuse — even though an id match exists.
+    #[tokio::test]
+    async fn test_register_rejects_replacing_live_real_entity() {
+        let registry = AgentLoopRegistry::new().with_max_concurrent(2);
+        let live = make_real_entity("live-1", ExecutionStatus::Running).await;
+        registry.register(live).unwrap();
+
+        let err = registry
+            .register(make_real_entity("live-1", ExecutionStatus::Running).await)
+            .unwrap_err();
+        assert!(
+            matches!(err, AgentError::IllegalStateTransition(_)),
+            "replacing a live real entity must be rejected: {err}"
+        );
+    }
+
+    /// A terminal real entity (the source of a restricted promotion or an
+    /// in-place resume) may be replaced under the same id, so chains continue.
+    #[tokio::test]
+    async fn test_register_allows_replacing_terminal_real_entity() {
+        let registry = AgentLoopRegistry::new().with_max_concurrent(2);
+        let terminal = make_real_entity("done-1", ExecutionStatus::Completed).await;
+        registry.register(terminal).unwrap();
+
+        registry
+            .register(make_real_entity("done-1", ExecutionStatus::Running).await)
+            .expect("promotion/resume of a terminal entity must succeed");
+        assert_eq!(registry.size(), 1);
     }
 }

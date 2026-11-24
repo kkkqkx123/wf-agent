@@ -686,10 +686,31 @@ pub async fn delete_session(ctx: &ApiContext, session_id: &str) -> ApiResult<()>
     use wf_storage::adapter::base::BaseStorageAdapter;
     super::require_chat_session(ctx, session_id).await?;
     let runtime = runtime::runtime_for(session_id);
-    let _guard = runtime.write().await;
-    if let Some(token) = runtime.cancel_token(None) {
-        token.cancel();
+
+    // Cancel the in-flight turn, then RELEASE the lock before waiting. The
+    // converging driver takes the same write lock; waiting under it would
+    // deadlock. Cancelling first lets generation unwind quickly, after which
+    // the driver converges its (possibly partial) answer and frees the slot.
+    {
+        let _guard = runtime.write().await;
+        if let Some(token) = runtime.cancel_token(None) {
+            token.cancel();
+        }
     }
+    // Bound the wait so a wedged provider cannot hang deletion forever. On
+    // timeout the abort handle (registered at spawn) is the last resort; the
+    // session tree is gone by the time it could write back, so convergence
+    // fails closed at `load_existing`.
+    if tokio::time::timeout(std::time::Duration::from_secs(30), runtime.settle())
+        .await
+        .is_err()
+    {
+        if let Some(snapshot) = runtime.inflight() {
+            ctx.execution_tasks.abort(&snapshot.turn_id);
+        }
+    }
+
+    let _guard = runtime.write().await;
     store::delete_documents(ctx, session_id).await?;
     let messages = ctx
         .storage

@@ -16,7 +16,7 @@ use std::sync::{
 };
 
 use dashmap::DashMap;
-use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
+use tokio::sync::{Mutex as AsyncMutex, MutexGuard, Notify};
 use tokio_util::sync::CancellationToken;
 
 use crate::infra::error::{ApiError, ApiResult};
@@ -53,6 +53,30 @@ pub struct SessionRuntime {
     slot: Mutex<Option<Slot>>,
     subscribers: AtomicUsize,
     last_used_ms: AtomicI64,
+    /// Woken whenever the in-flight slot is released, so callers that must
+    /// wait for convergence (session deletion) can do so without holding
+    /// the write lock — the converging driver needs that same lock.
+    settled: Notify,
+}
+
+/// RAII handle for one live SSE subscriber. Created when a subscription stream
+/// is built and dropped with it, so the idle-eviction count stays balanced even
+/// when a client disconnects without an explicit teardown.
+pub struct SubscriptionGuard {
+    runtime: Arc<SessionRuntime>,
+}
+
+impl SubscriptionGuard {
+    pub fn new(runtime: Arc<SessionRuntime>) -> Self {
+        runtime.add_subscriber();
+        Self { runtime }
+    }
+}
+
+impl Drop for SubscriptionGuard {
+    fn drop(&mut self) {
+        self.runtime.remove_subscriber();
+    }
 }
 
 /// An idle session is evicted from the process-local table. The tree is
@@ -66,6 +90,7 @@ impl Default for SessionRuntime {
             slot: Mutex::new(None),
             subscribers: AtomicUsize::new(0),
             last_used_ms: AtomicI64::new(wf_common::now()),
+            settled: Notify::new(),
         }
     }
 }
@@ -182,22 +207,42 @@ impl SessionRuntime {
     /// finisher cannot clear a newer turn's claim.
     pub fn finish_turn(&self, turn_id: &str) {
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
-        if slot
+        let released = slot
             .as_ref()
-            .is_some_and(|current| current.job_id.is_none() && current.turn.turn_id == turn_id)
-        {
+            .is_some_and(|current| current.job_id.is_none() && current.turn.turn_id == turn_id);
+        if released {
             *slot = None;
+            drop(slot);
+            self.settled.notify_waiters();
         }
     }
 
     /// Release a stepping job's slot. Only the owning job can do that.
     pub fn finish_job(&self, job_id: &str) {
         let mut slot = self.slot.lock().unwrap_or_else(|error| error.into_inner());
-        if slot
+        let released = slot
             .as_ref()
-            .is_some_and(|current| current.job_id.as_deref() == Some(job_id))
-        {
+            .is_some_and(|current| current.job_id.as_deref() == Some(job_id));
+        if released {
             *slot = None;
+            drop(slot);
+            self.settled.notify_waiters();
+        }
+    }
+
+    /// Wait until no turn is in flight, without holding the write lock.
+    ///
+    /// Convergence takes the write lock after generation, so a deleter must
+    /// release that lock before waiting or it deadlocks itself. The notify is
+    /// registered *before* re-checking the slot to avoid missing a wakeup that
+    /// lands between the check and the wait.
+    pub async fn settle(&self) {
+        loop {
+            let notified = self.settled.notified();
+            if !self.has_inflight() {
+                return;
+            }
+            notified.await;
         }
     }
 
@@ -216,12 +261,12 @@ impl SessionRuntime {
         slot.is_some()
     }
 
-    pub fn add_subscriber(&self) {
+    fn add_subscriber(&self) {
         self.touch();
         self.subscribers.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn remove_subscriber(&self) {
+    fn remove_subscriber(&self) {
         self.touch();
         self.subscribers.fetch_sub(1, Ordering::Relaxed);
     }

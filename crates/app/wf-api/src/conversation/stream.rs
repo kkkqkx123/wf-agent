@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 use tokio::sync::mpsc;
+use wf_core::error::EventError;
 
 use wf_types::events::BaseEvent;
 
@@ -54,7 +55,7 @@ pub async fn subscribe(
     let runtime = runtime::runtime_for(&session_id);
     let mut subscription = ctx.event_bus.subscribe();
     let backlog = replay(&ctx, &session_id, since).await?;
-    runtime.add_subscriber();
+    let guard = runtime::SubscriptionGuard::new(runtime);
     let (tx, rx) = mpsc::channel(512);
     tokio::spawn(async move {
         let mut seen: HashSet<String> = HashSet::new();
@@ -77,16 +78,19 @@ pub async fn subscribe(
                     }
                 }
                 // A lagging subscriber lost events; the next snapshot repairs
-                // whatever the stream could not deliver.
+                // whatever the stream could not deliver. A closed bus has no
+                // future events, so spin no further and let the stream end.
+                Err(EventError::Lagged(_)) => continue,
+                Err(EventError::ChannelClosed) => return,
                 Err(_) => continue,
             }
         }
     });
     Ok(futures::stream::unfold(
-        (rx, runtime),
-        |(mut rx, runtime)| async move {
+        (rx, guard),
+        |(mut rx, guard)| async move {
             let event = rx.recv().await?;
-            Some((event, (rx, runtime)))
+            Some((event, (rx, guard)))
         },
     ))
 }

@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use dashmap::mapref::entry::Entry;
@@ -18,7 +19,7 @@ use super::backup::{prune_backups, BackupRequest, BackupRoundStatus};
 use super::config::BackendConfig;
 use super::deploy::{
     self, DeployJobView, DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest,
-    DeploySourceView, DeployStepProgress,
+    DeploySourceView, DeployStepProgress, DEFAULT_SUBMITTED_BY,
 };
 use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
@@ -30,6 +31,14 @@ use super::types::{
 /// Bounded window a cancelled job gets to settle before its task is aborted
 /// and an `interrupted` terminal is written unconditionally.
 const DEPLOY_JOB_CANCEL_GRACE_SECS: u64 = 5;
+
+/// Day-level cadence for pruning terminal deployment job records.
+const DEPLOY_JOB_RETENTION_INTERVAL_SECS: u64 = 86_400;
+
+/// Rejection text for new jobs after shutdown admission closed. The HTTP
+/// layer maps this exact condition to 503.
+pub const DEPLOY_SHUTDOWN_ERROR: &str =
+    "server is shutting down; new deployment jobs are not accepted";
 
 /// Result of a cancellation request, so the HTTP layer can distinguish a
 /// wrong name from a job that already settled.
@@ -176,6 +185,10 @@ pub struct BackendManager {
     /// Jobs whose task was forcibly stopped. Later writes from that task are
     /// ignored so a forced terminal cannot be overwritten.
     deploy_job_forced: Arc<DashMap<String, ()>>,
+    /// Independent admission switch. Closing it stops new submissions at the
+    /// manager boundary, covering the window after the HTTP guard and before
+    /// drain begins. Existing jobs are untouched.
+    deploy_jobs_accepting: AtomicBool,
     shutdown_token: CancellationToken,
     handles: MutexHandles,
     metrics: Option<Arc<wf_metrics::MetricsRegistry>>,
@@ -220,6 +233,7 @@ impl BackendManager {
             deploy_job_cancels: Arc::new(DashMap::new()),
             deploy_job_handles: Arc::new(DashMap::new()),
             deploy_job_forced: Arc::new(DashMap::new()),
+            deploy_jobs_accepting: AtomicBool::new(true),
             shutdown_token: CancellationToken::new(),
             handles: MutexHandles::default(),
             metrics,
@@ -244,6 +258,14 @@ impl BackendManager {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    fn record_deploy_terminal(&self, backend: &str, status: &str, duration_ms: i64) {
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics
+                .deploy_jobs()
+                .record_terminal(backend, status, duration_ms.max(0) as f64);
+        }
     }
 
     fn set_backup_round_error(&self, message: Option<String>) {
@@ -785,6 +807,11 @@ impl BackendManager {
             job.finished_ms = Some(finished_ms);
             job.outcome = Some(outcome.clone());
             self.deploy_outcomes.insert(job.backend.clone(), outcome);
+            self.record_deploy_terminal(
+                &job.backend,
+                "interrupted",
+                finished_ms.saturating_sub(job.submitted_ms),
+            );
             if let Err(e) = self.store.put_deploy_job(&job).await {
                 tracing::warn!(
                     job_id = %job.job_id,
@@ -795,12 +822,53 @@ impl BackendManager {
         }
     }
 
+    /// Prune terminal jobs by age and then by per-backend count. Live jobs
+    /// are never eligible, so a stale submitted time cannot lose progress.
+    async fn prune_deploy_jobs(&self) {
+        let result = self
+            .store
+            .prune_deploy_jobs(
+                self.config.deploy_job_retention_days,
+                self.config.deploy_job_max_per_backend,
+            )
+            .await;
+        match result {
+            Ok((expired, overflow)) if expired > 0 || overflow > 0 => {
+                tracing::info!(expired, overflow, "pruned terminal deployment jobs");
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "deployment job pruning failed"),
+        }
+    }
+
+    async fn run_deploy_job_retention_loop(&self, shutdown: CancellationToken) {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+            DEPLOY_JOB_RETENTION_INTERVAL_SECS,
+        ));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = interval.tick() => self.prune_deploy_jobs().await,
+            }
+        }
+    }
+
     /// Start background probe and backup loops. No-op when disabled.
     pub async fn start_background(self: &Arc<Self>) {
         if !self.config.enabled {
             return;
         }
         self.recover_deploy_jobs().await;
+        self.prune_deploy_jobs().await;
+        let retention_manager = Arc::clone(self);
+        let retention_token = self.shutdown_token.clone();
+        tokio::spawn(async move {
+            retention_manager
+                .run_deploy_job_retention_loop(retention_token)
+                .await;
+        });
         let probe_manager = Arc::clone(self);
         let probe_token = self.shutdown_token.clone();
         let probe_handle = tokio::spawn(async move {
@@ -824,8 +892,16 @@ impl BackendManager {
         }
     }
 
+    /// Close deployment admission without touching jobs already accepted.
+    /// The HTTP guard runs earlier, but a request can pass it before the
+    /// stopping flag is set; this switch closes that window at the manager.
+    pub fn stop_accepting_deploy_jobs(&self) {
+        self.deploy_jobs_accepting.store(false, Ordering::Release);
+    }
+
     /// Stop background loops and clean every self-started forward.
     pub async fn shutdown(&self) {
+        self.stop_accepting_deploy_jobs();
         self.shutdown_token.cancel();
         // Idempotent: the server converges live jobs just before calling
         // this, but direct callers (and tests) get the same guarantee.
@@ -1646,9 +1722,20 @@ impl BackendManager {
         name: &str,
         request: DeployRequest,
     ) -> Result<DeployJobView, String> {
+        if !self.deploy_jobs_accepting.load(Ordering::Acquire) {
+            return Err(DEPLOY_SHUTDOWN_ERROR.to_string());
+        }
         self.require_enabled()?;
         request.parsed_action()?;
         request.parsed_scope()?;
+        if request.requires_plan_id()
+            && request
+                .plan_id
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err("plan_id is required for write actions; run deploy plan first".to_string());
+        }
         self.entry_for(name).await?;
 
         let job_id = format!("deploy-{}", wf_common::generate_id());
@@ -1669,6 +1756,8 @@ impl BackendManager {
             total_steps: 0,
             current_step: None,
             cancel_requested: false,
+            submitted_by: DEFAULT_SUBMITTED_BY.to_string(),
+            final_plan: None,
             steps: Vec::new(),
             outcome: None,
             submitted_ms: wf_common::epoch_ms(),
@@ -1683,6 +1772,9 @@ impl BackendManager {
             self.deploy_job_cancels.remove(&job_id);
             self.deploy_job_slots.remove(name);
             return Err(format!("cannot record deployment job: {e}"));
+        }
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics.deploy_jobs().record_submit(name);
         }
 
         let manager = Arc::clone(self);
@@ -1720,6 +1812,18 @@ impl BackendManager {
                 let forced = Arc::clone(&self.deploy_job_forced);
                 let jobs = Arc::clone(&self.deploy_jobs);
                 let key = job_id.clone();
+                let plan_jobs = Arc::clone(&self.deploy_jobs);
+                let plan_key = job_id.clone();
+                let plan_forced = Arc::clone(&self.deploy_job_forced);
+                let on_plan = move |plan: &DeployPlanView| {
+                    if plan_forced.contains_key(&plan_key) {
+                        return;
+                    }
+                    if let Some(mut job) = plan_jobs.get_mut(&plan_key) {
+                        job.total_steps = plan.steps.len();
+                        job.final_plan = Some(plan.clone());
+                    }
+                };
                 let on_progress = move |progress: DeployStepProgress| {
                     if forced.contains_key(&key) {
                         return;
@@ -1745,6 +1849,7 @@ impl BackendManager {
                     &request,
                     self.config.default_local_port,
                     &cancel,
+                    on_plan,
                     on_progress,
                 )
                 .await
@@ -1782,6 +1887,12 @@ impl BackendManager {
             .clone()
             .unwrap_or_else(|| if outcome.ok { "succeeded" } else { "failed" }.to_string());
         let finished_ms = wf_common::epoch_ms();
+        let submitted_ms = self
+            .deploy_jobs
+            .get(&job_id)
+            .map(|job| job.submitted_ms)
+            .unwrap_or(finished_ms);
+        self.record_deploy_terminal(&name, &status, finished_ms.saturating_sub(submitted_ms));
 
         if let Some(probe) = outcome.probe.clone() {
             self.deploy_probes.insert(name.clone(), probe);
@@ -1848,11 +1959,7 @@ impl BackendManager {
     }
 
     /// Request cancellation for a live job owned by `name`.
-    pub async fn cancel_deploy_job(
-        &self,
-        name: &str,
-        job_id: &str,
-    ) -> DeployJobCancel {
+    pub async fn cancel_deploy_job(&self, name: &str, job_id: &str) -> DeployJobCancel {
         if let Some(slot) = self.deploy_job_slots.get(name) {
             if slot.value() != job_id {
                 return DeployJobCancel::BackendMismatch;
@@ -1872,6 +1979,9 @@ impl BackendManager {
             }
             if let Err(e) = self.store.put_deploy_job(&view).await {
                 tracing::warn!(job_id = %job_id, error = %e, "cannot record cancellation");
+            }
+            if let Some(metrics) = self.metrics.as_ref() {
+                metrics.deploy_jobs().record_cancel_requested(name);
             }
             return DeployJobCancel::Accepted;
         }
@@ -1946,13 +2056,7 @@ impl BackendManager {
         settings.exec_timeout_secs = settings.exec_timeout_secs.min(2);
         let probe = match self.store.get_entry(backend).await.ok().flatten() {
             Some(entry) => Some(
-                deploy::probe(
-                    backend,
-                    &entry,
-                    &settings,
-                    self.config.default_local_port,
-                )
-                .await,
+                deploy::probe(backend, &entry, &settings, self.config.default_local_port).await,
             ),
             None => None,
         };
@@ -1978,6 +2082,16 @@ impl BackendManager {
         }
         self.deploy_outcomes
             .insert(backend.to_string(), outcome.clone());
+        let submitted_ms = self
+            .deploy_jobs
+            .get(job_id)
+            .map(|job| job.submitted_ms)
+            .unwrap_or(finished_ms);
+        self.record_deploy_terminal(
+            backend,
+            "interrupted",
+            finished_ms.saturating_sub(submitted_ms),
+        );
         let view = {
             let Some(mut live) = self.deploy_jobs.get_mut(job_id) else {
                 return;
@@ -2936,6 +3050,8 @@ mod tests {
             total_steps: 2,
             current_step: None,
             cancel_requested: false,
+            submitted_by: DEFAULT_SUBMITTED_BY.to_string(),
+            final_plan: None,
             steps: Vec::new(),
             outcome: None,
             submitted_ms: now,
@@ -2948,15 +3064,25 @@ mod tests {
         let manager = BackendManager::disabled();
         let job = stored_job("deploy-1", "prod", "succeeded");
         manager.deploy_jobs.insert(job.job_id.clone(), job.clone());
-        assert!(manager.deploy_job_status("prod", &job.job_id).await.is_some());
-        assert!(manager.deploy_job_status("other", &job.job_id).await.is_none());
+        assert!(manager
+            .deploy_job_status("prod", &job.job_id)
+            .await
+            .is_some());
+        assert!(manager
+            .deploy_job_status("other", &job.job_id)
+            .await
+            .is_none());
     }
 
     #[tokio::test]
     async fn cancel_deploy_job_distinguishes_settled_unknown_and_mismatch() {
         let manager = BackendManager::disabled();
         let job = stored_job("deploy-1", "prod", "succeeded");
-        manager.store.put_deploy_job(&job).await.expect("persist job");
+        manager
+            .store
+            .put_deploy_job(&job)
+            .await
+            .expect("persist job");
         assert_eq!(
             manager.cancel_deploy_job("prod", &job.job_id).await,
             DeployJobCancel::Settled
@@ -2999,14 +3125,152 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn closed_admission_rejects_new_jobs_but_keeps_live_ones() {
+        let manager = enabled_manager();
+        manager.seed_for_test("prod", entry()).await;
+        let live = stored_job("deploy-live", "prod", "running");
+        manager
+            .deploy_jobs
+            .insert(live.job_id.clone(), live.clone());
+        manager
+            .deploy_job_slots
+            .insert("prod".to_string(), live.job_id.clone());
+        manager
+            .deploy_job_cancels
+            .insert(live.job_id.clone(), CancellationToken::new());
+
+        manager.stop_accepting_deploy_jobs();
+        let error = manager
+            .submit_deploy_job(
+                "prod",
+                DeployRequest {
+                    action: "probe".to_string(),
+                    ..DeployRequest::default()
+                },
+            )
+            .await
+            .expect_err("admission must be closed");
+        assert!(error.contains("shutting down"), "{error}");
+        assert_eq!(
+            manager
+                .deploy_job_status("prod", &live.job_id)
+                .await
+                .expect("live job remains visible")
+                .status,
+            "running"
+        );
+        assert_eq!(
+            manager.deploy_job_slots.get("prod").map(|s| s.clone()),
+            Some(live.job_id.clone())
+        );
+        assert_eq!(
+            manager.cancel_deploy_job("prod", &live.job_id).await,
+            DeployJobCancel::Accepted
+        );
+        assert_eq!(
+            manager
+                .deploy_job_status("prod", &live.job_id)
+                .await
+                .expect("live job")
+                .status,
+            "running"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_submissions_claim_one_slot_per_backend() {
+        let manager = enabled_manager();
+        let mut remote = entry();
+        // An SSH client that connects but never sends a banner keeps the job
+        // pending long enough to observe the admission result deterministically.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake ssh port");
+        remote.host = "127.0.0.1".to_string();
+        remote.port = Some(listener.local_addr().expect("bound port").port());
+        manager.seed_for_test("prod", remote).await;
+        let held = tokio::spawn(async move {
+            let mut sockets = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                sockets.push(socket);
+            }
+        });
+
+        let results = futures::future::join_all((0..8).map(|_| {
+            manager.submit_deploy_job(
+                "prod",
+                DeployRequest {
+                    action: "probe".to_string(),
+                    ..DeployRequest::default()
+                },
+            )
+        }))
+        .await;
+        let accepted: Vec<&DeployJobView> = results
+            .iter()
+            .filter_map(|result| result.as_ref().ok())
+            .collect();
+        assert_eq!(accepted.len(), 1);
+        assert!(results.iter().any(|result| result
+            .as_ref()
+            .err()
+            .is_some_and(|e| e.contains("409 conflict"))));
+        assert_eq!(
+            manager
+                .deploy_job_slots
+                .get("prod")
+                .map(|slot| slot.clone()),
+            Some(accepted[0].job_id.clone())
+        );
+
+        // Cleanup without waiting for the deliberately stalled SSH handshake.
+        for row in manager.deploy_job_handles.iter() {
+            row.abort();
+        }
+        held.abort();
+    }
+
+    #[tokio::test]
+    async fn retention_respects_configured_limits() {
+        let manager = BackendManager::new(
+            BackendConfig {
+                enabled: true,
+                deploy_job_retention_days: 30,
+                deploy_job_max_per_backend: 1,
+                ..BackendConfig::default()
+            },
+            BackendStore::new_memory(),
+        );
+        let now = wf_common::epoch_ms();
+        let mut old = stored_job("old", "prod", "succeeded");
+        old.submitted_ms = now - 60 * 86_400_000;
+        let mut live = stored_job("live", "prod", "running");
+        live.submitted_ms = now - 60 * 86_400_000;
+        let recent = stored_job("recent", "prod", "failed");
+        for job in [old, live, recent] {
+            manager.store.put_deploy_job(&job).await.expect("seed job");
+        }
+        manager.prune_deploy_jobs().await;
+        let ids: Vec<String> = manager
+            .store
+            .list_deploy_jobs(None)
+            .await
+            .expect("list")
+            .into_iter()
+            .map(|job| job.job_id)
+            .collect();
+        assert!(ids.contains(&"live".to_string()));
+        assert!(ids.contains(&"recent".to_string()));
+        assert!(!ids.contains(&"old".to_string()));
+    }
+
+    #[tokio::test]
     async fn forced_job_ignores_later_task_writes() {
         let manager = BackendManager::disabled();
         let mut job = stored_job("deploy-1", "prod", "running");
         job.finished_ms = None;
         manager.deploy_jobs.insert(job.job_id.clone(), job.clone());
-        manager
-            .deploy_job_forced
-            .insert(job.job_id.clone(), ());
+        manager.deploy_job_forced.insert(job.job_id.clone(), ());
         Arc::clone(&manager)
             .run_deploy_job(
                 "prod".to_string(),
@@ -3015,10 +3279,7 @@ mod tests {
                 CancellationToken::new(),
             )
             .await;
-        let live = manager
-            .deploy_jobs
-            .get(&job.job_id)
-            .expect("live job");
+        let live = manager.deploy_jobs.get(&job.job_id).expect("live job");
         assert_eq!(live.status, "running");
     }
 }

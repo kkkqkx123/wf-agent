@@ -691,6 +691,75 @@ pub async fn plan_server_deploy(
 const DEPLOY_JOB_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 const DEPLOY_JOB_MAX_POLLS: u32 = 1800;
 
+/// Shared shape for terminal and timed-out waits. A timeout is a client
+/// decision, not a deployment failure, so both states stay successful
+/// results and carry the facts needed to query the job again.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeployWaitResult {
+    /// `terminal` when the server settled the job, `pending` on timeout.
+    pub wait_state: String,
+    pub job_id: String,
+    pub backend: String,
+    pub action: String,
+    pub status: String,
+    pub current_step: Option<String>,
+    pub completed_steps: usize,
+    pub total_steps: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_plan: Option<serde_json::Value>,
+    pub follow_up_command: String,
+}
+
+impl DeployWaitResult {
+    pub fn from_job(wait_state: &str, job: &serde_json::Value) -> Self {
+        let job_id = job
+            .get("job_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let backend = job
+            .get("backend")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let completed_steps = job
+            .get("steps")
+            .and_then(|value| value.as_array())
+            .map(Vec::len)
+            .unwrap_or(0);
+        Self {
+            wait_state: wait_state.to_string(),
+            follow_up_command: format!("wf remote deploy-job {backend} {job_id}"),
+            job_id,
+            backend,
+            action: job
+                .get("action")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            status: job
+                .get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            current_step: job
+                .get("current_step")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+            completed_steps,
+            total_steps: job
+                .get("total_steps")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as usize)
+                .unwrap_or(completed_steps),
+            outcome: job.get("outcome").cloned(),
+            final_plan: job.get("final_plan").cloned(),
+        }
+    }
+}
+
 /// Submit a deployment job without waiting for its terminal state.
 pub async fn submit_server_deploy(
     client: &wf_client::WfClient,
@@ -762,15 +831,14 @@ pub async fn cancel_server_deploy_job(
     }
 }
 
-/// Submit a deployment job and wait for its terminal state. The server runs
-/// the job in the background; the CLI only polls and renders the outcome, so
-/// the synchronous `--apply` user experience is preserved without holding a
-/// connection open for the whole deployment.
+/// Submit a deployment job and wait up to the client ceiling. A terminal
+/// outcome and a still-running job are both successful results: the caller
+/// renders `wait_state` instead of turning a stopped wait into a failure.
 pub async fn apply_server_deploy(
     client: &wf_client::WfClient,
     name: &str,
     body: &serde_json::Value,
-) -> CliResult<serde_json::Value> {
+) -> CliResult<DeployWaitResult> {
     let job = submit_server_deploy(client, name, body).await?;
     let job_id = job
         .get("job_id")
@@ -778,24 +846,19 @@ pub async fn apply_server_deploy(
         .ok_or_else(|| CliError::Business("deploy job did not return an id".to_string()))?
         .to_string();
 
+    let mut current = job.clone();
     for _ in 0..DEPLOY_JOB_MAX_POLLS {
-        let view = get_server_deploy_job(client, name, &job_id).await?;
-        let status = view.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        current = get_server_deploy_job(client, name, &job_id).await?;
+        let status = current
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
         if matches!(status, "succeeded" | "failed" | "interrupted") {
-            if let Some(outcome) = view.get("outcome").cloned() {
-                return Ok(outcome);
-            }
-            let mut outcome = view;
-            if let Some(object) = outcome.as_object_mut() {
-                object.insert("job_id".to_string(), serde_json::json!(job_id));
-            }
-            return Ok(outcome);
+            return Ok(DeployWaitResult::from_job("terminal", &current));
         }
         tokio::time::sleep(DEPLOY_JOB_POLL_INTERVAL).await;
     }
-    Err(CliError::Business(format!(
-        "deployment job {job_id} did not reach a terminal state"
-    )))
+    Ok(DeployWaitResult::from_job("pending", &current))
 }
 
 #[cfg(test)]
@@ -882,6 +945,29 @@ mod tests {
         assert_eq!(host.local_port, None);
         apply_server_default_port(&mut host, Some("http://127.0.0.1:19000/"));
         assert_eq!(host.local_port, None);
+    }
+
+    #[test]
+    fn pending_wait_keeps_job_facts_and_follow_up_command() {
+        let job = serde_json::json!({
+            "job_id": "deploy-1",
+            "backend": "prod",
+            "action": "upgrade",
+            "status": "running",
+            "current_step": "activate",
+            "total_steps": 4,
+            "steps": [{ "id": "layout", "ok": true }],
+        });
+        let result = DeployWaitResult::from_job("pending", &job);
+        assert_eq!(result.wait_state, "pending");
+        assert_eq!(result.job_id, "deploy-1");
+        assert_eq!(result.completed_steps, 1);
+        assert_eq!(result.total_steps, 4);
+        assert_eq!(result.current_step.as_deref(), Some("activate"));
+        assert_eq!(
+            result.follow_up_command,
+            "wf remote deploy-job prod deploy-1"
+        );
     }
 
     #[test]

@@ -86,6 +86,12 @@ impl ServerHandle {
     /// prematurely either.
     pub async fn shutdown(self) {
         crate::api::system::server::mark_server_stopping();
+        // A request may already have passed the stopping guard; the manager
+        // switch closes that window before the HTTP drain starts.
+        #[cfg(feature = "backends")]
+        if let Some(backends) = &self.backends {
+            backends.stop_accepting_deploy_jobs();
+        }
         let _ = self.shutdown.send(());
 
         let mut task = self.task;

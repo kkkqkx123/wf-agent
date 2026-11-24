@@ -86,6 +86,8 @@ export interface DeployRequestPayload {
 		sha256?: string;
 	} | null;
 	force?: boolean;
+	/** Digest returned by the plan step; required for writing actions. */
+	plan_id?: string | null;
 }
 
 /** A local deploy source directory on the management server. */
@@ -132,6 +134,7 @@ export interface DeployCheck {
 }
 
 export interface DeployPlan {
+	planId: string;
 	backend: string;
 	action: string;
 	installRoot: string;
@@ -176,11 +179,18 @@ export interface DeployJob {
 	totalSteps: number;
 	currentStep: string | null;
 	cancelRequested: boolean;
+	submittedBy: string;
+	finalPlan: DeployPlan | null;
 	steps: DeployStepResult[];
 	outcome: DeployOutcome | null;
 	submittedMs: number;
 	finishedMs: number | null;
 }
+
+/** Terminal outcome or a stopped wait. A pending wait is not a failure. */
+export type DeployWaitResult =
+	| { kind: 'terminal'; job: DeployJob; outcome: DeployOutcome | null }
+	| { kind: 'pending'; job: DeployJob; outcome: null };
 
 function toTarget(view: DeployTargetSchema | null | undefined): DeployTarget | null {
 	if (!view) return null;
@@ -214,6 +224,7 @@ function toInstallation(
 
 function toPlan(view: DeployPlanView): DeployPlan {
 	return {
+		planId: view.plan_id,
 		backend: view.backend,
 		action: view.action,
 		installRoot: view.install_root,
@@ -273,6 +284,8 @@ function toJob(view: DeployJobView): DeployJob {
 		totalSteps: view.total_steps,
 		currentStep: view.current_step ?? null,
 		cancelRequested: view.cancel_requested,
+		submittedBy: view.submitted_by ?? 'api-key',
+		finalPlan: view.final_plan ? toPlan(view.final_plan) : null,
 		steps: (view.steps ?? []).map((step) => ({
 			id: step.id,
 			ok: step.ok,
@@ -306,6 +319,25 @@ export async function planBackendDeploy(
 const DEPLOY_JOB_TERMINAL: DeployJobStatus[] = ['succeeded', 'failed', 'interrupted'];
 const DEPLOY_JOB_POLL_MS = 500;
 const DEPLOY_JOB_MAX_WAIT_MS = 15 * 60 * 1000;
+
+export function isDeployJobTerminal(job: DeployJob): boolean {
+	return DEPLOY_JOB_TERMINAL.includes(job.status);
+}
+
+/**
+ * Cancellation is cooperative. Only the server can decide the terminal
+ * status, so an accepted request sets the local request flag and nothing
+ * else. The job stays live until a poll returns a real terminal.
+ */
+export function markCancelRequested(job: DeployJob): DeployJob {
+	return { ...job, cancelRequested: true };
+}
+
+/** Resolve a terminal view without inventing an outcome or status. */
+export function resolveDeployWait(job: DeployJob): DeployWaitResult {
+	if (!isDeployJobTerminal(job)) return { kind: 'pending', job, outcome: null };
+	return { kind: 'terminal', job, outcome: job.outcome };
+}
 
 /** Submit a deployment job. Returns the accepted job without waiting. */
 export async function submitBackendDeploy(
@@ -351,37 +383,33 @@ export async function cancelBackendDeployJob(name: string, jobId: string): Promi
 }
 
 /**
- * Execute the same plan as a background job and wait for its terminal state.
- * `onProgress` is invoked for every poll so callers can render live step
- * progress. The returned outcome keeps the original synchronous contract.
+ * Poll an existing job. Reaching the ceiling keeps the job id and returns
+ * `pending`; it never throws or fabricates a failed outcome.
  */
+export async function waitForBackendDeploy(
+	name: string,
+	job: DeployJob,
+	onProgress?: (job: DeployJob) => void,
+): Promise<DeployWaitResult> {
+	const deadline = Date.now() + DEPLOY_JOB_MAX_WAIT_MS;
+	let current = job;
+	while (!isDeployJobTerminal(current)) {
+		if (Date.now() >= deadline) return { kind: 'pending', job: current, outcome: null };
+		await new Promise((resolve) => setTimeout(resolve, DEPLOY_JOB_POLL_MS));
+		current = await getBackendDeployJob(name, current.jobId);
+		onProgress?.(current);
+	}
+	return resolveDeployWait(current);
+}
+
+/** Submit with the approved plan digest and wait for the server's verdict. */
 export async function applyBackendDeploy(
 	name: string,
 	request: DeployRequestPayload,
 	onProgress?: (job: DeployJob) => void,
-): Promise<DeployOutcome> {
+): Promise<DeployWaitResult> {
 	const job = await submitBackendDeploy(name, request);
-	const deadline = Date.now() + DEPLOY_JOB_MAX_WAIT_MS;
-	let current = job;
-	while (!DEPLOY_JOB_TERMINAL.includes(current.status)) {
-		if (Date.now() >= deadline) {
-			throw new Error(`deployment job ${job.jobId} did not reach a terminal state`);
-		}
-		await new Promise((resolve) => setTimeout(resolve, DEPLOY_JOB_POLL_MS));
-		current = await getBackendDeployJob(name, job.jobId);
-		onProgress?.(current);
-	}
-	if (current.outcome) return current.outcome;
-	return {
-		backend: current.backend,
-		action: current.action,
-		ok: current.status === 'succeeded',
-		installRoot: '',
-		version: null,
-		steps: current.steps,
-		error: current.status === 'interrupted' ? 'deployment interrupted' : 'deployment failed',
-		status: current.status,
-	};
+	return waitForBackendDeploy(name, job, onProgress);
 }
 
 /** Probe result: host facts, current install, per-check verdict and errors. */

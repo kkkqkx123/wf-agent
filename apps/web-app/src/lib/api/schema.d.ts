@@ -10759,6 +10759,7 @@ export interface components {
                 /** @description Cancellation was requested for this job. */
                 cancel_requested: boolean;
                 current_step?: string | null;
+                final_plan?: null | components["schemas"]["DeployPlanView"];
                 /** Format: int64 */
                 finished_ms?: number | null;
                 job_id: string;
@@ -10766,6 +10767,11 @@ export interface components {
                 /** @description `queued`, `running`, `succeeded`, `failed` or `interrupted`. */
                 status: string;
                 steps?: components["schemas"]["DeployStepResultView"][];
+                /**
+                 * @description Audit subject. The transport has no per-key identity, so every
+                 *     submission is recorded as `api-key` rather than a guessed user.
+                 */
+                submitted_by?: string;
                 /** Format: int64 */
                 submitted_ms: number;
                 /** @description Number of steps in the plan that the background task settled on. */
@@ -10788,6 +10794,11 @@ export interface components {
                 files?: components["schemas"]["PlannedFileView"][];
                 install_root: string;
                 installation?: null | components["schemas"]["RemoteInstallation"];
+                /**
+                 * @description Digest of the execution-relevant plan content. Stable across
+                 *     timestamp-only changes so it can be approved before execution.
+                 */
+                plan_id: string;
                 /** Format: int64 */
                 planned_ms: number;
                 /** @description `none`, `config` or `full`. */
@@ -11982,6 +11993,7 @@ export interface components {
                 /** @description Cancellation was requested for this job. */
                 cancel_requested: boolean;
                 current_step?: string | null;
+                final_plan?: null | components["schemas"]["DeployPlanView"];
                 /** Format: int64 */
                 finished_ms?: number | null;
                 job_id: string;
@@ -11989,6 +12001,11 @@ export interface components {
                 /** @description `queued`, `running`, `succeeded`, `failed` or `interrupted`. */
                 status: string;
                 steps?: components["schemas"]["DeployStepResultView"][];
+                /**
+                 * @description Audit subject. The transport has no per-key identity, so every
+                 *     submission is recorded as `api-key` rather than a guessed user.
+                 */
+                submitted_by?: string;
                 /** Format: int64 */
                 submitted_ms: number;
                 /** @description Number of steps in the plan that the background task settled on. */
@@ -13006,6 +13023,7 @@ export interface components {
             /** @description Cancellation was requested for this job. */
             cancel_requested: boolean;
             current_step?: string | null;
+            final_plan?: null | components["schemas"]["DeployPlanView"];
             /** Format: int64 */
             finished_ms?: number | null;
             job_id: string;
@@ -13013,6 +13031,11 @@ export interface components {
             /** @description `queued`, `running`, `succeeded`, `failed` or `interrupted`. */
             status: string;
             steps?: components["schemas"]["DeployStepResultView"][];
+            /**
+             * @description Audit subject. The transport has no per-key identity, so every
+             *     submission is recorded as `api-key` rather than a guessed user.
+             */
+            submitted_by?: string;
             /** Format: int64 */
             submitted_ms: number;
             /** @description Number of steps in the plan that the background task settled on. */
@@ -13054,6 +13077,11 @@ export interface components {
             files?: components["schemas"]["PlannedFileView"][];
             install_root: string;
             installation?: null | components["schemas"]["RemoteInstallation"];
+            /**
+             * @description Digest of the execution-relevant plan content. Stable across
+             *     timestamp-only changes so it can be approved before execution.
+             */
+            plan_id: string;
             /** Format: int64 */
             planned_ms: number;
             /** @description `none`, `config` or `full`. */
@@ -13095,6 +13123,11 @@ export interface components {
             artifact?: null | components["schemas"]["ArtifactSpec"];
             /** @description Allow an action whose preconditions reported `blocked`. */
             force?: boolean;
+            /**
+             * @description Digest of the approved plan. Required for every writing action and
+             *     ignored by `probe`; `force` never substitutes for it.
+             */
+            plan_id?: string | null;
             /** @description `none`, `config` or `full`. Absent means `none`. */
             scope?: string;
             /**

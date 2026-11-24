@@ -677,6 +677,7 @@ pub(crate) async fn handle_deploy_apply(
             id: name,
         })
         .into_response(),
+        Err(e) if e.contains("shutting down") => service_unavailable(e).into_response(),
         Err(e) if e.contains("409 conflict") => {
             error_response(wf_api::ApiError::Conflict(e)).into_response()
         }
@@ -685,7 +686,8 @@ pub(crate) async fn handle_deploy_apply(
                 || e.contains("unknown deploy scope")
                 || e.contains("deploy source")
                 || e.contains("deployed file")
-                || e.contains("artifact") =>
+                || e.contains("artifact")
+                || e.contains("plan_id") =>
         {
             error_response(wf_api::ApiError::Validation(e)).into_response()
         }
@@ -764,9 +766,9 @@ pub(crate) async fn handle_deploy_job_cancel(
             ok(serde_json::json!({ "job_id": id })),
         )
             .into_response(),
-        DeployJobCancel::Settled => error_response(wf_api::ApiError::Conflict(
-            format!("deployment job '{id}' already reached a terminal state"),
-        ))
+        DeployJobCancel::Settled => error_response(wf_api::ApiError::Conflict(format!(
+            "deployment job '{id}' already reached a terminal state"
+        )))
         .into_response(),
         DeployJobCancel::Unknown | DeployJobCancel::BackendMismatch => {
             error_response(wf_api::ApiError::NotFound {

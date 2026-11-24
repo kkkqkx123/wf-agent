@@ -264,6 +264,16 @@ pub mod backup_metrics {
     pub const DIGEST_MISMATCH_COUNT: &str = "backup.digest_mismatch.count";
 }
 
+/// Job-level counters for management-owned remote deployment.
+pub mod deploy_metrics {
+    pub const SUBMIT_COUNT: &str = "deploy.job.submit.count";
+    pub const SUCCEEDED_COUNT: &str = "deploy.job.succeeded.count";
+    pub const FAILED_COUNT: &str = "deploy.job.failed.count";
+    pub const INTERRUPTED_COUNT: &str = "deploy.job.interrupted.count";
+    pub const CANCEL_REQUESTED_COUNT: &str = "deploy.job.cancel_requested.count";
+    pub const DURATION: &str = "deploy.job.duration";
+}
+
 pub mod compaction_metrics {
     pub const PLANS_EMITTED: &str = "compaction.plans.emitted.count";
     pub const HANDOFFS_ENTERED: &str = "compaction.handoffs.entered.count";
@@ -454,6 +464,12 @@ mod tests {
             backup_metrics::ORPHAN_COUNT,
             backup_metrics::MISSING_COUNT,
             backup_metrics::DIGEST_MISMATCH_COUNT,
+            deploy_metrics::SUBMIT_COUNT,
+            deploy_metrics::SUCCEEDED_COUNT,
+            deploy_metrics::FAILED_COUNT,
+            deploy_metrics::INTERRUPTED_COUNT,
+            deploy_metrics::CANCEL_REQUESTED_COUNT,
+            deploy_metrics::DURATION,
         ] {
             assert!(seen.insert(group), "duplicate metric name: {group}");
         }

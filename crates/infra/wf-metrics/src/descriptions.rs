@@ -178,6 +178,12 @@ pub fn metric_description(name: &str) -> Option<&'static str> {
         backup_metrics::ORPHAN_COUNT => "Remote backup orphan files",
         backup_metrics::MISSING_COUNT => "Remote backup missing files",
         backup_metrics::DIGEST_MISMATCH_COUNT => "Remote backup digest mismatches",
+        deploy_metrics::SUBMIT_COUNT => "Deployment job submission count",
+        deploy_metrics::SUCCEEDED_COUNT => "Deployment job success count",
+        deploy_metrics::FAILED_COUNT => "Deployment job failure count",
+        deploy_metrics::INTERRUPTED_COUNT => "Deployment job interruption count",
+        deploy_metrics::CANCEL_REQUESTED_COUNT => "Deployment cancellation request count",
+        deploy_metrics::DURATION => "Deployment job terminal duration",
         _ => return None,
     })
 }

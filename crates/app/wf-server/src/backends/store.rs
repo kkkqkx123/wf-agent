@@ -140,7 +140,12 @@ impl BackendStore {
     /// A present but corrupt database fails loud so a broken registry
     /// cannot masquerade as an empty one.
     pub async fn new_sqlite(pool: sqlx::SqlitePool) -> Result<Self, String> {
-        for table in [REGISTRY_TABLE, BACKUP_TABLE, SYNC_STATE_TABLE, DEPLOY_JOB_TABLE] {
+        for table in [
+            REGISTRY_TABLE,
+            BACKUP_TABLE,
+            SYNC_STATE_TABLE,
+            DEPLOY_JOB_TABLE,
+        ] {
             let create = if table == REGISTRY_TABLE {
                 format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
@@ -470,6 +475,85 @@ impl BackendStore {
             jobs.sort_by_key(|job| std::cmp::Reverse(job.submitted_ms));
         }
         Ok(jobs)
+    }
+
+    /// Remove expired and over-cap terminal jobs. Live jobs are never
+    /// touched, even when their submitted time is very old.
+    pub async fn prune_deploy_jobs(
+        &self,
+        retention_days: u64,
+        max_per_backend: usize,
+    ) -> Result<(u64, u64), String> {
+        let window_ms = retention_days
+            .saturating_mul(86_400_000)
+            .min(i64::MAX as u64) as i64;
+        let cutoff = wf_common::epoch_ms().saturating_sub(window_ms);
+        let expired: Vec<String> = match self {
+            Self::Memory(inner) => inner
+                .deploy_jobs
+                .iter()
+                .filter(|row| Self::is_terminal(&row.status) && row.submitted_ms < cutoff)
+                .map(|row| row.key().clone())
+                .collect(),
+            Self::Sqlite(inner) => sqlx::query_as::<_, (String,)>(&format!(
+                "SELECT job_id FROM {DEPLOY_JOB_TABLE}
+                     WHERE status NOT IN ('queued', 'running') AND submitted_ms < ?1"
+            ))
+            .bind(cutoff)
+            .fetch_all(&inner.pool)
+            .await
+            .map_err(|e| format!("cannot find expired deploy jobs: {e}"))?
+            .into_iter()
+            .map(|(id,)| id)
+            .collect(),
+        };
+        for id in &expired {
+            self.delete_deploy_job(id).await?;
+        }
+
+        let mut terminal: Vec<DeployJobView> = self
+            .list_deploy_jobs(None)
+            .await?
+            .into_iter()
+            .filter(|job| Self::is_terminal(&job.status))
+            .collect();
+        terminal.sort_by(|a, b| {
+            a.backend
+                .cmp(&b.backend)
+                .then_with(|| b.submitted_ms.cmp(&a.submitted_ms))
+        });
+        let mut seen = std::collections::HashMap::<String, usize>::new();
+        let mut overflow = 0;
+        for job in terminal {
+            let count = seen.entry(job.backend.clone()).or_default();
+            *count += 1;
+            if *count > max_per_backend {
+                self.delete_deploy_job(&job.job_id).await?;
+                overflow += 1;
+            }
+        }
+        Ok((expired.len() as u64, overflow))
+    }
+
+    fn is_terminal(status: &str) -> bool {
+        !matches!(status, "queued" | "running")
+    }
+
+    async fn delete_deploy_job(&self, id: &str) -> Result<(), String> {
+        match self {
+            Self::Memory(inner) => {
+                inner.deploy_jobs.remove(id);
+                Ok(())
+            }
+            Self::Sqlite(inner) => {
+                sqlx::query(&format!("DELETE FROM {DEPLOY_JOB_TABLE} WHERE job_id = ?1"))
+                    .bind(id)
+                    .execute(&inner.pool)
+                    .await
+                    .map_err(|e| format!("cannot delete deploy job '{id}': {e}"))?;
+                Ok(())
+            }
+        }
     }
 
     pub async fn record_backup(&self, record: &BackupRecordView) -> Result<(), String> {
@@ -868,6 +952,8 @@ mod tests {
             total_steps: 3,
             current_step: None,
             cancel_requested: false,
+            submitted_by: "api-key".to_string(),
+            final_plan: None,
             steps: Vec::new(),
             outcome: None,
             submitted_ms: 10,
@@ -878,9 +964,70 @@ mod tests {
         other.backend = "beta".to_string();
         store.put_deploy_job(&base).await.unwrap();
         store.put_deploy_job(&other).await.unwrap();
-        assert_eq!(store.get_deploy_job("deploy-1").await.unwrap().unwrap().total_steps, 3);
-        assert_eq!(store.list_deploy_jobs(Some("alpha")).await.unwrap().len(), 1);
+        assert_eq!(
+            store
+                .get_deploy_job("deploy-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .total_steps,
+            3
+        );
+        assert_eq!(
+            store.list_deploy_jobs(Some("alpha")).await.unwrap().len(),
+            1
+        );
         assert_eq!(store.list_deploy_jobs(None).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn deploy_job_pruning_keeps_live_and_recent_terminal_jobs() {
+        let store = BackendStore::new_memory();
+        let now = wf_common::epoch_ms();
+        let base = DeployJobView {
+            job_id: "old".to_string(),
+            backend: "alpha".to_string(),
+            action: "upgrade".to_string(),
+            status: "succeeded".to_string(),
+            total_steps: 0,
+            current_step: None,
+            cancel_requested: false,
+            submitted_by: "api-key".to_string(),
+            final_plan: None,
+            steps: Vec::new(),
+            outcome: None,
+            submitted_ms: now - 40 * 86_400_000,
+            finished_ms: Some(now - 40 * 86_400_000),
+        };
+        store.put_deploy_job(&base).await.unwrap();
+        let mut live = base.clone();
+        live.job_id = "live".to_string();
+        live.status = "running".to_string();
+        store.put_deploy_job(&live).await.unwrap();
+        for (id, submitted_ms) in [
+            ("recent-1", now - 3),
+            ("recent-2", now - 2),
+            ("recent-3", now - 1),
+        ] {
+            let mut row = base.clone();
+            row.job_id = id.to_string();
+            row.submitted_ms = submitted_ms;
+            store.put_deploy_job(&row).await.unwrap();
+        }
+
+        let (expired, overflow) = store.prune_deploy_jobs(30, 1).await.unwrap();
+        assert_eq!((expired, overflow), (1, 2));
+        let ids: Vec<String> = store
+            .list_deploy_jobs(None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|job| job.job_id)
+            .collect();
+        assert!(ids.contains(&"live".to_string()));
+        assert!(ids.contains(&"recent-3".to_string()));
+        assert!(!ids.contains(&"old".to_string()));
+        assert_eq!(ids.len(), 2);
     }
 
     #[tokio::test]

@@ -7,10 +7,10 @@ use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::collectors::{
     AgentLoopMetricsCollector, AgentMetricsCollector, BackupMetricsCollector,
     CheckpointMetricsCollector, CompactionMetricsCollector, ConfigMetricsCollector,
-    ErrorMetricsCollector, EventMetricsCollector, HttpMetricsCollector, NodeMetricsCollector,
-    ResourceMetricsCollector, RetryBudgetMetricsCollector, SubgraphMetricsCollector,
-    TemplateMetricsCollector, TimeoutMetricsCollector, TokenMetricsCollector, ToolMetricsCollector,
-    WorkflowMetricsCollector,
+    DeployJobMetricsCollector, ErrorMetricsCollector, EventMetricsCollector, HttpMetricsCollector,
+    NodeMetricsCollector, ResourceMetricsCollector, RetryBudgetMetricsCollector,
+    SubgraphMetricsCollector, TemplateMetricsCollector, TimeoutMetricsCollector,
+    TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
 };
 use crate::constants::{
     agent_loop_metrics, agent_metrics, checkpoint_metrics, config_metrics, node_metrics,
@@ -79,6 +79,7 @@ pub struct MetricsRegistry {
     compaction: Arc<CompactionMetricsCollector>,
     http: Arc<HttpMetricsCollector>,
     backup: Arc<BackupMetricsCollector>,
+    deploy_jobs: Arc<DeployJobMetricsCollector>,
     subscribers: Mutex<Vec<(usize, ReportCallback)>>,
     next_subscription_id: AtomicUsize,
     anomaly_thresholds: AnomalyThresholds,
@@ -161,6 +162,7 @@ impl MetricsRegistry {
                 config.http_metrics.as_ref(),
             ))),
             backup: Arc::new(BackupMetricsCollector::new(resolve(None))),
+            deploy_jobs: Arc::new(DeployJobMetricsCollector::new(resolve(None))),
             subscribers: Mutex::new(Vec::new()),
             next_subscription_id: AtomicUsize::new(1),
             anomaly_thresholds: AnomalyThresholds {
@@ -290,6 +292,10 @@ impl MetricsRegistry {
         self.backup.clone()
     }
 
+    pub fn deploy_jobs(&self) -> Arc<DeployJobMetricsCollector> {
+        self.deploy_jobs.clone()
+    }
+
     /// Collector names aligned with [`MetricsRegistry::collectors`] order,
     /// used to label self-monitoring series.
     pub fn collector_names() -> Vec<&'static str> {
@@ -312,6 +318,7 @@ impl MetricsRegistry {
             "compaction",
             "http",
             "backup",
+            "deploy_jobs",
         ]
     }
 
@@ -345,6 +352,7 @@ impl MetricsRegistry {
             self.compaction.collector(),
             self.http.collector(),
             self.backup.collector(),
+            self.deploy_jobs.collector(),
         ]
     }
 
@@ -599,12 +607,13 @@ mod tests {
     #[test]
     fn registry_provides_all_collectors() {
         let registry = MetricsRegistry::new();
-        assert_eq!(registry.collectors().len(), 18);
+        assert_eq!(registry.collectors().len(), 19);
         assert_eq!(
             MetricsRegistry::collector_names().len(),
             registry.collectors().len()
         );
         registry.backup().record_success("alpha", 10.0, 128);
+        registry.deploy_jobs().record_submit("alpha");
         registry.workflow().record_execution_start("wf-1");
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);

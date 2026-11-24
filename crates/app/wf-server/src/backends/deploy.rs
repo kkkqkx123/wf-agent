@@ -38,6 +38,7 @@
 //! the only verification surface: it reports the remote facts plus a verdict,
 //! and every other verb is a single request whose result is observed once.
 
+use std::future::Future;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,8 @@ pub const DEFAULT_INSTALL_ROOT: &str = ".wf-server";
 pub const DEFAULT_ARTIFACT_BASE_URL: &str = "https://packages.example.com/wf-agent";
 /// Default local directory holding deploy sources (`server/`, `scripts/`).
 pub const DEFAULT_SOURCE_ROOT: &str = "deploy";
+/// Audit value used when the transport cannot distinguish API-key callers.
+pub const DEFAULT_SUBMITTED_BY: &str = "api-key";
 /// Largest single transferred configuration or script file.
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 /// Largest combined payload of one deployment request.
@@ -230,10 +233,18 @@ pub struct DeployRequest {
     /// Allow an action whose preconditions reported `blocked`.
     #[serde(default)]
     pub force: bool,
+    /// Digest of the approved plan. Required for every writing action and
+    /// ignored by `probe`; `force` never substitutes for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
 }
 
 fn default_action() -> String {
     "probe".to_string()
+}
+
+fn default_submitted_by() -> String {
+    DEFAULT_SUBMITTED_BY.to_string()
 }
 
 impl DeployRequest {
@@ -243,6 +254,13 @@ impl DeployRequest {
 
     pub fn parsed_scope(&self) -> Result<DeployScope, String> {
         DeployScope::parse(&self.scope)
+    }
+
+    /// Whether this request needs an approval digest before it may run.
+    pub fn requires_plan_id(&self) -> bool {
+        self.parsed_action()
+            .map(|action| action.writes())
+            .unwrap_or(true)
     }
 }
 
@@ -383,6 +401,9 @@ pub struct ArtifactPlanView {
 /// Dry run: everything the action would do, plus what blocks it today.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeployPlanView {
+    /// Digest of the execution-relevant plan content. Stable across
+    /// timestamp-only changes so it can be approved before execution.
+    pub plan_id: String,
     pub backend: String,
     pub action: String,
     pub install_root: String,
@@ -411,6 +432,78 @@ pub struct DeployPlanView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked: Option<String>,
     pub planned_ms: i64,
+}
+
+/// Execution-relevant part of a plan. Timestamps and the current install
+/// snapshot are deliberately absent: neither changes what the steps do, and
+/// including them would invalidate every approval a moment later.
+#[derive(Serialize)]
+struct PlanFingerprint<'a> {
+    backend: &'a str,
+    action: &'a str,
+    install_root: &'a str,
+    server_port: u16,
+    scope: &'a str,
+    source: &'a str,
+    target_platform: Option<&'a str>,
+    artifact: Option<&'a ArtifactPlanView>,
+    files: &'a [PlannedFileView],
+    steps: &'a [DeployStepView],
+    blocked: Option<&'a str>,
+}
+
+/// Stable digest of one plan. The same request, remote facts and deploy
+/// source always produce the same id; any command, file or target change
+/// produces a different one.
+pub fn plan_fingerprint(plan: &DeployPlanView) -> String {
+    let relevant = PlanFingerprint {
+        backend: &plan.backend,
+        action: &plan.action,
+        install_root: &plan.install_root,
+        server_port: plan.server_port,
+        scope: &plan.scope,
+        source: &plan.source,
+        target_platform: plan.target.as_ref().map(|target| target.platform.as_str()),
+        artifact: plan.artifact.as_ref(),
+        files: &plan.files,
+        steps: &plan.steps,
+        blocked: plan.blocked.as_deref(),
+    };
+    let bytes = serde_json::to_vec(&relevant).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn with_plan_id(mut plan: DeployPlanView) -> DeployPlanView {
+    plan.plan_id = plan_fingerprint(&plan);
+    plan
+}
+
+/// Check that an approval still describes the plan about to be executed.
+/// A mismatch is an authorization failure, not a condition `force` may
+/// override.
+pub(crate) fn require_approved_plan(
+    action: DeployAction,
+    approved: Option<&str>,
+    actual: &str,
+) -> Result<(), String> {
+    if !action.writes() {
+        return Ok(());
+    }
+    let Some(approved) = approved.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err("plan_id is required for write actions; run deploy plan first".to_string());
+    };
+    if approved != actual {
+        return Err(format!(
+            "plan changed since approval ({approved} != {actual}); run deploy plan again before applying"
+        ));
+    }
+    Ok(())
 }
 
 /// Per-step execution result. A failing step keeps the rest unrun, so the
@@ -468,6 +561,13 @@ pub struct DeployJobView {
     pub current_step: Option<String>,
     /// Cancellation was requested for this job.
     pub cancel_requested: bool,
+    /// Audit subject. The transport has no per-key identity, so every
+    /// submission is recorded as `api-key` rather than a guessed user.
+    #[serde(default = "default_submitted_by")]
+    pub submitted_by: String,
+    /// Plan recomputed by apply, including the steps actually executed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_plan: Option<DeployPlanView>,
     #[serde(default)]
     pub steps: Vec<DeployStepResultView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -665,24 +765,43 @@ impl<'a> DeployChannel<'a> {
                 .await
                 .map_err(|e| format!("ssh command failed: {e}"))
         };
-        match tokio::time::timeout(self.timeout, command).await {
-            Ok(Ok(output)) => Ok(ExecOutput {
+        Ok(run_bounded(self.timeout, async {
+            let output = command.await?;
+            Ok(ExecOutput {
                 status: output.status.code(),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                 timed_out: false,
-            }),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Ok(ExecOutput {
-                status: None,
-                stdout: String::new(),
-                stderr: format!(
-                    "remote command exceeded {}s and was aborted",
-                    self.timeout.as_secs()
-                ),
-                timed_out: true,
-            }),
-        }
+            })
+        })
+        .await)
+    }
+}
+
+/// One timeout boundary for an entire remote operation, including stdin
+/// writes. Dropping the future on timeout also drops the ssh child held by
+/// the caller, whose `kill_on_drop` guard stops the process.
+pub(crate) async fn run_bounded<F>(timeout: Duration, operation: F) -> ExecOutput
+where
+    F: Future<Output = Result<ExecOutput, String>>,
+{
+    match tokio::time::timeout(timeout, operation).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => ExecOutput {
+            status: None,
+            stdout: String::new(),
+            stderr: e,
+            timed_out: false,
+        },
+        Err(_) => ExecOutput {
+            status: None,
+            stdout: String::new(),
+            stderr: format!(
+                "remote command exceeded {}s and was aborted",
+                timeout.as_secs()
+            ),
+            timed_out: true,
+        },
     }
 }
 
@@ -1724,7 +1843,7 @@ pub async fn plan(
     let probed = probe(backend, entry, settings, local_port).await;
     let target = probed.target.clone().unwrap_or_default();
     if probed.error.is_some() {
-        return Ok(DeployPlanView {
+        return Ok(with_plan_id(DeployPlanView {
             backend: backend.to_string(),
             action: action.as_str().to_string(),
             install_root: root,
@@ -1735,7 +1854,7 @@ pub async fn plan(
             blocked: probed.error.clone(),
             planned_ms: wf_common::epoch_ms(),
             ..DeployPlanView::default()
-        });
+        }));
     }
     let layout = Layout::new(&root);
     let mut files: Vec<PayloadFile> = Vec::new();
@@ -1844,7 +1963,8 @@ pub async fn plan(
             action.as_str()
         ));
     }
-    Ok(DeployPlanView {
+    Ok(with_plan_id(DeployPlanView {
+        plan_id: String::new(),
         backend: backend.to_string(),
         action: action.as_str().to_string(),
         install_root: root,
@@ -1866,7 +1986,7 @@ pub async fn plan(
         warnings,
         blocked,
         planned_ms: wf_common::epoch_ms(),
-    })
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1949,6 +2069,7 @@ pub async fn apply(
     request: &DeployRequest,
     local_port: u16,
     cancel: &CancellationToken,
+    mut on_plan: impl FnMut(&DeployPlanView),
     mut on_progress: impl FnMut(DeployStepProgress),
 ) -> Result<DeployOutcomeView, String> {
     let action = request.parsed_action()?;
@@ -1968,6 +2089,20 @@ pub async fn apply(
     }
     let planned = plan(backend, entry, settings, request, local_port).await?;
     let total_steps = planned.steps.len();
+    on_plan(&planned);
+    if let Err(e) = require_approved_plan(action, request.plan_id.as_deref(), &planned.plan_id) {
+        return Ok(DeployOutcomeView {
+            backend: backend.to_string(),
+            action: action.as_str().to_string(),
+            ok: false,
+            install_root: root,
+            error: Some(e),
+            probe: None,
+            finished_ms: wf_common::epoch_ms(),
+            status: Some("failed".to_string()),
+            ..DeployOutcomeView::default()
+        });
+    }
     if cancel.is_cancelled() {
         return Ok(interrupted_outcome(
             backend,
@@ -2395,9 +2530,12 @@ mod tests {
 
     #[test]
     fn explicit_local_artifact_still_checks_the_platform() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact = dir.path().join("wf-server");
+        std::fs::write(&artifact, b"local artifact").unwrap();
         let spec = Some(ArtifactSpec {
             kind: "local".to_string(),
-            path: std::env::current_exe().unwrap().display().to_string(),
+            path: artifact.display().to_string(),
             version: None,
             sha256: None,
         });
@@ -2546,5 +2684,161 @@ mod tests {
     fn shell_quote_survives_single_quotes() {
         assert_eq!(shell_quote("/srv/app"), "'/srv/app'");
         assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+    }
+
+    fn sample_plan() -> DeployPlanView {
+        with_plan_id(DeployPlanView {
+            plan_id: String::new(),
+            backend: "prod".to_string(),
+            action: "upgrade".to_string(),
+            install_root: ".wf-server".to_string(),
+            server_port: 3000,
+            scope: "config".to_string(),
+            source: "staging".to_string(),
+            target: Some(target("linux-x86_64")),
+            installation: None,
+            artifact: Some(ArtifactPlanView {
+                kind: "release".to_string(),
+                source: "https://example.test/a.tar.gz".to_string(),
+                bytes: Some(128),
+                sha256: None,
+                status: "ok".to_string(),
+            }),
+            files: vec![PlannedFileView {
+                path: "server/server.toml".to_string(),
+                bytes: 12,
+                mode: "600".to_string(),
+            }],
+            steps: vec![DeployStepView {
+                id: "layout".to_string(),
+                description: "Create layout".to_string(),
+                command: "mkdir -p ~/.wf-server".to_string(),
+            }],
+            warnings: Vec::new(),
+            blocked: None,
+            planned_ms: 100,
+        })
+    }
+
+    #[test]
+    fn plan_id_ignores_timestamps_but_tracks_execution_content() {
+        let base = sample_plan();
+        let mut later = base.clone();
+        later.planned_ms += 60_000;
+        assert_eq!(plan_fingerprint(&base), plan_fingerprint(&later));
+
+        let mut changed_command = base.clone();
+        changed_command.steps[0]
+            .command
+            .push_str(" && echo changed");
+        assert_ne!(plan_fingerprint(&base), plan_fingerprint(&changed_command));
+
+        let mut changed_file = base.clone();
+        changed_file.files[0].bytes += 1;
+        assert_ne!(plan_fingerprint(&base), plan_fingerprint(&changed_file));
+
+        let mut changed_platform = base.clone();
+        changed_platform.target = Some(target("darwin-aarch64"));
+        assert_ne!(plan_fingerprint(&base), plan_fingerprint(&changed_platform));
+    }
+
+    #[test]
+    fn approval_must_match_the_recomputed_plan_id() {
+        let plan = sample_plan();
+        assert!(
+            require_approved_plan(DeployAction::Upgrade, Some(&plan.plan_id), &plan.plan_id)
+                .is_ok()
+        );
+        assert!(
+            require_approved_plan(DeployAction::Upgrade, Some("stale"), &plan.plan_id).is_err()
+        );
+        assert!(require_approved_plan(DeployAction::Upgrade, None, &plan.plan_id).is_err());
+        assert!(require_approved_plan(DeployAction::Probe, None, &plan.plan_id).is_ok());
+        // An explicit override never turns an invalid approval into a valid one.
+        let forced = DeployRequest {
+            action: "upgrade".to_string(),
+            force: true,
+            plan_id: Some("stale".to_string()),
+            ..DeployRequest::default()
+        };
+        assert!(require_approved_plan(
+            DeployAction::Upgrade,
+            forced.plan_id.as_deref(),
+            &plan.plan_id
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn plan_drift_fails_before_any_remote_step() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake ssh port");
+        let port = listener.local_addr().expect("bound port").port();
+        let held = tokio::spawn(async move {
+            let mut sockets = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                sockets.push(socket);
+            }
+        });
+        let mut remote = entry();
+        remote.host = "127.0.0.1".to_string();
+        remote.port = Some(port);
+        let settings = DeploySettings {
+            exec_timeout_secs: 1,
+            ..DeploySettings::default()
+        };
+        let request = DeployRequest {
+            action: "stop".to_string(),
+            plan_id: Some("stale".to_string()),
+            ..DeployRequest::default()
+        };
+        let mut plans = Vec::new();
+        let outcome = apply(
+            "prod",
+            &remote,
+            &settings,
+            &request,
+            18080,
+            &CancellationToken::new(),
+            |plan| plans.push(plan.clone()),
+            |_| {},
+        )
+        .await
+        .expect("apply returns a failed outcome");
+        held.abort();
+
+        assert_eq!(outcome.status.as_deref(), Some("failed"));
+        assert!(outcome
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("run deploy plan again")));
+        assert!(outcome.steps.is_empty());
+        assert_eq!(plans.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unconsumed_stdin_payload_times_out() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut writer, _reader) = tokio::io::duplex(16);
+        let payload = vec![b'x'; 64 * 1024];
+        let output = run_bounded(Duration::from_millis(50), async {
+            writer
+                .write_all(&payload)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(ExecOutput {
+                status: Some(0),
+                stdout: String::new(),
+                stderr: String::new(),
+                timed_out: false,
+            })
+        })
+        .await;
+        assert!(output.timed_out);
+        assert!(output
+            .trimmed_stderr()
+            .is_some_and(|e| e.contains("exceeded")));
     }
 }

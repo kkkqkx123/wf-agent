@@ -14,15 +14,13 @@ use std::time::Duration;
 use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
-    apply_server_default_port, apply_server_deploy, collect_backend_candidates,
-    cancel_server_deploy_job, create_server_backend, export_server_backup,
-    fetch_server_backends, fetch_server_backups, fetch_server_sync_states,
-    get_server_deploy_job, import_server_backends, list_server_deploy_jobs, load_registry,
-    management_client, plan_server_deploy, probe_backends, relink_server_backups,
-    remove_server_backend, reset_server_sync_state, restore_server_backup, start_server_tunnel,
-    stop_server_tunnel, submit_server_deploy,
-    trigger_server_backup, update_server_backend, verify_server_backup, RemoteHost,
-    ServerBackupRecord,
+    apply_server_default_port, apply_server_deploy, cancel_server_deploy_job,
+    collect_backend_candidates, create_server_backend, export_server_backup, fetch_server_backends,
+    fetch_server_backups, fetch_server_sync_states, get_server_deploy_job, import_server_backends,
+    list_server_deploy_jobs, load_registry, management_client, plan_server_deploy, probe_backends,
+    relink_server_backups, remove_server_backend, reset_server_sync_state, restore_server_backup,
+    start_server_tunnel, stop_server_tunnel, submit_server_deploy, trigger_server_backup,
+    update_server_backend, verify_server_backup, RemoteHost, ServerBackupRecord,
 };
 use crate::cmd::render::{print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
@@ -310,7 +308,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             no_wait,
             force,
         } => {
-            let body = build_deploy_body(
+            let mut body = build_deploy_body(
                 action,
                 artifact.as_deref(),
                 artifact_kind.as_deref(),
@@ -319,6 +317,7 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 from.as_deref(),
                 scope,
                 *force,
+                None,
             )?;
             let client = management_client(cli);
             let kind = if *no_wait {
@@ -328,10 +327,29 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             } else {
                 "remote-deploy-plan"
             };
-            let data = if *no_wait {
-                submit_server_deploy(&client, name, &body).await?
-            } else if *apply {
-                apply_server_deploy(&client, name, &body).await?
+            let data = if *no_wait || *apply {
+                // Approval happens inside one command: plan first, then send
+                // its digest so apply cannot execute a different plan.
+                let planned = plan_server_deploy(&client, name, &body).await?;
+                let plan_id = planned
+                    .get("plan_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        CliError::Business("deploy plan did not return a plan_id".to_string())
+                    })?;
+                body["plan_id"] = serde_json::json!(plan_id);
+                if *no_wait {
+                    let mut job = submit_server_deploy(&client, name, &body).await?;
+                    job["approved_plan_id"] = planned["plan_id"].clone();
+                    job["approved_steps"] =
+                        serde_json::json!(planned["steps"].as_array().map(Vec::len).unwrap_or(0));
+                    job
+                } else {
+                    serde_json::to_value(apply_server_deploy(&client, name, &body).await?).map_err(
+                        |e| CliError::Business(format!("cannot encode deploy result: {e}")),
+                    )?
+                }
             } else {
                 plan_server_deploy(&client, name, &body).await?
             };
@@ -941,6 +959,7 @@ fn build_deploy_body(
     from: Option<&str>,
     scope: &str,
     force: bool,
+    plan_id: Option<&str>,
 ) -> CliResult<serde_json::Value> {
     if !matches!(scope.trim(), "none" | "config" | "full") {
         return Err(CliError::Arguments(format!(
@@ -975,6 +994,7 @@ fn build_deploy_body(
         "scope": scope.trim(),
         "source": from,
         "force": force,
+        "plan_id": plan_id,
     }))
 }
 

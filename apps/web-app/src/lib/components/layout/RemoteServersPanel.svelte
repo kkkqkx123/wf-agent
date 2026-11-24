@@ -3,13 +3,17 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import Select from '#lib/ui/components/Select.svelte';
+	import { ApiHttpError } from '#lib/api/envelope';
 	import { t } from '#lib/i18n';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import {
 		applyBackendDeploy,
 		cancelBackendDeployJob,
 		fetchDeploySources,
+		isDeployJobTerminal,
 		listBackendDeployJobs,
+		markCancelRequested,
+		waitForBackendDeploy,
 		listBackends,
 		planBackendDeploy,
 		probeBackendDeploy,
@@ -68,8 +72,11 @@
 	let plan = $state<DeployPlan | null>(null);
 	let outcome = $state<DeployOutcome | null>(null);
 	let probe = $state<DeployProbe | null>(null);
-	let deployJob = $state<DeployJob | null>(null);
+	let activeJobId = $state<string | null>(null);
+	let waitState = $state<'idle' | 'terminal' | 'pending'>('idle');
 	let jobs = $state<DeployJob[]>([]);
+	let watchingId: string | null = null;
+	let watchGeneration = 0;
 
 	const actionOptions = $derived(
 		ACTIONS.map((value) => ({ value, label: ACTION_LABEL[value] })),
@@ -89,12 +96,14 @@
 		{ value: 'local', label: t('page.settings.remoteArtifactLocal') },
 	]);
 	const hostRows = $derived(rows ?? []);
+	const activeJob = $derived(jobs.find((job) => job.jobId === activeJobId) ?? null);
 	const selectedSource = $derived(sources.find((item) => item.name === source) ?? null);
 	const transfersFiles = $derived(action === 'install' || action === 'upgrade');
 
 	function resetResults(): void {
 		plan = null;
 		outcome = null;
+		waitState = 'idle';
 	}
 
 	function buildPayload(): DeployRequestPayload {
@@ -102,6 +111,7 @@
 			action,
 			scope,
 			source: source || null,
+			plan_id: plan?.planId ?? null,
 		};
 		if (action === 'install' || action === 'upgrade') {
 			payload.artifact =
@@ -116,6 +126,12 @@
 		return e instanceof Error ? e.message : String(e);
 	}
 
+	function upsertJob(job: DeployJob): void {
+		const index = jobs.findIndex((row) => row.jobId === job.jobId);
+		if (index >= 0) jobs[index] = job;
+		else jobs = [job, ...jobs];
+	}
+
 	async function refreshJobs(): Promise<void> {
 		if (!selected) {
 			jobs = [];
@@ -128,14 +144,55 @@
 		}
 	}
 
+	/** Reattach to a live job from the list, so a refresh keeps observing. */
+	async function observeJob(job: DeployJob): Promise<void> {
+		if (watchingId === job.jobId) return;
+		const generation = watchGeneration;
+		watchingId = job.jobId;
+		activeJobId = job.jobId;
+		try {
+			const result = await waitForBackendDeploy(selected, job, (update) => {
+				if (generation === watchGeneration) upsertJob(update);
+			});
+			if (generation !== watchGeneration) return;
+			upsertJob(result.job);
+			activeJobId = result.job.jobId;
+			waitState = result.kind === 'terminal' ? 'terminal' : 'pending';
+			if (result.kind === 'terminal') outcome = result.outcome;
+			await refreshJobs();
+		} catch {
+			// A backend switch invalidates this observer; the new one owns the UI.
+		} finally {
+			if (generation === watchGeneration) watchingId = null;
+		}
+	}
+
+	function attachFromList(): void {
+		const live = jobs.find((job) => !isDeployJobTerminal(job));
+		if (live) void observeJob(live);
+	}
+
 	async function cancelJob(job: DeployJob): Promise<void> {
 		if (!selected || job.cancelRequested) return;
 		try {
 			await cancelBackendDeployJob(selected, job.jobId);
-			job.cancelRequested = true;
-			if (deployJob?.jobId === job.jobId) deployJob.status = 'interrupted';
+			upsertJob(markCancelRequested(job));
 			await refreshJobs();
 		} catch (e) {
+			if (e instanceof ApiHttpError && e.status === 409) {
+				// The job settled between render and request: trust the server.
+				await refreshJobs();
+				const settled = jobs.find((row) => row.jobId === job.jobId);
+				if (settled) {
+					upsertJob(settled);
+					if (activeJobId === settled.jobId && isDeployJobTerminal(settled)) {
+						activeJobId = settled.jobId;
+						waitState = 'terminal';
+						outcome = settled.outcome;
+					}
+				}
+				return;
+			}
 			toasts.error(describeFailure(e));
 		}
 	}
@@ -155,6 +212,7 @@
 					sources = [];
 				}
 				await refreshJobs();
+				attachFromList();
 			}
 		} catch (e) {
 			error = describeFailure(e);
@@ -190,20 +248,27 @@
 	}
 
 	async function runApply(): Promise<void> {
-		if (!selected) return;
+		if (!selected || !plan?.planId) {
+			toasts.error(t('page.settings.remotePlanRequired'));
+			return;
+		}
 		busy = true;
-		deployJob = null;
+		outcome = null;
 		try {
-			outcome = await applyBackendDeploy(selected, buildPayload(), (job) => {
-				deployJob = job;
-			});
+			const result = await applyBackendDeploy(selected, buildPayload(), upsertJob);
+			upsertJob(result.job);
+			activeJobId = result.job.jobId;
+			waitState = result.kind === 'terminal' ? 'terminal' : 'pending';
 			await refreshJobs();
-			if (outcome.ok) {
-				toasts.success(t('page.settings.remoteApplied'));
-			} else {
-				toasts.error(outcome.error ?? t('page.settings.remoteApplyFailed'));
+			if (result.kind === 'terminal') {
+				outcome = result.outcome;
+				if (result.job.status === 'succeeded' && result.outcome?.ok !== false) {
+					toasts.success(t('page.settings.remoteApplied'));
+				} else {
+					toasts.error(result.outcome?.error ?? t('page.settings.remoteApplyFailed'));
+				}
+				plan = null;
 			}
-			plan = null;
 		} catch (e) {
 			toasts.error(describeFailure(e));
 		} finally {
@@ -237,12 +302,14 @@
 					options={hostRows.map((row) => ({ value: row.name, label: row.name }))}
 					onchange={(value) => {
 						selected = value;
+						watchGeneration += 1;
+						activeJobId = null;
 						probe = null;
 						resetResults();
 						void fetchDeploySources(value)
 							.then((found) => (sources = found))
 							.catch(() => (sources = []));
-						void refreshJobs();
+						void refreshJobs().then(attachFromList);
 					}}
 				/>
 				<Select
@@ -378,6 +445,9 @@
 
 			{#if plan}
 				<div class="space-y-2 rounded-md border border-border p-3">
+					<p class="text-small text-muted-foreground font-mono break-all">
+						{t('page.settings.remotePlanId')}: {plan.planId}
+					</p>
 					<p class="text-small text-muted-foreground">
 						{t('page.settings.remoteInstallRoot')}: <span class="font-mono">{plan.installRoot}</span>
 						· {t('page.settings.remoteServerPort')}: <span class="font-mono">{plan.serverPort}</span>
@@ -419,24 +489,48 @@
 				</div>
 			{/if}
 
-			{#if busy && deployJob}
-				<div class="rounded-md border border-border p-3">
+			{#if activeJob}
+				<div class="space-y-2 rounded-md border border-border p-3">
 					<p class="text-small font-medium">
 						{t('page.settings.remoteJobProgress', {
-							step: deployJob.currentStep ?? '—',
-							done: deployJob.steps.length,
-							total: deployJob.totalSteps || deployJob.steps.length,
+							step: activeJob.currentStep ?? '—',
+							done: activeJob.steps.length,
+							total: activeJob.totalSteps || activeJob.steps.length,
 						})}
 					</p>
-					<p class="text-micro text-muted-foreground font-mono">{deployJob.jobId}</p>
-					<Button
-						size="sm"
-						variant="ghost"
-						disabled={deployJob.cancelRequested}
-						onclick={() => deployJob && void cancelJob(deployJob)}
-					>
-						{t('page.settings.remoteCancelJob')}
-					</Button>
+					<p class="text-micro text-muted-foreground font-mono">
+						{activeJob.jobId} · {activeJob.status}
+						{#if activeJob.cancelRequested}· {t('page.settings.remoteCancelRequested')}{/if}
+					</p>
+					{#if waitState === 'pending'}
+						<p class="text-small text-muted-foreground">{t('page.settings.remoteStillRunning')}</p>
+					{/if}
+					{#if !isDeployJobTerminal(activeJob)}
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={activeJob.cancelRequested}
+							onclick={() => activeJob && void cancelJob(activeJob)}
+						>
+							{t('page.settings.remoteCancelJob')}
+						</Button>
+					{/if}
+				</div>
+			{/if}
+
+			{#if activeJob?.finalPlan}
+				<div class="space-y-2 rounded-md border border-border p-3">
+					<p class="text-small text-muted-foreground font-mono break-all">
+						{t('page.settings.remoteFinalPlan')}: {activeJob.finalPlan.planId}
+					</p>
+					{#if plan && plan.planId !== activeJob.finalPlan.planId}
+						<p class="text-small text-destructive">{t('page.settings.remotePlanChanged')}</p>
+						<ol class="space-y-1">
+							{#each activeJob.finalPlan.steps as step}
+								<li class="text-micro font-mono break-all">{step.command}</li>
+							{/each}
+						</ol>
+					{/if}
 				</div>
 			{/if}
 
@@ -450,6 +544,11 @@
 							<span class:text-destructive={job.status === 'failed' || job.status === 'interrupted'}>
 								{job.status}
 							</span>
+							{#if job.cancelRequested}
+								<span class="text-small text-muted-foreground">
+									{t('page.settings.remoteCancelRequested')}
+								</span>
+							{/if}
 							{#if job.status === 'queued' || job.status === 'running'}
 								<Button
 									size="sm"

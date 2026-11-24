@@ -1,5 +1,44 @@
 import { describe, expect, it } from 'vitest';
-import { toBackendRows } from './backends';
+import { markCancelRequested, resolveDeployWait, toBackendRows } from './backends';
+
+function job(overrides: Record<string, unknown> = {}): never {
+	return {
+		jobId: 'deploy-1',
+		backend: 'prod',
+		action: 'upgrade',
+		status: 'running',
+		totalSteps: 2,
+		currentStep: 'activate',
+		cancelRequested: false,
+		submittedBy: 'api-key',
+		finalPlan: null,
+		steps: [],
+		outcome: null,
+		submittedMs: 1,
+		finishedMs: null,
+		...overrides,
+	} as never;
+}
+
+describe('deploy job client semantics', () => {
+	it('an accepted cancellation only marks the request', () => {
+		const cancelled = markCancelRequested(job());
+		expect(cancelled.cancelRequested).toBe(true);
+		expect(cancelled.status).toBe('running');
+		expect(cancelled.outcome).toBeNull();
+		expect(resolveDeployWait(cancelled).kind).toBe('pending');
+	});
+
+	it('terminal status and outcome come from the server view', () => {
+		const outcome = { status: 'succeeded', ok: true };
+		const result = resolveDeployWait(
+			job({ status: 'succeeded', outcome, cancelRequested: true }),
+		);
+		expect(result.kind).toBe('terminal');
+		expect(result.outcome).toEqual(outcome);
+		if (result.kind === 'terminal') expect(result.job.status).toBe('succeeded');
+	});
+});
 
 function row(overrides: Record<string, unknown> = {}): unknown {
 	return {

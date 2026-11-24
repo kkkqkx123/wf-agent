@@ -54166,6 +54166,17 @@
                   "null"
                 ]
               },
+              "final_plan": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployPlanView",
+                    "description": "Plan recomputed by apply, including the steps actually executed."
+                  }
+                ]
+              },
               "finished_ms": {
                 "type": [
                   "integer",
@@ -54195,6 +54206,10 @@
                 "items": {
                   "$ref": "#/components/schemas/DeployStepResultView"
                 }
+              },
+              "submitted_by": {
+                "type": "string",
+                "description": "Audit subject. The transport has no per-key identity, so every\nsubmission is recorded as `api-key` rather than a guessed user."
               },
               "submitted_ms": {
                 "type": "integer",
@@ -54232,6 +54247,7 @@
             "type": "object",
             "description": "Dry run: everything the action would do, plus what blocks it today.",
             "required": [
+              "plan_id",
               "backend",
               "action",
               "install_root",
@@ -54281,6 +54297,10 @@
                     "description": "Current installation, so a `probe` plan is a complete status report."
                   }
                 ]
+              },
+              "plan_id": {
+                "type": "string",
+                "description": "Digest of the execution-relevant plan content. Stable across\ntimestamp-only changes so it can be approved before execution."
               },
               "planned_ms": {
                 "type": "integer",
@@ -58729,6 +58749,17 @@
                     "null"
                   ]
                 },
+                "final_plan": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DeployPlanView",
+                      "description": "Plan recomputed by apply, including the steps actually executed."
+                    }
+                  ]
+                },
                 "finished_ms": {
                   "type": [
                     "integer",
@@ -58758,6 +58789,10 @@
                   "items": {
                     "$ref": "#/components/schemas/DeployStepResultView"
                   }
+                },
+                "submitted_by": {
+                  "type": "string",
+                  "description": "Audit subject. The transport has no per-key identity, so every\nsubmission is recorded as `api-key` rather than a guessed user."
                 },
                 "submitted_ms": {
                   "type": "integer",
@@ -61957,6 +61992,17 @@
               "null"
             ]
           },
+          "final_plan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeployPlanView",
+                "description": "Plan recomputed by apply, including the steps actually executed."
+              }
+            ]
+          },
           "finished_ms": {
             "type": [
               "integer",
@@ -61986,6 +62032,10 @@
             "items": {
               "$ref": "#/components/schemas/DeployStepResultView"
             }
+          },
+          "submitted_by": {
+            "type": "string",
+            "description": "Audit subject. The transport has no per-key identity, so every\nsubmission is recorded as `api-key` rather than a guessed user."
           },
           "submitted_ms": {
             "type": "integer",
@@ -62073,6 +62123,7 @@
         "type": "object",
         "description": "Dry run: everything the action would do, plus what blocks it today.",
         "required": [
+          "plan_id",
           "backend",
           "action",
           "install_root",
@@ -62122,6 +62173,10 @@
                 "description": "Current installation, so a `probe` plan is a complete status report."
               }
             ]
+          },
+          "plan_id": {
+            "type": "string",
+            "description": "Digest of the execution-relevant plan content. Stable across\ntimestamp-only changes so it can be approved before execution."
           },
           "planned_ms": {
             "type": "integer",
@@ -62238,6 +62293,13 @@
           "force": {
             "type": "boolean",
             "description": "Allow an action whose preconditions reported `blocked`."
+          },
+          "plan_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Digest of the approved plan. Required for every writing action and\nignored by `probe`; `force` never substitutes for it."
           },
           "scope": {
             "type": "string",

@@ -46,6 +46,10 @@ const DEFAULT_DEPLOY_SOURCE_ROOT: &str = "deploy";
 const DEFAULT_DEPLOY_EXEC_TIMEOUT_SECS: u64 = 120;
 /// Default wait for a started remote server to answer its health endpoint.
 const DEFAULT_DEPLOY_START_TIMEOUT_SECS: u64 = 30;
+/// Default age window for terminal deployment job records.
+const DEFAULT_DEPLOY_JOB_RETENTION_DAYS: u64 = 30;
+/// Default number of recent terminal jobs kept per backend.
+const DEFAULT_DEPLOY_JOB_MAX_PER_BACKEND: usize = 200;
 /// Grace period before supervised SSH forwards are killed at shutdown, giving
 /// in-flight backup fetches a window to finish. Zero kills immediately.
 const DEFAULT_TUNNEL_STOP_GRACE_SECS: u64 = 2;
@@ -86,6 +90,10 @@ pub struct BackendConfig {
     pub deploy_source_root: std::path::PathBuf,
     pub deploy_exec_timeout_secs: u64,
     pub deploy_start_timeout_secs: u64,
+    /// Terminal deployment jobs older than this many days are pruned.
+    pub deploy_job_retention_days: u64,
+    /// Recent terminal jobs kept per backend after pruning by age.
+    pub deploy_job_max_per_backend: usize,
     /// Seconds to let supervised tunnels drain before they are killed on
     /// shutdown. Bounded by `MAX_TUNNEL_STOP_GRACE_SECS`.
     pub tunnel_stop_grace_secs: u64,
@@ -113,6 +121,8 @@ impl Default for BackendConfig {
             deploy_source_root: std::path::PathBuf::from(DEFAULT_DEPLOY_SOURCE_ROOT),
             deploy_exec_timeout_secs: DEFAULT_DEPLOY_EXEC_TIMEOUT_SECS,
             deploy_start_timeout_secs: DEFAULT_DEPLOY_START_TIMEOUT_SECS,
+            deploy_job_retention_days: DEFAULT_DEPLOY_JOB_RETENTION_DAYS,
+            deploy_job_max_per_backend: DEFAULT_DEPLOY_JOB_MAX_PER_BACKEND,
             tunnel_stop_grace_secs: DEFAULT_TUNNEL_STOP_GRACE_SECS,
         }
     }
@@ -211,6 +221,12 @@ impl BackendConfig {
         if let Some(timeout) = file.deploy_start_timeout_secs {
             self.deploy_start_timeout_secs = timeout;
         }
+        if let Some(days) = file.deploy_job_retention_days {
+            self.deploy_job_retention_days = days;
+        }
+        if let Some(count) = file.deploy_job_max_per_backend {
+            self.deploy_job_max_per_backend = count;
+        }
         if let Some(grace) = file.tunnel_stop_grace_secs {
             self.tunnel_stop_grace_secs = grace;
         }
@@ -289,6 +305,14 @@ impl BackendConfig {
         if let Some(timeout) = read_env_u64("WF_BACKEND_DEPLOY_START_TIMEOUT_SECS") {
             self.deploy_start_timeout_secs = timeout;
         }
+        if let Some(days) = read_env_u64("WF_BACKEND_DEPLOY_JOB_RETENTION_DAYS") {
+            self.deploy_job_retention_days = days;
+        }
+        if let Some(count) = read_env_u64("WF_BACKEND_DEPLOY_JOB_MAX_PER_BACKEND") {
+            if let Ok(count) = usize::try_from(count) {
+                self.deploy_job_max_per_backend = count;
+            }
+        }
         if let Some(grace) = read_env_u64("WF_BACKEND_TUNNEL_STOP_GRACE_SECS") {
             self.tunnel_stop_grace_secs = grace;
         }
@@ -356,6 +380,16 @@ impl BackendConfig {
                 "invalid backend config: deploy_start_timeout_secs must be > 0".to_string(),
             ));
         }
+        if self.deploy_job_retention_days == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: deploy_job_retention_days must be > 0".to_string(),
+            ));
+        }
+        if self.deploy_job_max_per_backend == 0 {
+            return Err(ConfigError::Parse(
+                "invalid backend config: deploy_job_max_per_backend must be > 0".to_string(),
+            ));
+        }
         if self.tunnel_stop_grace_secs > MAX_TUNNEL_STOP_GRACE_SECS {
             return Err(ConfigError::Parse(format!(
                 "invalid backend config: tunnel_stop_grace_secs must be 0-{MAX_TUNNEL_STOP_GRACE_SECS}"
@@ -398,6 +432,8 @@ struct BackendFileConfig {
     deploy_source_root: Option<String>,
     deploy_exec_timeout_secs: Option<u64>,
     deploy_start_timeout_secs: Option<u64>,
+    deploy_job_retention_days: Option<u64>,
+    deploy_job_max_per_backend: Option<usize>,
     tunnel_stop_grace_secs: Option<u64>,
 }
 
@@ -502,7 +538,31 @@ mod tests {
         );
         assert_eq!(config.deploy_exec_timeout_secs, 120);
         assert_eq!(config.deploy_start_timeout_secs, 30);
+        assert_eq!(config.deploy_job_retention_days, 30);
+        assert_eq!(config.deploy_job_max_per_backend, 200);
         assert_eq!(config.tunnel_stop_grace_secs, 2);
+    }
+
+    #[test]
+    fn deploy_job_retention_resolves_from_file_and_rejects_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let server_dir = dir.path().join("server");
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\ndeploy_job_retention_days = 14\ndeploy_job_max_per_backend = 5\n",
+        )
+        .unwrap();
+        let config = BackendConfig::resolve(Some(server_dir.as_path()), None).unwrap();
+        assert_eq!(config.deploy_job_retention_days, 14);
+        assert_eq!(config.deploy_job_max_per_backend, 5);
+
+        std::fs::write(
+            server_dir.join(BACKEND_CONFIG_FILE),
+            "enabled = true\ndeploy_job_max_per_backend = 0\n",
+        )
+        .unwrap();
+        assert!(BackendConfig::resolve(Some(server_dir.as_path()), None).is_err());
     }
 
     #[test]

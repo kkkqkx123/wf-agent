@@ -26,12 +26,13 @@
 - 把 `web_fetch` 的 HTML 清洗/渲染逻辑抽成公开渲染函数，`web_fetch` handler 与 URL 摄取桥接共用，避免 RAG 侧重复 DOM 解析。
 - 在 `wf-api` 增加 `RagCapabilityService`：持有 `RagHandles`、`WebFetchBackend` 与能力配置，实现阶段二的三个后端 trait。
 - URL 摄取流程：抓取 → 复用页面渲染 → 生成带 source/标题/final_url/ETag/Last-Modified/抓取时间的文档 → 按哈希或 HTTP 验证元数据做同步决策 → 调用 `rag_core::pipeline::ingest_documents`。
-- 同步状态使用宿主可注入的内存状态表；来源删除按精确 source 执行，Stale 清单用于诊断而非自动删除。
+- 同步状态使用宿主可注入、可复用的内存状态表 `RagCapabilityState`；来源删除按精确 source 执行，Stale 清单只进入状态诊断而不触发自动删除。
 
 ## 阶段四：配置、注册与验证
 
 - `wf-types` 增加 RAG 能力配置段，表达 ingest/chunking/sync/retrieval/citation/eval 开关与上限；默认关闭。
-- `wf-runtime` 暴露配置字段，不改变现有默认启动行为；宿主显式构造 `RagCapabilityService` 并把后端注入 `RagToolConfig`。
+- `wf-runtime` 暴露配置字段并通过 `Runtime::attach_rag_capabilities` 提供唯一装配入口：校验配置、构造 `RagCapabilityService`、复用 bootstrap 的 `web_fetch` 后端、注册工具与工具描述。默认不调用该入口时不改变启动行为。
+- 增强工具定义与描述默认不包含在 predefined 目录中；只有宿主完成装配后才注册，避免模型看到不可用工具。
 - 为每阶段补充单元测试，统一执行一次编译检查与测试验证。
 
 ## 明确不做
@@ -45,6 +46,6 @@
 
 - 阶段一已完成：`rag-core` 新增分块预设配置、表格预设、标题路径元数据、HTTP 验证同步决策、引用样式与一致性检查、locator 评估与批量评估执行；同时修正了新建 tantivy 文件索引被误判为格式不匹配的问题。
 - 阶段二已完成：`rag_ingest_url`、`rag_index_status`、`rag_evaluate` 三个工具契约与 handler 落地，分别按 Network/ReadOnly 风险声明；未注入后端时不注册 handler。
-- 阶段三已完成：`web_fetch` 渲染逻辑抽出为共享函数；`wf-api` 的 `RagCapabilityService` 实现抓取、清洗、同步决策、摄取、状态和评估的完整桥接。
-- 阶段四已完成：`wf-types` 增加默认关闭的 RAG 能力配置段，`wf-runtime::RuntimeConfig` 暴露该配置；`RagCapabilitySettings::from_config` 将声明式配置映射为管线参数。
-- 验证：`rag-core` 124 个单测、`wf-tools` 434 个单测、`wf-api` 桥接单测与 `wf-types` 配置单测通过；相关 crate 全特性 `cargo check --lib` 通过。
+- 阶段三已完成：`web_fetch` 渲染逻辑抽出为共享函数；`wf-api` 的 `RagCapabilityService` 实现抓取、清洗、同步决策、摄取、状态、评估和共享检索后端。`RagCapabilityState` 由宿主构造并注入。
+- 阶段四已完成：`wf-types` 增加默认关闭的 RAG 能力配置段；`wf-runtime::RuntimeConfig` 暴露配置，`Runtime::attach_rag_capabilities` 完成校验与装配；`RagCapabilitySettings::from_config` 映射预设、同步、检索、引用、摄取上限和评估上限。
+- 验证：受影响 crate 的全 target、全特性 `cargo check` 通过；`rag-core` 126 个单测、`wf-tools` 435 个库单测及 3 个 golden 测试、`wf-api` 568 个库单测及相关集成测试通过。

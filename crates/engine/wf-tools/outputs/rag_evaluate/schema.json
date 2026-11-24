@@ -1,0 +1,41 @@
+{
+  "id": "rag_evaluate",
+  "name": "rag_evaluate",
+  "description": "Score a retrieval evaluation set against the indexed knowledge base. Read-only.",
+  "tool_type": "stateless",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "cases": {
+        "type": "array",
+        "description": "Evaluation cases with id, query, expected_sources and optional expected_locators"
+      },
+      "collection": {
+        "type": "string",
+        "description": "Vector collection to query (falls back to the configured default)"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Default namespace for cases that omit one"
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "Maximum hits scored per case",
+        "default": 5
+      }
+    },
+    "required": [
+      "cases"
+    ],
+    "additionalProperties": false
+  },
+  "metadata": {
+    "category": "knowledge",
+    "tags": [
+      "rag",
+      "evaluation"
+    ],
+    "risk_level": "read_only"
+  },
+  "enabled": true
+}

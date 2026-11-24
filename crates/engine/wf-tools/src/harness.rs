@@ -33,7 +33,11 @@ use crate::filesystem::FsToolConfig;
 use crate::general::GeneralToolInvoker;
 use crate::handlers::{register_builtin_handlers, BuiltinHandlersConfig};
 use crate::predefined;
-use crate::predefined::rag::{RagHit, RagSearchBackend, RagSearchQuery};
+use crate::predefined::rag::{
+    RagCapabilitiesConfig, RagEvalBackend, RagEvaluateQuery, RagEvaluateResult, RagHit,
+    RagIndexStatus, RagIndexStatusQuery, RagIngestBackend, RagIngestUrlQuery, RagIngestUrlResult,
+    RagOperationStats, RagSearchBackend, RagSearchQuery, RagSourceStatus, RagStatusBackend,
+};
 use crate::predefined::web::{
     SearchBackend, WebFetchBackend, WebFetchError, WebFetchQuery, WebFetchResponse,
     WebSearchBackend, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult,
@@ -645,6 +649,87 @@ impl RagSearchBackend for HarnessRagBackend {
     }
 }
 
+struct HarnessRagIngestBackend;
+
+#[async_trait]
+impl RagIngestBackend for HarnessRagIngestBackend {
+    async fn ingest_url(&self, query: RagIngestUrlQuery) -> ToolResult<RagIngestUrlResult> {
+        Ok(RagIngestUrlResult {
+            url: query.url.clone(),
+            final_url: query.url.clone(),
+            source: query.url,
+            title: Some("Fixture page".into()),
+            action: rag_core::SyncAction::Insert,
+            documents: 1,
+            chunks: 2,
+            points: 2,
+            skipped: 0,
+            content_hash: "fixture-hash".into(),
+            validator: None,
+        })
+    }
+
+    fn network_domains(&self) -> Vec<String> {
+        vec!["example.com".into()]
+    }
+}
+
+struct HarnessRagStatusBackend;
+
+#[async_trait]
+impl RagStatusBackend for HarnessRagStatusBackend {
+    async fn status(&self, query: RagIndexStatusQuery) -> ToolResult<RagIndexStatus> {
+        Ok(RagIndexStatus {
+            collection: query.collection,
+            namespace: query.namespace,
+            sources: vec![RagSourceStatus {
+                source: "https://example.com/docs".into(),
+                point_count: 2,
+                keyword_point_count: None,
+                content_hash: Some("fixture-hash".into()),
+                validator: None,
+                final_url: Some("https://example.com/docs".into()),
+                fetched_at: None,
+            }],
+            stale_sources: Vec::new(),
+            last_ingest: Some(RagOperationStats {
+                elapsed_ms: 0,
+                documents: 1,
+                chunks: 2,
+                points: 2,
+                skipped: 0,
+            }),
+        })
+    }
+}
+
+struct HarnessRagEvalBackend;
+
+#[async_trait]
+impl RagEvalBackend for HarnessRagEvalBackend {
+    async fn evaluate(&self, query: RagEvaluateQuery) -> ToolResult<RagEvaluateResult> {
+        Ok(RagEvaluateResult {
+            outcomes: query
+                .cases
+                .iter()
+                .map(|case| rag_core::EvalOutcome {
+                    case_id: case.id.clone(),
+                    hit: true,
+                    recall: 1.0,
+                    first_hit_rank: Some(0),
+                    locator_recall: 1.0,
+                    surfaced_sources: case.expected_sources.clone(),
+                })
+                .collect(),
+            summary: rag_core::EvalSummary {
+                cases: query.cases.len(),
+                hit_rate: 1.0,
+                mean_recall: 1.0,
+            },
+        })
+    }
+}
+
 /// Test-only search backend returning a fixed hit. Production backends live
 /// in the resource layer; the harness stays independent of that crate.
 struct HarnessSearchBackend;
@@ -778,7 +863,11 @@ async fn build_registry(sandbox: &Path) -> crate::error::ToolResult<ToolRegistry
             backend: Some(Arc::new(HarnessRagBackend)),
             default_collection: "fixtures".into(),
             default_namespace: "harness".into(),
-            ..Default::default()
+            capabilities: RagCapabilitiesConfig {
+                ingest: Some(Arc::new(HarnessRagIngestBackend)),
+                status: Some(Arc::new(HarnessRagStatusBackend)),
+                evaluate: Some(Arc::new(HarnessRagEvalBackend)),
+            },
         },
         ..Default::default()
     };

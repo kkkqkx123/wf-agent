@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod audit;
 pub mod chat;
 pub mod checkpoint;
+pub mod compaction;
 pub mod conversation;
 pub mod definition;
 pub mod entity;
@@ -15,7 +16,6 @@ pub mod execution_logs;
 pub mod fs;
 pub mod git;
 pub mod infra;
-pub mod compaction;
 pub mod llm;
 pub mod mention;
 pub mod pty;
@@ -144,7 +144,7 @@ pub use query::{
     ExportFormat, FilterCriteria, FilterExpression, FilterOperator, PaginationOptions,
     QueryBuilder, SortOptions,
 };
-pub use rag_capabilities::{RagCapabilityService, RagCapabilitySettings};
+pub use rag_capabilities::{RagCapabilityService, RagCapabilitySettings, RagCapabilityState};
 pub use template::builder::NodeTemplateBuilder;
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};

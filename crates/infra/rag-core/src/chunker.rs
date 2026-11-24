@@ -201,7 +201,7 @@ impl RecursiveChunker {
                         is_parent: false,
                     });
                 }
-                self.link_range(&mut chunks, base);
+                self.link_chunks(&mut chunks, base);
                 chunks.push(RagChunk {
                     id: parent_id,
                     document_id: document.id.clone(),
@@ -219,44 +219,71 @@ impl RecursiveChunker {
     }
 
     fn split_one(&self, document: &RagDocument) -> Vec<RagChunk> {
-        let pieces = self.split_text(&document.content);
-        let base_ordinal = 0;
-        let mut chunks: Vec<RagChunk> = pieces
-            .iter()
-            .enumerate()
-            .map(|(index, content)| RagChunk {
-                id: chunk_id_for(&document.source, base_ordinal + index),
-                document_id: document.id.clone(),
-                ordinal: base_ordinal + index,
-                content: content.clone(),
-                metadata: self.metadata_for(document, &document.content),
-                prev_id: None,
-                next_id: None,
-                parent_id: None,
-                is_parent: false,
-            })
-            .collect();
-        self.link_range(&mut chunks, 0);
+        let sections = if self.config.heading_paths {
+            markdown_sections(&document.content)
+        } else {
+            vec![(document.content.clone(), Vec::new())]
+        };
+        let mut chunks = Vec::new();
+        for (section, heading_path) in sections {
+            let pieces = self.split_text(&section);
+            let base = chunks.len();
+            chunks.extend(pieces.into_iter().enumerate().map(|(index, content)| {
+                let ordinal = base + index;
+                RagChunk {
+                    id: chunk_id_for(&document.source, ordinal),
+                    document_id: document.id.clone(),
+                    ordinal,
+                    content,
+                    metadata: self.metadata_for_section(document, &section, &heading_path),
+                    prev_id: None,
+                    next_id: None,
+                    parent_id: None,
+                    is_parent: false,
+                }
+            }));
+        }
+        self.link_all(&mut chunks);
         chunks
     }
 
     fn metadata_for(&self, document: &RagDocument, context: &str) -> HashMap<String, String> {
+        let (path, _) = heading_context(context);
+        self.metadata_for_headings(document, &path)
+    }
+
+    fn metadata_for_section(
+        &self,
+        document: &RagDocument,
+        context: &str,
+        inherited_path: &[String],
+    ) -> HashMap<String, String> {
+        let path = if inherited_path.is_empty() {
+            heading_context(context).0
+        } else {
+            inherited_path.join(" / ")
+        };
+        self.metadata_for_headings(document, &path)
+    }
+
+    fn metadata_for_headings(&self, document: &RagDocument, path: &str) -> HashMap<String, String> {
         let mut metadata = if self.config.keep_metadata {
             document.metadata.clone()
         } else {
             HashMap::new()
         };
         if self.config.heading_paths {
-            let (path, heading) = heading_context(context);
-            if let Some(heading) = heading {
-                metadata.insert("heading".to_string(), heading);
-                metadata.insert("heading_path".to_string(), path);
+            if let Some(heading) = path.rsplit(" / ").next() {
+                if !heading.is_empty() {
+                    metadata.insert("heading".to_string(), heading.to_string());
+                    metadata.insert("heading_path".to_string(), path.to_string());
+                }
             }
         }
         metadata
     }
 
-    fn link_range(&self, chunks: &mut [RagChunk], base: usize) {
+    fn link_chunks(&self, chunks: &mut [RagChunk], base: usize) {
         if !self.config.keep_relations {
             return;
         }
@@ -264,27 +291,42 @@ impl RecursiveChunker {
         for offset in 0..len {
             let index = base + offset;
             if offset > 0 {
-                let prev = chunks[index - 1].id.clone();
-                chunks[index].prev_id = Some(prev);
+                chunks[index].prev_id = Some(chunks[index - 1].id.clone());
             }
-            if offset + 1 < len && !chunks[index].is_parent {
-                let next = chunks[index + 1].id.clone();
-                if !chunks[index + 1].is_parent {
-                    chunks[index].next_id = Some(next);
-                }
+            if offset + 1 < len && !chunks[index].is_parent && !chunks[index + 1].is_parent {
+                chunks[index].next_id = Some(chunks[index + 1].id.clone());
             }
         }
     }
 
+    fn link_all(&self, chunks: &mut [RagChunk]) {
+        if !self.config.keep_relations {
+            return;
+        }
+        for index in 0..chunks.len() {
+            chunks[index].prev_id = index.checked_sub(1).map(|prev| chunks[prev].id.clone());
+            chunks[index].next_id = chunks.get(index + 1).map(|next| next.id.clone());
+        }
+    }
+
     fn split_text(&self, text: &str) -> Vec<String> {
-        let pieces = if self.config.table_blocks {
-            protected_pieces(text)
-                .into_iter()
-                .flat_map(|segment| self.split_plain(&segment))
-                .collect()
-        } else {
-            self.split_plain(text)
-        };
+        if !self.config.table_blocks {
+            return self.split_sized(text);
+        }
+        protected_segments(text)
+            .into_iter()
+            .flat_map(|(segment, atomic)| {
+                if atomic {
+                    vec![segment]
+                } else {
+                    self.split_sized(&segment)
+                }
+            })
+            .collect()
+    }
+
+    fn split_sized(&self, text: &str) -> Vec<String> {
+        let pieces = self.split_plain(text);
         let overlapped = apply_overlap(pieces, self.config.target_chars, self.config.overlap_chars);
         match self.config.token_budget {
             Some(budget) => apply_token_budget(overlapped, budget),
@@ -322,6 +364,42 @@ impl RecursiveChunker {
     }
 }
 
+/// Splits Markdown into sections rooted at each ATX heading, keeping the
+/// heading line so both chunk content and metadata retain its context.
+fn markdown_sections(text: &str) -> Vec<(String, Vec<String>)> {
+    let mut sections = Vec::new();
+    let mut current = String::new();
+    let mut path: Vec<(usize, String)> = Vec::new();
+    for line in text.lines() {
+        if let Some(level) = markdown_heading_level(line) {
+            if !current.trim().is_empty() {
+                sections.push((
+                    std::mem::take(&mut current),
+                    path.iter().map(|(_, title)| title.clone()).collect(),
+                ));
+            }
+            let title = line.trim_start().trim_start_matches('#').trim();
+            path.retain(|(existing, _)| *existing < level);
+            path.push((level, title.to_string()));
+        }
+        current.push_str(line);
+        current.push('\n');
+    }
+    if !current.trim().is_empty() {
+        sections.push((
+            current,
+            path.iter().map(|(_, title)| title.clone()).collect(),
+        ));
+    }
+    sections
+}
+
+fn markdown_heading_level(line: &str) -> Option<usize> {
+    let rest = line.trim_start().strip_prefix('#')?;
+    let level = 1 + rest.chars().take_while(|c| *c == '#').count();
+    (level <= 6 && rest[level - 1..].starts_with(' ')).then_some(level)
+}
+
 /// Derives the current Markdown heading and its full path from a section.
 fn heading_context(text: &str) -> (String, Option<String>) {
     let mut path: Vec<(usize, String)> = Vec::new();
@@ -351,38 +429,61 @@ fn heading_context(text: &str) -> (String, Option<String>) {
 }
 
 /// Splits text into prose and atomic table/fence segments so table rows
-/// stay together before the recursive separator pass runs.
-fn protected_pieces(text: &str) -> Vec<String> {
-    let mut pieces = Vec::new();
+/// stay together and bypass the recursive separator pass.
+fn protected_segments(text: &str) -> Vec<(String, bool)> {
+    let mut segments = Vec::new();
     let mut prose = String::new();
-    let mut protected: Vec<String> = Vec::new();
+    let mut block = String::new();
     let mut in_fence = false;
+    let mut in_table = false;
+
+    let flush_prose = |prose: &mut String, segments: &mut Vec<(String, bool)>| {
+        if !prose.trim().is_empty() {
+            segments.push((std::mem::take(prose), false));
+        }
+    };
+    let flush_block = |block: &mut String, segments: &mut Vec<(String, bool)>| {
+        if !block.trim().is_empty() {
+            segments.push((std::mem::take(block), true));
+        }
+    };
+
     for line in text.lines() {
-        let is_fence = line.trim_start().starts_with("```");
-        let is_table = line.trim_start().starts_with('|');
-        if is_fence || in_fence || (!protected.is_empty() && is_table) {
-            if !prose.trim().is_empty() {
-                pieces.push(std::mem::take(&mut prose));
-            }
-            protected.push(line.to_string());
+        let trimmed = line.trim_start();
+        let is_fence = trimmed.starts_with("```");
+        let is_table = trimmed.starts_with('|');
+        if in_fence {
+            block.push_str(line);
+            block.push('\n');
             if is_fence {
-                in_fence = !in_fence;
+                in_fence = false;
             }
             continue;
         }
-        if !protected.is_empty() && !is_table {
-            pieces.push(protected.join("\n"));
-            protected.clear();
+        if is_fence {
+            flush_prose(&mut prose, &mut segments);
+            block.push_str(line);
+            block.push('\n');
+            in_fence = true;
+            continue;
+        }
+        if is_table {
+            flush_prose(&mut prose, &mut segments);
+            block.push_str(line);
+            block.push('\n');
+            in_table = true;
+            continue;
+        }
+        if in_table {
+            flush_block(&mut block, &mut segments);
+            in_table = false;
         }
         prose.push_str(line);
         prose.push('\n');
     }
-    if !protected.is_empty() {
-        pieces.push(protected.join("\n"));
-    } else if !prose.trim().is_empty() {
-        pieces.push(prose);
-    }
-    pieces
+    flush_block(&mut block, &mut segments);
+    flush_prose(&mut prose, &mut segments);
+    segments
 }
 
 /// Splits once on the first separator producing more than one piece.
@@ -584,12 +685,50 @@ mod tests {
     }
 
     #[test]
+    fn markdown_preset_tracks_each_heading_path() {
+        let chunker = RecursiveChunker::new(ChunkerConfig::markdown()).expect("config");
+        let chunks = chunker
+            .split_documents(&[doc(
+                "# Guide\n\nintro\n\n## Ownership\n\nownership text\n\n## Borrowing\n\nborrowing text",
+            )])
+            .expect("split");
+        let paths: Vec<_> = chunks
+            .iter()
+            .filter_map(|chunk| chunk.metadata.get("heading_path").cloned())
+            .collect();
+        assert!(paths.contains(&"Guide / Ownership".to_string()));
+        assert!(paths.contains(&"Guide / Borrowing".to_string()));
+        assert!(!paths
+            .iter()
+            .any(|path| path.contains("Borrowing") && path.contains("Ownership")));
+    }
+
+    #[test]
     fn table_preset_keeps_table_rows_together() {
         let table = "| name | value |\n| --- | --- |\n| alpha | one |\n| beta | two |";
         let chunker = RecursiveChunker::new(ChunkerConfig::table()).expect("config");
         let chunks = chunker.split_documents(&[doc(table)]).expect("split");
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].content.contains("| beta | two |"));
+    }
+
+    #[test]
+    fn table_preset_keeps_long_tables_atomic() {
+        let mut lines = vec!["| name | value |".to_string(), "| --- | --- |".to_string()];
+        for index in 0..40 {
+            lines.push(format!("| item-{index} | value-{index} |"));
+        }
+        let chunker = RecursiveChunker::new(ChunkerConfig {
+            target_chars: 60,
+            overlap_chars: 0,
+            ..ChunkerConfig::table()
+        })
+        .expect("config");
+        let chunks = chunker
+            .split_documents(&[doc(&lines.join("\n"))])
+            .expect("split");
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].content.contains("| item-39 | value-39 |"));
     }
 
     #[test]

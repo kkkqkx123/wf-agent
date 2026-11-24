@@ -547,13 +547,19 @@ pub fn render_fetched_page(
     if !matches!(format, "markdown" | "text" | "html" | "clean_html") {
         return Err(WebFetchError::InvalidParameter("format"));
     }
-    if format == "html"
-        && (query.selector.is_some()
-            || query.exclude_selector.is_some()
-            || query.focus.is_some()
-            || query.min_words > 0)
-    {
-        return Err(WebFetchError::InvalidParameter("format"));
+    if format == "html" {
+        if query.selector.is_some() {
+            return Err(WebFetchError::InvalidParameter("selector"));
+        }
+        if query.exclude_selector.is_some() {
+            return Err(WebFetchError::InvalidParameter("exclude_selector"));
+        }
+        if query.focus.is_some() {
+            return Err(WebFetchError::InvalidParameter("focus"));
+        }
+        if query.min_words > 0 {
+            return Err(WebFetchError::InvalidParameter("min_words"));
+        }
     }
     let mut title = response.title.clone().unwrap_or_default();
     let mut metadata = response
@@ -651,23 +657,7 @@ pub fn web_fetch_handler(config: &crate::predefined::web::WebToolConfig) -> Stat
                 .get("format")
                 .and_then(|value| value.as_str())
                 .unwrap_or("markdown");
-            if !matches!(format, "markdown" | "text" | "html" | "clean_html") {
-                return Err(WebFetchError::InvalidParameter("format").into());
-            }
             let query = request_options(&parameters)?;
-            let raw_format = format == "html";
-            if raw_format && query.selector.is_some() {
-                return Err(WebFetchError::InvalidParameter("selector").into());
-            }
-            if raw_format && query.exclude_selector.is_some() {
-                return Err(WebFetchError::InvalidParameter("exclude_selector").into());
-            }
-            if raw_format && query.focus.is_some() {
-                return Err(WebFetchError::InvalidParameter("focus").into());
-            }
-            if raw_format && query.min_words > 0 {
-                return Err(WebFetchError::InvalidParameter("min_words").into());
-            }
             let original_url = query.url.clone();
             let max_chars = query.max_chars;
             let response = backend.fetch(query.clone()).await?;

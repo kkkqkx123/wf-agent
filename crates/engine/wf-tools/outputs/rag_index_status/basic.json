@@ -1,0 +1,35 @@
+{
+  "tool": "rag_index_status",
+  "case": "basic",
+  "tier": "stub",
+  "description": "Index diagnostics stay separate from search results",
+  "parameters": {},
+  "result": {
+    "success": true,
+    "result": {
+      "collection": "fixtures",
+      "namespace": "harness",
+      "sources": [
+        {
+          "source": "https://example.com/docs",
+          "point_count": 2,
+          "keyword_point_count": null,
+          "content_hash": "fixture-hash",
+          "validator": null,
+          "final_url": "https://example.com/docs",
+          "fetched_at": null
+        }
+      ],
+      "stale_sources": [],
+      "last_ingest": {
+        "elapsed_ms": 0,
+        "documents": 1,
+        "chunks": 2,
+        "points": 2,
+        "skipped": 0
+      }
+    },
+    "execution_time": 0,
+    "retry_count": 0
+  }
+}

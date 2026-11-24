@@ -1,0 +1,7 @@
+{
+  "tool": "rag_ingest_url",
+  "description": "URL ingestion delegates to the injected capability backend",
+  "tier": "stub",
+  "parameters": { "url": "https://example.com/docs" },
+  "expect": { "success": true, "result_contains": "https://example.com/docs" }
+}

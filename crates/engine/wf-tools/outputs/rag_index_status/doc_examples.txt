@@ -1,0 +1,9 @@
+# rag_index_status (knowledge)
+Report indexed sources, chunk counts, sync metadata and the latest ingest statistics. Read-only.
+
+tips:
+- Diagnostics are separate from retrieval hits and never enter the model's search result envelope
+
+examples:
+- rag_index_status()
+- rag_index_status(source="https://example.com/docs")

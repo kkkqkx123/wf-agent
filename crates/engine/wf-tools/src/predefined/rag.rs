@@ -95,6 +95,13 @@ pub static RAG_SEARCH: ToolDefinition = ToolDefinition {
     examples: Some(&["rag_search(\"How does ownership work?\")"]),
 };
 
+/// The baseline read-only retrieval definition.
+pub const BASELINE: &[&ToolDefinition] = &[&RAG_SEARCH];
+
+/// Capability-gated tool definitions. They stay out of generic predefined
+/// registration until the host registers their execution handlers.
+pub const ENHANCED: &[&ToolDefinition] = &[&RAG_INGEST_URL, &RAG_INDEX_STATUS, &RAG_EVALUATE];
+
 /// All retrieval tool definitions in registration order.
 pub const ALL: &[&ToolDefinition] = &[
     &RAG_SEARCH,
@@ -222,6 +229,67 @@ impl RagToolConfig {
     }
 }
 
+/// Runs one retrieval request through the shared query defaults.
+/// Keyword recall is active only when both a keyword index and a nonzero
+/// candidate count are supplied.
+pub async fn search_with_defaults<S, E, K>(
+    store: &S,
+    embedder: &E,
+    keyword: Option<&K>,
+    defaults: &rag_core::RagQueryConfig,
+    query: RagSearchQuery,
+) -> ToolResult<Vec<RagHit>>
+where
+    S: vector_contracts::VectorStorage + ?Sized,
+    E: llm_embedding::provider::EmbeddingProvider + ?Sized,
+    K: rag_core::KeywordIndex + ?Sized,
+{
+    let mut config = defaults.clone();
+    config.top_k = query.top_k.max(1);
+    if query.score_threshold.is_some() {
+        config.score_threshold = query.score_threshold;
+    }
+    for (key, value) in &query.fields {
+        config.fields.insert(key.clone(), value.clone());
+    }
+    let hits = match keyword.filter(|_| config.keyword_candidates > 0) {
+        Some(keyword) => {
+            rag_core::pipeline::query_hybrid(
+                store,
+                keyword,
+                embedder,
+                &query.collection,
+                &query.namespace,
+                &query.query,
+                &config,
+            )
+            .await
+        }
+        None => {
+            rag_core::pipeline::query(
+                store,
+                embedder,
+                &query.collection,
+                &query.namespace,
+                &query.query,
+                &config,
+            )
+            .await
+        }
+    }
+    .map_err(|err| ToolError::ExecutionError(err.to_string()))?;
+    Ok(hits
+        .into_iter()
+        .map(|hit| RagHit {
+            chunk_id: hit.chunk_id,
+            document_id: hit.document_id,
+            source: hit.source,
+            content: hit.content,
+            score: hit.score,
+        })
+        .collect())
+}
+
 /// Generic backend over any vector store and embedding provider.
 /// Hosts own both; this adapter maps hits to tool outputs. An attached
 /// keyword index enables hybrid retrieval once the query defaults carry
@@ -266,50 +334,14 @@ where
     E: llm_embedding::provider::EmbeddingProvider,
 {
     async fn search(&self, query: RagSearchQuery) -> ToolResult<Vec<RagHit>> {
-        let mut config = self.query_defaults.clone();
-        config.top_k = query.top_k.max(1);
-        if query.score_threshold.is_some() {
-            config.score_threshold = query.score_threshold;
-        }
-        for (key, value) in &query.fields {
-            config.fields.insert(key.clone(), value.clone());
-        }
-        let hybrid = config.keyword_candidates > 0 && self.keyword.is_some();
-        let hits = if hybrid {
-            let keyword = self.keyword.as_ref().expect("keyword index present");
-            rag_core::pipeline::query_hybrid(
-                self.store.as_ref(),
-                keyword.as_ref(),
-                self.embedder.as_ref(),
-                &query.collection,
-                &query.namespace,
-                &query.query,
-                &config,
-            )
-            .await
-            .map_err(|err| ToolError::ExecutionError(err.to_string()))?
-        } else {
-            rag_core::pipeline::query(
-                self.store.as_ref(),
-                self.embedder.as_ref(),
-                &query.collection,
-                &query.namespace,
-                &query.query,
-                &config,
-            )
-            .await
-            .map_err(|err| ToolError::ExecutionError(err.to_string()))?
-        };
-        Ok(hits
-            .into_iter()
-            .map(|hit| RagHit {
-                chunk_id: hit.chunk_id,
-                document_id: hit.document_id,
-                source: hit.source,
-                content: hit.content,
-                score: hit.score,
-            })
-            .collect())
+        search_with_defaults(
+            self.store.as_ref(),
+            self.embedder.as_ref(),
+            self.keyword.as_deref(),
+            &self.query_defaults,
+            query,
+        )
+        .await
     }
 }
 

@@ -1,0 +1,67 @@
+{
+  "id": "rag_ingest_url",
+  "name": "rag_ingest_url",
+  "description": "Fetch one web page and index its cleaned content into the knowledge base. Requires host approval and domain policy checks.",
+  "tool_type": "stateless",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "collection": {
+        "type": "string",
+        "description": "Vector collection to write (falls back to the configured default)"
+      },
+      "duplicate_policy": {
+        "type": "string",
+        "description": "Write policy when the source is already indexed: overwrite, skip or fail",
+        "default": "overwrite"
+      },
+      "exclude_selector": {
+        "type": "string",
+        "description": "Simple CSS selector removed before rendering"
+      },
+      "focus": {
+        "type": "string",
+        "description": "Terms describing the information to keep before chunking"
+      },
+      "min_words": {
+        "type": "integer",
+        "description": "Drop content blocks below this word count"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Knowledge-base namespace to write (falls back to the configured default)"
+      },
+      "selector": {
+        "type": "string",
+        "description": "Simple CSS selector limiting fetched content"
+      },
+      "sync_basis": {
+        "type": "string",
+        "description": "Change detection basis: content_hash or http_validation",
+        "default": "content_hash"
+      },
+      "title": {
+        "type": "string",
+        "description": "Override title stored with the indexed document"
+      },
+      "url": {
+        "type": "string",
+        "description": "HTTP or HTTPS URL to fetch and index"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false
+  },
+  "metadata": {
+    "category": "knowledge",
+    "tags": [
+      "rag",
+      "ingest",
+      "web"
+    ],
+    "risk_level": "network"
+  },
+  "enabled": true
+}

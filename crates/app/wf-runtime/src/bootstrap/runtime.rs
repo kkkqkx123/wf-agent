@@ -69,6 +69,8 @@ pub struct Runtime {
     /// facade's shared handle so the runtime never depends on the
     /// retrieval core directly.
     pub(super) keyword_index: Option<wf_api::rag::SharedKeywordIndex>,
+    /// Shared web fetch transport used by both `web_fetch` and RAG URL ingest.
+    pub(super) web_fetch_backend: Arc<dyn wf_tools::WebFetchBackend>,
     /// Lazily-created application-facing API context; shared so live execution
     /// handles (pause/resume/cancel) stay valid across calls.
     pub(super) api_ctx: std::sync::OnceLock<std::sync::Arc<wf_api::ApiContext>>,
@@ -144,6 +146,39 @@ impl Runtime {
     /// `None` only when explicitly disabled.
     pub fn keyword_index(&self) -> Option<&wf_api::rag::SharedKeywordIndex> {
         self.keyword_index.as_ref()
+    }
+
+    /// Attaches the optional RAG tools to this runtime.
+    ///
+    /// The host supplies retrieval handles and the declarative capability
+    /// config. The shared fetch backend opened at bootstrap is reused, so URL
+    /// ingestion follows the same proxy, domain and robots policy as
+    /// `web_fetch`. Nothing is registered unless the master switch and at
+    /// least one enhanced capability are enabled.
+    pub fn attach_rag_capabilities(
+        &self,
+        handles: wf_api::rag::RagHandles,
+        config: &wf_types::config::rag::RagCapabilitiesConfig,
+        state: wf_api::RagCapabilityState,
+    ) -> crate::error::RuntimeResult<()> {
+        config
+            .validate()
+            .map_err(crate::error::RuntimeError::Config)?;
+        if !config.any_enabled() {
+            return Ok(());
+        }
+        let settings = wf_api::RagCapabilitySettings::from_config(config);
+        let service = std::sync::Arc::new(wf_api::RagCapabilityService::new(
+            handles,
+            self.web_fetch_backend.clone(),
+            settings,
+            state,
+        ));
+        let tool_config = service.tool_config();
+        wf_tools::predefined::rag::register(&self.tool_registry, &tool_config)
+            .map_err(|error| crate::error::RuntimeError::Config(error.to_string()))?;
+        wf_resource::predefined::tool_descriptions::register_rag_capabilities(&self.registries);
+        Ok(())
     }
 
     pub fn storage(&self) -> &StorageManager {

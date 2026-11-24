@@ -27,3 +27,14 @@ pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
     }
     total
 }
+
+/// Registers RAG capability descriptions after a host enables their backend.
+/// Existing entries are kept so repeated wiring stays idempotent.
+pub fn register_rag_capabilities(regs: &ResourceRegistries) -> Summary {
+    let mut total = Summary::new();
+    for td in wf_tools::predefined::rag_capability_tool_descriptions() {
+        let id = td.id.clone();
+        total.merge(register_item_skip(&regs.tool_descriptions, id, td));
+    }
+    total
+}

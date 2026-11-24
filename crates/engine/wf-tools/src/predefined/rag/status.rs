@@ -102,6 +102,7 @@ pub struct RagIndexStatus {
     pub collection: String,
     pub namespace: String,
     pub sources: Vec<RagSourceStatus>,
+    pub stale_sources: Vec<String>,
     pub last_ingest: Option<RagOperationStats>,
 }
 
@@ -177,6 +178,7 @@ mod tests {
                 collection: query.collection,
                 namespace: query.namespace,
                 sources: Vec::new(),
+                stale_sources: Vec::new(),
                 last_ingest: None,
             })
         }

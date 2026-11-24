@@ -1,0 +1,8 @@
+# rag_evaluate (knowledge)
+Score a retrieval evaluation set against the indexed knowledge base. Read-only.
+
+tips:
+- Deterministic scoring runs without a judge; plugin judges stay host-injected
+
+examples:
+- rag_evaluate(cases=[{"id":"c1","query":"ownership","expected_sources":["rust.md"]}])

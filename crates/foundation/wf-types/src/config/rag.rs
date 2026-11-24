@@ -43,7 +43,6 @@ pub struct RagIngestCapabilityConfig {
     pub enabled: bool,
     pub default_collection: String,
     pub default_namespace: String,
-    pub max_documents_per_call: usize,
     pub max_content_chars: usize,
     pub allowed_domains: Vec<String>,
 }
@@ -54,7 +53,6 @@ impl Default for RagIngestCapabilityConfig {
             enabled: false,
             default_collection: "kb".to_string(),
             default_namespace: "kb".to_string(),
-            max_documents_per_call: 10,
             max_content_chars: 2_000_000,
             allowed_domains: Vec::new(),
         }
@@ -87,16 +85,12 @@ impl Default for RagChunkingCapabilityConfig {
 #[serde(default)]
 pub struct RagSyncCapabilityConfig {
     pub basis: RagSyncBasis,
-    pub ttl_secs: u64,
-    pub delete_stale_sources: bool,
 }
 
 impl Default for RagSyncCapabilityConfig {
     fn default() -> Self {
         Self {
             basis: RagSyncBasis::ContentHash,
-            ttl_secs: 86_400,
-            delete_stale_sources: false,
         }
     }
 }
@@ -153,7 +147,6 @@ impl Default for RagCitationCapabilityConfig {
 pub struct RagEvalCapabilityConfig {
     pub enabled: bool,
     pub max_cases: usize,
-    pub judge: Option<String>,
 }
 
 impl Default for RagEvalCapabilityConfig {
@@ -161,7 +154,6 @@ impl Default for RagEvalCapabilityConfig {
         Self {
             enabled: false,
             max_cases: 100,
-            judge: None,
         }
     }
 }
@@ -200,7 +192,7 @@ impl Default for RagCapabilitiesConfig {
 impl RagCapabilitiesConfig {
     /// Whether any enhanced tool should be wired by the host.
     pub fn any_enabled(&self) -> bool {
-        self.enabled && (self.ingest.enabled || self.eval.enabled || self.retrieval.hybrid)
+        self.enabled && (self.ingest.enabled || self.eval.enabled)
     }
 
     /// Validates numeric bounds before the config reaches a pipeline.
@@ -208,8 +200,8 @@ impl RagCapabilitiesConfig {
         if self.default_collection.trim().is_empty() || self.default_namespace.trim().is_empty() {
             return Err("rag default collection and namespace must not be empty".to_string());
         }
-        if self.ingest.max_documents_per_call == 0 || self.ingest.max_content_chars == 0 {
-            return Err("rag ingest limits must be positive".to_string());
+        if self.ingest.max_content_chars == 0 {
+            return Err("rag ingest max_content_chars must be positive".to_string());
         }
         if self.chunking.target_chars == 0
             || self.chunking.overlap_chars >= self.chunking.target_chars
@@ -224,6 +216,9 @@ impl RagCapabilitiesConfig {
         }
         if self.eval.max_cases == 0 {
             return Err("rag eval max_cases must be positive".to_string());
+        }
+        if self.citation.excerpt_chars == 0 {
+            return Err("rag citation excerpt_chars must be positive".to_string());
         }
         Ok(())
     }

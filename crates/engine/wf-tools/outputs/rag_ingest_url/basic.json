@@ -1,0 +1,27 @@
+{
+  "tool": "rag_ingest_url",
+  "case": "basic",
+  "tier": "stub",
+  "description": "URL ingestion delegates to the injected capability backend",
+  "parameters": {
+    "url": "https://example.com/docs"
+  },
+  "result": {
+    "success": true,
+    "result": {
+      "url": "https://example.com/docs",
+      "final_url": "https://example.com/docs",
+      "source": "https://example.com/docs",
+      "title": "Fixture page",
+      "action": "Insert",
+      "documents": 1,
+      "chunks": 2,
+      "points": 2,
+      "skipped": 0,
+      "content_hash": "fixture-hash",
+      "validator": null
+    },
+    "execution_time": 0,
+    "retry_count": 0
+  }
+}

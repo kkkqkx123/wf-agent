@@ -1,0 +1,44 @@
+{
+  "tool": "rag_evaluate",
+  "case": "basic",
+  "tier": "stub",
+  "description": "Offline evaluation delegates to the injected capability backend",
+  "parameters": {
+    "cases": [
+      {
+        "id": "c1",
+        "query": "ownership",
+        "expected_sources": [
+          "rust.md"
+        ],
+        "expected_locators": [],
+        "namespace": "kb",
+        "min_hits": 1
+      }
+    ]
+  },
+  "result": {
+    "success": true,
+    "result": {
+      "outcomes": [
+        {
+          "case_id": "c1",
+          "hit": true,
+          "recall": 1.0,
+          "first_hit_rank": 0,
+          "locator_recall": 1.0,
+          "surfaced_sources": [
+            "rust.md"
+          ]
+        }
+      ],
+      "summary": {
+        "cases": 1,
+        "hit_rate": 1.0,
+        "mean_recall": 1.0
+      }
+    },
+    "execution_time": 0,
+    "retry_count": 0
+  }
+}

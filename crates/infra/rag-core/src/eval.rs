@@ -73,9 +73,8 @@ pub fn score_case(case: &EvalCase, hits: &[RetrievedChunk]) -> EvalOutcome {
         .enumerate()
         .find(|(_, hit)| expected.contains(hit.source.as_str()))
         .map(|(rank, _)| rank);
-    let required = case.min_hits.max(1).min(hits.len().max(1));
-    let hit =
-        first_hit_rank.is_some() && hits.len() >= required.min(hits.len()) && locator_recall > 0.0;
+    let required = case.min_hits.max(1);
+    let hit = first_hit_rank.is_some() && hits.len() >= required && locator_recall > 0.0;
     EvalOutcome {
         case_id: case.id.clone(),
         hit,
@@ -210,6 +209,16 @@ mod tests {
         let outcome = score_case(&case, &[hit("rust.md")]);
         assert!(!outcome.hit);
         assert_eq!(outcome.locator_recall, 0.0);
+    }
+
+    #[test]
+    fn min_hits_is_enforced() {
+        let mut case = case();
+        case.min_hits = 3;
+        let outcome = score_case(&case, &[hit("rust.md"), hit("go.md")]);
+        assert!(!outcome.hit);
+        let outcome = score_case(&case, &[hit("rust.md"), hit("go.md"), hit("java.md")]);
+        assert!(outcome.hit);
     }
 
     #[test]

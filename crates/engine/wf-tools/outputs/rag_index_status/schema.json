@@ -1,0 +1,34 @@
+{
+  "id": "rag_index_status",
+  "name": "rag_index_status",
+  "description": "Report indexed sources, chunk counts, sync metadata and the latest ingest statistics. Read-only.",
+  "tool_type": "stateless",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "collection": {
+        "type": "string",
+        "description": "Vector collection to inspect (falls back to the configured default)"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Knowledge-base namespace to inspect (falls back to the configured default)"
+      },
+      "source": {
+        "type": "string",
+        "description": "Restrict the report to one source label"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "metadata": {
+    "category": "knowledge",
+    "tags": [
+      "rag",
+      "diagnostics"
+    ],
+    "risk_level": "read_only"
+  },
+  "enabled": true
+}

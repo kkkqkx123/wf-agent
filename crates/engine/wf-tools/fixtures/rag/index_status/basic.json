@@ -1,0 +1,7 @@
+{
+  "tool": "rag_index_status",
+  "description": "Index diagnostics stay separate from search results",
+  "tier": "stub",
+  "parameters": {},
+  "expect": { "success": true, "result_contains": "fixture-hash" }
+}

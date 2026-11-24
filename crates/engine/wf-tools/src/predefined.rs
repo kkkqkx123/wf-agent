@@ -62,20 +62,57 @@ pub fn all_definitions() -> Vec<&'static ToolDefinition> {
     out
 }
 
-/// All registry-facing tool definitions for the predefined tool set.
-pub fn builtin_tool_defs() -> Vec<ToolDef> {
-    all_definitions().iter().map(|d| d.tool_def()).collect()
+fn capability_gated(id: &str) -> bool {
+    rag::ENHANCED.iter().any(|definition| definition.id == id)
 }
 
-/// All LLM-facing tool descriptions for the predefined tool set.
+/// Default registry-facing tool definitions. Capability-gated tools are
+/// registered only by the host that supplies their backend.
+pub fn builtin_tool_defs() -> Vec<ToolDef> {
+    all_definitions()
+        .into_iter()
+        .filter(|definition| !capability_gated(definition.id))
+        .map(|d| d.tool_def())
+        .collect()
+}
+
+/// Default LLM-facing tool descriptions, excluding capability-gated tools.
 pub fn builtin_tool_descriptions() -> Vec<ToolDescriptionData> {
     all_definitions()
-        .iter()
+        .into_iter()
+        .filter(|definition| !capability_gated(definition.id))
         .map(|d| d.description_data())
         .collect()
+}
+
+/// Registry-facing definitions for the capability-gated RAG tools.
+pub fn rag_capability_tool_defs() -> Vec<ToolDef> {
+    rag::ENHANCED.iter().map(|d| d.tool_def()).collect()
+}
+
+/// LLM-facing descriptions for the capability-gated RAG tools.
+pub fn rag_capability_tool_descriptions() -> Vec<ToolDescriptionData> {
+    rag::ENHANCED.iter().map(|d| d.description_data()).collect()
 }
 
 /// The ids of all predefined tools (used for unregistration checks).
 pub fn all_tool_ids() -> Vec<&'static str> {
     all_definitions().iter().map(|d| d.id).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rag_capability_tools_stay_out_of_default_catalog() {
+        let defaults = builtin_tool_defs();
+        for tool in rag_capability_tool_defs() {
+            assert!(!defaults.iter().any(|default| default.id == tool.id));
+        }
+        let descriptions = builtin_tool_descriptions();
+        for description in rag_capability_tool_descriptions() {
+            assert!(!descriptions.iter().any(|item| item.id == description.id));
+        }
+    }
 }

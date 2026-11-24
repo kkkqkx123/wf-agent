@@ -259,14 +259,16 @@ impl Runtime {
             tool_metrics.clone(),
         )
         .await?;
-        let web_fetch_backend = build_web_fetch_backend(
-            config.tools.network.as_ref(),
-            Some(&auth_registry),
-            &domain_policy,
-            &registries.fetch,
-            tool_metrics.clone(),
-        )
-        .await?;
+        let web_fetch_backend: Arc<dyn wf_tools::WebFetchBackend> = Arc::new(
+            build_web_fetch_backend(
+                config.tools.network.as_ref(),
+                Some(&auth_registry),
+                &domain_policy,
+                &registries.fetch,
+                tool_metrics.clone(),
+            )
+            .await?,
+        );
         let tool_registry = init_tool_registry_with_mcp(
             &mut shell_config,
             &sandbox_runtime,
@@ -275,7 +277,7 @@ impl Runtime {
             &event_bus,
             Some(code_context.clone()),
             web_search_backend,
-            Arc::new(web_fetch_backend),
+            web_fetch_backend.clone(),
             web_search_max_results,
             wf_tools::predefined::web::WEB_SEARCH.tool_def(),
         )
@@ -597,6 +599,7 @@ impl Runtime {
             event_persistence,
             checkpoint_store,
             keyword_index,
+            web_fetch_backend,
             api_ctx: std::sync::OnceLock::new(),
             file_checkpoint_manager,
             tool_approval: config.tool_approval.clone(),

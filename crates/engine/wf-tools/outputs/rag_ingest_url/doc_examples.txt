@@ -1,0 +1,10 @@
+# rag_ingest_url (knowledge)
+Fetch one web page and index its cleaned content into the knowledge base. Requires host approval and domain policy checks.
+
+tips:
+- Use focus and selector to remove navigation and advertising before chunking
+- http_validation skips unchanged pages only when ETag or Last-Modified is available
+
+examples:
+- rag_ingest_url("https://example.com/docs")
+- rag_ingest_url("https://example.com/docs", namespace="docs", focus="release notes")

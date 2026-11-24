@@ -10,9 +10,10 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use wf_tools::predefined::rag::{
-    RagCapabilitiesConfig, RagEvalBackend, RagEvaluateQuery, RagEvaluateResult, RagIndexStatus,
-    RagIndexStatusQuery, RagIngestBackend, RagIngestUrlQuery, RagIngestUrlResult,
-    RagOperationStats, RagSourceStatus, RagStatusBackend,
+    search_with_defaults, RagCapabilitiesConfig, RagEvalBackend, RagEvaluateQuery,
+    RagEvaluateResult, RagHit, RagIndexStatus, RagIndexStatusQuery, RagIngestBackend,
+    RagIngestUrlQuery, RagIngestUrlResult, RagOperationStats, RagSearchBackend, RagSearchQuery,
+    RagSourceStatus, RagStatusBackend, RagToolConfig,
 };
 use wf_tools::predefined::web::{render_fetched_page, WebFetchBackend, WebFetchQuery};
 use wf_tools::{ToolError, ToolResult};
@@ -22,6 +23,18 @@ use crate::rag::RagHandles;
 /// Settings for the optional RAG capabilities.
 #[derive(Debug, Clone)]
 pub struct RagCapabilitySettings {
+    /// Master switch; the host must opt in before tools become callable.
+    pub enabled: bool,
+    /// Whether URL ingestion and index diagnostics are exposed.
+    pub ingest_enabled: bool,
+    /// Whether offline evaluation is exposed.
+    pub evaluate_enabled: bool,
+    /// Default collection used by all RAG tools.
+    pub default_collection: String,
+    /// Default namespace used by all RAG tools.
+    pub default_namespace: String,
+    /// Maximum evaluation cases accepted in one call.
+    pub max_cases: usize,
     /// Ingest defaults inherited by URL calls.
     pub index: rag_core::RagIndexConfig,
     /// Query defaults used by evaluation runs.
@@ -39,6 +52,12 @@ pub struct RagCapabilitySettings {
 impl Default for RagCapabilitySettings {
     fn default() -> Self {
         Self {
+            enabled: false,
+            ingest_enabled: false,
+            evaluate_enabled: false,
+            default_collection: "kb".to_string(),
+            default_namespace: "kb".to_string(),
+            max_cases: 100,
             index: rag_core::RagIndexConfig::new("kb"),
             query: rag_core::RagQueryConfig::default(),
             max_content_chars: 2_000_000,
@@ -95,6 +114,12 @@ impl RagCapabilitySettings {
             ..rag_core::RagQueryConfig::default()
         };
         Self {
+            enabled: config.enabled,
+            ingest_enabled: config.ingest.enabled,
+            evaluate_enabled: config.eval.enabled,
+            default_collection: config.default_collection.clone(),
+            default_namespace: config.default_namespace.clone(),
+            max_cases: config.eval.max_cases,
             index,
             query,
             max_content_chars: config.ingest.max_content_chars,
@@ -121,37 +146,77 @@ struct RagSourceState {
     fetched_at: String,
 }
 
+/// In-memory sync state shared by one or more capability services.
+/// A host may retain an instance and inject it into replacement services.
+#[derive(Clone, Default)]
+pub struct RagCapabilityState {
+    sources: Arc<DashMap<String, RagSourceState>>,
+    last_ingest: Arc<RwLock<Option<RagOperationStats>>>,
+}
+
+impl RagCapabilityState {
+    /// Creates an empty state table.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Implements the enhanced RAG tool backends over host-injected handles.
 pub struct RagCapabilityService {
     handles: RagHandles,
     fetch: Arc<dyn WebFetchBackend>,
     settings: RagCapabilitySettings,
-    sources: DashMap<String, RagSourceState>,
-    last_ingest: RwLock<Option<RagOperationStats>>,
+    state: RagCapabilityState,
 }
 
 impl RagCapabilityService {
-    /// Builds the bridge. The caller owns backend selection and sharing.
+    /// Builds the bridge. The caller owns backend selection, state and sharing.
     pub fn new(
         handles: RagHandles,
         fetch: Arc<dyn WebFetchBackend>,
         settings: RagCapabilitySettings,
+        state: RagCapabilityState,
     ) -> Self {
         Self {
             handles,
             fetch,
             settings,
-            sources: DashMap::new(),
-            last_ingest: RwLock::new(None),
+            state,
         }
     }
 
-    /// Tool capability wiring for this service.
+    /// Retrieval defaults assembled from the declarative host config.
+    pub fn settings(&self) -> &RagCapabilitySettings {
+        &self.settings
+    }
+
+    /// Citation presentation retained for host prompt assembly.
+    pub fn citation_style(&self) -> &rag_core::CitationStyle {
+        &self.settings.citation
+    }
+
+    /// Complete tool wiring for this service, gated by the host config.
+    pub fn tool_config(self: &Arc<Self>) -> RagToolConfig {
+        let capabilities = self.capabilities();
+        RagToolConfig {
+            backend: self
+                .settings
+                .enabled
+                .then(|| self.clone() as Arc<dyn RagSearchBackend>),
+            default_collection: self.settings.default_collection.clone(),
+            default_namespace: self.settings.default_namespace.clone(),
+            capabilities,
+        }
+    }
+
+    /// Capability backends enabled by the host configuration.
     pub fn capabilities(self: &Arc<Self>) -> RagCapabilitiesConfig {
+        let ingest = self.settings.enabled && self.settings.ingest_enabled;
+        let evaluate = self.settings.enabled && self.settings.evaluate_enabled;
         RagCapabilitiesConfig {
-            ingest: Some(self.clone()),
-            status: Some(self.clone()),
-            evaluate: Some(self.clone()),
+            ingest: ingest.then(|| self.clone() as Arc<dyn RagIngestBackend>),
+            status: ingest.then(|| self.clone() as Arc<dyn RagStatusBackend>),
+            evaluate: evaluate.then(|| self.clone() as Arc<dyn RagEvalBackend>),
         }
     }
 
@@ -174,6 +239,20 @@ impl RagCapabilityService {
 
     fn state_key(collection: &str, namespace: &str, source: &str) -> String {
         format!("{collection}\u{1f}{namespace}\u{1f}{source}")
+    }
+}
+
+#[async_trait]
+impl RagSearchBackend for RagCapabilityService {
+    async fn search(&self, query: RagSearchQuery) -> ToolResult<Vec<RagHit>> {
+        search_with_defaults(
+            self.handles.store.as_ref(),
+            self.handles.embedder.as_ref(),
+            self.handles.keyword.as_deref(),
+            &self.settings.query,
+            query,
+        )
+        .await
     }
 }
 
@@ -214,12 +293,12 @@ impl RagIngestBackend for RagCapabilityService {
             });
         let content_hash = rag_core::content_hash(&content);
         let validator = rag_core::HttpValidator::new(
-            response.headers.get("etag").cloned(),
-            response.headers.get("last-modified").cloned(),
+            response_header(&response.headers, "etag"),
+            response_header(&response.headers, "last-modified"),
         );
         let fetched_at = chrono::Utc::now().to_rfc3339();
         let key = Self::state_key(&query.collection, &query.namespace, &source);
-        let known = self.sources.get(&key).map(|entry| entry.clone());
+        let known = self.state.sources.get(&key).map(|entry| entry.clone());
         let sync_basis = query.sync_basis.unwrap_or(self.settings.sync_basis);
         let action = match sync_basis {
             rag_core::SyncBasis::ContentHash => {
@@ -257,7 +336,14 @@ impl RagIngestBackend for RagCapabilityService {
             fetched_at: fetched_at.clone(),
         };
         if action == rag_core::SyncAction::Skip {
-            self.sources.insert(key, new_state);
+            self.state.sources.insert(key, new_state);
+            *self.state.last_ingest.write().expect("ingest stats lock") = Some(RagOperationStats {
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                documents: 0,
+                chunks: 0,
+                points: 0,
+                skipped: 1,
+            });
             return Ok(RagIngestUrlResult {
                 url: query.url,
                 final_url: response.final_url,
@@ -280,15 +366,17 @@ impl RagIngestBackend for RagCapabilityService {
             ))
             .await
             .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
-        rag_core::pipeline::delete_source(
-            self.handles.store.as_ref(),
-            self.handles.keyword.as_deref(),
-            &query.collection,
-            Some(&query.namespace),
-            &source,
-        )
-        .await
-        .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
+        if action == rag_core::SyncAction::Update {
+            rag_core::pipeline::delete_source(
+                self.handles.store.as_ref(),
+                self.handles.keyword.as_deref(),
+                &query.collection,
+                Some(&query.namespace),
+                &source,
+            )
+            .await
+            .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
+        }
         let mut metadata = HashMap::new();
         metadata.insert("title".to_string(), title.clone());
         metadata.insert("final_url".to_string(), response.final_url.clone());
@@ -306,7 +394,11 @@ impl RagIngestBackend for RagCapabilityService {
         document.metadata.extend(metadata);
         let mut index = self.settings.index.clone();
         index.namespace = query.namespace.clone();
-        index.duplicate_policy = query.duplicate_policy;
+        index.duplicate_policy = if action == rag_core::SyncAction::Update {
+            rag_core::DuplicatePolicy::Skip
+        } else {
+            query.duplicate_policy
+        };
         let stats = rag_core::pipeline::ingest_documents(
             self.handles.store.as_ref(),
             self.handles.keyword.as_deref(),
@@ -318,11 +410,8 @@ impl RagIngestBackend for RagCapabilityService {
         .await
         .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
         let elapsed_ms = started.elapsed().as_millis() as u64;
-        self.sources.insert(key, new_state);
-        *self
-            .last_ingest
-            .write()
-            .expect("invariant: ingest stats lock is not poisoned") = Some(RagOperationStats {
+        self.state.sources.insert(key, new_state);
+        *self.state.last_ingest.write().expect("ingest stats lock") = Some(RagOperationStats {
             elapsed_ms,
             documents: stats.documents,
             chunks: stats.chunks,
@@ -353,7 +442,8 @@ impl RagIngestBackend for RagCapabilityService {
 impl RagStatusBackend for RagCapabilityService {
     async fn status(&self, query: RagIndexStatusQuery) -> ToolResult<RagIndexStatus> {
         let mut sources = Vec::new();
-        for entry in self.sources.iter() {
+        let mut stale_sources = Vec::new();
+        for entry in self.state.sources.iter() {
             let state = entry.value();
             if state.collection != query.collection || state.namespace != query.namespace {
                 continue;
@@ -374,6 +464,9 @@ impl RagStatusBackend for RagCapabilityService {
             )
             .await
             .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
+            if point_count == 0 {
+                stale_sources.push(state.source.clone());
+            }
             sources.push(RagSourceStatus {
                 source: state.source.clone(),
                 point_count,
@@ -385,14 +478,17 @@ impl RagStatusBackend for RagCapabilityService {
             });
         }
         sources.sort_by(|left, right| left.source.cmp(&right.source));
+        stale_sources.sort();
         Ok(RagIndexStatus {
             collection: query.collection,
             namespace: query.namespace,
             sources,
+            stale_sources,
             last_ingest: self
+                .state
                 .last_ingest
                 .read()
-                .expect("invariant: ingest stats lock is not poisoned")
+                .expect("ingest stats lock")
                 .clone(),
         })
     }
@@ -401,6 +497,12 @@ impl RagStatusBackend for RagCapabilityService {
 #[async_trait]
 impl RagEvalBackend for RagCapabilityService {
     async fn evaluate(&self, query: RagEvaluateQuery) -> ToolResult<RagEvaluateResult> {
+        if query.cases.len() > self.settings.max_cases {
+            return Err(ToolError::ValidationFailed(format!(
+                "rag_evaluate accepts at most {} cases",
+                self.settings.max_cases
+            )));
+        }
         let config = rag_core::RagQueryConfig {
             top_k: query.top_k,
             ..self.settings.query.clone()
@@ -420,6 +522,16 @@ impl RagEvalBackend for RagCapabilityService {
             summary: run.summary,
         })
     }
+}
+
+fn response_header(
+    headers: &std::collections::BTreeMap<String, String>,
+    name: &str,
+) -> Option<String> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.clone())
 }
 
 fn truncate_chars(text: &str, limit: usize) -> String {
@@ -562,10 +674,17 @@ mod tests {
             Arc::new(TestEmbedder),
             None,
         );
+        let settings = RagCapabilitySettings {
+            enabled: true,
+            ingest_enabled: true,
+            evaluate_enabled: true,
+            ..RagCapabilitySettings::default()
+        };
         RagCapabilityService::new(
             handles,
             Arc::new(MockFetch),
-            RagCapabilitySettings::default(),
+            settings,
+            RagCapabilityState::new(),
         )
     }
 
@@ -618,7 +737,10 @@ mod tests {
             .expect("status");
         assert_eq!(status.sources.len(), 1);
         assert_eq!(status.sources[0].point_count, first.points as u64);
-        assert_eq!(status.last_ingest.expect("stats").points, first.points);
+        assert!(status.stale_sources.is_empty());
+        let stats = status.last_ingest.expect("stats");
+        assert_eq!(stats.skipped, 1);
+        assert_eq!(stats.points, 0);
     }
 
     #[tokio::test]
@@ -643,5 +765,55 @@ mod tests {
             .expect("eval");
         assert_eq!(run.summary.cases, 1);
         assert!(run.outcomes[0].hit);
+    }
+
+    #[tokio::test]
+    async fn evaluation_rejects_more_cases_than_configured() {
+        let mut service = service();
+        service.settings.max_cases = 1;
+        let case = rag_core::EvalCase {
+            id: "c1".to_string(),
+            query: "ownership".to_string(),
+            expected_sources: vec!["rust.md".to_string()],
+            expected_locators: Vec::new(),
+            namespace: "kb".to_string(),
+            min_hits: 1,
+        };
+        let result = service
+            .evaluate(RagEvaluateQuery {
+                collection: "kb".to_string(),
+                namespace: "kb".to_string(),
+                top_k: 5,
+                cases: vec![case.clone(), case],
+            })
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn configured_enabled_flags_gate_tool_capabilities() {
+        let service = Arc::new(service());
+        let config = service.tool_config();
+        assert!(config.capabilities.ingest.is_some());
+        assert!(config.capabilities.status.is_some());
+        assert!(config.capabilities.evaluate.is_some());
+
+        let mut settings = RagCapabilitySettings::default();
+        settings.enabled = false;
+        let handles = crate::rag::RagHandles::new(
+            Arc::new(vector_contracts::InMemoryVectorStore::new()),
+            Arc::new(TestEmbedder),
+            None,
+        );
+        let disabled = Arc::new(RagCapabilityService::new(
+            handles,
+            Arc::new(MockFetch),
+            settings,
+            RagCapabilityState::new(),
+        ));
+        let config = disabled.tool_config();
+        assert!(config.capabilities.ingest.is_none());
+        assert!(config.capabilities.status.is_none());
+        assert!(config.capabilities.evaluate.is_none());
     }
 }

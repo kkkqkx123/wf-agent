@@ -10,21 +10,26 @@ use crate::hooks::{fire, HookContext, HookHandlerRegistry};
 
 /// Versioned write-back operation applied to a context array.
 ///
-/// Only append is supported: history is append-only, so a write-back never
-/// discards or overwrites existing messages (compression switches the view
-/// instead of replacing the array).
+/// `Append` keeps the append-only continuation semantics. `Replace` is the
+/// host-side destructive path driven by an engine's `CompactionOutcome::Replace`:
+/// raw history is retained but the projected view is narrowed to a single
+/// summary, so the operation stays auditable and reversible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WritebackOp {
     /// Append messages to the array (continuation semantics).
     Append,
+    /// Replace the projected view with a summary (destructive). The covered
+    /// range and archive reference travel in the completion event metadata.
+    Replace,
 }
 
 impl WritebackOp {
     /// Resolve the wire operation name carried by write-back completed
-    /// events (`WRITEBACK_OPERATION_APPEND`). Unknown names are rejected.
+    /// events. Unknown names are rejected.
     pub fn from_operation_name(operation: &str) -> Option<Self> {
         match operation {
             crate::WRITEBACK_OPERATION_APPEND => Some(Self::Append),
+            crate::WRITEBACK_OPERATION_REPLACE => Some(Self::Replace),
             _ => None,
         }
     }
@@ -733,9 +738,9 @@ mod tests {
         );
         assert_eq!(WritebackOp::from_operation_name("bogus"), None);
         assert_eq!(
-            WritebackOp::from_operation_name("replace"),
-            None,
-            "replace wire name is rejected: history is append-only"
+            WritebackOp::from_operation_name(crate::WRITEBACK_OPERATION_REPLACE),
+            Some(WritebackOp::Replace),
+            "replace resolves to the destructive host write-back operation"
         );
     }
 

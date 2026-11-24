@@ -34,6 +34,8 @@ fn base_config() -> AgentLoopConfig {
         context_strict: None,
         temporary_mode: None,
         checkpoint_message_interval: None,
+        compaction_engine: None,
+        compaction_engine_config: None,
     }
 }
 
@@ -119,6 +121,8 @@ fn unknown_hook_type_is_rejected() {
     let registry = ToolRegistry::new();
     let cfg = AgentLoopConfig {
         file_scope: None,
+        compaction_engine: None,
+        compaction_engine_config: None,
         hooks: vec![HookConfig {
             hook_type: "NOPE_HOOK".to_string(),
             condition: None,

@@ -269,6 +269,8 @@ pub mod compaction_metrics {
     pub const HANDOFFS_ENTERED: &str = "compaction.handoffs.entered.count";
     pub const KEEP_FACTS_APPENDED: &str = "compaction.handoff.keep_facts.appended.count";
     pub const PLAN_CAPPED: &str = "compaction.plan.capped.count";
+    /// Engine outcome by engine name (`view`/`replace`/`noop`/`error`).
+    pub const ENGINE_OUTCOMES: &str = "compaction.engine.outcomes.count";
 }
 
 pub mod timeout_metrics {

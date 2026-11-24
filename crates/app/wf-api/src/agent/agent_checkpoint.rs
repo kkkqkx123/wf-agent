@@ -731,6 +731,8 @@ mod tests {
             context_strict: None,
             temporary_mode: Some(wf_types::agent_execution::TemporaryMode::Ephemeral),
             checkpoint_message_interval: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         };
         let record = wf_types::AgentExecution {
             id: wf_types::Id::from("loop-eph"),

@@ -179,6 +179,8 @@ pub(crate) async fn params_from_body(
         context_strict: None,
         temporary_mode,
         checkpoint_message_interval: body.checkpoint_message_interval.filter(|n| *n > 0),
+        compaction_engine: None,
+        compaction_engine_config: None,
     };
     // Composition boundary: resolve the agent template (built-in
     // `@standard/main` default, user overrides first) into a fully-resolved

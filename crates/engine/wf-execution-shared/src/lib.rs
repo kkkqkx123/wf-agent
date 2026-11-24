@@ -83,8 +83,8 @@ pub use compaction::{
     register_compaction_engine, registered_compaction_engines, unregister_compaction_engine,
     CompactionCall, CompactionEngine, CompactionEngineError, CompactionEngineFactory,
     CompactionEngineResult, CompactionOutcome, EngineCapabilities, ManualRequest, NoopProgressSink,
-    ProgressSink, Replacement, ShrinkProof, ViewPlan, BUILTIN_ENGINE_NAME, ENGINE_API_VERSION,
-    recompute_shrink_proof, validate_replacement,
+    ProgressSink, Replacement, ShrinkProof, TracingProgressSink, ViewPlan, BUILTIN_ENGINE_NAME,
+    ENGINE_API_VERSION, recompute_shrink_proof, validate_replacement,
 };
 pub use context_store::{
     annotate_compression_audit, apply_calibration_bias, array_mark_emitted, array_should_emit,
@@ -136,7 +136,7 @@ pub use token_events::{
     KEY_PROFILE_ID, KEY_PROMPT_TOKENS, KEY_STILL_OVER_BUDGET, KEY_STREAM_ABORT_REASON,
     KEY_STREAM_ERROR, KEY_TAIL_KEEP, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_AFTER, KEY_TOKENS_USED,
     KEY_TOKEN_LIMIT, KEY_TOOL_COUNT, KEY_USAGE_PERCENTAGE, KEY_WRITEBACK_OPERATION,
-    WRITEBACK_OPERATION_APPEND,
+    WRITEBACK_OPERATION_APPEND, WRITEBACK_OPERATION_REPLACE,
 };
 pub use token_tracker::{
     still_over_budget_escalated, CompressionFlight, RequestUsage, TokenTrackerState,

@@ -354,6 +354,21 @@ pub static COMMANDS: &[CommandSpec] = &[
         palette: true,
     },
     CommandSpec {
+        id: "session.compact",
+        title: "Compact context",
+        group: "Session",
+        description: "Compact the current agent loop through its bound engine",
+        action: None,
+        scopes: &[],
+        leader: &[],
+        slash: Some(SlashSpec {
+            name: "compact",
+            aliases: &[],
+            argument: "[reason]",
+        }),
+        palette: true,
+    },
+    CommandSpec {
         id: "session.tree",
         title: "Session tree",
         group: "Session",

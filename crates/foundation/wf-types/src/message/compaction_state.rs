@@ -197,6 +197,11 @@ pub struct CompactionState {
     /// Restored state whose hot estimate was not recomputed yet.
     #[serde(default)]
     pub dirty: bool,
+    /// Destructive replacements applied to this conversation, each as
+    /// `(start_seq, end_seq, archive_ref)`. The raw history is retained, so
+    /// these entries are an audit record enabling an exact view rollback.
+    #[serde(default)]
+    pub replacement_archives: Vec<(u64, u64, String)>,
 }
 
 impl CompactionState {

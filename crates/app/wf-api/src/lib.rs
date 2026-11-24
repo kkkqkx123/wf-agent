@@ -15,6 +15,7 @@ pub mod execution_logs;
 pub mod fs;
 pub mod git;
 pub mod infra;
+pub mod compaction;
 pub mod llm;
 pub mod mention;
 pub mod pty;

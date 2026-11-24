@@ -117,4 +117,12 @@ pub struct AgentLoopConfig {
     /// overridden, never merged, so a client cannot widen its own cage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temporary_mode: Option<TemporaryMode>,
+    /// Compaction engine selected for this execution. Snapshotted into the
+    /// checkpoint so auto-resume rebuilds the same engine instance; `None`
+    /// defers to the host's configured default at assembly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_engine: Option<String>,
+    /// Private configuration blob passed to the engine factory on resume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_engine_config: Option<serde_json::Value>,
 }

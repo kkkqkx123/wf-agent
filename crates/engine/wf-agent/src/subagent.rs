@@ -117,6 +117,8 @@ mod tests {
             context_strict: None,
             temporary_mode: None,
             checkpoint_message_interval: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         }
     }
 

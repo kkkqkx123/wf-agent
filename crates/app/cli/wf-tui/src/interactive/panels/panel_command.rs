@@ -53,6 +53,10 @@ impl InteractiveController {
                 self.request_recap_now();
                 InteractiveAction::Continue
             }
+            "session.compact" => {
+                self.request_compact_now(argument);
+                InteractiveAction::Continue
+            }
             "session.image" => {
                 let trimmed = argument.trim();
                 if trimmed.is_empty() {

@@ -225,9 +225,25 @@
 * **`strategy` 保留为 builtin 引擎内部的摘要链选择**（`strategy_workflow_ids`），语义已收紧：只在 builtin 引擎下生效，不再是可独立注册的压缩接管机制。
 * **`EngineServices` 收敛为 `ProgressSink`**：分层约束下引擎不能直接持有 LLM 路由/归档句柄（这些在更高层）；所有写副作用通过 `CompactionOutcome` 表达、由宿主执行，引擎唯一直接调用的是不影响控制流的进度上报。
 
-### 13.3 待续（尚未落地）
+### 13.3 第二轮落地（基线 496b86cb，细化方案见 `docs/plan/compaction-engine-remaining-tasks.md`）
 
-* **破坏式 `Replace` 的完整写回链**：`validate_replacement` 已提供宿主复算硬闸门，但自动结算路径暂不消费 `Replace`（会告警并跳过）；版本化 archive→verify→persist→publish 的事件写回链待接。
-* **`/compact` CLI/TUI/Web 命令挂载**：引擎侧核心 `AgentLoopEntity::compact_now` 已就位且可经 registry 调用；命令面（CliCommand 贡献 + 三端分发）尚未挂载，且 outcome 的破坏式写回消费仍待接。
-* **checkpoint `engine_id` 字段**：当前引擎随配置名在装配期重建、跨恢复仍唯一；未在 `loop_config` 增加独立 `engine_id` 快照字段。
-* **可观测（进度事件/状态卡/分引擎指标）与示例插件引擎**：`ProgressSink` 契约已就位，尚无具体实现消费方；P2 示例引擎待补。
+本轮把 §13.1 遗留的四项全部落地（Web 命令因前端不可在本环境验证，按 Q6 列为随后项）：
+
+| 项 | 落点 | 说明 |
+|---|---|---|
+| 破坏式 Replace 写回链 | `conversation_session/history.rs` `replace_range_with_view`；`wf-agent/conversation_compression.rs` `apply_replacement` | 视图层破坏式替换：history 保留可回滚，view 收窄为单摘要，归档引用登记到 `CompactionState.replacement_archives`；`validate_replacement` 复算 proof 后宿主按 anchor 版本写回。自动路径（`iteration/compression.rs`）与手动 `entity.rs compact_now_applied` 均已消费 `Replace` |
+| checkpoint 引擎快照 | `wf-types/agent_execution/loop_config.rs` 增 `compaction_engine`/`compaction_engine_config`；`entity.rs compaction_engine_snapshot`；`checkpoint/coordinator.rs` 快照合并；`lifecycle/run.rs` 恢复优先用快照引擎、未知引擎 Q5 回退 builtin | 实例引擎跨恢复唯一；全仓 32 个全字段 `AgentLoopConfig` 构造点补字段 |
+| `/compact` 命令（API + CLI + TUI） | `wf-api/src/compaction.rs`、`wf-server/src/api/compact.rs`（`POST /agent-loops/{id}/compact`）；`wf-mini` SlashCommand::Compact；`tui-core` `session.compact` + `wf-tui` request_compact_now | 命令层经 HTTP API 取 `ctx.agent_loop(id)` 调 `compact_now_applied`；返回 `{applied,kind,engine,detail}` |
+| 可观测与示例引擎 | `compaction/engine.rs` `TracingProgressSink`；`wf-metrics` `record_engine_outcome(engine,kind)` + `ENGINE_OUTCOMES`；`examples/compaction-engine-demo/` | 示例引擎实现 trait + 工厂，注册→构建→重名拒绝→注销单测通过，证明完整替换 builtin |
+
+**验证**：`cargo check --workspace --tests` 通过；`cargo test -p wf-execution-shared -p wf-agent` 全绿（含新增区间替换 2 项、apply_replacement 2 项）；示例引擎 crate `cargo test` 1 项通过。
+
+**务实调整**：
+1. 写回链采用**视图层破坏式替换**而非真删 history：快照/回放不变量不变，`replace_range_with_view` 可逆（`restore_full_view`）；`WritebackOp::Replace` 作为 wire 契约保留，供后续嵌套 agent 事件路径使用。
+2. `archive → hash verify → persist → publish` 在单进程内以「归档登记 → ShrinkProof 复算 → 会话快照持久化 → 完成事件」落地，未引入新存储协议。
+3. Web 命令挂载按 Q6 列为随后项（前端改动无法在本沙箱编译验证）。
+
+### 13.4 仍待续
+
+* **Web `/compact` 命令**：`apps/web-app/src/lib/config/commands.ts` 加 action、`chat-session.svelte.ts` 加 REST 执行器、i18n 文案；消费 start/end 事件的状态卡。
+* **完整事件链**：`compaction/start`、`compaction/end` 独立 `EventType` 尚未新增（当前用 metrics engine 维度 + tracing progress 代替）；若 TUI/Web 需独立订阅再补。

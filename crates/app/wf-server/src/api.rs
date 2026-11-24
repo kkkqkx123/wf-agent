@@ -7,6 +7,7 @@ pub mod definition;
 pub mod entity;
 #[cfg(feature = "git-fs")]
 pub mod fs;
+pub mod compact;
 #[cfg(feature = "git-fs")]
 pub mod git;
 pub mod llm;

@@ -197,8 +197,12 @@ impl AgentIterationCoordinator {
                 version,
                 cancel: &cancel,
             };
+            let sink = wf_execution_shared::TracingProgressSink::new(
+                self.compaction_engine().name(),
+                entity.id(),
+            );
             self.compaction_engine()
-                .compact_region(&call, &wf_execution_shared::NoopProgressSink, range)
+                .compact_region(&call, &sink, range)
                 .await
         };
         let forced_plan: Vec<wf_execution_shared::CompactionPlanItem> = match forced_outcome {
@@ -442,20 +446,67 @@ impl AgentIterationCoordinator {
                         version,
                         cancel: &cancel,
                     };
+                    let sink = wf_execution_shared::TracingProgressSink::new(
+                        self.compaction_engine().name(),
+                        entity.id(),
+                    );
                     self.compaction_engine()
-                        .compact_if_needed(&call, &wf_execution_shared::NoopProgressSink)
+                        .compact_if_needed(&call, &sink)
                         .await
                 };
                 let plan = match outcome {
                     Ok(Some(wf_execution_shared::CompactionOutcome::View(plan))) => plan,
-                    Ok(Some(wf_execution_shared::CompactionOutcome::Replace(_))) => {
-                        // Destructive replacement is a host-side write-back
-                        // path; the automatic settlement has no summary chain
-                        // to anchor, so it defers until that path is wired.
-                        tracing::warn!(
-                            "compaction engine requested a destructive replace from the \
-                             automatic settlement; deferring"
-                        );
+                    Ok(Some(wf_execution_shared::CompactionOutcome::Replace(replacement))) => {
+                        // Destructive replacement is a host-owned write-back.
+                        // Recompute the shrink proof from host data, then
+                        // release the write lock before applying so the host
+                        // helper can take it again. The engine never writes.
+                        let engine = self.compaction_engine();
+                        let proof = {
+                            let call = wf_execution_shared::CompactionCall {
+                                execution_id: entity.id(),
+                                messages: &snapshot,
+                                history: conversation.messages(),
+                                seqs: conversation.message_seqs(),
+                                view: conversation.active_view(),
+                                state: conversation.compaction_state(),
+                                limits: &limits,
+                                hot_tokens: hot,
+                                window_tokens: conversation.compaction_window(),
+                                context_limit,
+                                version,
+                                cancel: &cancel,
+                            };
+                            wf_execution_shared::validate_replacement(
+                                engine.name(),
+                                engine.capabilities(),
+                                &call,
+                                &replacement,
+                                wf_execution_shared::R_MIN_RANGE_DEFAULT,
+                            )
+                        };
+                        drop(conversation);
+                        match proof {
+                            Ok(_proof) => {
+                                if crate::conversation_compression::apply_replacement(
+                                    entity.conversation(),
+                                    version,
+                                    &replacement,
+                                )
+                                .await
+                                .is_some()
+                                {
+                                    self.boundary_checkpoint(
+                                        entity,
+                                        wf_types::checkpoint::CheckpointTiming::AfterCompression,
+                                    )
+                                    .await;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("compaction replacement rejected: {e}");
+                            }
+                        }
                         return;
                     }
                     Ok(None) | Ok(Some(wf_execution_shared::CompactionOutcome::Noop)) => return,

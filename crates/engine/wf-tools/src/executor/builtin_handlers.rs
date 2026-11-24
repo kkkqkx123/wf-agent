@@ -175,6 +175,8 @@ impl BuiltinToolHandler for CallAgentHandler {
             activated_tool_names: Vec::new(),
             hidden_tool_names: Vec::new(),
             file_scope: params.file_scope,
+            compaction_engine: None,
+            compaction_engine_config: None,
         };
 
         let input = AgentLoopInput {

@@ -99,11 +99,14 @@ pub const KEY_MESSAGES: &str = "messages";
 /// Absent on legacy single-summary completions.
 pub const KEY_BLOCKS: &str = "blocks";
 /// Metadata key: write-back operation of a `CONVERSATION_WRITEBACK_COMPLETED`
-/// event (only `append`; history is append-only).
+/// event (`append` or `replace`).
 pub const KEY_WRITEBACK_OPERATION: &str = "operation";
 /// Write-back operation value: append to the target array (continuation
-/// semantics). This is the only supported write-back operation.
+/// semantics).
 pub const WRITEBACK_OPERATION_APPEND: &str = "append";
+/// Write-back operation value: narrow the projected view to a summary
+/// (destructive replace driven by a compaction engine).
+pub const WRITEBACK_OPERATION_REPLACE: &str = "replace";
 /// Metadata key: error message of a failed LLM stream.
 pub const KEY_STREAM_ERROR: &str = "error";
 /// Metadata key: abort reason of an aborted LLM stream.

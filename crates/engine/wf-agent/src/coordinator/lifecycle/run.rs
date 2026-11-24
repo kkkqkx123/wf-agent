@@ -234,21 +234,53 @@ impl AgentLoopCoordinator {
         // signals, message-count backstop) share the run strategy.
         .with_checkpoint(self.checkpoint_integration_for_config(config))
         .with_message_interval(config.checkpoint_message_interval);
-        if let Some(limits) = self.compaction_limits.clone() {
+        if let Some(mut limits) = self.compaction_limits.clone() {
+            // A resumed execution carries the engine snapshot in its config.
+            // That snapshot wins over the host default so the instance keeps
+            // the same engine across checkpoint restore (engine_id contract).
+            if let Some(ref engine_name) = config.compaction_engine {
+                limits.engine = Some(engine_name.clone());
+            }
+            if config.compaction_engine_config.is_some() {
+                limits.engine_config = config.compaction_engine_config.clone();
+            }
             let engine_name = limits
                 .engine
                 .clone()
                 .unwrap_or_else(|| wf_execution_shared::BUILTIN_ENGINE_NAME.to_string());
-            let engine = wf_execution_shared::build_compaction_engine_with_config(
+            let engine_config = limits
+                .engine_config
+                .clone()
+                .unwrap_or(serde_json::Value::Null);
+            let engine = match wf_execution_shared::build_compaction_engine_with_config(
                 &engine_name,
-                limits.engine_config.clone().unwrap_or(serde_json::Value::Null),
-            )
-            .ok_or_else(|| {
-                crate::error::AgentError::Validation(format!(
-                    "unknown compaction engine '{engine_name}' for execution; \
-                     register a native engine factory or use 'builtin'"
-                ))
-            })?;
+                engine_config,
+            ) {
+                Some(engine) => engine,
+                None => {
+                    // Q5: an unknown engine recorded in a checkpoint must not
+                    // wedge recovery. At live assembly we still reject loudly.
+                    if config.compaction_engine.is_some() {
+                        tracing::warn!(
+                            "checkpoint engine '{engine_name}' is unavailable; \
+                             falling back to builtin for this execution"
+                        );
+                        wf_execution_shared::build_compaction_engine(
+                            wf_execution_shared::BUILTIN_ENGINE_NAME,
+                        )
+                        .ok_or_else(|| {
+                            crate::error::AgentError::Validation(
+                                "builtin compaction engine unavailable".to_string(),
+                            )
+                        })?
+                    } else {
+                        return Err(crate::error::AgentError::Validation(format!(
+                            "unknown compaction engine '{engine_name}' for execution; \
+                             register a native engine factory or use 'builtin'"
+                        )));
+                    }
+                }
+            };
             entity.bind_compaction(engine.clone(), limits.clone());
             coordinator = coordinator
                 .with_compaction_limits(limits)

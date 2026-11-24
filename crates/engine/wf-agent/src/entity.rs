@@ -178,6 +178,16 @@ impl AgentLoopEntity {
         wf_common::lock::read_ok(self.compaction_engine.read()).is_some()
     }
 
+    /// Engine selection snapshotted into checkpoints so auto-resume rebuilds
+    /// the same engine instance. Derived from the frozen limits.
+    pub fn compaction_engine_snapshot(&self) -> (Option<String>, Option<serde_json::Value>) {
+        let limits = wf_common::lock::read_ok(self.compaction_limits.read());
+        match limits.as_ref() {
+            Some(limits) => (limits.engine.clone(), limits.engine_config.clone()),
+            None => (None, None),
+        }
+    }
+
     /// Trigger one manual compaction through the bound engine and return its
     /// outcome for the caller to apply through the host write-back path.
     /// Returns `None` when no engine is bound (compaction disabled).
@@ -211,10 +221,94 @@ impl AgentLoopEntity {
             version: conversation.conversation_version(),
             cancel: &cancel,
         };
-        let outcome = engine
-            .compact_now(&call, &wf_execution_shared::NoopProgressSink, &request)
-            .await;
+        let sink = wf_execution_shared::TracingProgressSink::new(engine.name(), self.id());
+        let outcome = engine.compact_now(&call, &sink, &request).await;
         Some(outcome)
+    }
+
+    /// Manual compaction with host-owned write-back. The engine decides the
+    /// outcome; this method applies a `Replace` through the host shrink-proof
+    /// gate and versioned view write-back, and returns the applied outcome
+    /// (with its host-recomputed proof) for the caller to report. `View` and
+    /// `Noop` outcomes are returned unchanged for the caller to route through
+    /// the summary-signal path.
+    pub async fn compact_now_applied(
+        &self,
+        reason: &str,
+    ) -> Option<
+        wf_execution_shared::CompactionEngineResult<(
+            wf_execution_shared::CompactionOutcome,
+            Option<wf_execution_shared::ShrinkProof>,
+        )>,
+    > {
+        let raw = self.compact_now(reason).await?;
+        let outcome = match raw {
+            Ok(outcome) => outcome,
+            Err(e) => return Some(Err(e)),
+        };
+        let replacement = match outcome {
+            wf_execution_shared::CompactionOutcome::Replace(replacement) => replacement,
+            other => return Some(Ok((other, None))),
+        };
+        // Recompute the proof from host-owned data before applying. The call
+        // version is the write-back anchor, captured while the read lock is
+        // held and reused after it is released.
+        let (proof, anchor) = {
+            let engine = wf_common::lock::read_ok(self.compaction_engine.read())
+                .as_ref()
+                .cloned()?;
+            let limits = wf_common::lock::read_ok(self.compaction_limits.read())
+                .as_ref()
+                .cloned()?;
+            let conversation = self.conversation().read().await;
+            let snapshot = conversation.view_messages();
+            let cancel = self.get_abort_signal();
+            let version = conversation.conversation_version();
+            let call = wf_execution_shared::CompactionCall {
+                execution_id: self.id(),
+                messages: &snapshot,
+                history: conversation.messages(),
+                seqs: conversation.message_seqs(),
+                view: conversation.active_view(),
+                state: conversation.compaction_state(),
+                limits: &limits,
+                hot_tokens: conversation.compaction_state().hot_tokens,
+                window_tokens: conversation.compaction_window(),
+                context_limit: conversation.context_limit(),
+                version,
+                cancel: &cancel,
+            };
+            let proof = wf_execution_shared::validate_replacement(
+                engine.name(),
+                engine.capabilities(),
+                &call,
+                &replacement,
+                wf_execution_shared::R_MIN_RANGE_DEFAULT,
+            );
+            (proof, version)
+        };
+        match proof {
+            Ok(proof) => {
+                let applied = crate::conversation_compression::apply_replacement(
+                    &self.conversation,
+                    anchor,
+                    &replacement,
+                )
+                .await;
+                if applied.is_some() {
+                    Some(Ok((
+                        wf_execution_shared::CompactionOutcome::Replace(replacement),
+                        Some(proof),
+                    )))
+                } else {
+                    Some(Err(wf_execution_shared::CompactionEngineError::Rejected {
+                        engine: "host".to_string(),
+                        reason: "replacement anchor went stale before write-back".to_string(),
+                    }))
+                }
+            }
+            Err(e) => Some(Err(e)),
+        }
     }
 
     pub fn hierarchy_manager(&self) -> Arc<wf_core::hierarchy::ExecutionHierarchyManager> {

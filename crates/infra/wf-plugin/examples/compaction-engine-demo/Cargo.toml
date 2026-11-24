@@ -1,0 +1,17 @@
+[package]
+name = "compaction-engine-demo"
+version = "1.0.0"
+edition = "2021"
+
+# Detached from the parent workspace: this crate demonstrates a third-party
+# native compaction engine registered into the host factory registry.
+[workspace]
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+wf-execution-shared = { path = "../../../../engine/wf-execution-shared" }
+wf-types = { path = "../../../../foundation/wf-types" }
+async-trait = "0.1"
+serde_json = "1"

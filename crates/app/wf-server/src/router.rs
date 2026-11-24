@@ -129,6 +129,8 @@ pub fn api_router_with_dirs_and_backends(
         .merge(api::cli::routes())
         // screen-only recap reads (chat sessions + agent loops share the face)
         .merge(api::recap::routes())
+        // manual compaction of a live agent loop through its bound engine
+        .merge(api::compact::routes())
         .merge(api::title::routes())
         // shared checkpoint domain (execution records + file workspace)
         .merge(api::checkpoint::checkpoints::routes());

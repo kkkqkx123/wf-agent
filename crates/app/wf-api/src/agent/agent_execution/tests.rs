@@ -70,6 +70,8 @@ async fn runs_agent_loop_to_completion() {
                 context_strict: None,
                 temporary_mode: None,
                 checkpoint_message_interval: None,
+                compaction_engine: None,
+                compaction_engine_config: None,
             },
             AgentLoopInput {
                 message: "hi".to_string(),
@@ -155,6 +157,8 @@ async fn persisted_agent_execution_readable_after_restart() {
                 context_strict: None,
                 temporary_mode: None,
                 checkpoint_message_interval: None,
+                compaction_engine: None,
+                compaction_engine_config: None,
             },
             AgentLoopInput {
                 message: "hi".to_string(),
@@ -219,6 +223,8 @@ async fn streams_agent_loop_events() {
                 context_strict: None,
                 temporary_mode: None,
                 checkpoint_message_interval: None,
+                compaction_engine: None,
+                compaction_engine_config: None,
             },
             AgentLoopInput {
                 message: "hi".to_string(),
@@ -303,6 +309,8 @@ fn resume_config() -> AgentLoopConfig {
         context_strict: None,
         temporary_mode: None,
         checkpoint_message_interval: Some(1),
+        compaction_engine: None,
+        compaction_engine_config: None,
     }
 }
 

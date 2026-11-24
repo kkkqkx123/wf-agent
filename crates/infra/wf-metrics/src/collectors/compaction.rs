@@ -62,6 +62,17 @@ impl CompactionMetricsCollector {
         self.inner
             .increment_counter_by(compaction_metrics::PLAN_CAPPED, 1.0, labels(&[]));
     }
+
+    /// Record one engine outcome with the engine name as a dimension. `kind`
+    /// is `view`, `replace`, `noop` or `error`. This makes the active engine
+    /// and its behaviour visible in metrics without a new event type.
+    pub fn record_engine_outcome(&self, engine: &str, kind: &str) {
+        self.inner.increment_counter_by(
+            compaction_metrics::ENGINE_OUTCOMES,
+            1.0,
+            labels(&[("engine", engine), ("outcome", kind)]),
+        );
+    }
 }
 
 #[cfg(test)]

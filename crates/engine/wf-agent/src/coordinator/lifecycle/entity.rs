@@ -470,6 +470,8 @@ mod tests {
             context_schema: None,
             context_strict: None,
             temporary_mode: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         }
     }
 

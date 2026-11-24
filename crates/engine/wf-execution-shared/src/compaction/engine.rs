@@ -232,6 +232,36 @@ impl ProgressSink for NoopProgressSink {
     fn report(&self, _phase: &str, _ratio: f64) {}
 }
 
+/// Progress sink that surfaces engine phases through `tracing`. Hosts with a
+/// TUI/Web consumer can subscribe to these structured events; with no
+/// consumer the events are simply filtered out. Reporting never influences
+/// control flow — the engine still returns its outcome through the contract.
+pub struct TracingProgressSink<'a> {
+    engine: &'a str,
+    execution_id: &'a str,
+}
+
+impl<'a> TracingProgressSink<'a> {
+    pub fn new(engine: &'a str, execution_id: &'a str) -> Self {
+        Self {
+            engine,
+            execution_id,
+        }
+    }
+}
+
+impl ProgressSink for TracingProgressSink<'_> {
+    fn report(&self, phase: &str, ratio: f64) {
+        tracing::debug!(
+            engine = self.engine,
+            execution_id = self.execution_id,
+            phase = phase,
+            ratio = ratio,
+            "compaction progress"
+        );
+    }
+}
+
 /// A complete, replaceable compaction engine. The host calls only these
 /// methods; concrete algorithms live behind the trait. An engine decides
 /// what to change; the host owns every write-back path.

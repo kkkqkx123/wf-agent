@@ -68,6 +68,49 @@ impl ConversationSession {
         }
     }
 
+    /// Destructive-style replacement expressed as a view projection. The
+    /// raw history is kept intact (so checkpoints stay replayable and the
+    /// operation is reversible); the active view is narrowed to the single
+    /// summary message, and the covered sequence interval plus its archive
+    /// reference are recorded for audit. Returns `false` when either bound
+    /// is not a real session sequence or the interval is inverted.
+    ///
+    /// This is the host-side write-back for `CompactionOutcome::Replace`:
+    /// the engine never touches the session, and the host applies the
+    /// replacement only after its own shrink-proof gate passes.
+    pub fn replace_range_with_view(
+        &mut self,
+        start_seq: u64,
+        end_seq: u64,
+        summary: Message,
+        archive_ref: &str,
+    ) -> bool {
+        if start_seq > end_seq {
+            return false;
+        }
+        let has_start = self.state.seqs.contains(&start_seq);
+        let has_end = self.state.seqs.contains(&end_seq);
+        if !has_start || !has_end {
+            return false;
+        }
+        let summary_id = summary.id.clone();
+        self.state.messages.push(summary);
+        self.state.seqs.push(self.state.next_seq);
+        self.state.next_seq = self.state.next_seq.saturating_add(1);
+        self.state.active_view = MessageView::Compacted {
+            segments: vec![ViewSegment::Summary {
+                message_id: summary_id,
+            }],
+        };
+        self.state
+            .compaction
+            .replacement_archives
+            .push((start_seq, end_seq, archive_ref.to_string()));
+        self.state.ledger.replace(CONVERSATION_CONTEXT_ID);
+        self.tracker.reset_preflight_warning();
+        true
+    }
+
     /// Drop the compressed projection and show the whole history again.
     /// History was never deleted, so undoing compression costs nothing.
     pub fn restore_full_view(&mut self) {

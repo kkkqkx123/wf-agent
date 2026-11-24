@@ -915,7 +915,19 @@ impl AgentCheckpointIntegration {
                     Some(tools)
                 }
             },
-            loop_config: entity.effective_config().cloned(),
+            loop_config: {
+                let mut config = entity.effective_config().cloned();
+                // Snapshot the frozen engine selection so auto-resume rebuilds
+                // the same instance (instance-level uniqueness across restore).
+                let (engine, engine_config) = entity.compaction_engine_snapshot();
+                if engine.is_some() || engine_config.is_some() {
+                    if let Some(ref mut config) = config {
+                        config.compaction_engine = engine;
+                        config.compaction_engine_config = engine_config;
+                    }
+                }
+                config
+            },
         }
     }
 }

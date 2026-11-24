@@ -457,3 +457,44 @@ fn range_view_resolves_against_session_coordinates() {
     assert_eq!(view.len(), 2);
     assert_eq!(view[0], session.history()[1]);
 }
+
+#[test]
+fn replace_range_narrows_view_and_records_archive() {
+    let mut session = ConversationSession::new();
+    for i in 0..4 {
+        session.add_message(user(&format!("message {i}")));
+    }
+    let version = session.conversation_version();
+    let summary = system_text("summary of 0..2".to_string());
+
+    // Real sequence bounds succeed: raw history is retained, the view is a
+    // single summary, the archive is recorded and the version advances.
+    assert!(session.replace_range_with_view(0, 2, summary.clone(), "archive://0-2"));
+    assert_eq!(session.history().len(), 5, "raw history is append-only");
+    let view = session.view_messages();
+    assert_eq!(view.len(), 1);
+    assert_eq!(view[0], summary);
+    assert!(session.conversation_version() > version);
+    assert_eq!(
+        session.state.compaction.replacement_archives,
+        vec![(0, 2, "archive://0-2".to_string())]
+    );
+    // Reversible: dropping the view restores the whole history.
+    session.restore_full_view();
+    assert_eq!(session.view_messages().len(), 5);
+}
+
+#[test]
+fn replace_range_rejects_inverted_or_unknown_sequences() {
+    let mut session = ConversationSession::new();
+    session.add_message(user("a"));
+    session.add_message(user("b"));
+    let before = session.conversation_version();
+    let summary = system_text("s".to_string());
+    // Inverted range and unknown sequence are both rejected without a write.
+    assert!(!session.replace_range_with_view(1, 0, summary.clone(), "x"));
+    assert!(!session.replace_range_with_view(0, 99, summary, "x"));
+    assert_eq!(session.conversation_version(), before);
+    assert_eq!(session.history().len(), 2);
+    assert!(session.state.compaction.replacement_archives.is_empty());
+}

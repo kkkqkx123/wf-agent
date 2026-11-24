@@ -28,8 +28,8 @@ pub use decision::{
 pub use engine::{
     CompactionCall, CompactionEngine, CompactionEngineError, CompactionEngineFactory,
     CompactionEngineResult, CompactionOutcome, EngineCapabilities, ManualRequest, NoopProgressSink,
-    ProgressSink, Replacement, ShrinkProof, ViewPlan, BUILTIN_ENGINE_NAME, ENGINE_API_VERSION,
-    recompute_shrink_proof, validate_replacement,
+    ProgressSink, Replacement, ShrinkProof, TracingProgressSink, ViewPlan, BUILTIN_ENGINE_NAME,
+    ENGINE_API_VERSION, recompute_shrink_proof, validate_replacement,
 };
 pub use registry::{
     build_compaction_engine, build_compaction_engine_with_config, has_compaction_engine,

@@ -740,6 +740,8 @@ mod tests {
             context_strict: None,
             temporary_mode: None,
             checkpoint_message_interval: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         }
     }
 
@@ -813,6 +815,8 @@ mod tests {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
             file_scope: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
             hooks: vec![HookConfig {
                 hook_type: "NOPE_HOOK".to_string(),
                 condition: None,

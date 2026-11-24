@@ -234,6 +234,48 @@ pub async fn apply_compression(
     true
 }
 
+/// Apply a host-validated destructive replacement to the live conversation.
+///
+/// The shrink proof must already have been recomputed by the host through
+/// `validate_replacement`; this function performs the ordered write-back:
+/// archive reference registration (inside `replace_range_with_view`), view
+/// persist and version bump, then returns the new conversation version so
+/// the caller can publish the completion event. Raw history is retained, so
+/// the operation is reversible via `restore_full_view`.
+///
+/// Returns `None` when the anchor is stale or the engine's range does not
+/// match real session sequences — in both cases newer messages win.
+pub async fn apply_replacement(
+    conversation: &Arc<RwLock<ConversationSession>>,
+    anchor_version: u64,
+    replacement: &wf_execution_shared::Replacement,
+) -> Option<u64> {
+    let mut session = conversation.write().await;
+    if !check_anchor(session.conversation_version(), anchor_version) {
+        debug!(
+            "Stale replacement write-back at version {} (current {}), discarding",
+            anchor_version,
+            session.conversation_version()
+        );
+        return None;
+    }
+    let applied = session.replace_range_with_view(
+        replacement.start_seq,
+        replacement.end_seq,
+        replacement.summary.clone(),
+        &replacement.archive_ref,
+    );
+    if !applied {
+        debug!(
+            "Replacement range {}-{} not present in session, discarding",
+            replacement.start_seq, replacement.end_seq
+        );
+        return None;
+    }
+    session.end_compression_flight(anchor_version);
+    Some(session.conversation_version())
+}
+
 /// Apply a versioned conversation write-back (append only): mutate the
 /// session only when it is still at `anchor_version`; newer messages win
 /// otherwise (stale results are discarded, mirroring the compression path).
@@ -261,6 +303,16 @@ pub async fn apply_versioned_writeback(
                 session.add_message(message);
             }
         }
+        WritebackOp::Replace => {
+            // Event-driven replace carries the replacement summary as the
+            // single message and an empty archive reference. The full range
+            // path goes through `apply_replacement`, which receives the
+            // engine's archive reference directly.
+            if let Some(summary) = messages.into_iter().next() {
+                let (start, end) = session.seq_range().unwrap_or((0, 0));
+                session.replace_range_with_view(start, end, summary, "");
+            }
+        }
     }
 }
 
@@ -283,6 +335,54 @@ mod tests {
             thinking_signature: None,
             metadata: None,
         }
+    }
+
+    fn replacement(start: u64, end: u64) -> wf_execution_shared::Replacement {
+        wf_execution_shared::Replacement {
+            start_seq: start,
+            end_seq: end,
+            summary: text_message(MessageRole::Assistant, "summary"),
+            archive_ref: "archive://replace".to_string(),
+            proof_hint: wf_execution_shared::ShrinkProof {
+                old_tokens: 100,
+                new_tokens: 10,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn applies_replacement_at_matching_version() {
+        let conversation = Arc::new(RwLock::new(ConversationSession::with_token_limit(100)));
+        {
+            let mut session = conversation.write().await;
+            session.add_message(text_message(MessageRole::User, "a"));
+            session.add_message(text_message(MessageRole::User, "b"));
+        }
+        let version = conversation.read().await.conversation_version();
+        let new_version = apply_replacement(&conversation, version, &replacement(0, 1)).await;
+        assert!(new_version.is_some());
+        let session = conversation.read().await;
+        assert_eq!(session.view_messages().len(), 1);
+        assert_eq!(session.view_messages()[0].role, MessageRole::Assistant);
+    }
+
+    #[tokio::test]
+    async fn discards_replacement_at_stale_version() {
+        let conversation = Arc::new(RwLock::new(ConversationSession::with_token_limit(100)));
+        {
+            let mut session = conversation.write().await;
+            session.add_message(text_message(MessageRole::User, "a"));
+        }
+        let stale = conversation.read().await.conversation_version();
+        conversation
+            .write()
+            .await
+            .add_message(text_message(MessageRole::User, "newer"));
+        assert!(apply_replacement(&conversation, stale, &replacement(0, 0))
+            .await
+            .is_none());
+        let session = conversation.read().await;
+        assert_eq!(session.view_messages().len(), 2, "newer messages win");
     }
 
     fn completed_event(agent_loop_id: &str, version: u64, messages: &[Message]) -> BaseEvent {

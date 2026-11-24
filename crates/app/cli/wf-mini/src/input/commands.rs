@@ -17,6 +17,9 @@ pub enum SlashCommand {
     ToolDetail(Option<String>),
     Display,
     Recap,
+    /// Trigger one manual compaction of the current agent loop
+    /// (`/compact [reason]`). The optional reason is audit-only.
+    Compact(Option<String>),
     Steer {
         node: Option<String>,
         text: String,
@@ -256,6 +259,15 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
         },
         "/display" if tokens.next().is_none() => Some(SlashCommand::Display),
         "/recap" if tokens.next().is_none() => Some(SlashCommand::Recap),
+        "/compact" => {
+            let rest: Vec<&str> = tokens.collect();
+            let reason = if rest.is_empty() {
+                None
+            } else {
+                Some(rest.join(" "))
+            };
+            Some(SlashCommand::Compact(reason))
+        }
         "/steer" => {
             let args: Vec<&str> = tokens.collect();
             let (node, rest) = split_node_flag(&args)?;
@@ -471,6 +483,11 @@ mod tests {
         assert_eq!(parse_command("/quit now"), None);
         assert_eq!(parse_command("/recap"), Some(SlashCommand::Recap));
         assert_eq!(parse_command("/recap now"), None);
+        assert_eq!(parse_command("/compact"), Some(SlashCommand::Compact(None)));
+        assert_eq!(
+            parse_command("/compact forced by user"),
+            Some(SlashCommand::Compact(Some("forced by user".to_string())))
+        );
         assert_eq!(parse_command("/context"), Some(SlashCommand::Context(None)));
         assert_eq!(
             parse_command("/context clear"),

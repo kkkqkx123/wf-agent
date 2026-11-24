@@ -210,6 +210,8 @@ impl AgentLoopHandler {
             context_schema: None,
             context_strict: None,
             temporary_mode: None,
+            compaction_engine: None,
+            compaction_engine_config: None,
         };
 
         // Shared fail-fast gate with the direct agent entry: unknown names,

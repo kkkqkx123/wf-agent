@@ -11,7 +11,7 @@ impl NativeSession {
         match command {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
-                output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
+                output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /compact [reason] compact the current loop, /quit exit (Ctrl-D also exits)");
                 output::diag_line("sessions: /sessions [--named] [filter] list recent server sessions newest-first as [n] id · title · status · age (quoted \"phrase\" matches exactly, --named hides untitled), /resume [n|id-or-filter] continue a session (bare resumes latest, number reuses the last listing), /rename <title> rename current session, /delete [n|id-or-filter] delete a session in two steps (repeat the same command to confirm, bare deletes current), /servers list known backends with reachability (read-only)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /tooldetail [low|medium|high], /display show all");
@@ -317,6 +317,10 @@ impl NativeSession {
                 self.request_recap_now().await;
                 CommandAction::Continue
             }
+            SlashCommand::Compact(reason) => {
+                self.request_compact_now(reason).await;
+                CommandAction::Continue
+            }
             SlashCommand::Steer { node, text } => {
                 self.submit_loop_text(node, text, "steering").await;
                 CommandAction::Continue
@@ -475,4 +479,57 @@ impl NativeSession {
             ));
         }
     }
+
+    /// Manual `/compact`: drive the current loop's bound engine through the
+    /// shared compact face and print a one-line result. A missing loop or a
+    /// failed request is reported as a diagnostic; the prompt keeps running.
+    pub(crate) async fn request_compact_now(&self, reason: Option<String>) {
+        let Some(loop_id) = self.current_loop_id.clone() else {
+            output::diag_line("※ compact: no active agent loop");
+            return;
+        };
+        let body = serde_json::json!({ "reason": reason.unwrap_or_default() });
+        let path = format!("/api/v1/agent-loops/{}/compact", urlencode(&loop_id));
+        let response: Result<serde_json::Value, _> = self.client.post_json(&path, &body).await;
+        match response {
+            Ok(value) => {
+                let data = value.get("data");
+                let kind = data
+                    .and_then(|d| d.get("kind"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let engine = data
+                    .and_then(|d| d.get("engine"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-");
+                let detail = data
+                    .and_then(|d| d.get("detail"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                output::diag_line(&format!(
+                    "※ compact [{engine}]: {kind}{}",
+                    if detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {detail}")
+                    }
+                ));
+            }
+            Err(e) => output::diag_line(&format!("※ compact failed: {e}")),
+        }
+    }
+}
+
+/// Minimal percent-encoding for a path segment (ids are usually plain).
+fn urlencode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }

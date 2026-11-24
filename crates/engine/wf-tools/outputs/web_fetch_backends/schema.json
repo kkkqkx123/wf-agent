@@ -1,0 +1,21 @@
+{
+  "id": "web_fetch_backends",
+  "name": "web_fetch_backends",
+  "description": "List configured web fetch backends and their capabilities.",
+  "tool_type": "stateless",
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "metadata": {
+    "category": "web",
+    "tags": [
+      "fetch",
+      "discovery"
+    ],
+    "risk_level": "read_only"
+  },
+  "enabled": true
+}

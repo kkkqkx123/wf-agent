@@ -45,9 +45,10 @@ pub use network::{
     NetworkProxy, NETWORK_DOMAINS_METADATA_KEY,
 };
 pub use predefined::web::{
-    FetchToolConfig, SearchBackend, SearchBackendInfo, WebFetchBackend, WebFetchError,
-    WebFetchQuery, WebFetchResponse, WebSearchBackend, WebSearchError, WebSearchQuery,
-    WebSearchResponse, WebSearchResult, WebToolConfig, WEB_SEARCH_BACKENDS,
+    FetchBackendInfo, FetchToolConfig, SearchBackend, SearchBackendInfo, WebFetchBackend,
+    WebFetchError, WebFetchQuery, WebFetchResponse, WebSearchBackend, WebSearchError,
+    WebSearchQuery, WebSearchResponse, WebSearchResult, WebToolConfig, WEB_FETCH,
+    WEB_FETCH_BACKENDS, WEB_SEARCH_BACKENDS,
 };
 pub use shell::execute_command_handler;
 pub use skill::{SkillLoader, SkillResourceContent};
@@ -63,6 +64,6 @@ pub use tool_exposure::{
 };
 pub use tool_schema_formatter::ToolSchemaFormatter;
 pub use web_text::{
-    decode_html_entities, html_to_text, parse_selector, HtmlDocument, HtmlLink, HtmlRenderMode,
-    HtmlRenderOptions, HtmlSelector,
+    decode_html_entities, html_to_text, parse_selector, HtmlDocument, HtmlLink, HtmlLinkMode,
+    HtmlRenderMode, HtmlRenderOptions, HtmlSelector, HtmlTable,
 };

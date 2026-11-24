@@ -8,7 +8,8 @@ pub mod web_fetch;
 pub mod web_search;
 
 pub use web_fetch::{
-    FetchToolConfig, WebFetchBackend, WebFetchError, WebFetchQuery, WebFetchResponse, WEB_FETCH,
+    FetchBackendInfo, FetchToolConfig, WebFetchBackend, WebFetchError, WebFetchQuery,
+    WebFetchResponse, WEB_FETCH, WEB_FETCH_BACKENDS,
 };
 pub use web_search::{
     SearchBackend, SearchBackendInfo, WebSearchBackend, WebSearchError, WebSearchQuery,
@@ -24,7 +25,12 @@ use crate::error::ToolResult;
 use crate::registry::ToolRegistry;
 
 /// All web tool definitions in registration order.
-pub const ALL: &[&ToolDefinition] = &[&WEB_SEARCH, &WEB_SEARCH_BACKENDS, &WEB_FETCH];
+pub const ALL: &[&ToolDefinition] = &[
+    &WEB_SEARCH,
+    &WEB_SEARCH_BACKENDS,
+    &WEB_FETCH,
+    &WEB_FETCH_BACKENDS,
+];
 
 /// Renders a parsed page into model-facing text. The host may replace the
 /// default renderer without touching the tool definition or transport.
@@ -96,6 +102,8 @@ mod tests {
     fn test_web_definitions_schema() {
         let def = WEB_FETCH.tool_def();
         assert_eq!(def.name, "web_fetch");
+        assert_eq!(WEB_FETCH_BACKENDS.tool_def().name, "web_fetch_backends");
+        assert_eq!(ALL.len(), 4);
     }
 
     #[test]

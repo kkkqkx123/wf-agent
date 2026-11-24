@@ -2,10 +2,12 @@
 Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.
 
 tips:
-- Use markdown for readable structure; use html when markup itself is needed
-- Use selector and max_chars to keep large pages within the model budget
-- Set render only when a JavaScript rendering backend is configured
+- Use markdown for readable structure; clean_html keeps pruned markup without scripts
+- Use selector, exclude_selector, focus and min_words to keep large pages within the model budget
+- Use link_mode=citations to reduce repeated URLs and keep numbered references
+- Check web_fetch_backends before setting render or an explicit backend
 
 examples:
 - web_fetch("https://example.com")
-- web_fetch("https://example.com/blog", selector="article", max_chars=12000)
+- web_fetch("https://example.com/blog", selector="article", focus="release notes", max_chars=12000)
+- web_fetch("https://example.com/docs", link_mode="citations")

@@ -326,7 +326,8 @@ mod tests {
             &vec![
                 serde_json::json!("markdown"),
                 serde_json::json!("text"),
-                serde_json::json!("html")
+                serde_json::json!("html"),
+                serde_json::json!("clean_html")
             ]
         );
         assert_eq!(format.default, Some(serde_json::json!("markdown")));

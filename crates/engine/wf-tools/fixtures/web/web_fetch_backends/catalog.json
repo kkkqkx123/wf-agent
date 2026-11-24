@@ -1,0 +1,7 @@
+{
+  "tool": "web_fetch_backends",
+  "description": "List the configured fetch backend and its capabilities",
+  "tier": "network",
+  "parameters": {},
+  "expect": { "success": true, "result_contains": "web_fetch" }
+}

@@ -264,6 +264,7 @@ impl Runtime {
             Some(&auth_registry),
             &domain_policy,
             &registries.fetch,
+            tool_metrics.clone(),
         )
         .await?;
         let tool_registry = init_tool_registry_with_mcp(

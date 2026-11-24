@@ -26,6 +26,11 @@ const MAX_CACHE_TTL_MS: u64 = 3_600_000;
 const DEFAULT_FETCH_CACHE_TTL_MS: u64 = 60_000;
 const DEFAULT_FETCH_CACHE_CAPACITY: usize = 256;
 const MAX_FETCH_CACHE_CAPACITY: usize = 10_000;
+const DEFAULT_FETCH_MAX_RETRIES: usize = 2;
+const MAX_FETCH_RETRIES: usize = 5;
+const DEFAULT_FETCH_RETRY_BASE_MS: u64 = 200;
+const DEFAULT_FETCH_RETRY_JITTER_MS: u64 = 100;
+const MAX_FETCH_RETRY_MS: u64 = 30_000;
 const MAX_RESULTS_CAP: usize = 50;
 const PROXY_SCHEMES: [&str; 6] = ["http", "https", "socks4", "socks4a", "socks5", "socks5h"];
 
@@ -59,6 +64,18 @@ fn default_fetch_cache_ttl_ms() -> u64 {
 
 fn default_fetch_cache_capacity() -> usize {
     DEFAULT_FETCH_CACHE_CAPACITY
+}
+
+fn default_fetch_max_retries() -> usize {
+    DEFAULT_FETCH_MAX_RETRIES
+}
+
+fn default_fetch_retry_base_ms() -> u64 {
+    DEFAULT_FETCH_RETRY_BASE_MS
+}
+
+fn default_fetch_retry_jitter_ms() -> u64 {
+    DEFAULT_FETCH_RETRY_JITTER_MS
 }
 
 fn default_max_results() -> usize {
@@ -283,6 +300,15 @@ pub struct WebFetchConfig {
     pub cache_capacity: usize,
     #[serde(default)]
     pub min_interval_ms: u64,
+    /// Backend ids accepted by the `web_fetch` `backend` parameter.
+    #[serde(default)]
+    pub allowed_backends: Option<Vec<String>>,
+    #[serde(default = "default_fetch_max_retries")]
+    pub max_retries: usize,
+    #[serde(default = "default_fetch_retry_base_ms")]
+    pub retry_base_ms: u64,
+    #[serde(default = "default_fetch_retry_jitter_ms")]
+    pub retry_jitter_ms: u64,
 }
 
 impl Default for WebFetchConfig {
@@ -298,6 +324,10 @@ impl Default for WebFetchConfig {
             cache_ttl_ms: DEFAULT_FETCH_CACHE_TTL_MS,
             cache_capacity: DEFAULT_FETCH_CACHE_CAPACITY,
             min_interval_ms: 0,
+            allowed_backends: None,
+            max_retries: DEFAULT_FETCH_MAX_RETRIES,
+            retry_base_ms: DEFAULT_FETCH_RETRY_BASE_MS,
+            retry_jitter_ms: DEFAULT_FETCH_RETRY_JITTER_MS,
         }
     }
 }
@@ -521,6 +551,30 @@ fn validate_fetch_config(fetch: &WebFetchConfig) -> ConfigResult<()> {
             "web_fetch min_interval_ms must not exceed {MAX_RATE_INTERVAL_MS}"
         )));
     }
+    if fetch.max_retries > MAX_FETCH_RETRIES {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch max_retries must not exceed {MAX_FETCH_RETRIES}"
+        )));
+    }
+    if fetch.retry_base_ms.max(fetch.retry_jitter_ms) > MAX_FETCH_RETRY_MS {
+        return Err(ConfigError::Validation(format!(
+            "web_fetch retry delays must not exceed {MAX_FETCH_RETRY_MS}"
+        )));
+    }
+    if let Some(allowed) = &fetch.allowed_backends {
+        if allowed.iter().any(|id| id.trim().is_empty()) {
+            return Err(ConfigError::Validation(
+                "web_fetch allowed_backends must not contain empty ids".into(),
+            ));
+        }
+        if let Some(selected) = &fetch.backend {
+            if !allowed.is_empty() && !allowed.iter().any(|id| id == selected) {
+                return Err(ConfigError::Validation(format!(
+                    "web_fetch backend '{selected}' is not in allowed_backends"
+                )));
+            }
+        }
+    }
     if let Some(proxy) = &fetch.proxy {
         validate_proxy(proxy, "web_fetch")?;
     }
@@ -685,6 +739,8 @@ mod tests {
             DEFAULT_FETCH_CACHE_CAPACITY
         );
         assert!(!config.web_fetch.respect_robots_txt);
+        assert_eq!(config.web_fetch.max_retries, DEFAULT_FETCH_MAX_RETRIES);
+        assert_eq!(config.web_fetch.retry_base_ms, DEFAULT_FETCH_RETRY_BASE_MS);
         validate_network_config(&config).expect("default fetch config validates");
     }
 
@@ -752,6 +808,13 @@ mod tests {
             url: "http://user:secret@proxy.test:3128".into(),
             no_proxy: Vec::new(),
         });
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_fetch.max_retries = MAX_FETCH_RETRIES + 1;
+        assert!(validate_network_config(&config).is_err());
+        config = NetworkConfig::default();
+        config.web_fetch.backend = Some("plugin.fetch".into());
+        config.web_fetch.allowed_backends = Some(vec!["http".into()]);
         assert!(validate_network_config(&config).is_err());
     }
 

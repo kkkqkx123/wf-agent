@@ -12,9 +12,10 @@ use moka::sync::Cache;
 use regex::Regex;
 use reqwest::header::{IF_MODIFIED_SINCE, IF_NONE_MATCH};
 use std::sync::LazyLock;
+use wf_metrics::ToolMetricsCollector;
 use wf_tools::{
-    redact_transport_error, FetchToolConfig, WebFetchBackend, WebFetchError, WebFetchQuery,
-    WebFetchResponse,
+    redact_transport_error, FetchBackendInfo, FetchToolConfig, WebFetchBackend, WebFetchError,
+    WebFetchQuery, WebFetchResponse,
 };
 
 use super::backend::SearchBackendClient;
@@ -145,25 +146,41 @@ impl FetchBackendRegistry {
 /// The selection is read at call time so it can change at runtime.
 pub struct WebFetchRouter {
     registry: FetchBackendRegistry,
+    allowed: Option<Vec<String>>,
 }
 
 impl WebFetchRouter {
-    pub fn new(registry: FetchBackendRegistry, selected: impl Into<String>) -> Self {
-        let router = Self { registry };
-        // Selection is owned by the registry; ignore a missing id here and let
-        // fetch report it, so construction stays infallible.
+    pub fn new(
+        registry: FetchBackendRegistry,
+        selected: impl Into<String>,
+        allowed: Option<Vec<String>>,
+    ) -> Self {
+        let router = Self { registry, allowed };
+        // Selection is owned by the registry; construction stays infallible
+        // so plugin backends can register after bootstrap.
         let _ = router.registry.set_selected(&selected.into());
         router
+    }
+
+    fn resolve(&self, requested: Option<&str>) -> Result<Arc<dyn WebFetchBackend>, WebFetchError> {
+        let selected = self.registry.selected();
+        let id = requested.unwrap_or(selected.as_str());
+        if let Some(allowed) = &self.allowed {
+            if !allowed.is_empty() && !allowed.iter().any(|candidate| candidate == id) {
+                return Err(WebFetchError::BackendNotFound(id.to_string()));
+            }
+        }
+        self.registry
+            .get(id)
+            .ok_or_else(|| WebFetchError::BackendNotFound(id.to_string()))
     }
 }
 
 #[async_trait]
 impl WebFetchBackend for WebFetchRouter {
-    async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
-        let selected = self.registry.selected();
-        let backend = self.registry.get(&selected).ok_or_else(|| {
-            WebFetchError::Transport(format!("fetch backend '{}' is not registered", selected))
-        })?;
+    async fn fetch(&self, mut query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
+        let backend = self.resolve(query.backend.as_deref())?;
+        query.backend = None;
         backend.fetch(query).await
     }
 
@@ -174,6 +191,24 @@ impl WebFetchBackend for WebFetchRouter {
     fn kind(&self) -> &str {
         "router"
     }
+
+    fn catalog(&self) -> Vec<FetchBackendInfo> {
+        let mut entries: Vec<FetchBackendInfo> = self
+            .registry
+            .ids()
+            .into_iter()
+            .filter(|id| {
+                self.allowed
+                    .as_ref()
+                    .is_none_or(|allowed| allowed.is_empty() || allowed.contains(id))
+            })
+            .flat_map(|id| self.registry.get(&id))
+            .flat_map(|backend| backend.catalog())
+            .collect();
+        entries.sort_by(|left, right| left.id.cmp(&right.id));
+        entries.dedup_by(|left, right| left.id == right.id);
+        entries
+    }
 }
 
 #[derive(Clone)]
@@ -183,14 +218,23 @@ struct CachedFetch {
 
 #[derive(Clone, Default)]
 struct RobotsRules {
-    disallow: Vec<String>,
+    rules: Vec<(Regex, bool)>,
+    crawl_delay_ms: Option<u64>,
 }
 
 impl RobotsRules {
     fn disallows(&self, path: &str) -> bool {
-        self.disallow
-            .iter()
-            .any(|prefix| !prefix.is_empty() && path.starts_with(prefix))
+        let mut allowed = false;
+        let mut longest = 0usize;
+        for (pattern, is_allowed) in &self.rules {
+            if let Some(found) = pattern.find(path) {
+                if found.start() == 0 && found.end() >= longest {
+                    longest = found.end();
+                    allowed = *is_allowed;
+                }
+            }
+        }
+        longest > 0 && !allowed
     }
 }
 
@@ -204,13 +248,21 @@ pub struct HttpFetchBackend {
     respect_robots_txt: bool,
     cache_ttl_ms: u64,
     min_interval_ms: u64,
+    max_retries: usize,
+    retry_base_ms: u64,
+    retry_jitter_ms: u64,
+    metrics: Option<Arc<ToolMetricsCollector>>,
     cache: Cache<String, CachedFetch>,
     robots: Cache<String, RobotsRules>,
     last_call: DashMap<String, Arc<tokio::sync::Mutex<Instant>>>,
 }
 
 impl HttpFetchBackend {
-    pub fn new(id: impl Into<String>, config: &FetchToolConfig) -> Result<Self, String> {
+    pub fn new(
+        id: impl Into<String>,
+        config: &FetchToolConfig,
+        metrics: Option<Arc<ToolMetricsCollector>>,
+    ) -> Result<Self, String> {
         let client = SearchBackendClient::build(
             config.timeout_ms,
             &config.user_agent,
@@ -230,6 +282,10 @@ impl HttpFetchBackend {
             respect_robots_txt: config.respect_robots_txt,
             cache_ttl_ms: config.cache_ttl_ms,
             min_interval_ms: config.min_interval_ms,
+            max_retries: config.max_retries,
+            retry_base_ms: config.retry_base_ms,
+            retry_jitter_ms: config.retry_jitter_ms,
+            metrics,
             cache,
             robots: Cache::builder()
                 .max_capacity(ROBOTS_CACHE_CAPACITY)
@@ -239,11 +295,11 @@ impl HttpFetchBackend {
         })
     }
 
-    async fn throttle(&self, host: &str) {
-        if self.min_interval_ms == 0 {
+    async fn throttle(&self, host: &str, delay_ms: u64) {
+        if delay_ms == 0 {
             return;
         }
-        let interval = Duration::from_millis(self.min_interval_ms);
+        let interval = Duration::from_millis(delay_ms);
         let clock = self
             .last_call
             .entry(host.to_string())
@@ -294,7 +350,19 @@ impl HttpFetchBackend {
         if self.cache_ttl_ms == 0 {
             return None;
         }
-        self.cache.get(key).map(|entry| entry.response.clone())
+        self.cache.get(key).and_then(|entry| {
+            let response = entry.response.clone();
+            let vary = response
+                .headers
+                .get("vary")
+                .map(String::as_str)
+                .unwrap_or("");
+            if vary.is_empty() || vary.eq_ignore_ascii_case("accept-encoding") {
+                Some(response)
+            } else {
+                None
+            }
+        })
     }
 
     fn store_response(&self, key: &str, response: &WebFetchResponse) {
@@ -307,6 +375,22 @@ impl HttpFetchBackend {
             );
         }
     }
+
+    fn record_call(&self, success: bool, elapsed: Duration) {
+        if let Some(metrics) = &self.metrics {
+            metrics.record_backend_call(&self.id, success, elapsed.as_secs_f64() * 1000.0);
+        }
+    }
+
+    fn retry_delay(&self, attempt: usize) -> Duration {
+        let base = self.retry_base_ms.saturating_mul(1u64 << attempt.min(6));
+        let jitter = if self.retry_jitter_ms == 0 {
+            0
+        } else {
+            (Instant::now().elapsed().subsec_nanos() as u64) % self.retry_jitter_ms
+        };
+        Duration::from_millis(base.saturating_add(jitter))
+    }
 }
 
 #[async_trait]
@@ -318,98 +402,166 @@ impl WebFetchBackend for HttpFetchBackend {
         if query.wait_for_ms.is_some() {
             return Err(WebFetchError::UnsupportedOption("wait_for_ms"));
         }
+        let started = Instant::now();
         let parsed = reqwest::Url::parse(&query.url).map_err(|_| WebFetchError::InvalidUrl)?;
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err(WebFetchError::UnsupportedScheme);
         }
+
+        let mut robots = RobotsRules::default();
         if let Some(host) = parsed.host_str() {
-            self.throttle(host).await;
             if self.respect_robots_txt {
                 let path = match parsed.query() {
-                    Some(query) => format!("{}?{query}", parsed.path()),
+                    Some(value) => format!("{}?{value}", parsed.path()),
                     None => parsed.path().to_string(),
                 };
-                if self.robots_for(&parsed).await.disallows(&path) {
-                    return Err(WebFetchError::DomainDenied(format!(
-                        "robots.txt disallows {path}"
-                    )));
+                robots = self.robots_for(&parsed).await;
+                if robots.disallows(&path) {
+                    let error = WebFetchError::DomainDenied(format!("robots.txt disallows {path}"));
+                    self.record_call(false, started.elapsed());
+                    return Err(error);
                 }
             }
+            let delay = robots.crawl_delay_ms.unwrap_or(0).max(self.min_interval_ms);
+            self.throttle(host, delay).await;
         }
 
         let key = parsed.to_string();
-        let cached = self.cached_response(&key);
-        let mut request = self.client.get(parsed);
-        if let Some(cached) = &cached {
-            if let Some(etag) = cached.headers.get("etag") {
-                request = request.header(IF_NONE_MATCH, etag);
-            }
-            if let Some(modified) = cached.headers.get("last-modified") {
-                request = request.header(IF_MODIFIED_SINCE, modified);
-            }
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| WebFetchError::Transport(redact_transport_error(error)))?;
-        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
-            if let Some(cached) = cached {
-                return Ok(cached);
-            }
-        }
-        let status = response.status();
-        if !status.is_success() {
-            return Err(WebFetchError::HttpStatus(status.as_u16()));
-        }
-        let final_url = response.url().to_string();
-        let content_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let headers = response
-            .headers()
-            .iter()
-            .filter_map(|(name, value)| {
-                let name = name.as_str().to_ascii_lowercase();
-                let keep = matches!(
-                    name.as_str(),
-                    "content-type"
-                        | "etag"
-                        | "last-modified"
-                        | "content-disposition"
-                        | "cache-control"
-                );
-                keep.then(|| (name, value.to_str().unwrap_or("").to_string()))
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        let mut bytes = Vec::new();
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk =
-                chunk.map_err(|error| WebFetchError::Transport(redact_transport_error(error)))?;
-            if bytes.len() + chunk.len() > self.max_content_bytes {
-                return Err(WebFetchError::TooLarge {
-                    size: bytes.len() + chunk.len(),
-                    limit: self.max_content_bytes,
-                });
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let content = decode_body(&bytes, &content_type);
-        let result = WebFetchResponse {
-            final_url,
-            status_code: status.as_u16(),
-            content_type,
-            headers,
-            content,
-            size: bytes.len(),
-            options_applied: false,
+        let mut cached = if query.refresh {
+            None
+        } else {
+            self.cached_response(&key)
         };
-        self.store_response(&key, &result);
-        Ok(result)
+        let mut attempt = 0usize;
+        loop {
+            let mut request = self.client.get(parsed.clone());
+            if let Some(cached) = &cached {
+                if let Some(etag) = cached.headers.get("etag") {
+                    request = request.header(IF_NONE_MATCH, etag);
+                }
+                if let Some(modified) = cached.headers.get("last-modified") {
+                    request = request.header(IF_MODIFIED_SINCE, modified);
+                }
+            }
+            let response = match request.send().await {
+                Ok(response) => response,
+                Err(error) => {
+                    let error = WebFetchError::Transport(redact_transport_error(error));
+                    if attempt >= self.max_retries {
+                        self.record_call(false, started.elapsed());
+                        return Err(error);
+                    }
+                    tokio::time::sleep(self.retry_delay(attempt)).await;
+                    attempt += 1;
+                    continue;
+                }
+            };
+            let status = response.status();
+            if status == reqwest::StatusCode::NOT_MODIFIED {
+                if let Some(mut response) = cached.take() {
+                    response.cache_status = "hit_validated".to_string();
+                    response.elapsed_ms = started.elapsed().as_millis() as u64;
+                    self.record_call(true, started.elapsed());
+                    return Ok(response);
+                }
+            }
+            if !status.is_success() {
+                let retry_after_ms = response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .map(|seconds| seconds.saturating_mul(1000));
+                let code = status.as_u16();
+                let error = if matches!(code, 401 | 403 | 429 | 503) {
+                    WebFetchError::Blocked(format!("HTTP {code}"))
+                } else {
+                    WebFetchError::HttpStatus(code)
+                };
+                let retryable = code == 429 || status.is_server_error();
+                if !retryable || attempt >= self.max_retries {
+                    self.record_call(false, started.elapsed());
+                    return Err(error);
+                }
+                let delay = retry_after_ms.unwrap_or_else(|| {
+                    let millis = self.retry_delay(attempt).as_millis();
+                    u64::try_from(millis).unwrap_or(u64::MAX)
+                });
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                attempt += 1;
+                continue;
+            }
+
+            let final_url = response.url().to_string();
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    let name = name.as_str().to_ascii_lowercase();
+                    let keep = matches!(
+                        name.as_str(),
+                        "content-type"
+                            | "etag"
+                            | "last-modified"
+                            | "content-disposition"
+                            | "cache-control"
+                            | "vary"
+                    );
+                    keep.then(|| (name, value.to_str().unwrap_or("").to_string()))
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            let mut bytes = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk
+                    .map_err(|error| WebFetchError::Transport(redact_transport_error(error)))?;
+                if bytes.len() + chunk.len() > self.max_content_bytes {
+                    let error = WebFetchError::TooLarge {
+                        size: bytes.len() + chunk.len(),
+                        limit: self.max_content_bytes,
+                    };
+                    self.record_call(false, started.elapsed());
+                    return Err(error);
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let content = decode_body(&bytes, &content_type);
+            if let Some(reason) = block_reason(&content) {
+                let error = WebFetchError::Blocked(reason);
+                self.record_call(false, started.elapsed());
+                return Err(error);
+            }
+            let cache_status = if cached.is_some() {
+                "hit_fallback"
+            } else {
+                "miss"
+            };
+            let result = WebFetchResponse {
+                final_url,
+                status_code: status.as_u16(),
+                content_type,
+                headers,
+                content,
+                size: bytes.len(),
+                cache_status: cache_status.to_string(),
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                title: None,
+                metadata: None,
+                links: None,
+                tables: None,
+                options_applied: false,
+            };
+            self.store_response(&key, &result);
+            self.record_call(true, started.elapsed());
+            return Ok(result);
+        }
     }
 
     fn id(&self) -> &str {
@@ -419,6 +571,43 @@ impl WebFetchBackend for HttpFetchBackend {
     fn kind(&self) -> &str {
         "http"
     }
+
+    fn catalog(&self) -> Vec<FetchBackendInfo> {
+        vec![FetchBackendInfo {
+            id: self.id.clone(),
+            kind: "http".to_string(),
+            capabilities: vec![
+                "web_fetch".to_string(),
+                "selector".to_string(),
+                "exclude_selector".to_string(),
+                "focus".to_string(),
+                "min_words".to_string(),
+                "link_mode".to_string(),
+                "clean_html".to_string(),
+                "cache".to_string(),
+                "refresh".to_string(),
+            ],
+        }]
+    }
+}
+
+fn block_reason(content: &str) -> Option<String> {
+    let head: String = content
+        .chars()
+        .take(8192)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    const MARKERS: &[&str] = &[
+        "captcha",
+        "access denied",
+        "verify you are human",
+        "attention required",
+        "cf-browser-verification",
+    ];
+    MARKERS
+        .iter()
+        .find(|marker| head.contains(**marker))
+        .map(|marker| (*marker).to_string())
 }
 
 fn decode_body(bytes: &[u8], content_type: &str) -> String {
@@ -467,40 +656,110 @@ fn charset_from_meta(bytes: &[u8]) -> Option<String> {
         .map(|captures| captures[1].to_ascii_lowercase())
 }
 
+fn push_robot_group(
+    groups: &mut Vec<(Vec<String>, Vec<(String, bool)>, Option<u64>)>,
+    agents: &mut Vec<String>,
+    rules: &mut Vec<(String, bool)>,
+    crawl_delay: &mut Option<u64>,
+) {
+    if !agents.is_empty() {
+        groups.push((
+            std::mem::take(agents),
+            std::mem::take(rules),
+            crawl_delay.take(),
+        ));
+    }
+}
+
+fn robot_regex(pattern: &str) -> Option<Regex> {
+    let exact = pattern.ends_with('$');
+    let body = if exact {
+        &pattern[..pattern.len() - 1]
+    } else {
+        pattern
+    };
+    let mut source = String::from("^");
+    for part in body.split('*') {
+        source.push_str(&regex::escape(part));
+        source.push_str(".*");
+    }
+    if exact {
+        source.push('$');
+    }
+    Regex::new(&source).ok()
+}
+
 fn parse_robots(text: &str, user_agent: &str) -> RobotsRules {
-    let mut disallow = Vec::new();
-    let mut applies = false;
-    let mut reading_agents = false;
-    let agent_token = user_agent.split('/').next().unwrap_or("");
+    let agent_token = user_agent
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let user_agent = user_agent.to_ascii_lowercase();
+    let mut groups: Vec<(Vec<String>, Vec<(String, bool)>, Option<u64>)> = Vec::new();
+    let mut agents: Vec<String> = Vec::new();
+    let mut rules: Vec<(String, bool)> = Vec::new();
+    let mut crawl_delay = None;
+    let mut reading_agents = true;
+
     for raw in text.lines() {
         let line = raw.split('#').next().unwrap_or("").trim();
         let Some((key, value)) = line.split_once(':') else {
             continue;
         };
-        let key = key.trim().to_ascii_lowercase();
-        let value = value.trim();
-        if key == "user-agent" {
-            if !reading_agents {
-                applies = false;
-                reading_agents = true;
+        match key.trim().to_ascii_lowercase().as_str() {
+            "user-agent" => {
+                if !reading_agents {
+                    push_robot_group(&mut groups, &mut agents, &mut rules, &mut crawl_delay);
+                    reading_agents = true;
+                }
+                agents.push(value.trim().to_ascii_lowercase());
             }
-            if value == "*"
-                || value.eq_ignore_ascii_case(user_agent)
-                || value.eq_ignore_ascii_case(agent_token)
-            {
-                applies = true;
-            }
-        } else {
-            reading_agents = false;
-            if key == "disallow" && applies {
-                let prefix = value.trim_end_matches('*').to_string();
-                if !prefix.is_empty() && !disallow.contains(&prefix) {
-                    disallow.push(prefix);
+            "allow" | "disallow" => {
+                reading_agents = false;
+                let pattern = value.trim();
+                if !pattern.is_empty() {
+                    rules.push((
+                        pattern.to_string(),
+                        key.trim().eq_ignore_ascii_case("allow"),
+                    ));
                 }
             }
+            "crawl-delay" => {
+                reading_agents = false;
+                crawl_delay = value
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .map(|seconds| (seconds.max(0.0) * 1000.0) as u64);
+            }
+            _ => {}
         }
     }
-    RobotsRules { disallow }
+    push_robot_group(&mut groups, &mut agents, &mut rules, &mut crawl_delay);
+
+    let mut compiled = Vec::new();
+    let mut delay = None;
+    for (group_agents, group_rules, group_delay) in groups {
+        if !group_agents
+            .iter()
+            .any(|agent| agent == "*" || agent == &user_agent || agent == &agent_token)
+        {
+            continue;
+        }
+        for (pattern, allowed) in group_rules {
+            if let Some(regex) = robot_regex(&pattern) {
+                compiled.push((regex, allowed));
+            }
+        }
+        if group_delay.is_some() {
+            delay = group_delay;
+        }
+    }
+    RobotsRules {
+        rules: compiled,
+        crawl_delay_ms: delay,
+    }
 }
 
 #[cfg(test)]
@@ -522,6 +781,12 @@ mod tests {
                 headers: BTreeMap::new(),
                 content: self.tag.clone(),
                 size: self.tag.len(),
+                cache_status: "unavailable".into(),
+                elapsed_ms: 0,
+                title: None,
+                metadata: None,
+                links: None,
+                tables: None,
                 options_applied: false,
             })
         }
@@ -554,7 +819,7 @@ mod tests {
             )
             .expect("register plugin");
 
-        let router = WebFetchRouter::new(registry.clone(), "http");
+        let router = WebFetchRouter::new(registry.clone(), "http", None);
         assert_eq!(registry.selected(), "http");
         assert!(registry.set_selected("p1.fetch").is_ok());
         assert_eq!(registry.selected(), "p1.fetch");
@@ -564,6 +829,17 @@ mod tests {
         let query = WebFetchQuery::new("https://example.com");
         let routed = futures::executor::block_on(router.fetch(query)).expect("fetch succeeds");
         assert_eq!(routed.content, "plugin");
+
+        let mut explicit = WebFetchQuery::new("https://example.com");
+        explicit.backend = Some("http".into());
+        let routed = futures::executor::block_on(router.fetch(explicit)).expect("explicit backend");
+        assert_eq!(routed.content, "builtin");
+
+        let restricted =
+            WebFetchRouter::new(registry.clone(), "http", Some(vec!["http".to_string()]));
+        let mut denied = WebFetchQuery::new("https://example.com");
+        denied.backend = Some("p1.fetch".into());
+        assert!(futures::executor::block_on(restricted.fetch(denied)).is_err());
     }
 
     #[test]
@@ -593,17 +869,15 @@ mod tests {
 
     #[test]
     fn decodes_charset_from_header_and_meta() {
-        let gbk = encoding_rs::GBK.encode("中文").0;
+        let label = "\u{4e2d}\u{6587}";
+        let gbk = encoding_rs::GBK.encode(label).0;
         let decoded = decode_body(gbk.as_ref(), "text/html; charset=gbk");
-        assert_eq!(decoded, "中文");
+        assert_eq!(decoded, label);
         let meta = b"<html><head><meta charset='gbk'></head><body>x</body></html>";
         assert!(charset_from_meta(meta).is_some());
         let with_bom = [&[0xEF, 0xBB, 0xBF][..], b"hello".as_slice()].concat();
         assert_eq!(decode_body(&with_bom, "text/plain"), "hello");
-        assert_eq!(
-            decode_body(&with_bom, "text/plain; charset=utf-8"),
-            "hello"
-        );
+        assert_eq!(decode_body(&with_bom, "text/plain; charset=utf-8"), "hello");
     }
 
     #[test]
@@ -618,10 +892,30 @@ mod tests {
         assert!(!rules.disallows("/public"));
     }
 
+    #[test]
+    fn robots_respects_allow_wildcards_and_crawl_delay() {
+        let text = "User-agent: *\nDisallow: /private/*\nAllow: /private/public\n\
+                    Crawl-delay: 1.5\n";
+        let rules = parse_robots(text, "wf-agent");
+        assert!(rules.disallows("/private/notes"));
+        assert!(!rules.disallows("/private/public/page"));
+        assert_eq!(rules.crawl_delay_ms, Some(1500));
+        assert!(robot_regex("/exact$").is_some_and(|regex| regex.is_match("/exact")));
+    }
+
+    #[test]
+    fn detects_block_markers_in_html_body() {
+        assert_eq!(
+            block_reason("<html><body>Access Denied</body></html>"),
+            Some("access denied".into())
+        );
+        assert!(block_reason("<html><body>Hello</body></html>").is_none());
+    }
+
     #[tokio::test]
     async fn rejects_wait_option_on_http_backend() {
-        let backend =
-            HttpFetchBackend::new("http-test", &FetchToolConfig::default()).expect("backend builds");
+        let backend = HttpFetchBackend::new("http-test", &FetchToolConfig::default(), None)
+            .expect("backend builds");
         let mut query = WebFetchQuery::new("https://example.com");
         query.wait_for_ms = Some(10);
         let error = backend.fetch(query).await.expect_err("wait is unsupported");
@@ -635,9 +929,9 @@ mod tests {
             ..Default::default()
         };
         let backend =
-            HttpFetchBackend::new("http-throttle", &config).expect("backend builds");
+            HttpFetchBackend::new("http-throttle", &config, None).expect("backend builds");
         let started = Instant::now();
-        futures::future::join_all((0..3).map(|_| backend.throttle("example.com"))).await;
+        futures::future::join_all((0..3).map(|_| backend.throttle("example.com", 60))).await;
         assert!(started.elapsed() >= Duration::from_millis(120));
     }
 
@@ -683,7 +977,7 @@ mod tests {
             cache_capacity: 8,
             ..Default::default()
         };
-        let backend = HttpFetchBackend::new("http-test", &config).expect("backend builds");
+        let backend = HttpFetchBackend::new("http-test", &config, None).expect("backend builds");
         let first = backend
             .fetch(WebFetchQuery::new(url.clone()))
             .await
@@ -694,6 +988,7 @@ mod tests {
             .expect("conditional fetch succeeds");
         assert_eq!(first.content, "hello");
         assert_eq!(second.content, "hello");
+        assert_eq!(second.cache_status, "hit_validated");
         assert_eq!(requests.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 }

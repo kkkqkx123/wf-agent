@@ -1,0 +1,5 @@
+# web_fetch_backends (web)
+List configured web fetch backends and their capabilities.
+
+examples:
+- web_fetch_backends()

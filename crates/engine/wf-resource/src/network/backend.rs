@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::io;
 
+use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE};
 use reqwest::Url;
 use wf_tools::{redact_transport_error, NetworkDomainPolicy, NetworkProxy, WebSearchResult};
 
@@ -27,8 +28,23 @@ impl SearchBackendClient {
         max_redirects: usize,
     ) -> Result<reqwest::Client, String> {
         let policy = domain_policy.clone();
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            ACCEPT,
+            reqwest::header::HeaderValue::from_static(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ),
+        );
+        default_headers.insert(
+            ACCEPT_LANGUAGE,
+            reqwest::header::HeaderValue::from_static("en-US,en;q=0.9"),
+        );
         let mut builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
+            .connect_timeout(std::time::Duration::from_millis(
+                timeout_ms.min(10_000).max(1),
+            ))
+            .default_headers(default_headers)
             .user_agent(user_agent)
             .redirect(reqwest::redirect::Policy::custom(move |attempt| {
                 if let Err(reason) = policy.allows_url(attempt.url().as_str()) {
@@ -146,7 +162,8 @@ mod tests {
                         "HTTP/1.1 302 Found\r\nLocation: http://{address}/hop{index}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                     )
                 } else {
-                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string()
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                        .to_string()
                 };
                 let _ = stream.write_all(response.as_bytes());
             }

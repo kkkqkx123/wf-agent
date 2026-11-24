@@ -107,12 +107,19 @@ pub async fn build_web_fetch_backend(
     auth: Option<&Arc<AuthRegistry>>,
     domain_policy: &NetworkDomainPolicy,
     registry: &FetchBackendRegistry,
+    metrics: Option<Arc<ToolMetricsCollector>>,
 ) -> RuntimeResult<WebFetchRouter> {
     let fallback = NetworkConfig::default();
     let config = config.unwrap_or(&fallback);
     let effective = build_web_fetch_config(Some(config), auth, domain_policy).await?;
-    wf_resource::build_web_fetch_backend(&effective, registry, config.web_fetch.backend.as_deref())
-        .map_err(RuntimeError::Config)
+    wf_resource::build_web_fetch_backend(
+        &effective,
+        registry,
+        config.web_fetch.backend.as_deref(),
+        config.web_fetch.allowed_backends.clone(),
+        metrics,
+    )
+    .map_err(RuntimeError::Config)
 }
 
 /// Build the effective fetch transport configuration from the host config.
@@ -138,5 +145,8 @@ pub async fn build_web_fetch_config(
         cache_ttl_ms: config.web_fetch.cache_ttl_ms,
         cache_capacity: config.web_fetch.cache_capacity,
         min_interval_ms: config.web_fetch.min_interval_ms,
+        max_retries: config.web_fetch.max_retries,
+        retry_base_ms: config.web_fetch.retry_base_ms,
+        retry_jitter_ms: config.web_fetch.retry_jitter_ms,
     })
 }

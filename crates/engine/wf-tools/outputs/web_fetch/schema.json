@@ -1,58 +1,92 @@
 {
-  "description": "Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.",
-  "enabled": true,
   "id": "web_fetch",
-  "metadata": {
-    "category": "web",
-    "risk_level": "network",
-    "tags": [
-      "fetch"
-    ]
-  },
   "name": "web_fetch",
+  "description": "Fetch one web page and return structured content. HTML pages are rendered as Markdown by default.",
+  "tool_type": "stateless",
   "parameters": {
-    "additionalProperties": false,
+    "type": "object",
     "properties": {
+      "backend": {
+        "type": "string",
+        "description": "Fetch backend id; use web_fetch_backends to discover available ids"
+      },
+      "exclude_selector": {
+        "type": "string",
+        "description": "Remove matching simple selectors before rendering; comma-separated"
+      },
+      "focus": {
+        "type": "string",
+        "description": "Terms describing the needed information; low-relevance blocks are pruned"
+      },
       "format": {
-        "default": "markdown",
-        "description": "Output format: markdown (structured text), text (plain text) or html (raw body)",
+        "type": "string",
+        "description": "Output format: markdown, text, clean_html (pruned markup) or html (raw body)",
         "enum": [
           "markdown",
           "text",
-          "html"
+          "html",
+          "clean_html"
         ],
-        "type": "string"
+        "default": "markdown"
+      },
+      "link_mode": {
+        "type": "string",
+        "description": "Render links inline, as numbered citations, or as plain text",
+        "enum": [
+          "inline",
+          "citations",
+          "none"
+        ],
+        "default": "inline"
       },
       "max_chars": {
+        "type": "integer",
         "description": "Maximum characters of inline content; full text is saved to a spill file",
-        "maximum": 2000000.0,
         "minimum": 1.0,
-        "type": "integer"
+        "maximum": 2000000.0
+      },
+      "min_words": {
+        "type": "integer",
+        "description": "Drop content blocks with fewer words than this value",
+        "minimum": 0.0,
+        "maximum": 10000.0
+      },
+      "refresh": {
+        "type": "boolean",
+        "description": "Bypass a cached response and update the cache with a fresh fetch",
+        "default": false
       },
       "render": {
-        "default": false,
+        "type": "boolean",
         "description": "Require a backend that renders JavaScript; unsupported by the built-in HTTP backend",
-        "type": "boolean"
+        "default": false
       },
       "selector": {
-        "description": "Limit content to simple CSS selectors such as main, #article or .content; comma-separated",
-        "type": "string"
+        "type": "string",
+        "description": "Limit content to simple CSS selectors such as main, #article or .content; comma-separated"
       },
       "url": {
-        "description": "The URL to fetch",
-        "type": "string"
+        "type": "string",
+        "description": "The URL to fetch"
       },
       "wait_for_ms": {
+        "type": "integer",
         "description": "Milliseconds to wait for rendered content; only used by rendering backends",
-        "maximum": 300000.0,
         "minimum": 1.0,
-        "type": "integer"
+        "maximum": 300000.0
       }
     },
     "required": [
       "url"
     ],
-    "type": "object"
+    "additionalProperties": false
   },
-  "tool_type": "stateless"
+  "metadata": {
+    "category": "web",
+    "tags": [
+      "fetch"
+    ],
+    "risk_level": "network"
+  },
+  "enabled": true
 }

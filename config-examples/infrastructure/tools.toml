@@ -104,15 +104,20 @@
 #              map = { title = "title", url = "url", snippet = "description" } }
 
 # Web fetch transport. `format = "markdown"` renders structured text,
-# `format = "text"` returns plain text and `format = "html"` returns the raw body.
+# `format = "text"` returns plain text, `format = "clean_html"` keeps pruned
+# markup and `format = "html"` returns the raw body.
 #[network.web_fetch]
 # timeout_ms = 20000
 # max_content_bytes = 2000000          # hard cap while streaming the body
 # user_agent = "wf-agent/0.1 (Modular Agent Framework)"
 # max_redirects = 10
 # backend = "http"                     # built-in id or a native plugin id
+# allowed_backends = ["http"]           # ids accepted by the per-call backend parameter
 # proxy = { url = "http://127.0.0.1:7890", no_proxy = ["localhost"] }
 # respect_robots_txt = false           # opt-in Disallow check for the built-in backend
 # cache_ttl_ms = 60000                 # 0 disables conditional request caching
 # cache_capacity = 256                 # cached URLs kept in memory
 # min_interval_ms = 0                  # minimum gap between requests to one host
+# max_retries = 2                      # retries for transport errors, 429 and 5xx
+# retry_base_ms = 200                  # exponential backoff base
+# retry_jitter_ms = 100                # random delay added to each retry

@@ -14,8 +14,8 @@ use wf_plugin::{
 };
 use wf_resource::{FetchBackendRegistry, NetworkRegistry};
 use wf_tools::{
-    SearchBackend, WebFetchBackend, WebFetchError, WebFetchQuery, WebFetchResponse, WebSearchError,
-    WebSearchQuery, WebSearchResponse, WebSearchResult,
+    FetchBackendInfo, SearchBackend, WebFetchBackend, WebFetchError, WebFetchQuery,
+    WebFetchResponse, WebSearchError, WebSearchQuery, WebSearchResponse, WebSearchResult,
 };
 
 const SEARCH_BACKEND_TAG: &str = "search-backend:web";
@@ -91,11 +91,17 @@ struct PluginWebFetchBackend {
 #[async_trait]
 impl WebFetchBackend for PluginWebFetchBackend {
     async fn fetch(&self, query: WebFetchQuery) -> Result<WebFetchResponse, WebFetchError> {
+        let link_mode = format!("{:?}", query.link_mode).to_ascii_lowercase();
         let args = json!({
             "url": query.url.clone(),
             "render": query.render,
             "wait_for_ms": query.wait_for_ms,
             "selector": query.selector,
+            "exclude_selector": query.exclude_selector,
+            "focus": query.focus,
+            "min_words": query.min_words,
+            "link_mode": link_mode,
+            "refresh": query.refresh,
             "max_chars": query.max_chars,
         });
         let output = self
@@ -104,6 +110,37 @@ impl WebFetchBackend for PluginWebFetchBackend {
             .await
             .map_err(|error| WebFetchError::Transport(error.to_string()))?
             .result;
+        let claims = |key: &str| match output.get("options_applied") {
+            Some(Value::Bool(value)) => *value,
+            Some(Value::Object(values)) => {
+                values.get(key).and_then(Value::as_bool).unwrap_or(false)
+            }
+            _ => false,
+        };
+        for (key, requested) in [
+            ("render", query.render),
+            ("wait_for_ms", query.wait_for_ms.is_some()),
+            ("selector", query.selector.is_some()),
+            ("exclude_selector", query.exclude_selector.is_some()),
+            ("focus", query.focus.is_some()),
+            ("min_words", query.min_words > 0),
+            ("refresh", query.refresh),
+        ] {
+            if requested && !claims(key) {
+                return Err(WebFetchError::UnsupportedOption(key));
+            }
+        }
+        let content_options = [
+            ("selector", query.selector.is_some()),
+            ("exclude_selector", query.exclude_selector.is_some()),
+            ("focus", query.focus.is_some()),
+            ("min_words", query.min_words > 0),
+            ("refresh", query.refresh),
+        ];
+        let options_applied = claims("all")
+            || content_options
+                .iter()
+                .all(|(key, requested)| !requested || claims(key));
         let content = output
             .get("content")
             .and_then(Value::as_str)
@@ -119,7 +156,8 @@ impl WebFetchBackend for PluginWebFetchBackend {
             .and_then(Value::as_u64)
             .unwrap_or(200);
         let headers = output
-            .get("headers")
+            .get("response_headers")
+            .or_else(|| output.get("headers"))
             .and_then(Value::as_object)
             .map(|values| {
                 values
@@ -147,10 +185,24 @@ impl WebFetchBackend for PluginWebFetchBackend {
                 .get("size")
                 .and_then(Value::as_u64)
                 .unwrap_or(content.len() as u64) as usize,
+            cache_status: output
+                .get("cache_status")
+                .and_then(Value::as_str)
+                .unwrap_or("unavailable")
+                .to_string(),
+            elapsed_ms: output
+                .get("elapsed_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            title: output
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            metadata: output.get("metadata").cloned(),
+            links: output.get("links").cloned(),
+            tables: output.get("tables").cloned(),
             content,
-            // Content options are forwarded to the plugin, so the handler must
-            // not apply them a second time to the returned content.
-            options_applied: true,
+            options_applied,
         })
     }
 
@@ -160,6 +212,24 @@ impl WebFetchBackend for PluginWebFetchBackend {
 
     fn kind(&self) -> &str {
         "plugin"
+    }
+
+    fn catalog(&self) -> Vec<FetchBackendInfo> {
+        vec![FetchBackendInfo {
+            id: self.id.clone(),
+            kind: "plugin".to_string(),
+            capabilities: vec![
+                "web_fetch".to_string(),
+                "render".to_string(),
+                "wait_for".to_string(),
+                "selector".to_string(),
+                "exclude_selector".to_string(),
+                "focus".to_string(),
+                "min_words".to_string(),
+                "link_mode".to_string(),
+                "clean_html".to_string(),
+            ],
+        }]
     }
 }
 
@@ -457,7 +527,13 @@ mod tests {
                     "status_code": 201,
                     "headers": { "etag": "v1" },
                     "content_type": "text/html",
-                    "size": 18
+                    "size": 18,
+                    "title": "Ready",
+                    "options_applied": {
+                        "render": true,
+                        "wait_for_ms": true,
+                        "selector": true
+                    }
                 }),
             })
         }
@@ -480,6 +556,33 @@ mod tests {
             .expect("plugin fetch succeeds");
         assert_eq!(response.status_code, 201);
         assert_eq!(response.headers["etag"], "v1");
+        assert_eq!(response.title.as_deref(), Some("Ready"));
         assert!(response.options_applied);
+    }
+
+    #[tokio::test]
+    async fn rejects_requested_option_without_plugin_claim() {
+        struct SilentExecutor;
+
+        #[async_trait]
+        impl PluginToolExecutor for SilentExecutor {
+            async fn execute(&self, _ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
+                Ok(PluginToolResult {
+                    result: json!({ "content": "<main>Ready</main>" }),
+                })
+            }
+        }
+
+        let backend = PluginWebFetchBackend {
+            id: "p1.fetch".into(),
+            executor: Arc::new(SilentExecutor),
+        };
+        let mut fetch_query = WebFetchQuery::new("https://example.com/page");
+        fetch_query.render = true;
+        let error = backend
+            .fetch(fetch_query)
+            .await
+            .expect_err("unclaimed render option fails");
+        assert!(error.to_string().contains("render"));
     }
 }

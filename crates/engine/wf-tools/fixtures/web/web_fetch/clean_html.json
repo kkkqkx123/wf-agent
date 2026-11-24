@@ -1,0 +1,7 @@
+{
+  "tool": "web_fetch",
+  "description": "Fetch a page and return cleaned HTML without raw scripts",
+  "tier": "network",
+  "parameters": { "url": "<MOCK_HTTP_BASE>/page", "format": "clean_html" },
+  "expect": { "success": true, "result_contains": "<h1>Mock Page</h1>" }
+}

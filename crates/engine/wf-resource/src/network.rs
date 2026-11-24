@@ -102,7 +102,11 @@ pub fn build_web_backends(
                 response,
                 timeout_ms,
                 ..
-            } => (request.as_ref().clone(), response.as_ref().clone(), *timeout_ms),
+            } => (
+                request.as_ref().clone(),
+                response.as_ref().clone(),
+                *timeout_ms,
+            ),
         };
         let backend: Box<dyn WebSearchBackend> = Box::new(HttpSearchBackend::new(
             id.clone(),
@@ -140,10 +144,15 @@ pub fn build_web_fetch_backend(
     config: &FetchToolConfig,
     registry: &FetchBackendRegistry,
     selected: Option<&str>,
+    allowed: Option<Vec<String>>,
+    metrics: Option<Arc<ToolMetricsCollector>>,
 ) -> Result<WebFetchRouter, String> {
-    registry.register_builtin(Arc::new(HttpFetchBackend::new("http", config)?))?;
-    Ok(WebFetchRouter::new(
-        registry.clone(),
-        selected.unwrap_or("http"),
-    ))
+    let active = selected.unwrap_or("http");
+    if let Some(allowed) = &allowed {
+        if !allowed.is_empty() && !allowed.iter().any(|id| id == active) {
+            return Err(format!("web_fetch backend '{active}' is not allowed"));
+        }
+    }
+    registry.register_builtin(Arc::new(HttpFetchBackend::new("http", config, metrics)?))?;
+    Ok(WebFetchRouter::new(registry.clone(), active, allowed))
 }

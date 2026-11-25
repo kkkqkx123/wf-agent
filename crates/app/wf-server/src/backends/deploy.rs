@@ -831,8 +831,8 @@ pub(crate) async fn read_log(
     );
     let output = channel.run(&command, None).await?;
     if !output.success() {
-        let detail = trim_bounded(&output.stderr)
-            .unwrap_or_else(|| "no diagnostic output".to_string());
+        let detail =
+            trim_bounded(&output.stderr).unwrap_or_else(|| "no diagnostic output".to_string());
         return Err(format!(
             "cannot read remote log for backend '{name}': {detail}"
         ));
@@ -2110,21 +2110,33 @@ fn interrupted_outcome(
     }
 }
 
+pub struct DeployApplyContext<'a> {
+    pub backend: &'a str,
+    pub entry: &'a BackendEntry,
+    pub settings: &'a DeploySettings,
+    pub request: &'a DeployRequest,
+    pub local_port: u16,
+    pub cancel: &'a CancellationToken,
+}
+
 /// Apply one action and re-probe at the end.
 ///
 /// The step list is recomputed here rather than taken from a previous plan
 /// request: an approved plan is a description of intent, and the remote
 /// state may have moved between the two calls.
 pub async fn apply(
-    backend: &str,
-    entry: &BackendEntry,
-    settings: &DeploySettings,
-    request: &DeployRequest,
-    local_port: u16,
-    cancel: &CancellationToken,
+    context: DeployApplyContext<'_>,
     mut on_plan: impl FnMut(&DeployPlanView),
     mut on_progress: impl FnMut(DeployStepProgress),
 ) -> Result<DeployOutcomeView, String> {
+    let DeployApplyContext {
+        backend,
+        entry,
+        settings,
+        request,
+        local_port,
+        cancel,
+    } = context;
     let action = request.parsed_action()?;
     let root = normalize_install_root(&settings.install_root)?;
     let layout = Layout::new(&root);
@@ -2863,13 +2875,16 @@ mod tests {
             ..DeployRequest::default()
         };
         let mut plans = Vec::new();
+        let cancel = CancellationToken::new();
         let outcome = apply(
-            "prod",
-            &remote,
-            &settings,
-            &request,
-            18080,
-            &CancellationToken::new(),
+            DeployApplyContext {
+                backend: "prod",
+                entry: &remote,
+                settings: &settings,
+                request: &request,
+                local_port: 18080,
+                cancel: &cancel,
+            },
             |plan| plans.push(plan.clone()),
             |_| {},
         )

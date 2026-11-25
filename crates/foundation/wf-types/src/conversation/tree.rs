@@ -42,8 +42,10 @@ pub enum NodeKind {
 /// Lifecycle of the reply a turn carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ReplyState {
     /// In flight: the driver is generating it.
+    #[default]
     Pending,
     /// Default terminal state. Only `Kept` replies enter the context, so only
     /// they can go dirty.
@@ -66,12 +68,6 @@ impl ReplyState {
     /// Whether a stale `based_on` on this reply means "should be recomputed".
     pub fn recomputable(self) -> bool {
         matches!(self, Self::Kept)
-    }
-}
-
-impl Default for ReplyState {
-    fn default() -> Self {
-        Self::Pending
     }
 }
 

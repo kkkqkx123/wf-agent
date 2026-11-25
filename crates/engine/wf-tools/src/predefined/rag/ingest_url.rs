@@ -318,9 +318,11 @@ mod tests {
     #[tokio::test]
     async fn handler_ingests_url_with_defaults() {
         let registry = ToolRegistry::new();
-        let mut config = super::super::RagToolConfig::default();
-        config.default_collection = "kb".to_string();
-        config.default_namespace = "kb".to_string();
+        let mut config = super::super::RagToolConfig {
+            default_collection: "kb".to_string(),
+            default_namespace: "kb".to_string(),
+            ..Default::default()
+        };
         config.capabilities.ingest = Some(Arc::new(StaticBackend));
         super::super::register(&registry, &config).expect("register");
         let ctx = crate::executor::trait_def::ToolExecutionContext::new("exec-1".into());

@@ -96,8 +96,10 @@ impl RagCapabilitySettings {
             RagFusionMode::Concat => rag_core::FusionMode::Concat,
             RagFusionMode::Weighted => rag_core::FusionMode::Weighted,
         };
-        let mut fusion = rag_core::FusionConfig::default();
-        fusion.mode = fusion_mode;
+        let fusion = rag_core::FusionConfig {
+            mode: fusion_mode,
+            ..Default::default()
+        };
         let query = rag_core::RagQueryConfig {
             keyword_candidates: if config.retrieval.hybrid {
                 config.retrieval.keyword_candidates
@@ -798,8 +800,10 @@ mod tests {
         assert!(config.capabilities.status.is_some());
         assert!(config.capabilities.evaluate.is_some());
 
-        let mut settings = RagCapabilitySettings::default();
-        settings.enabled = false;
+        let settings = RagCapabilitySettings {
+            enabled: false,
+            ..Default::default()
+        };
         let handles = crate::rag::RagHandles::new(
             Arc::new(vector_contracts::InMemoryVectorStore::new()),
             Arc::new(TestEmbedder),

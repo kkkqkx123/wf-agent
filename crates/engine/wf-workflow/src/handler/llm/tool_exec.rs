@@ -290,7 +290,7 @@ pub async fn execute_tool_call(
                 risk_level: risk_level.clone(),
                 resolved_domains: registered_tool
                     .as_ref()
-                    .map(|tool| wf_tools::network_domains(tool))
+                    .map(wf_tools::network_domains)
                     .filter(|domains| !domains.is_empty()),
                 pending_queue: batch.map(|b| b.pending_queue.clone()),
                 batch_id: batch.map(|b| b.batch_id.clone()),

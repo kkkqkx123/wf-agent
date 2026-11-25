@@ -42,7 +42,7 @@ impl SearchBackendClient {
         let mut builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
             .connect_timeout(std::time::Duration::from_millis(
-                timeout_ms.min(10_000).max(1),
+                timeout_ms.clamp(1, 10_000),
             ))
             .default_headers(default_headers)
             .user_agent(user_agent)
@@ -190,7 +190,7 @@ mod tests {
         let mut detail = error.to_string();
         let mut source = std::error::Error::source(&error);
         while let Some(cause) = source {
-            detail.push_str(" ");
+            detail.push(' ');
             detail.push_str(&cause.to_string());
             source = cause.source();
         }

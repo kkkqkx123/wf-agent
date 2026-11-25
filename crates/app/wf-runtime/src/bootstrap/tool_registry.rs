@@ -4,6 +4,13 @@ use tracing::{info, warn};
 
 use crate::error::RuntimeResult;
 
+pub struct WebToolSetup {
+    pub search_backend: Arc<dyn wf_tools::WebSearchBackend>,
+    pub fetch_backend: Arc<dyn wf_tools::WebFetchBackend>,
+    pub search_max_results: usize,
+    pub search_tool: wf_types::tool::Tool,
+}
+
 pub async fn init_tool_registry_with_mcp(
     shell_config: &mut wf_shell::config::ShellToolConfig,
     sandbox_runtime: &Arc<wf_sandbox::SandboxRuntime>,
@@ -11,10 +18,7 @@ pub async fn init_tool_registry_with_mcp(
     mcp_manager: &Option<Arc<wf_tools::mcp::connection::McpConnectionManager>>,
     event_bus: &Arc<wf_core::event::EventBus>,
     code_context: Option<wf_integration::SharedCodeContextService>,
-    web_search_backend: Arc<dyn wf_tools::WebSearchBackend>,
-    web_fetch_backend: Arc<dyn wf_tools::WebFetchBackend>,
-    web_search_max_results: usize,
-    mut web_search_tool: wf_types::tool::Tool,
+    mut web: WebToolSetup,
 ) -> RuntimeResult<Arc<wf_tools::registry::ToolRegistry>> {
     if shell_config.output_event_enabled && shell_config.event_sink.is_none() {
         shell_config.event_sink = Some(Arc::new(
@@ -29,8 +33,8 @@ pub async fn init_tool_registry_with_mcp(
     ));
     shell_config.sandbox_policy = Some(sandbox_runtime.shell_policy());
     let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
-    wf_tools::set_network_domains(&mut web_search_tool, web_search_backend.endpoints());
-    tool_registry.register_tool(web_search_tool);
+    wf_tools::set_network_domains(&mut web.search_tool, web.search_backend.endpoints());
+    tool_registry.register_tool(web.search_tool);
     let fs_scope_mode = shell_config
         .sandbox_policy
         .as_ref()
@@ -45,9 +49,9 @@ pub async fn init_tool_registry_with_mcp(
             },
             code_context: Some(code_context.unwrap_or_default()),
             web: wf_tools::WebToolConfig {
-                backend: Some(web_search_backend),
-                max_results: web_search_max_results,
-                fetch_backend: Some(web_fetch_backend),
+                backend: Some(web.search_backend),
+                max_results: web.search_max_results,
+                fetch_backend: Some(web.fetch_backend),
                 ..Default::default()
             },
             ..Default::default()

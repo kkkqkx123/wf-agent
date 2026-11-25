@@ -76,8 +76,3 @@ pub fn rewrite_user(tree: &mut ConversationTree, index: &mut DigestIndex, id: &s
     digest::refold_node(tree, index, id);
     digest::refold(tree, index, id);
 }
-
-/// Number of stale answers in the whole tree.
-pub fn dirty_count(tree: &ConversationTree, index: &DigestIndex) -> usize {
-    digest::dirty_nodes(tree, index).len()
-}

@@ -106,7 +106,9 @@ pub fn fold_segment(
 }
 
 /// The three hash parts of a node's segment.
-pub fn segment_of(node: &ConversationNode) -> (Vec<String>, String, Option<(String, Vec<String>)>) {
+pub type Segment = (Vec<String>, String, Option<(String, Vec<String>)>);
+
+pub fn segment_of(node: &ConversationNode) -> Segment {
     let context: Vec<String> = node.context.iter().map(|m| m.hash.clone()).collect();
     let reply = node.context_reply().map(|reply| {
         (

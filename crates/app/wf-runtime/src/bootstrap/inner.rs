@@ -37,7 +37,9 @@ use super::plugin::init_plugins;
 use super::plugin::init_plugins_and_resources;
 use super::runtime::Runtime;
 use super::storage::init_event_persistence;
-use super::tool_registry::{hydrate_tool_registry_from_storage, init_tool_registry_with_mcp};
+use super::tool_registry::{
+    hydrate_tool_registry_from_storage, init_tool_registry_with_mcp, WebToolSetup,
+};
 use super::trigger::{assemble_trigger_subsystem, TriggerSubsystemDeps};
 
 impl Runtime {
@@ -276,10 +278,12 @@ impl Runtime {
             &mcp_manager,
             &event_bus,
             Some(code_context.clone()),
-            web_search_backend,
-            web_fetch_backend.clone(),
-            web_search_max_results,
-            wf_tools::predefined::web::WEB_SEARCH.tool_def(),
+            WebToolSetup {
+                search_backend: web_search_backend,
+                fetch_backend: web_fetch_backend.clone(),
+                search_max_results: web_search_max_results,
+                search_tool: wf_tools::predefined::web::WEB_SEARCH.tool_def(),
+            },
         )
         .await?;
 

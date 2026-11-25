@@ -47,4 +47,6 @@ pub use storage::{
     init_event_persistence, is_memory_db_path, postgres_connection_string, storage_db_path,
     storage_lock_path, STORAGE_DATA_DIR_ENV,
 };
-pub use tool_registry::{hydrate_tool_registry_from_storage, init_tool_registry_with_mcp};
+pub use tool_registry::{
+    hydrate_tool_registry_from_storage, init_tool_registry_with_mcp, WebToolSetup,
+};

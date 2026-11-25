@@ -186,7 +186,7 @@ pub enum CompactionOutcome {
     /// Run the summary chain for the described plan and append its result.
     View(ViewPlan),
     /// Replace a covered range with a single summary (destructive).
-    Replace(Replacement),
+    Replace(Box<Replacement>),
 }
 
 impl CompactionOutcome {

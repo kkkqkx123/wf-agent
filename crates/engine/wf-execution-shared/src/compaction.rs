@@ -33,8 +33,8 @@ pub use engine::{
 };
 pub use plan::{
     build_plan, build_stateless_plan, outcomes_match_plan, plan_covers_snapshot,
-    sanitize_directive, stateless_plan_for_estimate, CompactionPlan, DIRECTIVE_MAX_CHARS,
-    DIRECTIVE_MAX_EST_TOKENS,
+    sanitize_directive, stateless_plan_for_estimate, CompactionPlan, DirectiveTooLong,
+    DIRECTIVE_MAX_CHARS, DIRECTIVE_MAX_EST_TOKENS,
 };
 pub use registry::{
     build_compaction_engine, build_compaction_engine_with_config, has_compaction_engine,

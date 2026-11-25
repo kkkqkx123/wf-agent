@@ -481,7 +481,7 @@ impl AgentIterationCoordinator {
                                 engine.name(),
                                 engine.capabilities(),
                                 &call,
-                                &replacement,
+                                replacement.as_ref(),
                                 wf_execution_shared::R_MIN_RANGE_DEFAULT,
                             )
                         };
@@ -491,7 +491,7 @@ impl AgentIterationCoordinator {
                                 if crate::conversation_compression::apply_replacement(
                                     entity.conversation(),
                                     version,
-                                    &replacement,
+                                    replacement.as_ref(),
                                 )
                                 .await
                                 .is_some()

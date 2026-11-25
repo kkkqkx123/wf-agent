@@ -272,7 +272,7 @@ impl AgentLoopEntity {
             Err(e) => return Some(Err(e)),
         };
         let replacement = match outcome {
-            wf_execution_shared::CompactionOutcome::Replace(replacement) => replacement,
+            wf_execution_shared::CompactionOutcome::Replace(replacement) => *replacement,
             other => return Some(Ok((other, None))),
         };
         // Recompute the proof from host-owned data before applying. The call
@@ -322,7 +322,7 @@ impl AgentLoopEntity {
                 .await;
                 if applied.is_some() {
                     Some(Ok((
-                        wf_execution_shared::CompactionOutcome::Replace(replacement),
+                        wf_execution_shared::CompactionOutcome::Replace(Box::new(replacement)),
                         Some(proof),
                     )))
                 } else {

@@ -656,8 +656,10 @@ fn charset_from_meta(bytes: &[u8]) -> Option<String> {
         .map(|captures| captures[1].to_ascii_lowercase())
 }
 
+type RobotGroup = (Vec<String>, Vec<(String, bool)>, Option<u64>);
+
 fn push_robot_group(
-    groups: &mut Vec<(Vec<String>, Vec<(String, bool)>, Option<u64>)>,
+    groups: &mut Vec<RobotGroup>,
     agents: &mut Vec<String>,
     rules: &mut Vec<(String, bool)>,
     crawl_delay: &mut Option<u64>,
@@ -696,7 +698,7 @@ fn parse_robots(text: &str, user_agent: &str) -> RobotsRules {
         .unwrap_or("")
         .to_ascii_lowercase();
     let user_agent = user_agent.to_ascii_lowercase();
-    let mut groups: Vec<(Vec<String>, Vec<(String, bool)>, Option<u64>)> = Vec::new();
+    let mut groups: Vec<RobotGroup> = Vec::new();
     let mut agents: Vec<String> = Vec::new();
     let mut rules: Vec<(String, bool)> = Vec::new();
     let mut crawl_delay = None;

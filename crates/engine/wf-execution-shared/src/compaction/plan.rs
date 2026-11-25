@@ -213,18 +213,23 @@ fn merge_adjacent_items(items: &mut Vec<CompactionPlanItem>, costs: &[u64], budg
 pub const DIRECTIVE_MAX_CHARS: usize = 2000;
 pub const DIRECTIVE_MAX_EST_TOKENS: u64 = 500;
 
+/// A supplied directive exceeded the character or token limit.
+#[derive(Debug, thiserror::Error)]
+#[error("compaction directive exceeds the allowed limits")]
+pub struct DirectiveTooLong;
+
 /// Sanitize a request-level directive supplied by a compaction engine:
 /// trim, drop empties, and reject over-long values under the dual
 /// constraint. `Ok(None)` means no directive was supplied; `Err` means one
 /// was supplied but over-long, and the caller must reject the outcome.
-pub fn sanitize_directive(raw: Option<&str>) -> Result<Option<String>, ()> {
+pub fn sanitize_directive(raw: Option<&str>) -> Result<Option<String>, DirectiveTooLong> {
     let Some(trimmed) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(None);
     };
     if trimmed.chars().count() > DIRECTIVE_MAX_CHARS
         || wf_llm::estimate_tokens(trimmed) as u64 > DIRECTIVE_MAX_EST_TOKENS
     {
-        return Err(());
+        return Err(DirectiveTooLong);
     }
     Ok(Some(trimmed.to_string()))
 }

@@ -22,16 +22,11 @@ const DEFAULT_AGENT_TIMEOUT_MS: u64 = 90_000;
 /// pin server resources by itself. `Cancel` preserves the local single-user
 /// behavior (disconnect aborts the run); `Keep` detaches delivery from the
 /// engine so the run finishes and events stay replayable via `attach`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StreamDetachPolicy {
+    #[default]
     Cancel,
     Keep,
-}
-
-impl Default for StreamDetachPolicy {
-    fn default() -> Self {
-        Self::Cancel
-    }
 }
 
 impl StreamDetachPolicy {

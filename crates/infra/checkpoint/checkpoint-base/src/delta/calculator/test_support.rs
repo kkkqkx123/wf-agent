@@ -49,7 +49,6 @@ pub(crate) fn make_workflow_snapshot() -> WorkflowExecutionStateSnapshot {
 pub(crate) fn make_agent_snapshot(
     iteration: u32,
 ) -> wf_types::checkpoint::agent::AgentStateSnapshot {
-    authorization: None,
     wf_types::checkpoint::agent::AgentStateSnapshot {
         authorization: None,
         agent_loop_id: "a1".to_string(),

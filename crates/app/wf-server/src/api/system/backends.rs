@@ -618,13 +618,11 @@ pub(crate) async fn handle_backend_log(
     }
     match backends.backend_log(&name, lines).await {
         Ok(view) => ok(view).into_response(),
-        Err(e) if e.contains("not found") => {
-            error_response(wf_api::ApiError::NotFound {
-                entity_type: "backend".to_string(),
-                id: name,
-            })
-            .into_response()
-        }
+        Err(e) if e.contains("not found") => error_response(wf_api::ApiError::NotFound {
+            entity_type: "backend".to_string(),
+            id: name,
+        })
+        .into_response(),
         Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
     }
 }

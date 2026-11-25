@@ -398,7 +398,7 @@ impl WebSearchAggregator {
                 .iter()
                 .map(|(id, backend)| {
                     let call_query = query.clone();
-                    async move { (id.clone(), self.call(&id, backend, &call_query).await) }
+                    async move { (id.clone(), self.call(id, backend, &call_query).await) }
                 })
                 .collect::<Vec<_>>();
             join_all(calls).await

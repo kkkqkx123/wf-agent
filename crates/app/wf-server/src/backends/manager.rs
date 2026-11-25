@@ -1867,12 +1867,14 @@ impl BackendManager {
                     }
                 };
                 deploy::apply(
-                    &name,
-                    &entry,
-                    &settings,
-                    &request,
-                    self.config.default_local_port,
-                    &cancel,
+                    deploy::DeployApplyContext {
+                        backend: &name,
+                        entry: &entry,
+                        settings: &settings,
+                        request: &request,
+                        local_port: self.config.default_local_port,
+                        cancel: &cancel,
+                    },
                     on_plan,
                     on_progress,
                 )
@@ -2042,7 +2044,7 @@ impl BackendManager {
                     .deploy_job_cancels
                     .get(&id)
                     .map(|t| t.value().clone())
-                    .unwrap_or_else(CancellationToken::new);
+                    .unwrap_or_default();
                 let handle = self.deploy_job_handles.remove(&id).map(|(_, h)| h);
                 (id, backend, token, handle)
             })

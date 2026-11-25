@@ -334,20 +334,12 @@ impl Default for WebFetchConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[derive(Default)]
 pub struct NetworkConfig {
     #[serde(default)]
     pub web_search: WebSearchConfig,
     #[serde(default)]
     pub web_fetch: WebFetchConfig,
-}
-
-impl Default for NetworkConfig {
-    fn default() -> Self {
-        Self {
-            web_search: WebSearchConfig::default(),
-            web_fetch: WebFetchConfig::default(),
-        }
-    }
 }
 
 fn validate_placeholders_value(value: &Value, field: &str) -> ConfigResult<()> {

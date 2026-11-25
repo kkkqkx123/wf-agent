@@ -30,9 +30,10 @@ use crate::infra::error::{ApiError, ApiResult};
 /// whole context window's worth of generations.
 pub const DEFAULT_MAX_STEPS: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StepMode {
     /// Regenerate the first stale answer only.
+    #[default]
     Single,
     /// Walk the stale answers of the path from the top.
     Forward,
@@ -62,12 +63,6 @@ pub struct StepRequest {
     pub node_id: Option<String>,
     /// `keep_human` refuses to overwrite a human-written answer.
     pub policy: Option<String>,
-}
-
-impl Default for StepMode {
-    fn default() -> Self {
-        Self::Single
-    }
 }
 
 /// Handle of a stepping run: the planned nodes, in order.
@@ -294,9 +289,7 @@ impl StepJob {
             return None;
         };
         let digests = store::digests(&tree);
-        let Some(node) = tree.node(node_id) else {
-            return None;
-        };
+        let node = tree.node(node_id)?;
         if node.is_deleted() || !conversation_tree::still_stale(&tree, &digests, node_id) {
             return None;
         }

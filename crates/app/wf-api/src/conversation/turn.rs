@@ -476,10 +476,10 @@ async fn prepare_request(
     use wf_storage::adapter::base::BaseStorageAdapter;
     let tree = store::load_existing(ctx, session_id)
         .await?
-        .ok_or_else(|| ApiError::not_found("conversation tree", &session_id))?;
+        .ok_or_else(|| ApiError::not_found("conversation tree", session_id))?;
     let node = tree
-        .node(&node_id)
-        .ok_or_else(|| ApiError::not_found("conversation node", &node_id))?;
+        .node(node_id)
+        .ok_or_else(|| ApiError::not_found("conversation node", node_id))?;
     let mut session = ChatSession::new(profile_id.to_string());
     for projected in conversation_tree::project(&tree, &node.parent) {
         if let Some(record) = ctx
@@ -535,10 +535,10 @@ pub(crate) async fn converge_answer(
     let _guard = runtime.write().await;
     let Ok(Some(mut tree)) = store::load_existing(ctx, session_id).await else {
         events::turn_failed(
-            &ctx,
-            &session_id,
-            &turn_id,
-            &node_id,
+            ctx,
+            session_id,
+            turn_id,
+            node_id,
             "session tree disappeared before the answer converged",
             "failed",
         );
@@ -615,7 +615,7 @@ pub(crate) async fn converge_answer(
                 );
                 editor
                     .finish_reply(
-                        &node_id,
+                        node_id,
                         reference,
                         Vec::new(),
                         answer.state,
@@ -625,14 +625,14 @@ pub(crate) async fn converge_answer(
                     .map_err(super::tree_error)
             }
             None => editor
-                .set_reply_state(&node_id, answer.state)
+                .set_reply_state(node_id, answer.state)
                 .map_err(super::tree_error),
         }
     };
 
     match outcome {
         Ok(outcome) => {
-            if let Err(error) = store::save_tree(&ctx, &tree).await {
+            if let Err(error) = store::save_tree(ctx, &tree).await {
                 tracing::warn!(
                     target: "wf_api::conversation",
                     session_id = %session_id,
@@ -641,21 +641,21 @@ pub(crate) async fn converge_answer(
                 );
             }
             let dirty = conversation_tree::evaluate_dirty(&tree, &digests, None);
-            events::dirty_changed(&ctx, &session_id, outcome.version, &dirty);
+            events::dirty_changed(ctx, session_id, outcome.version, &dirty);
             events::tree_changed(
-                &ctx,
-                &session_id,
+                ctx,
+                session_id,
                 outcome.version,
                 "reply_settled",
-                Some(&node_id),
+                Some(node_id),
             );
             match answer.state {
                 ReplyState::Kept => {
                     events::turn_completed(
-                        &ctx,
-                        &session_id,
-                        &turn_id,
-                        &node_id,
+                        ctx,
+                        session_id,
+                        turn_id,
+                        node_id,
                         answer
                             .message
                             .as_ref()
@@ -664,8 +664,8 @@ pub(crate) async fn converge_answer(
                         answer.usage.as_ref(),
                     );
                     store::touch_session_status(
-                        &ctx,
-                        &session_id,
+                        ctx,
+                        session_id,
                         wf_types::ExecutionStatus::Completed,
                         None,
                     )
@@ -673,16 +673,16 @@ pub(crate) async fn converge_answer(
                 }
                 ReplyState::Interrupted => {
                     events::turn_failed(
-                        &ctx,
-                        &session_id,
-                        &turn_id,
-                        &node_id,
+                        ctx,
+                        session_id,
+                        turn_id,
+                        node_id,
                         answer.error.as_deref().unwrap_or("cancelled"),
                         "cancelled",
                     );
                     store::touch_session_status(
-                        &ctx,
-                        &session_id,
+                        ctx,
+                        session_id,
                         wf_types::ExecutionStatus::Cancelled,
                         answer.error.clone(),
                     )
@@ -690,16 +690,16 @@ pub(crate) async fn converge_answer(
                 }
                 _ => {
                     events::turn_failed(
-                        &ctx,
-                        &session_id,
-                        &turn_id,
-                        &node_id,
+                        ctx,
+                        session_id,
+                        turn_id,
+                        node_id,
                         answer.error.as_deref().unwrap_or("generation failed"),
                         "failed",
                     );
                     store::touch_session_status(
-                        &ctx,
-                        &session_id,
+                        ctx,
+                        session_id,
                         wf_types::ExecutionStatus::Failed,
                         answer.error.clone(),
                     )
@@ -709,10 +709,10 @@ pub(crate) async fn converge_answer(
         }
         Err(error) => {
             events::turn_failed(
-                &ctx,
-                &session_id,
-                &turn_id,
-                &node_id,
+                ctx,
+                session_id,
+                turn_id,
+                node_id,
                 &error.to_string(),
                 "failed",
             );

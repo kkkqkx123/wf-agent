@@ -263,7 +263,7 @@ impl TreeSink for Dom {
                 if index > 0 {
                     let previous = self.nodes[parent.0].children[index - 1];
                     if let NodeData::Text(existing) = &mut self.nodes[previous.0].data {
-                        existing.push_str(&text);
+                        existing.push_str(text);
                         return;
                     }
                 }
@@ -429,8 +429,9 @@ fn valid_name(value: &str) -> bool {
 }
 
 /// Output shape of the page renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HtmlRenderMode {
+    #[default]
     Markdown,
     Plain,
 }
@@ -454,12 +455,6 @@ pub struct HtmlRenderOptions {
     pub focus: Option<String>,
     pub prune: bool,
     pub max_chars: Option<usize>,
-}
-
-impl Default for HtmlRenderMode {
-    fn default() -> Self {
-        Self::Markdown
-    }
 }
 
 impl Default for HtmlRenderOptions {
@@ -800,7 +795,7 @@ impl HtmlDocument {
                     stack.push_back((*child, depth + 1));
                 }
             }
-            candidates.sort_by(|left, right| right.0.cmp(&left.0));
+            candidates.sort_by_key(|left| std::cmp::Reverse(left.0));
             for (_, id) in candidates {
                 if self.dom.nodes[id.0].parent.is_none() {
                     continue;
@@ -928,7 +923,7 @@ impl HtmlDocument {
     }
 
     fn matches(&self, id: NodeId, selector: &HtmlSelector) -> bool {
-        if matches!(&self.dom.nodes[id.0].data, NodeData::Element { .. }) == false {
+        if !matches!(&self.dom.nodes[id.0].data, NodeData::Element { .. }) {
             return false;
         }
         if selector
@@ -1117,7 +1112,7 @@ impl HtmlDocument {
             return;
         }
         for (index, row) in rows.iter().enumerate() {
-            let mut cells: Vec<String> = row.iter().cloned().collect();
+            let mut cells: Vec<String> = row.to_vec();
             cells.resize(columns, String::new());
             let line = if mode == HtmlRenderMode::Markdown {
                 format!("| {} |", cells.join(" | "))

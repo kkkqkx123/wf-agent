@@ -252,14 +252,15 @@ pub fn apply_assembled_prompt(
         }
     }
     conversation.retain(|m| !is_dynamic_context_message(m) && !is_incremental_note(m));
-    let mut inline_index = if assembled.stable_header.is_some() {
+    let inline_start = if assembled.stable_header.is_some() {
         1
     } else {
         0
     };
-    for note in assembled.notes.iter().filter(|note| !note.tail) {
+    for (inline_index, note) in
+        (inline_start..).zip(assembled.notes.iter().filter(|note| !note.tail))
+    {
         conversation.insert(inline_index, incremental_note_message(note));
-        inline_index += 1;
     }
     for note in assembled.notes.iter().filter(|note| note.tail) {
         conversation.push(incremental_note_message(note));

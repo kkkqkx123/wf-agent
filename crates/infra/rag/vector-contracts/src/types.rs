@@ -167,21 +167,230 @@ impl QuantizationSearchParams {
     }
 }
 
-/// One point to store: an id, a dense vector and a JSON payload.
+/// Retrieval kind declared by a collection and carried by each vector payload.
+///
+/// A collection declares exactly one kind at creation and rejects writes or
+/// queries of another kind. The default is dense so existing callers and
+/// collections keep their behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorKind {
+    /// A single dense embedding vector.
+    #[default]
+    Dense,
+    /// Sparse (index, weight) pairs used for exact term scoring.
+    Sparse,
+    /// A fixed-upper-bound sequence of dense vectors scored with MaxSim.
+    Multi,
+}
+
+impl VectorKind {
+    /// Human-readable name used in diagnostics and unsupported errors.
+    pub fn as_name(self) -> &'static str {
+        match self {
+            VectorKind::Dense => "dense",
+            VectorKind::Sparse => "sparse",
+            VectorKind::Multi => "multi",
+        }
+    }
+}
+
+/// Payload of a point or query, shaped by its [`VectorKind`].
+///
+/// The untagged representation keeps dense vectors serialized as plain float
+/// arrays, so dense JSON on every backend stays byte-for-byte compatible.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VectorData {
+    /// A single dense embedding vector.
+    Dense(Vec<f32>),
+    /// Sparse vector: strictly increasing indices paired with finite weights.
+    Sparse { indices: Vec<u32>, values: Vec<f32> },
+    /// Multiple dense vectors of identical dimension scored with MaxSim.
+    Multi(Vec<Vec<f32>>),
+}
+
+impl VectorData {
+    /// Builds a dense payload.
+    pub fn dense(vector: Vec<f32>) -> Self {
+        Self::Dense(vector)
+    }
+
+    /// Builds a sparse payload from index and weight arrays.
+    pub fn sparse(indices: Vec<u32>, values: Vec<f32>) -> Self {
+        Self::Sparse { indices, values }
+    }
+
+    /// Builds a multi-vector payload.
+    pub fn multi(vectors: Vec<Vec<f32>>) -> Self {
+        Self::Multi(vectors)
+    }
+
+    /// Kind described by this payload.
+    pub fn kind(&self) -> VectorKind {
+        match self {
+            VectorData::Dense(_) => VectorKind::Dense,
+            VectorData::Sparse { .. } => VectorKind::Sparse,
+            VectorData::Multi(_) => VectorKind::Multi,
+        }
+    }
+
+    /// Number of stored values: dense dimensions, sparse non-zero entries,
+    /// or the number of sub-vectors.
+    pub fn len(&self) -> usize {
+        match self {
+            VectorData::Dense(vector) => vector.len(),
+            VectorData::Sparse { indices, .. } => indices.len(),
+            VectorData::Multi(vectors) => vectors.len(),
+        }
+    }
+
+    /// Whether this payload carries no values.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Borrows the dense vector, or returns a readable invalid-input error.
+    pub fn as_dense(&self) -> crate::error::Result<&[f32]> {
+        match self {
+            VectorData::Dense(vector) => Ok(vector),
+            other => Err(crate::error::VectorError::InvalidInput(format!(
+                "expected a dense vector, got {}",
+                other.kind().as_name()
+            ))),
+        }
+    }
+
+    /// Consumes the payload into a dense vector, or returns an error.
+    pub fn into_dense(self) -> crate::error::Result<Vec<f32>> {
+        match self {
+            VectorData::Dense(vector) => Ok(vector),
+            other => Err(crate::error::VectorError::InvalidInput(format!(
+                "expected a dense vector, got {}",
+                other.kind().as_name()
+            ))),
+        }
+    }
+
+    /// Validates the payload against a collection kind and dimension.
+    ///
+    /// Dense must match `expected_dim`; sparse indices must be non-negative,
+    /// strictly increasing and paired with finite weights; multi must hold a
+    /// non-empty sequence of equal-dimension finite vectors.
+    pub fn validate(
+        &self,
+        kind: VectorKind,
+        expected_dim: usize,
+        max_vectors: Option<usize>,
+    ) -> crate::error::Result<()> {
+        if self.kind() != kind {
+            return Err(crate::error::VectorError::InvalidInput(format!(
+                "collection expects {} vectors, got {}",
+                kind.as_name(),
+                self.kind().as_name()
+            )));
+        }
+        match self {
+            VectorData::Dense(vector) => {
+                if vector.len() != expected_dim {
+                    return Err(crate::error::VectorError::DimensionMismatch {
+                        expected: expected_dim,
+                        actual: vector.len(),
+                    });
+                }
+                if vector.iter().any(|v| !v.is_finite()) {
+                    return Err(crate::error::VectorError::InvalidInput(
+                        "dense vector contains non-finite elements".to_string(),
+                    ));
+                }
+            }
+            VectorData::Sparse { indices, values } => {
+                if indices.is_empty() || indices.len() != values.len() {
+                    return Err(crate::error::VectorError::InvalidInput(
+                        "sparse vector needs equal, non-empty indices and values".to_string(),
+                    ));
+                }
+                if !indices.windows(2).all(|w| w[0] < w[1]) {
+                    return Err(crate::error::VectorError::InvalidInput(
+                        "sparse indices must be strictly increasing".to_string(),
+                    ));
+                }
+                if values.iter().any(|v| !v.is_finite()) {
+                    return Err(crate::error::VectorError::InvalidInput(
+                        "sparse vector contains non-finite weights".to_string(),
+                    ));
+                }
+            }
+            VectorData::Multi(vectors) => {
+                if vectors.is_empty() {
+                    return Err(crate::error::VectorError::InvalidInput(
+                        "multi vector needs at least one sub-vector".to_string(),
+                    ));
+                }
+                if let Some(max) = max_vectors {
+                    if vectors.len() > max {
+                        return Err(crate::error::VectorError::InvalidInput(format!(
+                            "multi vector has {} sub-vectors, limit is {}",
+                            vectors.len(),
+                            max
+                        )));
+                    }
+                }
+                for vector in vectors {
+                    if vector.len() != expected_dim {
+                        return Err(crate::error::VectorError::DimensionMismatch {
+                            expected: expected_dim,
+                            actual: vector.len(),
+                        });
+                    }
+                    if vector.iter().any(|v| !v.is_finite()) {
+                        return Err(crate::error::VectorError::InvalidInput(
+                            "multi vector contains non-finite elements".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl From<Vec<f32>> for VectorData {
+    fn from(vector: Vec<f32>) -> Self {
+        Self::Dense(vector)
+    }
+}
+
+impl PartialEq<Vec<f32>> for VectorData {
+    fn eq(&self, other: &Vec<f32>) -> bool {
+        matches!(self, VectorData::Dense(vector) if vector == other)
+    }
+}
+
+/// One point to store: an id, a kind-shaped vector payload and a JSON payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VectorPoint {
     /// Caller-assigned stable id; upserts with the same id overwrite.
     pub id: String,
-    /// Dense embedding vector; must match the collection dimension.
-    pub vector: Vec<f32>,
+    /// Vector payload; must match the collection kind and dimension.
+    pub vector: VectorData,
     /// JSON metadata, conventionally holding `namespace` and `source`.
     #[serde(default)]
     pub payload: HashMap<String, serde_json::Value>,
 }
 
 impl VectorPoint {
-    /// Builds a point without payload.
+    /// Builds a dense point without payload.
     pub fn new(id: impl Into<String>, vector: Vec<f32>) -> Self {
+        Self {
+            id: id.into(),
+            vector: VectorData::Dense(vector),
+            payload: HashMap::new(),
+        }
+    }
+
+    /// Builds a point with an arbitrary vector payload.
+    pub fn with_data(id: impl Into<String>, vector: VectorData) -> Self {
         Self {
             id: id.into(),
             vector,
@@ -201,26 +410,14 @@ impl VectorPoint {
         self
     }
 
-    /// Validates dimension and finiteness without touching any backend.
+    /// Validates id and dense dimension/finiteness without touching a backend.
     pub fn validate(&self, expected_dim: usize) -> crate::error::Result<()> {
         if self.id.is_empty() {
             return Err(crate::error::VectorError::InvalidInput(
                 "point id must not be empty".to_string(),
             ));
         }
-        if self.vector.len() != expected_dim {
-            return Err(crate::error::VectorError::DimensionMismatch {
-                expected: expected_dim,
-                actual: self.vector.len(),
-            });
-        }
-        if self.vector.iter().any(|v| !v.is_finite()) {
-            return Err(crate::error::VectorError::InvalidInput(format!(
-                "point '{}' contains non-finite vector elements",
-                self.id
-            )));
-        }
-        Ok(())
+        self.vector.validate(VectorKind::Dense, expected_dim, None)
     }
 }
 
@@ -271,6 +468,61 @@ mod tests {
 
         let point = VectorPoint::new("a", vec![f32::NAN, 0.0]);
         assert!(point.validate(2).is_err());
+    }
+
+    #[test]
+    fn dense_vector_data_keeps_plain_array_json() {
+        let data = VectorData::dense(vec![1.0, 2.0]);
+        assert_eq!(
+            serde_json::to_value(&data).expect("serialize"),
+            serde_json::json!([1.0, 2.0])
+        );
+        let point = VectorPoint::new("a", vec![1.0, 2.0]);
+        assert_eq!(point.vector, vec![1.0, 2.0]);
+        assert_eq!(point.vector.as_dense().expect("dense"), &[1.0, 2.0]);
+    }
+
+    #[test]
+    fn vector_data_round_trips_all_kinds() {
+        for data in [
+            VectorData::dense(vec![1.0, 2.0]),
+            VectorData::sparse(vec![1, 4], vec![0.5, 0.25]),
+            VectorData::multi(vec![vec![1.0, 0.0], vec![0.0, 1.0]]),
+        ] {
+            let kind = data.kind();
+            let json = serde_json::to_string(&data).expect("serialize");
+            let decoded: VectorData = serde_json::from_str(&json).expect("decode");
+            assert_eq!(decoded, data);
+            assert_eq!(decoded.kind(), kind);
+        }
+    }
+
+    #[test]
+    fn vector_data_validation_enforces_each_shape() {
+        assert!(VectorData::dense(vec![1.0, 2.0])
+            .validate(VectorKind::Dense, 2, None)
+            .is_ok());
+        assert!(VectorData::dense(vec![1.0])
+            .validate(VectorKind::Dense, 2, None)
+            .is_err());
+        assert!(VectorData::sparse(vec![2, 2], vec![1.0, 1.0])
+            .validate(VectorKind::Sparse, 0, None)
+            .is_err());
+        assert!(VectorData::sparse(vec![2, 5], vec![1.0, 1.0])
+            .validate(VectorKind::Sparse, 0, None)
+            .is_ok());
+        assert!(VectorData::sparse(vec![1], vec![f32::NAN])
+            .validate(VectorKind::Sparse, 0, None)
+            .is_err());
+        assert!(VectorData::multi(vec![vec![1.0, 0.0], vec![0.0, 1.0]])
+            .validate(VectorKind::Multi, 2, Some(2))
+            .is_ok());
+        assert!(VectorData::multi(vec![vec![1.0, 0.0], vec![0.0, 1.0]])
+            .validate(VectorKind::Multi, 2, Some(1))
+            .is_err());
+        assert!(VectorData::dense(vec![1.0, 2.0])
+            .validate(VectorKind::Sparse, 0, None)
+            .is_err());
     }
 
     #[test]

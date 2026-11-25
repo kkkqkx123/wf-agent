@@ -16,7 +16,7 @@ use crate::error::Result;
 use crate::filter::SearchFilter;
 use crate::types::{
     DistanceMetric, HnswConfig, QuantizationConfig, QuantizationSearchParams, ScoredPoint,
-    VectorPoint,
+    VectorData, VectorKind, VectorPoint,
 };
 
 /// Collection creation parameters.
@@ -35,10 +35,21 @@ pub struct CollectionSpec {
     pub hnsw: Option<HnswConfig>,
     /// Optional payload disk spill; unset keeps the backend default.
     pub on_disk_payload: Option<bool>,
+    /// Retrieval kind of the collection; unset defaults to dense.
+    pub kind: VectorKind,
+    /// Upper bound of sparse vector indices; unset keeps the backend default.
+    pub sparse_max_index: Option<u32>,
+    /// Upper bound of sub-vectors per multi-vector point; unset keeps the
+    /// backend default.
+    pub multi_max_vectors: Option<usize>,
+    /// Optional vector slot name used by backends that require named vectors
+    /// (for example Qdrant sparse and named vectors). Unset keeps the backend
+    /// default unnamed slot.
+    pub vector_name: Option<String>,
 }
 
 impl CollectionSpec {
-    /// Builds a cosine collection spec.
+    /// Builds a dense cosine collection spec.
     pub fn new(name: impl Into<String>, dimension: usize) -> Self {
         Self {
             name: name.into(),
@@ -47,7 +58,35 @@ impl CollectionSpec {
             quantization: None,
             hnsw: None,
             on_disk_payload: None,
+            kind: VectorKind::Dense,
+            sparse_max_index: None,
+            multi_max_vectors: None,
+            vector_name: None,
         }
+    }
+
+    /// Declares the retrieval kind of the collection.
+    pub fn with_kind(mut self, kind: VectorKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// Sets the sparse index upper bound.
+    pub fn with_sparse_max_index(mut self, max_index: u32) -> Self {
+        self.sparse_max_index = Some(max_index);
+        self
+    }
+
+    /// Sets the per-point sub-vector upper bound for multi vectors.
+    pub fn with_multi_max_vectors(mut self, max_vectors: usize) -> Self {
+        self.multi_max_vectors = Some(max_vectors);
+        self
+    }
+
+    /// Sets the vector slot name for named-vector backends.
+    pub fn with_vector_name(mut self, name: impl Into<String>) -> Self {
+        self.vector_name = Some(name.into());
+        self
     }
 
     /// Overrides the distance function.
@@ -75,18 +114,19 @@ impl CollectionSpec {
     }
 }
 
-/// Dense search query: a vector plus result shaping.
+/// Search query: a kind-shaped vector payload plus result shaping.
 ///
 /// `exact` and `hnsw_ef` are optional recall tuning: unset keeps the
 /// default exact behavior on every backend. Memory keeps exact scan and
 /// only validates the values; simvec and Qdrant forward them as search
 /// params. A zero `hnsw_ef` is invalid input on every backend. Quantized
 /// controls are validated everywhere and honored by backends with a
-/// quantized path.
+/// quantized path. Recall controls only apply to dense collections and
+/// are rejected on other kinds.
 #[derive(Debug, Clone)]
 pub struct VectorQuery {
-    /// Query embedding; must match the collection dimension.
-    pub vector: Vec<f32>,
+    /// Query payload; must match the collection kind and dimension.
+    pub vector: VectorData,
     /// Maximum hits to return.
     pub limit: usize,
     /// Optional lower bound; hits below it are dropped.
@@ -102,8 +142,13 @@ pub struct VectorQuery {
 }
 
 impl VectorQuery {
-    /// Builds a query returning at most `limit` hits.
+    /// Builds a dense query returning at most `limit` hits.
     pub fn new(vector: Vec<f32>, limit: usize) -> Self {
+        Self::with_data(VectorData::Dense(vector), limit)
+    }
+
+    /// Builds a query with an arbitrary vector payload.
+    pub fn with_data(vector: VectorData, limit: usize) -> Self {
         Self {
             vector,
             limit: limit.max(1),
@@ -201,6 +246,13 @@ pub struct ScrollPage {
 pub trait VectorStorage: Send + Sync {
     /// Backend name for logging and diagnostics.
     fn backend_name(&self) -> &'static str;
+
+    /// Retrieval kinds this backend actually supports. Callers should check
+    /// this before creating a non-dense collection; a backend that does not
+    /// list a kind must reject it with `VectorError::Unsupported`.
+    fn supported_kinds(&self) -> Vec<VectorKind> {
+        vec![VectorKind::Dense]
+    }
 
     /// Ensures the collection exists with the given dimension and metric.
     /// Returns true when the collection was created; existing collections

@@ -14,11 +14,11 @@ use parking_lot::RwLock;
 use crate::error::{Result, VectorError};
 use crate::filter::SearchFilter;
 use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
-use crate::types::{DistanceMetric, ScoredPoint, VectorPoint};
+use crate::types::{DistanceMetric, ScoredPoint, VectorData, VectorKind, VectorPoint};
 
 #[derive(Debug, Clone)]
 struct StoredPoint {
-    vector: Vec<f32>,
+    vector: VectorData,
     payload: HashMap<String, serde_json::Value>,
 }
 
@@ -29,7 +29,15 @@ struct CollectionData {
     quantization: Option<crate::types::QuantizationConfig>,
     hnsw: Option<crate::types::HnswConfig>,
     on_disk_payload: Option<bool>,
+    kind: VectorKind,
+    sparse_max_index: Option<u32>,
+    multi_max_vectors: Option<usize>,
+    vector_name: Option<String>,
     points: HashMap<String, StoredPoint>,
+}
+
+fn spec_sparse_max(data: &CollectionData) -> Option<u32> {
+    data.sparse_max_index
 }
 
 fn validate_quantization(
@@ -147,19 +155,33 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     dot(a, b) / norms
 }
 
-fn validate_query_vector(vector: &[f32], expected: usize) -> Result<()> {
-    if vector.len() != expected {
-        return Err(VectorError::DimensionMismatch {
-            expected,
-            actual: vector.len(),
-        });
+fn sparse_dot(a: &[u32], a_values: &[f32], b: &[u32], b_values: &[f32]) -> f32 {
+    let mut score = 0.0f32;
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                score += a_values[i] * b_values[j];
+                i += 1;
+                j += 1;
+            }
+        }
     }
-    if vector.iter().any(|v| !v.is_finite()) {
-        return Err(VectorError::InvalidInput(
-            "query vector contains non-finite elements".to_string(),
-        ));
-    }
-    Ok(())
+    score
+}
+
+fn max_sim(distance: DistanceMetric, query: &[Vec<f32>], point: &[Vec<f32>]) -> f32 {
+    query
+        .iter()
+        .map(|q| {
+            point
+                .iter()
+                .map(|p| InMemoryVectorStore::similarity(distance, q, p))
+                .fold(f32::NEG_INFINITY, f32::max)
+        })
+        .sum()
 }
 
 #[async_trait]
@@ -168,21 +190,54 @@ impl VectorStorage for InMemoryVectorStore {
         "memory"
     }
 
+    fn supported_kinds(&self) -> Vec<VectorKind> {
+        vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
+    }
+
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
         if spec.name.is_empty() {
             return Err(VectorError::InvalidInput(
                 "collection name must not be empty".to_string(),
             ));
         }
-        if spec.dimension == 0 {
+        if spec.dimension == 0 && spec.kind != VectorKind::Sparse {
             return Err(VectorError::InvalidInput(
                 "collection dimension must be positive".to_string(),
             ));
         }
         validate_quantization(spec.quantization.as_ref(), spec.dimension)?;
         validate_hnsw(spec.hnsw.as_ref())?;
+        if !self.supported_kinds().contains(&spec.kind) {
+            return Err(VectorError::unsupported(
+                self.backend_name(),
+                spec.kind.as_name(),
+            ));
+        }
+        if spec.kind != VectorKind::Dense && (spec.quantization.is_some() || spec.hnsw.is_some()) {
+            return Err(VectorError::InvalidInput(format!(
+                "{} vectors do not accept quantization or hnsw settings",
+                spec.kind.as_name()
+            )));
+        }
         let mut collections = self.collections.write();
         if let Some(existing) = collections.get(&spec.name) {
+            if existing.kind != spec.kind {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' is {} but {} was requested",
+                    spec.name,
+                    existing.kind.as_name(),
+                    spec.kind.as_name()
+                )));
+            }
+            if existing.multi_max_vectors != spec.multi_max_vectors
+                || existing.sparse_max_index != spec.sparse_max_index
+                || existing.vector_name != spec.vector_name
+            {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses different kind limits, recreate it",
+                    spec.name
+                )));
+            }
             if existing.dimension != spec.dimension {
                 return Err(VectorError::DimensionMismatch {
                     expected: existing.dimension,
@@ -223,6 +278,10 @@ impl VectorStorage for InMemoryVectorStore {
                 quantization: spec.quantization.clone(),
                 hnsw: spec.hnsw,
                 on_disk_payload: spec.on_disk_payload,
+                kind: spec.kind,
+                sparse_max_index: spec.sparse_max_index,
+                multi_max_vectors: spec.multi_max_vectors,
+                vector_name: spec.vector_name.clone(),
                 points: HashMap::new(),
             },
         );
@@ -243,7 +302,23 @@ impl VectorStorage for InMemoryVectorStore {
             .get_mut(collection)
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
         for point in points {
-            point.validate(data.dimension)?;
+            if point.id.is_empty() {
+                return Err(VectorError::InvalidInput(
+                    "point id must not be empty".to_string(),
+                ));
+            }
+            point
+                .vector
+                .validate(data.kind, data.dimension, data.multi_max_vectors)?;
+            if let VectorData::Sparse { indices, .. } = &point.vector {
+                if let Some(max) = spec_sparse_max(data) {
+                    if indices.last().is_some_and(|last| *last > max) {
+                        return Err(VectorError::InvalidInput(format!(
+                            "sparse index exceeds collection limit {max}"
+                        )));
+                    }
+                }
+            }
             data.points.insert(
                 point.id.clone(),
                 StoredPoint {
@@ -261,7 +336,28 @@ impl VectorStorage for InMemoryVectorStore {
             .get(collection)
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
         validate_search_quantization(query)?;
-        validate_query_vector(&query.vector, data.dimension)?;
+        query
+            .vector
+            .validate(data.kind, data.dimension, data.multi_max_vectors)?;
+        let score_point = |stored: &StoredPoint| -> f32 {
+            match (&query.vector, &stored.vector) {
+                (VectorData::Dense(q), VectorData::Dense(p)) => {
+                    Self::similarity(data.distance, q, p)
+                }
+                (
+                    VectorData::Sparse {
+                        indices: qi,
+                        values: qv,
+                    },
+                    VectorData::Sparse {
+                        indices: pi,
+                        values: pv,
+                    },
+                ) => sparse_dot(qi, qv, pi, pv),
+                (VectorData::Multi(q), VectorData::Multi(p)) => max_sim(data.distance, q, p),
+                _ => 0.0,
+            }
+        };
         let mut hits: Vec<ScoredPoint> = data
             .points
             .iter()
@@ -273,7 +369,7 @@ impl VectorStorage for InMemoryVectorStore {
             })
             .map(|(id, stored)| ScoredPoint {
                 id: id.clone(),
-                score: Self::similarity(data.distance, &query.vector, &stored.vector),
+                score: score_point(stored),
                 payload: stored.payload.clone(),
             })
             .filter(|hit| {
@@ -784,6 +880,97 @@ mod tests {
         assert_eq!(plain, tuned);
         let bad = store
             .search("kb", &VectorQuery::new(vec![1.0, 0.0], 10).with_hnsw_ef(0))
+            .await;
+        assert!(matches!(bad, Err(VectorError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn capability_lists_all_three_kinds() {
+        let store = InMemoryVectorStore::new();
+        assert_eq!(
+            store.supported_kinds(),
+            vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
+        );
+    }
+
+    #[tokio::test]
+    async fn sparse_search_scores_matching_terms() {
+        let store = InMemoryVectorStore::new();
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 0).with_kind(VectorKind::Sparse))
+            .await
+            .expect("ensure sparse collection");
+        store
+            .upsert(
+                "kb",
+                &[VectorPoint::with_data(
+                    "a",
+                    VectorData::sparse(vec![1, 4, 9], vec![1.0, 2.0, 0.5]),
+                )],
+            )
+            .await
+            .expect("upsert sparse");
+        let hits = store
+            .search(
+                "kb",
+                &VectorQuery::with_data(VectorData::sparse(vec![4, 7], vec![0.5, 3.0]), 5),
+            )
+            .await
+            .expect("sparse search");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "a");
+        assert!((hits[0].score - 1.0).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn multi_search_uses_max_sim() {
+        let store = InMemoryVectorStore::new();
+        store
+            .ensure_collection(
+                &CollectionSpec::new("kb", 2)
+                    .with_distance(DistanceMetric::Dot)
+                    .with_kind(VectorKind::Multi)
+                    .with_multi_max_vectors(4),
+            )
+            .await
+            .expect("ensure multi collection");
+        store
+            .upsert(
+                "kb",
+                &[VectorPoint::with_data(
+                    "a",
+                    VectorData::multi(vec![vec![1.0, 0.0], vec![0.0, 1.0]]),
+                )],
+            )
+            .await
+            .expect("upsert multi");
+        let hits = store
+            .search(
+                "kb",
+                &VectorQuery::with_data(VectorData::multi(vec![vec![1.0, 0.0], vec![0.2, 0.8]]), 5),
+            )
+            .await
+            .expect("multi search");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "a");
+        assert!((hits[0].score - 1.8).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn kind_mismatch_is_rejected() {
+        let store = InMemoryVectorStore::new();
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 2))
+            .await
+            .expect("ensure dense collection");
+        let bad = store
+            .upsert(
+                "kb",
+                &[VectorPoint::with_data(
+                    "a",
+                    VectorData::sparse(vec![1], vec![1.0]),
+                )],
+            )
             .await;
         assert!(matches!(bad, Err(VectorError::InvalidInput(_))));
     }

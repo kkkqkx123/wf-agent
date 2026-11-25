@@ -36,7 +36,10 @@ use crate::error::{diagnostic_body, Result, VectorError};
 use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
 use crate::memory::InMemoryVectorStore;
 use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
-use crate::types::{DistanceMetric, ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
+use crate::types::{
+    DistanceMetric, ScoredPoint, VectorData, VectorKind, VectorPoint, NAMESPACE_KEY, PID_KEY,
+    SOURCE_KEY,
+};
 
 /// Payload index fields ensured after every collection creation.
 const INDEXED_FIELDS: [&str; 3] = [NAMESPACE_KEY, SOURCE_KEY, PID_KEY];
@@ -124,10 +127,12 @@ impl QdrantConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct CachedCollection {
     dimension: usize,
     distance: DistanceMetric,
+    kind: VectorKind,
+    vector_name: Option<String>,
 }
 
 /// Remote Qdrant backend.
@@ -196,6 +201,7 @@ impl QdrantVectorStore {
     }
 
     /// Parses the `vectors` section of a collection description into size and distance.
+    #[cfg(test)]
     fn parse_collection_vectors(vectors: &serde_json::Value) -> Result<(usize, DistanceMetric)> {
         if let Some(size) = vectors.get("size").and_then(|v| v.as_u64()) {
             let distance = vectors
@@ -220,17 +226,102 @@ impl QdrantVectorStore {
         ))
     }
 
-    fn parse_collection_info(body: &str) -> Result<(usize, DistanceMetric)> {
+    fn parse_collection_info(
+        body: &str,
+    ) -> Result<(usize, DistanceMetric, VectorKind, Option<String>)> {
         let parsed: serde_json::Value =
             serde_json::from_str(body).map_err(|err| VectorError::Decode(err.to_string()))?;
+        let params = parsed
+            .pointer("/result/config/params")
+            .or_else(|| parsed.pointer("/result/config"))
+            .or_else(|| parsed.pointer("/result"));
         let vectors = parsed
             .pointer("/result/config/params/vectors")
             .or_else(|| parsed.pointer("/result/vectors"))
-            .or_else(|| parsed.pointer("/result/config/vectors"))
-            .ok_or_else(|| {
-                VectorError::Decode("qdrant collection response has no vectors".to_string())
-            })?;
-        Self::parse_collection_vectors(vectors)
+            .or_else(|| parsed.pointer("/result/config/vectors"));
+        let sparse = parsed
+            .pointer("/result/config/params/sparse_vectors")
+            .or_else(|| parsed.pointer("/result/sparse_vectors"))
+            .or_else(|| parsed.pointer("/result/config/sparse_vectors"));
+        if sparse.is_some() && vectors.is_none() {
+            let name = sparse
+                .and_then(|v| v.as_object())
+                .and_then(|map| map.keys().next().cloned())
+                .unwrap_or_default();
+            return Ok((0, DistanceMetric::Cosine, VectorKind::Sparse, Some(name)));
+        }
+        let vectors = vectors.ok_or_else(|| {
+            VectorError::Decode("qdrant collection response has no vectors".to_string())
+        })?;
+        let (dimension, distance, kind, name) = Self::parse_vector_config(vectors);
+        let _ = params;
+        Ok((dimension, distance, kind, name))
+    }
+
+    /// Parses a dense or multi vector config into size, distance, kind and
+    /// the named slot when the config is a name-to-params map.
+    fn parse_vector_config(
+        vectors: &serde_json::Value,
+    ) -> (usize, DistanceMetric, VectorKind, Option<String>) {
+        if vectors.get("size").is_some() {
+            let dimension = vectors.get("size").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let distance = vectors
+                .get("distance")
+                .and_then(|v| v.as_str())
+                .and_then(|name| Self::parse_distance(name).ok())
+                .unwrap_or(DistanceMetric::Cosine);
+            let kind = if vectors.get("multivector_config").is_some() {
+                VectorKind::Multi
+            } else {
+                VectorKind::Dense
+            };
+            return (dimension, distance, kind, None);
+        }
+        if let Some(map) = vectors.as_object() {
+            let (name, candidate) = map
+                .get("default")
+                .map(|value| ("default".to_string(), value))
+                .or_else(|| map.iter().next().map(|(key, value)| (key.clone(), value)))
+                .unwrap_or_default();
+            let (dimension, distance, kind, _) = Self::parse_vector_config(candidate);
+            return (dimension, distance, kind, Some(name));
+        }
+        (0, DistanceMetric::Cosine, VectorKind::Dense, None)
+    }
+
+    /// Converts a contracts vector payload into the `vector` field of a
+    /// Qdrant point. Dense keeps the bare array; sparse and multi vectors
+    /// are wrapped by the declared slot name when one is configured.
+    fn point_vector_body(data: &VectorData, name: Option<&str>) -> serde_json::Value {
+        match data {
+            VectorData::Dense(vector) => match name {
+                Some(name) => json!({name: vector}),
+                None => json!(vector),
+            },
+            VectorData::Sparse { indices, values } => {
+                let sparse = json!({"indices": indices, "values": values});
+                match name {
+                    Some(name) => json!({name: sparse}),
+                    None => json!({"sparse": sparse}),
+                }
+            }
+            VectorData::Multi(vectors) => match name {
+                Some(name) => json!({name: vectors}),
+                None => json!(vectors),
+            },
+        }
+    }
+
+    /// Converts a contracts query payload into the `query` field of a Qdrant
+    /// query request and the optional `using` slot name.
+    fn query_body(data: &VectorData) -> (serde_json::Value, Option<String>) {
+        match data {
+            VectorData::Dense(vector) => (json!(vector), None),
+            VectorData::Sparse { indices, values } => {
+                (json!({"indices": indices, "values": values}), None)
+            }
+            VectorData::Multi(vectors) => (json!(vectors), None),
+        }
     }
 
     /// Builds the Qdrant filter object for a contracts filter.
@@ -490,8 +581,17 @@ impl QdrantVectorStore {
     fn exact_hits(
         points: Vec<VectorPoint>,
         query: &VectorQuery,
-        info: CachedCollection,
+        info: &CachedCollection,
     ) -> Result<Vec<ScoredPoint>> {
+        let query_vector = match &query.vector {
+            VectorData::Dense(vector) => vector.as_slice(),
+            other => {
+                return Err(VectorError::unsupported(
+                    "qdrant exact filter rescore",
+                    other.kind().as_name(),
+                ))
+            }
+        };
         let mut hits = Vec::with_capacity(points.len());
         for point in points {
             if query
@@ -501,14 +601,22 @@ impl QdrantVectorStore {
             {
                 continue;
             }
-            if point.vector.len() != info.dimension {
+            let point_vector = match &point.vector {
+                VectorData::Dense(vector) => vector.as_slice(),
+                other => {
+                    return Err(VectorError::unsupported(
+                        "qdrant exact filter rescore",
+                        other.kind().as_name(),
+                    ))
+                }
+            };
+            if point_vector.len() != info.dimension {
                 return Err(VectorError::DimensionMismatch {
                     expected: info.dimension,
-                    actual: point.vector.len(),
+                    actual: point_vector.len(),
                 });
             }
-            let score =
-                InMemoryVectorStore::similarity(info.distance, &query.vector, &point.vector);
+            let score = InMemoryVectorStore::similarity(info.distance, query_vector, point_vector);
             if query
                 .score_threshold
                 .is_some_and(|threshold| score < threshold)
@@ -544,7 +652,7 @@ impl QdrantVectorStore {
                 scroll_query = scroll_query.with_offset(cursor.clone());
             }
             let page = self.scroll(collection, &scroll_query).await?;
-            hits.extend(Self::exact_hits(page.points, query, info)?);
+            hits.extend(Self::exact_hits(page.points, query, &info)?);
             match page.next_offset {
                 Some(next) => offset = Some(next),
                 None => break,
@@ -593,15 +701,20 @@ impl QdrantVectorStore {
         serde_json::Value::Object(body)
     }
 
-    /// Builds the REST request body for a dense query, including the
-    /// optional recall-tuning params.
-    fn search_body(query: &VectorQuery) -> Result<serde_json::Value> {
+    /// Builds the REST request body for a query, including the optional
+    /// recall-tuning params. Dense queries keep the exact legacy shape.
+    fn search_body(query: &VectorQuery, using: Option<&str>) -> Result<serde_json::Value> {
         Self::validate_search_params(query)?;
+        let (vector, inferred_name) = Self::query_body(&query.vector);
         let mut body = json!({
-            "query": query.vector,
+            "query": vector,
             "limit": query.limit,
             "with_payload": true,
         });
+        let slot = using.or(inferred_name.as_deref());
+        if let Some(name) = slot {
+            body["using"] = json!(name);
+        }
         if let Some(threshold) = query.score_threshold {
             body["score_threshold"] = json!(threshold);
         }
@@ -657,7 +770,7 @@ impl QdrantVectorStore {
                     "qdrant point '{pid}' has no vector"
                 )));
             };
-            let vector = Self::parse_vector(vector_value)?;
+            let vector = Self::parse_vector_data(vector_value)?;
             points.push(VectorPoint {
                 id: pid.to_string(),
                 vector,
@@ -707,6 +820,48 @@ impl QdrantVectorStore {
         Err(VectorError::Decode(
             "qdrant point has no vector".to_string(),
         ))
+    }
+
+    /// Parses a point's `vector` field into a kind-shaped payload. Sparse
+    /// objects are preserved as index/value pairs; nested arrays become
+    /// multi vectors; everything else falls back to a dense vector.
+    fn parse_vector_data(value: &serde_json::Value) -> Result<VectorData> {
+        let candidate = if let Some(map) = value.as_object() {
+            if map.contains_key("indices") && map.contains_key("values") {
+                let indices = map
+                    .get("indices")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| {
+                        VectorError::Decode("qdrant sparse indices invalid".to_string())
+                    })?
+                    .iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u32))
+                    .collect();
+                let values = map
+                    .get("values")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| VectorError::Decode("qdrant sparse values invalid".to_string()))?
+                    .iter()
+                    .filter_map(|v| v.as_f64().map(|n| n as f32))
+                    .collect();
+                return Ok(VectorData::Sparse { indices, values });
+            }
+            map.get("default")
+                .or_else(|| map.values().next())
+                .unwrap_or(value)
+        } else {
+            value
+        };
+        if let Some(array) = candidate.as_array() {
+            if array.first().is_some_and(|v| v.is_array()) {
+                let mut vectors = Vec::with_capacity(array.len());
+                for item in array {
+                    vectors.push(Self::parse_vector(item)?);
+                }
+                return Ok(VectorData::Multi(vectors));
+            }
+        }
+        Ok(VectorData::Dense(Self::parse_vector(candidate)?))
     }
 
     /// Normalizes Euclid scores to the contracts convention (higher is
@@ -883,15 +1038,24 @@ impl QdrantVectorStore {
     }
 
     fn cached(&self, collection: &str) -> Option<CachedCollection> {
-        self.collections.read().get(collection).copied()
+        self.collections.read().get(collection).cloned()
     }
 
-    fn remember(&self, collection: &str, dimension: usize, distance: DistanceMetric) {
+    fn remember(
+        &self,
+        collection: &str,
+        dimension: usize,
+        distance: DistanceMetric,
+        kind: VectorKind,
+        vector_name: Option<String>,
+    ) {
         self.collections.write().insert(
             collection.to_string(),
             CachedCollection {
                 dimension,
                 distance,
+                kind,
+                vector_name,
             },
         );
     }
@@ -909,11 +1073,13 @@ impl QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, collection)?;
-        let (dimension, distance) = Self::parse_collection_info(&body)?;
-        self.remember(collection, dimension, distance);
+        let (dimension, distance, kind, vector_name) = Self::parse_collection_info(&body)?;
+        self.remember(collection, dimension, distance, kind, vector_name.clone());
         Ok(CachedCollection {
             dimension,
             distance,
+            kind,
+            vector_name,
         })
     }
 
@@ -1028,22 +1194,50 @@ impl QdrantVectorStore {
     }
 
     fn collection_create_body(spec: &CollectionSpec) -> serde_json::Value {
-        let mut body = json!({
-            "vectors": {
-                "size": spec.dimension,
-                "distance": Self::distance_name(spec.distance),
+        let mut body = serde_json::Map::new();
+        match spec.kind {
+            VectorKind::Dense | VectorKind::Multi => {
+                let mut vector = serde_json::Map::new();
+                vector.insert("size".to_string(), json!(spec.dimension));
+                vector.insert(
+                    "distance".to_string(),
+                    json!(Self::distance_name(spec.distance)),
+                );
+                if spec.kind == VectorKind::Multi {
+                    vector.insert(
+                        "multivector_config".to_string(),
+                        json!({"comparator": "max_sim"}),
+                    );
+                }
+                let vectors = match &spec.vector_name {
+                    Some(name) => json!({name: vector}),
+                    None => serde_json::Value::Object(vector),
+                };
+                body.insert("vectors".to_string(), vectors);
             }
-        });
+            VectorKind::Sparse => {
+                let name = spec.vector_name.as_deref().unwrap_or("sparse");
+                body.insert(
+                    "sparse_vectors".to_string(),
+                    json!({name: {"modifier": "idf"}}),
+                );
+            }
+        }
         if let Some(hnsw) = &spec.hnsw {
-            body["hnsw_config"] = Self::collection_hnsw_body(hnsw);
+            body.insert("hnsw_config".to_string(), Self::collection_hnsw_body(hnsw));
+        } else if spec.kind == VectorKind::Multi {
+            body.insert("hnsw_config".to_string(), json!({"m": 0}));
         }
         if let Some(quantization) = &spec.quantization {
-            body["quantization_config"] = Self::collection_quantization_body(quantization);
+            body.insert(
+                "quantization_config".to_string(),
+                Self::collection_quantization_body(quantization),
+            );
         }
         if let Some(on_disk_payload) = spec.on_disk_payload {
-            body["on_disk_payload"] = json!(on_disk_payload);
+            body.insert("on_disk_payload".to_string(), json!(on_disk_payload));
         }
-        body
+        serde_json::Value::Object(body)
     }
 
     /// Validates a payload-update target id shared by the three payload ops.
@@ -1165,6 +1359,29 @@ impl QdrantVectorStore {
         }
         Ok(compatible)
     }
+
+    /// Checks whether the server version supports a retrieval kind. Sparse
+    /// needs 1.7 and multi vectors need 1.10; dense is always supported.
+    /// The probe is explicit so callers can fail fast before creating a
+    /// collection the server cannot serve.
+    pub async fn check_kind_support(&self, kind: VectorKind) -> Result<bool> {
+        let minimum = match kind {
+            VectorKind::Dense => return Ok(true),
+            VectorKind::Sparse => (1, 7),
+            VectorKind::Multi => (1, 10),
+        };
+        let server = self.version().await?;
+        let mut parts = server.split('.');
+        let major = parts
+            .next()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let minor = parts
+            .next()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        Ok((major, minor) >= minimum)
+    }
 }
 
 #[async_trait]
@@ -1173,15 +1390,37 @@ impl VectorStorage for QdrantVectorStore {
         "qdrant"
     }
 
+    fn supported_kinds(&self) -> Vec<VectorKind> {
+        vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
+    }
+
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
         let started = Instant::now();
         tracing::debug!(backend = "qdrant", collection = %spec.name, dimension = spec.dimension, "qdrant ensure collection");
+        if !self.supported_kinds().contains(&spec.kind) {
+            return Err(VectorError::unsupported(
+                self.backend_name(),
+                spec.kind.as_name(),
+            ));
+        }
+        if spec.kind != VectorKind::Dense && (spec.quantization.is_some() || spec.hnsw.is_some()) {
+            return Err(VectorError::InvalidInput(format!(
+                "{} vectors do not accept quantization or hnsw settings",
+                spec.kind.as_name()
+            )));
+        }
+        if !self.check_kind_support(spec.kind).await? {
+            return Err(VectorError::unsupported(
+                self.backend_name(),
+                spec.kind.as_name(),
+            ));
+        }
         if spec.name.is_empty() {
             return Err(VectorError::InvalidInput(
                 "collection name must not be empty".to_string(),
             ));
         }
-        if spec.dimension == 0 {
+        if spec.dimension == 0 && spec.kind != VectorKind::Sparse {
             return Err(VectorError::InvalidInput(
                 "collection dimension must be positive".to_string(),
             ));
@@ -1195,20 +1434,29 @@ impl VectorStorage for QdrantVectorStore {
             .await?;
         if response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            let (dimension, distance) = Self::parse_collection_info(&body)?;
-            if dimension != spec.dimension {
+            let (dimension, distance, kind, name) = Self::parse_collection_info(&body)?;
+            if dimension != spec.dimension && spec.kind != VectorKind::Sparse {
                 return Err(VectorError::DimensionMismatch {
                     expected: dimension,
                     actual: spec.dimension,
                 });
             }
-            if distance != spec.distance {
+            if distance != spec.distance && spec.kind != VectorKind::Sparse {
                 return Err(VectorError::InvalidInput(format!(
                     "collection '{}' uses {:?} distance, requested {:?}",
                     spec.name, distance, spec.distance
                 )));
             }
-            self.remember(&spec.name, dimension, distance);
+            if kind != spec.kind {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' is {} but {} was requested",
+                    spec.name,
+                    kind.as_name(),
+                    spec.kind.as_name()
+                )));
+            }
+            let remembered_name = spec.vector_name.clone().or(name);
+            self.remember(&spec.name, dimension, distance, kind, remembered_name);
             self.ensure_payload_indexes(&spec.name).await;
             tracing::debug!(backend = "qdrant",
                 collection = %spec.name,
@@ -1236,7 +1484,13 @@ impl VectorStorage for QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, &spec.name)?;
-        self.remember(&spec.name, spec.dimension, spec.distance);
+        self.remember(
+            &spec.name,
+            spec.dimension,
+            spec.distance,
+            spec.kind,
+            spec.vector_name.clone(),
+        );
         self.ensure_payload_indexes(&spec.name).await;
         tracing::debug!(backend = "qdrant",
             collection = %spec.name,
@@ -1281,25 +1535,23 @@ impl VectorStorage for QdrantVectorStore {
                     "point id must not be empty".to_string(),
                 ));
             }
-            if point.vector.iter().any(|v| !v.is_finite()) {
-                return Err(VectorError::InvalidInput(format!(
-                    "point '{}' contains non-finite vector elements",
-                    point.id
-                )));
-            }
         }
         if points.is_empty() {
             return Ok(());
         }
         let info = self.collection_config(collection).await?;
         for point in points {
-            if point.vector.len() != info.dimension {
-                return Err(VectorError::DimensionMismatch {
-                    expected: info.dimension,
-                    actual: point.vector.len(),
-                });
-            }
+            point
+                .vector
+                .validate(info.kind, info.dimension, None)
+                .map_err(|err| match err {
+                    VectorError::InvalidInput(message) => {
+                        VectorError::InvalidInput(format!("point '{}': {}", point.id, message))
+                    }
+                    other => other,
+                })?;
         }
+        let vector_name = info.vector_name.as_deref();
         let batch = self.batch_size();
         for chunk in points.chunks(batch) {
             let payload: Vec<serde_json::Value> = chunk
@@ -1309,7 +1561,7 @@ impl VectorStorage for QdrantVectorStore {
                     fields.insert(PID_KEY.to_string(), json!(point.id));
                     json!({
                         "id": Self::native_id(&point.id),
-                        "vector": point.vector,
+                        "vector": Self::point_vector_body(&point.vector, vector_name),
                         "payload": fields,
                     })
                 })
@@ -1347,26 +1599,31 @@ impl VectorStorage for QdrantVectorStore {
     async fn search(&self, collection: &str, query: &VectorQuery) -> Result<Vec<ScoredPoint>> {
         let started = Instant::now();
         tracing::debug!(backend = "qdrant", collection = %collection, limit = query.limit, "qdrant search");
-        if query.vector.iter().any(|v| !v.is_finite()) {
-            return Err(VectorError::InvalidInput(
-                "query vector contains non-finite elements".to_string(),
-            ));
-        }
         let info = self.collection_config(collection).await.ok();
-        if let Some(info) = info {
-            if query.vector.len() != info.dimension {
-                return Err(VectorError::DimensionMismatch {
-                    expected: info.dimension,
-                    actual: query.vector.len(),
-                });
-            }
+        if let Some(info) = &info {
+            query
+                .vector
+                .validate(info.kind, info.dimension, None)
+                .map_err(|err| match err {
+                    VectorError::InvalidInput(message) => VectorError::InvalidInput(message),
+                    other => other,
+                })?;
         }
+        let using = info.as_ref().and_then(|info| {
+            info.vector_name.clone().or_else(|| {
+                if info.kind == VectorKind::Sparse {
+                    Some("sparse".to_string())
+                } else {
+                    None
+                }
+            })
+        });
         if Self::filter_needs_exact_match(query.filter.as_ref()) {
             let info =
                 info.ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
             return self.search_exact(collection, query, info).await;
         }
-        let body = Self::search_body(query)?;
+        let body = Self::search_body(query, using.as_deref())?;
         let response = self
             .send_read(|| {
                 self.client
@@ -1480,7 +1737,7 @@ impl VectorStorage for QdrantVectorStore {
                     "qdrant point '{pid}' has no vector"
                 )));
             };
-            let vector = Self::parse_vector(vector_value)?;
+            let vector = Self::parse_vector_data(vector_value)?;
             let payload = point
                 .get("payload")
                 .and_then(|value| value.as_object())
@@ -1996,12 +2253,14 @@ mod tests {
 
     #[test]
     fn search_body_carries_optional_recall_params() {
-        let plain = QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5)).expect("body");
+        let plain =
+            QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5), None).expect("body");
         assert!(plain.get("params").is_none());
         let tuned = QdrantVectorStore::search_body(
             &VectorQuery::new(vec![1.0], 5)
                 .with_exact(true)
                 .with_hnsw_ef(64),
+            None,
         )
         .expect("body");
         let params = tuned.get("params").expect("params");
@@ -2013,8 +2272,75 @@ mod tests {
             params.get("hnsw_ef").and_then(|value| value.as_u64()),
             Some(64)
         );
-        let bad = QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5).with_hnsw_ef(0));
+        let bad =
+            QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5).with_hnsw_ef(0), None);
         assert!(matches!(bad, Err(VectorError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn capability_lists_three_kinds() {
+        let store = QdrantVectorStore::new(QdrantConfig::new("http://127.0.0.1:6333"))
+            .expect("client builds");
+        assert_eq!(
+            store.supported_kinds(),
+            vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
+        );
+    }
+
+    #[test]
+    fn collection_create_body_shapes_each_kind() {
+        let dense = QdrantVectorStore::collection_create_body(&CollectionSpec::new("d", 3));
+        assert_eq!(dense["vectors"]["size"], 3);
+        assert!(dense.get("sparse_vectors").is_none());
+
+        let sparse = QdrantVectorStore::collection_create_body(
+            &CollectionSpec::new("s", 0).with_kind(VectorKind::Sparse),
+        );
+        assert_eq!(sparse["sparse_vectors"]["sparse"]["modifier"], "idf");
+        assert!(sparse.get("vectors").is_none());
+
+        let multi = QdrantVectorStore::collection_create_body(
+            &CollectionSpec::new("m", 4).with_kind(VectorKind::Multi),
+        );
+        assert_eq!(
+            multi["vectors"]["multivector_config"]["comparator"],
+            "max_sim"
+        );
+        assert_eq!(multi["hnsw_config"]["m"], 0);
+
+        let named = QdrantVectorStore::collection_create_body(
+            &CollectionSpec::new("n", 3).with_vector_name("title"),
+        );
+        assert_eq!(named["vectors"]["title"]["size"], 3);
+    }
+
+    #[test]
+    fn point_and_query_bodies_wrap_non_dense_vectors() {
+        let sparse = VectorData::sparse(vec![1, 4], vec![0.5, 0.25]);
+        let body = QdrantVectorStore::point_vector_body(&sparse, Some("text"));
+        assert_eq!(body["text"]["indices"], serde_json::json!([1, 4]));
+        assert_eq!(body["text"]["values"], serde_json::json!([0.5, 0.25]));
+
+        let multi = VectorData::multi(vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
+        let body = QdrantVectorStore::point_vector_body(&multi, None);
+        assert_eq!(body, serde_json::json!([[1.0, 0.0], [0.0, 1.0]]));
+
+        let query = VectorQuery::with_data(VectorData::sparse(vec![1], vec![0.5]), 5);
+        let body = QdrantVectorStore::search_body(&query, Some("text")).expect("body");
+        assert_eq!(body["using"], "text");
+        assert_eq!(body["query"]["indices"], serde_json::json!([1]));
+
+        let dense =
+            QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5), None).expect("body");
+        assert!(dense.get("using").is_none());
+        assert_eq!(dense["query"], serde_json::json!([1.0]));
+    }
+
+    #[test]
+    fn version_compatibility_rule_holds() {
+        assert!(QdrantVectorStore::is_compatible_version("1.10.0", "1.10.1"));
+        assert!(QdrantVectorStore::is_compatible_version("1.9.0", "1.10.0"));
+        assert!(!QdrantVectorStore::is_compatible_version("1.8.0", "1.10.0"));
     }
 
     #[test]
@@ -2170,7 +2496,7 @@ mod tests {
             .expect("ensure");
         let point = VectorPoint {
             id: "doc.md#0".to_string(),
-            vector: vec![1.0, 0.0, 0.0],
+            vector: vec![1.0, 0.0, 0.0].into(),
             payload: HashMap::from([
                 (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
                 (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
@@ -2202,7 +2528,7 @@ mod tests {
                 &collection,
                 &[VectorPoint {
                     id: "doc.md#9".to_string(),
-                    vector: vec![0.0, 1.0, 0.0],
+                    vector: vec![0.0, 1.0, 0.0].into(),
                     payload: HashMap::from([
                         (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
                         (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
@@ -2312,11 +2638,11 @@ mod tests {
             VectorPoint {
                 id: id.to_string(),
                 vector: if id == "a" {
-                    vec![1.0, 0.0]
+                    vec![1.0, 0.0].into()
                 } else if id == "b" {
-                    vec![0.0, 1.0]
+                    vec![0.0, 1.0].into()
                 } else {
-                    vec![1.0, 1.0]
+                    vec![1.0, 1.0].into()
                 },
                 payload,
             }

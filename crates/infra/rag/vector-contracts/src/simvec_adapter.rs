@@ -14,7 +14,9 @@ use async_trait::async_trait;
 use crate::error::{Result, VectorError};
 use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
 use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
-use crate::types::{ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
+use crate::types::{
+    ScoredPoint, VectorData, VectorKind, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY,
+};
 
 /// Embedded local vector backend powered by simvec.
 #[derive(Debug, Clone)]
@@ -106,7 +108,7 @@ impl SimvecVectorStore {
                 )));
             }
         }
-        if query.vector.iter().any(|v| !v.is_finite()) {
+        if query.vector.as_dense()?.iter().any(|v| !v.is_finite()) {
             return Err(VectorError::InvalidInput(
                 "query vector contains non-finite elements".to_string(),
             ));
@@ -404,7 +406,17 @@ impl VectorStorage for SimvecVectorStore {
         "simvec"
     }
 
+    fn supported_kinds(&self) -> Vec<VectorKind> {
+        vec![VectorKind::Dense]
+    }
+
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
+        if spec.kind != VectorKind::Dense {
+            return Err(VectorError::unsupported(
+                self.backend_name(),
+                spec.kind.as_name(),
+            ));
+        }
         if spec.name.is_empty() {
             return Err(VectorError::InvalidInput(
                 "collection name must not be empty".to_string(),
@@ -526,12 +538,21 @@ impl VectorStorage for SimvecVectorStore {
             .vector_size;
         let mut mapped = Vec::with_capacity(points.len());
         for point in points {
+            if point.vector.kind() != VectorKind::Dense {
+                return Err(VectorError::unsupported(
+                    self.backend_name(),
+                    point.vector.kind().as_name(),
+                ));
+            }
             point.validate(dimension)?;
             let mut payload: HashMap<String, serde_json::Value> = point.payload.clone();
             payload.insert(PID_KEY.to_string(), serde_json::json!(point.id));
             mapped.push(
-                simvec::VectorPoint::new(Self::point_id(&point.id), point.vector.clone())
-                    .with_payload(payload),
+                simvec::VectorPoint::new(
+                    Self::point_id(&point.id),
+                    point.vector.as_dense()?.to_vec(),
+                )
+                .with_payload(payload),
             );
         }
         self.engine
@@ -544,8 +565,14 @@ impl VectorStorage for SimvecVectorStore {
         if !self.engine.collection_exists(collection) {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
+        if query.vector.kind() != VectorKind::Dense {
+            return Err(VectorError::unsupported(
+                self.backend_name(),
+                query.vector.kind().as_name(),
+            ));
+        }
         Self::validate_search_params(query)?;
-        let mut request = simvec::SearchQuery::new(query.vector.clone(), query.limit);
+        let mut request = simvec::SearchQuery::new(query.vector.as_dense()?.to_vec(), query.limit);
         if let Some(threshold) = query.score_threshold {
             request = request.with_score_threshold(threshold);
         }
@@ -613,7 +640,7 @@ impl VectorStorage for SimvecVectorStore {
                     .unwrap_or_else(|| id.clone());
                 found.push(VectorPoint {
                     id: resolved,
-                    vector: point.vector,
+                    vector: VectorData::Dense(point.vector),
                     payload: point.payload.unwrap_or_default(),
                 });
             }
@@ -720,7 +747,7 @@ impl VectorStorage for SimvecVectorStore {
                 .unwrap_or_else(|| Self::id_string(&point.id));
             converted.push(VectorPoint {
                 id: resolved,
-                vector: point.vector.clone(),
+                vector: VectorData::Dense(point.vector.clone()),
                 payload,
             });
         }
@@ -832,10 +859,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn simvec_claims_only_dense_and_rejects_other_kinds() {
+        let dir = std::env::temp_dir().join(format!(
+            "vector-contracts-simvec-kind-{}",
+            std::process::id()
+        ));
+        let store = SimvecVectorStore::open(dir).expect("open store");
+        assert_eq!(store.supported_kinds(), vec![VectorKind::Dense]);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let spec = CollectionSpec::new("kb", 3).with_kind(VectorKind::Sparse);
+            let result = store.ensure_collection(&spec).await;
+            assert!(matches!(result, Err(VectorError::Unsupported(_))));
+        });
+    }
+
     fn test_point(id: &str) -> VectorPoint {
         VectorPoint {
             id: id.to_string(),
-            vector: vec![1.0, 0.0, 0.0],
+            vector: vec![1.0, 0.0, 0.0].into(),
             payload: HashMap::from([
                 (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
                 (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
@@ -1024,17 +1070,17 @@ mod tests {
             let points = vec![
                 VectorPoint {
                     id: "a".to_string(),
-                    vector: vec![1.0, 0.0],
+                    vector: vec![1.0, 0.0].into(),
                     payload: HashMap::new(),
                 },
                 VectorPoint {
                     id: "b".to_string(),
-                    vector: vec![0.8, 0.6],
+                    vector: vec![0.8, 0.6].into(),
                     payload: HashMap::new(),
                 },
                 VectorPoint {
                     id: "c".to_string(),
-                    vector: vec![0.0, 1.0],
+                    vector: vec![0.0, 1.0].into(),
                     payload: HashMap::new(),
                 },
             ];
@@ -1053,7 +1099,7 @@ mod tests {
     fn parity_point(id: &str, lang: &str, page: i64, tags: Vec<&str>) -> VectorPoint {
         VectorPoint {
             id: id.to_string(),
-            vector: vec![1.0, 0.0, 0.0],
+            vector: vec![1.0, 0.0, 0.0].into(),
             payload: HashMap::from([
                 (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
                 ("lang".to_string(), serde_json::json!(lang)),
@@ -1201,7 +1247,7 @@ mod tests {
                     .iter()
                     .map(|point| VectorPoint {
                         id: point.id.clone(),
-                        vector: vec![1.0, 0.0],
+                        vector: vec![1.0, 0.0].into(),
                         payload: point.payload.clone(),
                     })
                     .collect::<Vec<_>>(),

@@ -88,6 +88,16 @@ pub enum VectorError {
     /// The backend reported an operation failure.
     #[error("backend error: {0}")]
     Backend(String),
+    /// The backend does not support the requested retrieval kind.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
+}
+
+impl VectorError {
+    /// Builds an unsupported-kind error naming the backend and kind.
+    pub fn unsupported(backend: &str, kind: &str) -> Self {
+        Self::Unsupported(format!("{} does not support {} vectors", backend, kind))
+    }
 }
 
 /// Fallible result of vector storage operations.

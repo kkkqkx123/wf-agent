@@ -7,13 +7,14 @@
 //! free of project-specific semantics (no epochs, no generations) so it can
 //! move to an independent repository without modification.
 //!
-//! Deferred capabilities (kept out of the contract until a pipeline needs
-//! them): sparse and multi vectors, named vectors, prefetch fusion,
-//! ordering and recommend/discover inputs, grouping, snapshots, sharding
-//! and aliases, and a gRPC transport. Add
-//! them only when hybrid sparse demand, distributed operations, or
-//! benchmarks proving REST is the bottleneck trigger the extension;
-//! collection and query shaping stays additive via optional fields.
+//! The contract carries a `VectorKind` per collection and a `VectorData`
+//! payload per point or query. Dense stays the default so existing callers
+//! keep their behavior; sparse and multi vectors are described by the
+//! contract and advertised through `VectorStorage::supported_kinds`, while
+//! each backend either claims a kind or fails with `VectorError::Unsupported`.
+//! Enabling those kinds in a pipeline and prefetch fusion stays with the
+//! consumer; ordering, recommend/discover, grouping, snapshots, sharding,
+//! aliases and a gRPC transport remain deferred.
 
 pub mod error;
 pub mod filter;
@@ -35,5 +36,5 @@ pub use simvec_adapter::SimvecVectorStore;
 pub use store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 pub use types::{
     payload_text, CompressionRatio, DistanceMetric, HnswConfig, QuantizationConfig,
-    QuantizationSearchParams, ScoredPoint, VectorPoint,
+    QuantizationSearchParams, ScoredPoint, VectorData, VectorKind, VectorPoint,
 };

@@ -767,7 +767,7 @@ fn point_for(chunk: &RagChunk, namespace: &str, vector: Vec<f32>) -> VectorPoint
     }
     VectorPoint {
         id: chunk.id.clone(),
-        vector,
+        vector: vector.into(),
         payload,
     }
 }

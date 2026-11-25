@@ -18,7 +18,6 @@ use std::sync::Arc;
 use serde_json::Value;
 use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use wf_llm::LlmGateway;
-use wf_types::llm::LlmRequest;
 use wf_types::message::Message;
 
 /// Verdicts the LLM reviewer accepts; anything else fails closed.
@@ -243,9 +242,9 @@ impl LlmApprovalHandler {
     }
 
     async fn decide(&self, request: &ToolApprovalRequest) -> Result<bool, String> {
-        let llm_request = LlmRequest {
-            profile_id: self.profile_id.clone(),
-            messages: vec![
+        let llm_request = wf_types::llm::new_llm_request(
+            self.profile_id.clone(),
+            vec![
                 Message::system_text(
                     wf_resource::embedded_assets::approval_reviewer_prompt().to_string(),
                 ),
@@ -254,23 +253,7 @@ impl LlmApprovalHandler {
                     request.tool_name, request.arguments
                 )),
             ],
-            parameters: None,
-            generation: None,
-            tools: None,
-            tool_call_protocol: None,
-            locked_tool_call_protocol: None,
-            violation_policy: None,
-            execution_id: None,
-            stream: None,
-            dead_loop_detection: None,
-            protocol_auto_converted: None,
-            timeout_ms: None,
-            prompt_caching: None,
-            cached_content: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            extra_headers: None,
-        };
+        );
         let result = wf_execution_shared::generate_text_once(&self.gateway, &llm_request, None)
             .await
             .map_err(|e| e.to_string())?;

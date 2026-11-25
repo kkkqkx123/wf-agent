@@ -53,26 +53,13 @@ pub async fn build_agent_request(
     // an empty pool to all registered tools.
     if entity.is_explicit_no_tools() {
         return Ok(LlmRequest {
-            profile_id: entity.model().to_string(),
-            messages,
-            parameters: None,
-            generation: None,
-            tools: None,
             tool_call_protocol: entity
                 .tool_call_protocol()
                 .map(|config| config.format.clone()),
             locked_tool_call_protocol: entity.tool_call_protocol().cloned(),
-            violation_policy: None,
             execution_id: Some(entity.id().to_string()),
             stream: Some(stream),
-            dead_loop_detection: None,
-            protocol_auto_converted: None,
-            timeout_ms: None,
-            prompt_caching: None,
-            cached_content: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            extra_headers: None,
+            ..wf_types::llm::new_llm_request(entity.model().to_string(), messages)
         });
     }
 
@@ -181,26 +168,14 @@ pub async fn build_agent_request(
     };
 
     Ok(LlmRequest {
-        profile_id: entity.model().to_string(),
-        messages,
-        parameters: None,
-        generation: None,
         tools,
         tool_call_protocol: entity
             .tool_call_protocol()
             .map(|config| config.format.clone()),
         locked_tool_call_protocol: entity.tool_call_protocol().cloned(),
-        violation_policy: None,
         execution_id: Some(entity.id().to_string()),
         stream: Some(stream),
-        dead_loop_detection: None,
-        protocol_auto_converted: None,
-        timeout_ms: None,
-        prompt_caching: None,
-        cached_content: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        extra_headers: None,
+        ..wf_types::llm::new_llm_request(entity.model().to_string(), messages)
     })
 }
 

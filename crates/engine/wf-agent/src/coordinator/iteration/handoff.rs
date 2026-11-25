@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use wf_types::llm::LlmRequest;
 use wf_types::message::{IndexEntry, Message};
 
 use super::AgentIterationCoordinator;
@@ -132,30 +131,13 @@ impl AgentIterationCoordinator {
         );
         let handoff_prompt_version =
             wf_resource::predefined::agent_prompts::handoff_prompt_version();
-        let request = LlmRequest {
-            profile_id: wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE
-                .to_string(),
-            messages: vec![
+        let request = wf_types::llm::new_llm_request(
+            wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE.to_string(),
+            vec![
                 Message::system_text(handoff_prompt.to_string()),
                 Message::user_text(handoff_user_text(&summaries, reason)),
             ],
-            parameters: None,
-            generation: None,
-            tools: None,
-            tool_call_protocol: None,
-            locked_tool_call_protocol: None,
-            violation_policy: None,
-            execution_id: None,
-            stream: None,
-            dead_loop_detection: None,
-            protocol_auto_converted: None,
-            timeout_ms: None,
-            prompt_caching: None,
-            cached_content: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            extra_headers: None,
-        };
+        );
         let first = wf_execution_shared::generate_text_once(&self.gateway, &request, None).await;
         let mut document = match first {
             Ok(result) => result.content.unwrap_or_default(),
@@ -172,10 +154,9 @@ impl AgentIterationCoordinator {
         let mut validation_note: Option<String> = None;
         let mut missing = keep_fact_gaps(&sources, &document);
         if !missing.is_empty() {
-            let retry = LlmRequest {
-                profile_id: wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE
-                    .to_string(),
-                messages: vec![
+            let retry = wf_types::llm::new_llm_request(
+                wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE.to_string(),
+                vec![
                     Message::system_text(handoff_prompt.to_string()),
                     Message::user_text(format!(
                         "{}\n{HANDOFF_RETRY_NOTE}\n{}",
@@ -183,23 +164,7 @@ impl AgentIterationCoordinator {
                         missing.join("\n")
                     )),
                 ],
-                parameters: None,
-                generation: None,
-                tools: None,
-                tool_call_protocol: None,
-                locked_tool_call_protocol: None,
-                violation_policy: None,
-                execution_id: None,
-                stream: None,
-                dead_loop_detection: None,
-                protocol_auto_converted: None,
-                timeout_ms: None,
-                prompt_caching: None,
-                cached_content: None,
-                max_retries: None,
-                retry_delay_ms: None,
-                extra_headers: None,
-            };
+            );
             if let Ok(result) =
                 wf_execution_shared::generate_text_once(&self.gateway, &retry, None).await
             {

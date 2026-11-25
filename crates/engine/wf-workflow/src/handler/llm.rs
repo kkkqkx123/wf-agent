@@ -101,8 +101,6 @@ impl LlmHandler {
         tools: &[wf_types::tool::Tool],
     ) -> LlmRequest {
         LlmRequest {
-            profile_id: cfg.profile_id.clone(),
-            messages: messages.to_vec(),
             parameters: node_config.get("parameters").cloned(),
             generation: cfg.node_generation.clone(),
             tools: if tools.is_empty() {
@@ -117,15 +115,9 @@ impl LlmHandler {
             locked_tool_call_protocol: cfg.tool_call_protocol.clone(),
             violation_policy: cfg.violation_policy.clone(),
             execution_id: Some(ctx.execution_id.to_string()),
-            stream: None,
             dead_loop_detection: cfg.dead_loop_detection.clone(),
-            protocol_auto_converted: None,
             timeout_ms: cfg.exec_config.timeout,
-            prompt_caching: None,
-            cached_content: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            extra_headers: None,
+            ..wf_types::llm::new_llm_request(cfg.profile_id.clone(), messages.to_vec())
         }
     }
 

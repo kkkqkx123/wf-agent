@@ -99,35 +99,22 @@ impl SuggestionProvider for LlmSuggestionProvider {
         }
         text.push_str("Reply with exactly the input text to send (no explanation, no quotes).");
         let request = wf_types::llm::LlmRequest {
-            profile_id: self.profile_id.clone(),
-            messages: vec![wf_types::message::Message {
-                id: Id::new(),
-                role: wf_types::message::MessageRole::User,
-                content: wf_types::message::MessageContentValue::Text(text),
-                timestamp: wf_common::now(),
-                tool_call_id: None,
-                tool_name: None,
-                tool_calls: None,
-                thinking: None,
-                thinking_signature: None,
-                metadata: None,
-            }],
-            parameters: None,
-            generation: None,
-            tools: None,
-            tool_call_protocol: None,
-            locked_tool_call_protocol: None,
-            violation_policy: None,
             execution_id: Some(self.execution_id.clone()),
-            stream: None,
-            dead_loop_detection: None,
-            protocol_auto_converted: None,
-            timeout_ms: None,
-            prompt_caching: None,
-            cached_content: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            extra_headers: None,
+            ..wf_types::llm::new_llm_request(
+                self.profile_id.clone(),
+                vec![wf_types::message::Message {
+                    id: Id::new(),
+                    role: wf_types::message::MessageRole::User,
+                    content: wf_types::message::MessageContentValue::Text(text),
+                    timestamp: wf_common::now(),
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_calls: None,
+                    thinking: None,
+                    thinking_signature: None,
+                    metadata: None,
+                }],
+            )
         };
         let outcome = crate::single_shot::generate_text_once(&self.gateway, &request, None)
             .await

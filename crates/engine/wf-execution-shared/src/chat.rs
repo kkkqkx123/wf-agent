@@ -115,24 +115,13 @@ impl ChatSession {
     /// a caller cannot smuggle tool definitions into a chat generation.
     fn build_request(&mut self, execution_id: Option<&str>) -> LlmRequest {
         LlmRequest {
-            profile_id: self.template.profile_id.clone(),
-            messages: self.conversation.view_messages(),
             parameters: self.template.parameters.clone(),
             generation: self.template.generation.clone(),
-            tools: None,
-            tool_call_protocol: None,
-            locked_tool_call_protocol: None,
-            violation_policy: None,
             execution_id: execution_id.map(str::to_string),
-            stream: None,
-            dead_loop_detection: None,
-            protocol_auto_converted: None,
-            timeout_ms: None,
-            prompt_caching: None,
-            cached_content: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            extra_headers: None,
+            ..wf_types::llm::new_llm_request(
+                self.template.profile_id.clone(),
+                self.conversation.view_messages(),
+            )
         }
     }
 

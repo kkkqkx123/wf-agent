@@ -232,24 +232,9 @@ pub async fn review_pending_approval(
     let review_execution_id = format!("approval-review-{agent_instance_id}");
     let messages = review_prompt(agent_instance_id, &feature, view);
     let request = LlmRequest {
-        profile_id: profile_id.to_string(),
-        messages,
-        parameters: None,
-        generation: None,
         tools: Some(vec![tool.wire_declaration()]),
-        tool_call_protocol: None,
-        locked_tool_call_protocol: None,
-        violation_policy: None,
         execution_id: Some(review_execution_id.clone()),
-        stream: None,
-        dead_loop_detection: None,
-        protocol_auto_converted: None,
-        timeout_ms: None,
-        prompt_caching: None,
-        cached_content: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        extra_headers: None,
+        ..wf_types::llm::new_llm_request(profile_id.to_string(), messages)
     };
 
     match run_review_round(ctx, &request, &review_execution_id).await {

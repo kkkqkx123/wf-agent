@@ -69,6 +69,13 @@ pub struct Runtime {
     /// facade's shared handle so the runtime never depends on the
     /// retrieval core directly.
     pub(super) keyword_index: Option<wf_api::rag::SharedKeywordIndex>,
+    /// Shared retrieval handles assembled at bootstrap. `None` while the
+    /// embedding provider is not configured.
+    pub(super) rag_handles: Option<wf_api::rag::RagHandles>,
+    /// Source ingestion service shared by tools, routes and workflow nodes.
+    pub(super) rag_source_service: Option<std::sync::Arc<wf_api::rag_source::RagSourceService>>,
+    /// Capability state built over the durable source state store.
+    pub(super) rag_capability_state: wf_api::rag_capabilities::RagCapabilityState,
     /// Shared web fetch transport used by both `web_fetch` and RAG URL ingest.
     pub(super) web_fetch_backend: Arc<dyn wf_tools::WebFetchBackend>,
     /// Lazily-created application-facing API context; shared so live execution
@@ -157,9 +164,7 @@ impl Runtime {
     /// least one enhanced capability are enabled.
     pub fn attach_rag_capabilities(
         &self,
-        handles: wf_api::rag::RagHandles,
         config: &wf_types::config::rag::RagCapabilitiesConfig,
-        state: wf_api::RagCapabilityState,
     ) -> crate::error::RuntimeResult<()> {
         config
             .validate()
@@ -167,13 +172,23 @@ impl Runtime {
         if !config.any_enabled() {
             return Ok(());
         }
+        let Some(handles) = self.rag_handles.clone() else {
+            return Err(crate::error::RuntimeError::Config(
+                "RAG capabilities require a configured embedding provider".to_string(),
+            ));
+        };
         let settings = wf_api::RagCapabilitySettings::from_config(config);
-        let service = std::sync::Arc::new(wf_api::RagCapabilityService::new(
+        let service = wf_api::RagCapabilityService::new(
             handles,
             self.web_fetch_backend.clone(),
             settings,
-            state,
-        ));
+            self.rag_capability_state.clone(),
+        );
+        let service = match &self.rag_source_service {
+            Some(source) => service.with_source_service(source.clone()),
+            None => service,
+        };
+        let service = std::sync::Arc::new(service);
         let tool_config = service.tool_config();
         wf_tools::predefined::rag::register(&self.tool_registry, &tool_config)
             .map_err(|error| crate::error::RuntimeError::Config(error.to_string()))?;

@@ -4,21 +4,25 @@
 //! and a fetch backend, then inject the returned capability config into the
 //! tool registry. No backend or provider choice is made here.
 
-use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
+use source_contracts::SourceDescriptor;
 use wf_tools::predefined::rag::{
     search_with_defaults, RagCapabilitiesConfig, RagEvalBackend, RagEvaluateQuery,
     RagEvaluateResult, RagHit, RagIndexStatus, RagIndexStatusQuery, RagIngestBackend,
     RagIngestUrlQuery, RagIngestUrlResult, RagOperationStats, RagSearchBackend, RagSearchQuery,
-    RagSourceStatus, RagStatusBackend, RagToolConfig,
+    RagSourceBackend, RagSourceOperationResult, RagSourceRequest, RagSourceStatus,
+    RagStatusBackend, RagToolConfig,
 };
-use wf_tools::predefined::web::{render_fetched_page, WebFetchBackend, WebFetchQuery};
+use wf_tools::predefined::web::WebFetchBackend;
 use wf_tools::{ToolError, ToolResult};
 
 use crate::rag::RagHandles;
+use crate::rag_source::{
+    MemoryRagSourceStateStore, RagSourceService, RagSourceStateStore, RagSourceSyncAction,
+};
 
 /// Settings for the optional RAG capabilities.
 #[derive(Debug, Clone)]
@@ -43,6 +47,8 @@ pub struct RagCapabilitySettings {
     pub max_content_chars: usize,
     /// Domains published to the approval layer for URL ingestion.
     pub allowed_domains: Vec<String>,
+    /// Filesystem roots available to the `file` source reader.
+    pub source_roots: Vec<PathBuf>,
     /// Default change-detection basis when a call omits one.
     pub sync_basis: rag_core::SyncBasis,
     /// Citation presentation used by host prompt assembly.
@@ -62,6 +68,7 @@ impl Default for RagCapabilitySettings {
             query: rag_core::RagQueryConfig::default(),
             max_content_chars: 2_000_000,
             allowed_domains: Vec::new(),
+            source_roots: Vec::new(),
             sync_basis: rag_core::SyncBasis::ContentHash,
             citation: rag_core::CitationStyle::default(),
         }
@@ -126,6 +133,12 @@ impl RagCapabilitySettings {
             query,
             max_content_chars: config.ingest.max_content_chars,
             allowed_domains: config.ingest.allowed_domains.clone(),
+            source_roots: config
+                .ingest
+                .source_roots
+                .iter()
+                .map(PathBuf::from)
+                .collect(),
             sync_basis,
             citation: rag_core::CitationStyle {
                 excerpt_chars: config.citation.excerpt_chars,
@@ -136,39 +149,41 @@ impl RagCapabilitySettings {
     }
 }
 
-/// Last known sync metadata for one source in one namespace.
-#[derive(Debug, Clone)]
-struct RagSourceState {
-    collection: String,
-    namespace: String,
-    source: String,
-    content_hash: String,
-    validator: rag_core::HttpValidator,
-    final_url: String,
-    fetched_at: String,
-}
-
-/// In-memory sync state shared by one or more capability services.
-/// A host may retain an instance and inject it into replacement services.
-#[derive(Clone, Default)]
+/// Source state shared by capability services. The store is host-owned so it
+/// can be backed by durable storage; only the last-run counters stay local.
+#[derive(Clone)]
 pub struct RagCapabilityState {
-    sources: Arc<DashMap<String, RagSourceState>>,
+    pub(crate) store: Arc<dyn RagSourceStateStore>,
     last_ingest: Arc<RwLock<Option<RagOperationStats>>>,
 }
 
+impl Default for RagCapabilityState {
+    fn default() -> Self {
+        Self::new_store(Arc::new(MemoryRagSourceStateStore::default()))
+    }
+}
+
 impl RagCapabilityState {
-    /// Creates an empty state table.
+    /// Creates a state over an in-memory source store.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a state over a host-provided persistent store.
+    pub fn new_store(store: Arc<dyn RagSourceStateStore>) -> Self {
+        Self {
+            store,
+            last_ingest: Arc::new(RwLock::new(None)),
+        }
     }
 }
 
 /// Implements the enhanced RAG tool backends over host-injected handles.
 pub struct RagCapabilityService {
     handles: RagHandles,
-    fetch: Arc<dyn WebFetchBackend>,
     settings: RagCapabilitySettings,
     state: RagCapabilityState,
+    sources: Arc<RagSourceService>,
 }
 
 impl RagCapabilityService {
@@ -179,12 +194,31 @@ impl RagCapabilityService {
         settings: RagCapabilitySettings,
         state: RagCapabilityState,
     ) -> Self {
+        let sources = Arc::new(RagSourceService::with_builtin_readers(
+            handles.clone(),
+            fetch,
+            state.store.clone(),
+            settings.index.clone(),
+            settings.max_content_chars,
+            settings.source_roots.clone(),
+        ));
         Self {
             handles,
-            fetch,
             settings,
             state,
+            sources,
         }
+    }
+
+    /// Source ingestion service used by source tools and management routes.
+    pub fn sources(&self) -> &Arc<RagSourceService> {
+        &self.sources
+    }
+
+    /// Replaces the default source service with the host-shared instance.
+    pub fn with_source_service(mut self, service: Arc<RagSourceService>) -> Self {
+        self.sources = service;
+        self
     }
 
     /// Retrieval defaults assembled from the declarative host config.
@@ -217,6 +251,7 @@ impl RagCapabilityService {
         let evaluate = self.settings.enabled && self.settings.evaluate_enabled;
         RagCapabilitiesConfig {
             ingest: ingest.then(|| self.clone() as Arc<dyn RagIngestBackend>),
+            source: ingest.then(|| self.clone() as Arc<dyn RagSourceBackend>),
             status: ingest.then(|| self.clone() as Arc<dyn RagStatusBackend>),
             evaluate: evaluate.then(|| self.clone() as Arc<dyn RagEvalBackend>),
         }
@@ -238,10 +273,6 @@ impl RagCapabilityService {
     pub fn network_domains(&self) -> Vec<String> {
         self.settings.allowed_domains.clone()
     }
-
-    fn state_key(collection: &str, namespace: &str, source: &str) -> String {
-        format!("{collection}\u{1f}{namespace}\u{1f}{source}")
-    }
 }
 
 #[async_trait]
@@ -262,175 +293,69 @@ impl RagSearchBackend for RagCapabilityService {
 impl RagIngestBackend for RagCapabilityService {
     async fn ingest_url(&self, query: RagIngestUrlQuery) -> ToolResult<RagIngestUrlResult> {
         let started = std::time::Instant::now();
-        let mut fetch_query = WebFetchQuery::new(query.url.clone());
-        fetch_query.focus = query.focus.clone();
-        fetch_query.selector = query.selector.clone();
-        fetch_query.exclude_selector = query.exclude_selector.clone();
-        fetch_query.min_words = query.min_words;
-        let response = self
-            .fetch
-            .fetch(fetch_query.clone())
+        let options = serde_json::json!({
+            "focus": query.focus,
+            "selector": query.selector,
+            "exclude_selector": query.exclude_selector,
+            "min_words": query.min_words,
+        });
+        let mut descriptor = SourceDescriptor::new(
+            "url",
+            query.url.clone(),
+            query.url.clone(),
+            query.collection.clone(),
+            query.namespace.clone(),
+        );
+        descriptor.converter = Some("markdown".to_string());
+        descriptor.options = options;
+        let result = self
+            .sources
+            .ingest(descriptor, false)
             .await
             .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
-        let rendered = render_fetched_page(&fetch_query, &response, "markdown", None)
-            .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
-        let content = append_table_summaries(rendered.content, &rendered.tables);
-        let content = truncate_chars(&content, self.settings.max_content_chars);
-        if content.trim().is_empty() {
-            return Err(ToolError::ExecutionError(format!(
-                "fetched page '{}' has no searchable content",
-                query.url
-            )));
-        }
-        let source = query.url.clone();
+        let action = match result.action {
+            RagSourceSyncAction::Insert => rag_core::SyncAction::Insert,
+            RagSourceSyncAction::Update => rag_core::SyncAction::Update,
+            RagSourceSyncAction::Skip => rag_core::SyncAction::Skip,
+        };
         let title = query
             .title
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| {
-                if rendered.title.trim().is_empty() {
-                    source.clone()
-                } else {
-                    rendered.title.clone()
-                }
+            .or_else(|| {
+                result
+                    .metadata
+                    .get("title")
+                    .filter(|value| !value.is_empty())
+                    .cloned()
             });
-        let content_hash = rag_core::content_hash(&content);
+        let final_url = result
+            .metadata
+            .get("final_url")
+            .cloned()
+            .unwrap_or_else(|| query.url.clone());
         let validator = rag_core::HttpValidator::new(
-            response_header(&response.headers, "etag"),
-            response_header(&response.headers, "last-modified"),
+            result.revision.etag.clone(),
+            result.revision.last_modified.clone(),
         );
-        let fetched_at = chrono::Utc::now().to_rfc3339();
-        let key = Self::state_key(&query.collection, &query.namespace, &source);
-        let known = self.state.sources.get(&key).map(|entry| entry.clone());
-        let sync_basis = query.sync_basis.unwrap_or(self.settings.sync_basis);
-        let action = match sync_basis {
-            rag_core::SyncBasis::ContentHash => {
-                let incoming = HashMap::from([(source.clone(), content_hash.clone())]);
-                let indexed: HashMap<String, String> = known
-                    .iter()
-                    .map(|state| (state.source.clone(), state.content_hash.clone()))
-                    .collect();
-                rag_core::plan_sync(&incoming, &indexed)
-                    .into_iter()
-                    .next()
-                    .map(|decision| decision.action)
-                    .unwrap_or(rag_core::SyncAction::Insert)
-            }
-            rag_core::SyncBasis::HttpValidation => {
-                let incoming = HashMap::from([(source.clone(), validator.clone())]);
-                let indexed: HashMap<String, rag_core::HttpValidator> = known
-                    .iter()
-                    .map(|state| (state.source.clone(), state.validator.clone()))
-                    .collect();
-                rag_core::plan_http_sync(&incoming, &indexed)
-                    .into_iter()
-                    .next()
-                    .map(|decision| decision.action)
-                    .unwrap_or(rag_core::SyncAction::Insert)
-            }
-        };
-        let new_state = RagSourceState {
-            collection: query.collection.clone(),
-            namespace: query.namespace.clone(),
-            source: source.clone(),
-            content_hash: content_hash.clone(),
-            validator: validator.clone(),
-            final_url: response.final_url.clone(),
-            fetched_at: fetched_at.clone(),
-        };
-        if action == rag_core::SyncAction::Skip {
-            self.state.sources.insert(key, new_state);
-            *self.state.last_ingest.write().expect("ingest stats lock") = Some(RagOperationStats {
-                elapsed_ms: started.elapsed().as_millis() as u64,
-                documents: 0,
-                chunks: 0,
-                points: 0,
-                skipped: 1,
-            });
-            return Ok(RagIngestUrlResult {
-                url: query.url,
-                final_url: response.final_url,
-                source,
-                title: Some(title),
-                action,
-                documents: 0,
-                chunks: 0,
-                points: 0,
-                skipped: 1,
-                content_hash,
-                validator: Some(validator),
-            });
-        }
-        self.handles
-            .store
-            .ensure_collection(&vector_contracts::CollectionSpec::new(
-                &query.collection,
-                self.handles.embedder.dimension(),
-            ))
-            .await
-            .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
-        if action == rag_core::SyncAction::Update {
-            rag_core::pipeline::delete_source(
-                self.handles.store.as_ref(),
-                self.handles.keyword.as_deref(),
-                &query.collection,
-                Some(&query.namespace),
-                &source,
-            )
-            .await
-            .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
-        }
-        let mut metadata = HashMap::new();
-        metadata.insert("title".to_string(), title.clone());
-        metadata.insert("final_url".to_string(), response.final_url.clone());
-        metadata.insert("fetched_at".to_string(), fetched_at);
-        metadata.insert("content_hash".to_string(), content_hash.clone());
-        if let Some(etag) = &validator.etag {
-            metadata.insert("etag".to_string(), etag.clone());
-        }
-        if let Some(last_modified) = &validator.last_modified {
-            metadata.insert("last_modified".to_string(), last_modified.clone());
-        }
-        let document = rag_core::RagDocument::new(source.clone(), content, source.clone())
-            .with_metadata("title", title.clone());
-        let mut document = document;
-        document.metadata.extend(metadata);
-        let mut index = self.settings.index.clone();
-        index.namespace = query.namespace.clone();
-        index.duplicate_policy = if action == rag_core::SyncAction::Update {
-            rag_core::DuplicatePolicy::Skip
-        } else {
-            query.duplicate_policy
-        };
-        let stats = rag_core::pipeline::ingest_documents(
-            self.handles.store.as_ref(),
-            self.handles.keyword.as_deref(),
-            self.handles.embedder.as_ref(),
-            &query.collection,
-            std::slice::from_ref(&document),
-            &index,
-        )
-        .await
-        .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
         let elapsed_ms = started.elapsed().as_millis() as u64;
-        self.state.sources.insert(key, new_state);
         *self.state.last_ingest.write().expect("ingest stats lock") = Some(RagOperationStats {
             elapsed_ms,
-            documents: stats.documents,
-            chunks: stats.chunks,
-            points: stats.points,
-            skipped: stats.skipped,
+            documents: result.documents,
+            chunks: result.chunks,
+            points: result.points,
+            skipped: result.skipped,
         });
         Ok(RagIngestUrlResult {
             url: query.url,
-            final_url: response.final_url,
-            source,
-            title: Some(title),
+            final_url,
+            source: result.source,
+            title,
             action,
-            documents: stats.documents,
-            chunks: stats.chunks,
-            points: stats.points,
-            skipped: stats.skipped,
-            content_hash,
+            documents: result.documents,
+            chunks: result.chunks,
+            points: result.points,
+            skipped: result.skipped,
+            content_hash: result.content_hash,
             validator: Some(validator),
         })
     }
@@ -441,45 +366,95 @@ impl RagIngestBackend for RagCapabilityService {
 }
 
 #[async_trait]
-impl RagStatusBackend for RagCapabilityService {
-    async fn status(&self, query: RagIndexStatusQuery) -> ToolResult<RagIndexStatus> {
-        let mut sources = Vec::new();
-        let mut stale_sources = Vec::new();
-        for entry in self.state.sources.iter() {
-            let state = entry.value();
-            if state.collection != query.collection || state.namespace != query.namespace {
-                continue;
-            }
-            if query
-                .source
-                .as_deref()
-                .is_some_and(|source| source != state.source)
-            {
-                continue;
-            }
-            let (point_count, keyword_point_count) = rag_core::pipeline::source_counts(
-                self.handles.store.as_ref(),
-                self.handles.keyword.as_deref(),
-                &query.collection,
-                &query.namespace,
-                &state.source,
-            )
+impl RagSourceBackend for RagCapabilityService {
+    async fn ingest(&self, request: RagSourceRequest) -> ToolResult<RagSourceOperationResult> {
+        self.run_source(request, false).await
+    }
+
+    async fn delete(&self, request: RagSourceRequest) -> ToolResult<RagSourceOperationResult> {
+        let removed = self
+            .sources
+            .delete(&request.collection, &request.namespace, &request.source)
             .await
             .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
-            if point_count == 0 {
+        Ok(RagSourceOperationResult {
+            source: request.source,
+            action: "delete".to_string(),
+            documents: 0,
+            chunks: 0,
+            points: 0,
+            skipped: 0,
+            content_hash: None,
+            removed,
+        })
+    }
+
+    async fn reindex(&self, request: RagSourceRequest) -> ToolResult<RagSourceOperationResult> {
+        self.run_source(request, true).await
+    }
+}
+
+impl RagCapabilityService {
+    async fn run_source(
+        &self,
+        request: RagSourceRequest,
+        reindex: bool,
+    ) -> ToolResult<RagSourceOperationResult> {
+        let mut descriptor = SourceDescriptor::new(
+            request.kind,
+            request.source,
+            request.uri,
+            request.collection,
+            request.namespace,
+        );
+        descriptor.converter = request.converter;
+        descriptor.options = request.options;
+        let result = if reindex {
+            self.sources.reindex(descriptor).await
+        } else {
+            self.sources.ingest(descriptor, request.force).await
+        }
+        .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
+        Ok(RagSourceOperationResult {
+            source: result.source,
+            action: format!("{:?}", result.action).to_lowercase(),
+            documents: result.documents,
+            chunks: result.chunks,
+            points: result.points,
+            skipped: result.skipped,
+            content_hash: Some(result.content_hash),
+            removed: 0,
+        })
+    }
+}
+
+#[async_trait]
+impl RagStatusBackend for RagCapabilityService {
+    async fn status(&self, query: RagIndexStatusQuery) -> ToolResult<RagIndexStatus> {
+        let views = self
+            .sources
+            .status(&query.collection, &query.namespace, query.source.as_deref())
+            .await
+            .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
+        let mut sources = Vec::with_capacity(views.len());
+        let mut stale_sources = Vec::new();
+        for view in views {
+            let state = view.state;
+            if view.point_count == 0 {
                 stale_sources.push(state.source.clone());
             }
+            let validator =
+                rag_core::HttpValidator::new(state.etag.clone(), state.last_modified.clone());
             sources.push(RagSourceStatus {
-                source: state.source.clone(),
-                point_count,
-                keyword_point_count,
-                content_hash: Some(state.content_hash.clone()),
-                validator: Some(state.validator.clone()),
-                final_url: Some(state.final_url.clone()),
-                fetched_at: Some(state.fetched_at.clone()),
+                source: state.source,
+                point_count: view.point_count,
+                keyword_point_count: view.keyword_point_count,
+                content_hash: Some(state.content_hash),
+                validator: Some(validator),
+                final_url: sources_final_url(&state.uri),
+                fetched_at: state.fetched_at,
             });
         }
-        sources.sort_by(|left, right| left.source.cmp(&right.source));
         stale_sources.sort();
         Ok(RagIndexStatus {
             collection: query.collection,
@@ -493,6 +468,14 @@ impl RagStatusBackend for RagCapabilityService {
                 .expect("ingest stats lock")
                 .clone(),
         })
+    }
+}
+
+fn sources_final_url(uri: &str) -> Option<String> {
+    if uri.starts_with("http://") || uri.starts_with("https://") {
+        Some(uri.to_string())
+    } else {
+        None
     }
 }
 
@@ -524,67 +507,6 @@ impl RagEvalBackend for RagCapabilityService {
             summary: run.summary,
         })
     }
-}
-
-fn response_header(
-    headers: &std::collections::BTreeMap<String, String>,
-    name: &str,
-) -> Option<String> {
-    headers
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.clone())
-}
-
-fn truncate_chars(text: &str, limit: usize) -> String {
-    if limit == 0 || text.chars().count() <= limit {
-        return text.to_string();
-    }
-    text.chars().take(limit).collect()
-}
-
-fn append_table_summaries(content: String, tables: &serde_json::Value) -> String {
-    let Some(rows) = tables.as_array() else {
-        return content;
-    };
-    if rows.is_empty() {
-        return content;
-    }
-    let mut out = content;
-    out.push_str("\n\nIndexed tables:\n");
-    for table in rows {
-        let headers = table
-            .get("headers")
-            .and_then(serde_json::Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .map(|value| value.as_str().unwrap_or_default().to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if !headers.is_empty() {
-            out.push_str(&format!("| {} |\n", headers.join(" | ")));
-            out.push_str(&format!("|{}|\n", " --- |".repeat(headers.len())));
-        }
-        if let Some(rows) = table.get("rows").and_then(serde_json::Value::as_array) {
-            for row in rows.iter().take(50) {
-                let cells = row
-                    .as_array()
-                    .map(|values| {
-                        values
-                            .iter()
-                            .map(|value| value.as_str().unwrap_or_default().to_string())
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                if !cells.is_empty() {
-                    out.push_str(&format!("| {} |\n", cells.join(" | ")));
-                }
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]

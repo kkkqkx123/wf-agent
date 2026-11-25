@@ -18,7 +18,7 @@ use wf_tools::registry::ToolRegistry;
 use wf_types::enums::MiddlewarePhase;
 use wf_types::node::StaticNodeType;
 use wf_workflow::entity::WorkflowExecutionEntity;
-use wf_workflow::handler::NodeHandler;
+use wf_workflow::handler::{HandlerRegistry, NodeHandler};
 use wf_workflow::registry::WorkflowExecutionRegistry;
 
 use crate::infra::error::ApiError;
@@ -122,6 +122,8 @@ pub struct ApiContext {
     /// Shared retrieval backend for read-only RAG management routes.
     /// `None` keeps the routes registered but unavailable.
     rag_handles: Option<crate::rag::RagHandles>,
+    /// Host source ingestion service shared by tools and management routes.
+    rag_source_service: Option<std::sync::Arc<crate::rag_source::RagSourceService>>,
     /// Shared keyword index opened by the host runtime. Stored separately
     /// so hybrid consumers observe it before the vector backend exists.
     keyword_index: Option<std::sync::Arc<dyn keyword_contracts::KeywordIndex>>,
@@ -173,6 +175,7 @@ impl ApiContext {
             stale_workflows: Arc::new(dashmap::DashSet::new()),
             user_git: None,
             rag_handles: None,
+            rag_source_service: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -228,6 +231,7 @@ impl ApiContext {
             stale_workflows: Arc::new(dashmap::DashSet::new()),
             user_git: None,
             rag_handles: None,
+            rag_source_service: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -387,6 +391,35 @@ impl ApiContext {
     /// The shared retrieval backend, if configured.
     pub fn rag_handles(&self) -> Option<&crate::rag::RagHandles> {
         self.rag_handles.as_ref()
+    }
+
+    /// Attaches the host source ingestion service.
+    pub fn with_rag_source_service(
+        mut self,
+        service: std::sync::Arc<crate::rag_source::RagSourceService>,
+    ) -> Self {
+        self.rag_source_service = Some(service);
+        self
+    }
+
+    /// Borrows the shared source ingestion service.
+    pub fn rag_source_service(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::rag_source::RagSourceService>> {
+        self.rag_source_service.as_ref()
+    }
+
+    /// Adds RAG workflow handlers to the existing handler map.
+    pub fn with_rag_node_handlers(
+        mut self,
+        handles: wf_workflow::handler::rag::RagNodeHandles,
+    ) -> Self {
+        if let Some(map) = Arc::get_mut(&mut self.handlers) {
+            let mut registry = HandlerRegistry::from_map(std::mem::take(map));
+            wf_workflow::handler::rag::register_rag_handlers(&mut registry, handles);
+            *map = registry.into_map();
+        }
+        self
     }
 
     /// Inject the shared keyword index built by the host runtime. The

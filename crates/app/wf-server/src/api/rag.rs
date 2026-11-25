@@ -6,10 +6,10 @@
 
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
-use axum::Router;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use serde::Deserialize;
-use utoipa::IntoParams;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
@@ -52,6 +52,28 @@ pub(crate) struct RagDiagnoseQuery {
     namespace: Option<String>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct RagSourceWrite {
+    source: String,
+    uri: String,
+    kind: String,
+    collection: String,
+    namespace: String,
+    #[serde(default)]
+    converter: Option<String>,
+    #[serde(default)]
+    options: serde_json::Value,
+    #[serde(default)]
+    force: bool,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct RagSourceDelete {
+    source: String,
+    collection: String,
+    namespace: String,
+}
+
 fn default_top_k() -> usize {
     5
 }
@@ -65,6 +87,13 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/rag/stats", get(handle_rag_stats))
         .route("/rag/preview", get(handle_rag_preview))
         .route("/rag/diagnose", get(handle_rag_diagnose))
+        .route(
+            "/rag/sources",
+            get(handle_rag_sources)
+                .post(handle_rag_ingest_source)
+                .delete(handle_rag_delete_source),
+        )
+        .route("/rag/sources/reindex", post(handle_rag_reindex_source))
 }
 
 #[utoipa::path(
@@ -177,6 +206,134 @@ pub(crate) async fn handle_rag_diagnose(
         }
     }
     ok(diagnosis).into_response()
+}
+
+fn source_service_error() -> wf_api::infra::error::ApiError {
+    wf_api::infra::error::ApiError::execution_categorized(
+        "RAG source service is not configured",
+        wf_api::infra::error::ApiErrorCategory::ServiceUnavailable,
+    )
+}
+
+fn descriptor_from_body(body: RagSourceWrite) -> (source_contracts::SourceDescriptor, bool) {
+    let mut descriptor = source_contracts::SourceDescriptor::new(
+        body.kind,
+        body.source,
+        body.uri,
+        body.collection,
+        body.namespace,
+    );
+    descriptor.converter = body.converter;
+    if body.options.is_null() {
+        descriptor.options = serde_json::json!({});
+    } else {
+        descriptor.options = body.options;
+    }
+    (descriptor, body.force)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/rag/sources",
+    tag = "rag",
+    params(RagScope),
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rag_sources(
+    State(state): State<ApiState>,
+    Query(scope): Query<RagScope>,
+) -> impl IntoResponse {
+    let Some(service) = state.ctx.rag_source_service().cloned() else {
+        return error_response(source_service_error());
+    };
+    match service
+        .status(&scope.collection, &scope.namespace, None)
+        .await
+    {
+        Ok(views) => ok(views).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/rag/sources",
+    tag = "rag",
+    request_body = RagSourceWrite,
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rag_ingest_source(
+    State(state): State<ApiState>,
+    Json(body): Json<RagSourceWrite>,
+) -> impl IntoResponse {
+    let Some(service) = state.ctx.rag_source_service().cloned() else {
+        return error_response(source_service_error());
+    };
+    let (descriptor, force) = descriptor_from_body(body);
+    match service.ingest(descriptor, force).await {
+        Ok(result) => ok(result).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/rag/sources/reindex",
+    tag = "rag",
+    request_body = RagSourceWrite,
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rag_reindex_source(
+    State(state): State<ApiState>,
+    Json(body): Json<RagSourceWrite>,
+) -> impl IntoResponse {
+    let Some(service) = state.ctx.rag_source_service().cloned() else {
+        return error_response(source_service_error());
+    };
+    let (descriptor, _) = descriptor_from_body(body);
+    match service.reindex(descriptor).await {
+        Ok(result) => ok(result).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/rag/sources",
+    tag = "rag",
+    request_body = RagSourceDelete,
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<u64>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rag_delete_source(
+    State(state): State<ApiState>,
+    Json(body): Json<RagSourceDelete>,
+) -> impl IntoResponse {
+    let Some(service) = state.ctx.rag_source_service().cloned() else {
+        return error_response(source_service_error());
+    };
+    match service
+        .delete(&body.collection, &body.namespace, &body.source)
+        .await
+    {
+        Ok(removed) => ok(removed).into_response(),
+        Err(err) => error_response(err),
+    }
 }
 
 #[cfg(test)]

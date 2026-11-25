@@ -61,6 +61,12 @@ impl RagDocument {
         self
     }
 
+    /// Replaces the metadata map.
+    pub fn with_metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
     /// Validates that the document carries searchable text.
     pub fn validate(&self) -> crate::error::Result<()> {
         if self.id.is_empty() {

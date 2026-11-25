@@ -17,6 +17,7 @@ wf-config = { path = "../../infra/wf-config" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-api = { path = "../wf-api" }
+source-contracts = { path = "../../infra/source-contracts" }
 wf-types = { path = "../../foundation/wf-types", features = ["utoipa"] }
 wf-runtime = { path = "../wf-runtime", default-features = false }
 tower.workspace = true

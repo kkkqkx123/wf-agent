@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tracing::info;
@@ -655,6 +655,196 @@ pub async fn open_keyword_index_async_with(
     }
 }
 
+/// Environment variable overriding the vector backend selector.
+pub const VECTOR_BACKEND_ENV: &str = "WF_VECTOR_BACKEND";
+/// Environment variable overriding the simvec directory.
+pub const VECTOR_SIMVEC_PATH_ENV: &str = "WF_VECTOR_SIMVEC_PATH";
+/// Environment variable overriding the Qdrant REST URL.
+pub const VECTOR_QDRANT_URL_ENV: &str = "WF_VECTOR_QDRANT_URL";
+/// Environment variable overriding the Qdrant API key.
+pub const VECTOR_QDRANT_API_KEY_ENV: &str = "WF_VECTOR_QDRANT_API_KEY";
+
+/// Resolved vector backend placement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VectorIndexLocation {
+    /// Process-local exact index.
+    Memory,
+    /// Embedded simvec directory.
+    Simvec(PathBuf),
+    /// Remote Qdrant REST endpoint.
+    Qdrant(QdrantLocation),
+}
+
+/// Plain connection data of a resolved Qdrant endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QdrantLocation {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub timeout_secs: u64,
+    pub batch_size: usize,
+    pub exact_count: bool,
+}
+
+/// Resolves vector placement from config with environment overrides.
+pub fn resolve_vector_location(
+    storage: &StorageConfig,
+    config: &wf_types::config::vector::VectorIndexConfig,
+) -> VectorIndexLocation {
+    use wf_types::config::vector::VectorBackend;
+    let backend = std::env::var(VECTOR_BACKEND_ENV)
+        .ok()
+        .and_then(|value| match value.trim().to_lowercase().as_str() {
+            "memory" => Some(VectorBackend::Memory),
+            "simvec" => Some(VectorBackend::Simvec),
+            "qdrant" => Some(VectorBackend::Qdrant),
+            _ => None,
+        })
+        .unwrap_or(config.backend);
+    match backend {
+        VectorBackend::Memory => VectorIndexLocation::Memory,
+        VectorBackend::Simvec => {
+            let path = env_path(VECTOR_SIMVEC_PATH_ENV)
+                .or_else(|| {
+                    config
+                        .simvec_path
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(PathBuf::from)
+                })
+                .unwrap_or_else(|| vector_dir(storage));
+            VectorIndexLocation::Simvec(path)
+        }
+        VectorBackend::Qdrant => {
+            let base_url = env_path(VECTOR_QDRANT_URL_ENV)
+                .map(|path| path.to_string_lossy().into_owned())
+                .or_else(|| {
+                    config
+                        .qdrant_url
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_string)
+                })
+                .unwrap_or_default();
+            let api_key = std::env::var(VECTOR_QDRANT_API_KEY_ENV)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .or_else(|| config.qdrant_api_key.clone());
+            VectorIndexLocation::Qdrant(QdrantLocation {
+                base_url,
+                api_key,
+                timeout_secs: config.qdrant_timeout_secs.max(1),
+                batch_size: config.qdrant_batch_size.max(1),
+                exact_count: config.qdrant_exact_count,
+            })
+        }
+    }
+}
+
+fn vector_dir(storage: &StorageConfig) -> PathBuf {
+    let app_name = storage.app_name.as_deref().unwrap_or("app");
+    let dir = storage
+        .sqlite
+        .as_ref()
+        .map(|sqlite| sqlite.db_path.as_str())
+        .filter(|path| !path.is_empty())
+        .and_then(|path| PathBuf::from(path).parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("./storage"));
+    dir.join(format!("{app_name}-vectors"))
+}
+
+/// Opens the resolved vector backend. Remote endpoints are probed before the
+/// handle is returned; embedded opens run on a blocking thread.
+pub async fn open_vector_store(
+    location: &VectorIndexLocation,
+) -> ApiResult<Arc<dyn vector_contracts::VectorStorage>> {
+    match location {
+        VectorIndexLocation::Memory => Ok(Arc::new(vector_contracts::InMemoryVectorStore::new())),
+        VectorIndexLocation::Simvec(path) => {
+            #[cfg(feature = "rag-vector")]
+            {
+                let owned = path.clone();
+                tokio::task::spawn_blocking(move || {
+                    vector_contracts::SimvecVectorStore::open(&owned)
+                        .map(|store| Arc::new(store) as Arc<dyn vector_contracts::VectorStorage>)
+                })
+                .await
+                .map_err(|err| ApiError::execution(format!("simvec open task failed: {err}")))?
+                .map_err(|err| {
+                    ApiError::execution(format!(
+                        "failed to open simvec at '{}': {err}",
+                        path.display()
+                    ))
+                })
+            }
+            #[cfg(not(feature = "rag-vector"))]
+            {
+                let _ = path;
+                Err(ApiError::execution(
+                    "simvec backend is not compiled; enable wf-api/rag-vector",
+                ))
+            }
+        }
+        VectorIndexLocation::Qdrant(resolved) => {
+            #[cfg(feature = "rag-vector")]
+            {
+                if resolved.base_url.trim().is_empty() {
+                    return Err(ApiError::execution("qdrant base_url must not be empty"));
+                }
+                let mut config = vector_contracts::QdrantConfig::new(resolved.base_url.clone());
+                if let Some(key) = &resolved.api_key {
+                    config = config.with_api_key(key.clone());
+                }
+                config = config
+                    .with_timeout_secs(resolved.timeout_secs)
+                    .with_batch_size(resolved.batch_size)
+                    .with_exact_count(resolved.exact_count);
+                let store = vector_contracts::QdrantVectorStore::new(config).map_err(|err| {
+                    ApiError::execution(format!("failed to configure qdrant: {err}"))
+                })?;
+                store.health_check().await.map_err(|err| {
+                    ApiError::execution(format!("qdrant health check failed: {err}"))
+                })?;
+                let version = store.version().await.map_err(|err| {
+                    ApiError::execution(format!("qdrant version probe failed: {err}"))
+                })?;
+                info!(version = %version, url = %resolved.base_url, "qdrant vector backend opened");
+                Ok(Arc::new(store))
+            }
+            #[cfg(not(feature = "rag-vector"))]
+            {
+                let _ = resolved;
+                Err(ApiError::execution(
+                    "qdrant backend is not compiled; enable wf-api/rag-vector",
+                ))
+            }
+        }
+    }
+}
+
+/// Opens the embedding provider declared by the host config.
+pub fn open_embedding_provider(
+    config: &wf_types::config::vector::RagEmbeddingConfig,
+) -> ApiResult<Arc<dyn llm_embedding::provider::EmbeddingProvider>> {
+    config.validate().map_err(ApiError::Validation)?;
+    if !config.enabled {
+        return Err(ApiError::execution("rag embedding provider is disabled"));
+    }
+    let mut provider_config =
+        llm_embedding::config::EmbeddingConfig::new(config.base_url.clone(), config.model.clone())
+            .with_timeout(config.timeout_secs)
+            .with_dimension(config.dimension);
+    if let Some(key) = &config.api_key {
+        provider_config = provider_config.with_api_key(key.clone());
+    }
+    if let Some(dimensions) = config.request_dimensions {
+        provider_config = provider_config.with_request_dimensions(dimensions);
+    }
+    let provider = llm_embedding::openai_compatible::OpenAICompatibleProvider::new(provider_config)
+        .map_err(|err| ApiError::execution(format!("failed to open embedding provider: {err}")))?;
+    Ok(Arc::new(provider))
+}
+
 /// Requires retrieval handles or reports service unavailable.
 pub fn require_rag_handles(handles: Option<&RagHandles>) -> ApiResult<RagHandles> {
     handles.cloned().ok_or_else(|| {
@@ -1023,8 +1213,11 @@ mod tests {
         assert_eq!(location, KeywordIndexLocation::Memory);
     }
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn explicit_disable_wins_over_everything() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
         let dir = unique_temp_dir("wf-keyword-disabled");
         let db = dir.join("app.db");
         let storage = sqlite_storage(&db.to_string_lossy());
@@ -1058,6 +1251,7 @@ mod tests {
 
     #[test]
     fn env_path_override_wins_over_config() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
         let dir = unique_temp_dir("wf-keyword-env");
         let db = dir.join("app.db");
         let storage = sqlite_storage(&db.to_string_lossy());

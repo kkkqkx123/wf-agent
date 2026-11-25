@@ -166,6 +166,12 @@ pub struct RuntimeConfig {
     /// derives from the storage configuration unless set explicitly.
     /// Environment overrides apply at open time (see `wf_api::rag`).
     pub keyword: KeywordIndexConfig,
+    /// Vector backend placement. Memory by default; simvec and Qdrant are
+    /// explicit opt-ins resolved in `wf_api::rag`.
+    pub vector: wf_types::config::vector::VectorIndexConfig,
+    /// Embedding provider used by every RAG surface. Disabled unless a host
+    /// supplies an endpoint and model.
+    pub embedding: wf_types::config::vector::RagEmbeddingConfig,
     /// Optional RAG enhancements. Master switch and every sub-capability
     /// default to disabled; the runtime does not construct a service until
     /// a host supplies concrete retrieval and fetch handles.

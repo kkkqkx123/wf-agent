@@ -867,6 +867,7 @@ async fn build_registry(sandbox: &Path) -> crate::error::ToolResult<ToolRegistry
                 ingest: Some(Arc::new(HarnessRagIngestBackend)),
                 status: Some(Arc::new(HarnessRagStatusBackend)),
                 evaluate: Some(Arc::new(HarnessRagEvalBackend)),
+                ..Default::default()
             },
         },
         ..Default::default()

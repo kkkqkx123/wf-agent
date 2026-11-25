@@ -75,6 +75,15 @@ impl Runtime {
             if let Some(keyword) = &self.keyword_index {
                 ctx = ctx.with_keyword_index(keyword.as_arc().clone());
             }
+            if let Some(handles) = &self.rag_handles {
+                ctx = ctx.with_rag_handles(handles.clone());
+                if let Some(node_handles) = ctx.rag_node_handles("kb", "kb") {
+                    ctx = ctx.with_rag_node_handlers(node_handles);
+                }
+            }
+            if let Some(service) = &self.rag_source_service {
+                ctx = ctx.with_rag_source_service(service.clone());
+            }
             // Attach the live code-context service so the diagnostics view
             // reads exactly the instance the tools and fold chains use.
             if let Some(service) = &self.code_context_service {

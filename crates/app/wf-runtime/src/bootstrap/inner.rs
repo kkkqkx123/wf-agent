@@ -8,8 +8,11 @@ use wf_core::registry::{MutableRegistry, Registry};
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_storage::backend::StorageBackend;
+use wf_storage::domain::indexes::EntityIndexes;
 #[cfg(feature = "file-checkpoint")]
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
+use wf_types::config::storage::StorageType;
 
 use crate::error::RuntimeResult;
 use crate::lifecycle::shutdown_channel;
@@ -36,7 +39,7 @@ use super::network::{
 use super::plugin::init_plugins;
 use super::plugin::init_plugins_and_resources;
 use super::runtime::Runtime;
-use super::storage::init_event_persistence;
+use super::storage::{init_event_persistence, postgres_connection_string, storage_db_path};
 use super::tool_registry::{
     hydrate_tool_registry_from_storage, init_tool_registry_with_mcp, WebToolSetup,
 };
@@ -112,6 +115,48 @@ impl Runtime {
         if let Some(name) = keyword_selection.analyzer_name.as_deref() {
             tracing::info!(analyzer = %name, "keyword custom analyzer selected");
         }
+        config
+            .vector
+            .validate()
+            .map_err(crate::error::RuntimeError::Config)?;
+        config
+            .embedding
+            .validate()
+            .map_err(crate::error::RuntimeError::Config)?;
+        let vector_location = wf_api::rag::resolve_vector_location(&config.storage, &config.vector);
+        let vector_store = wf_api::rag::open_vector_store(&vector_location)
+            .await
+            .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
+
+        let source_indexes = EntityIndexes::new(&["collection", "namespace", "source"], &[], None);
+        let source_backend = match config.storage.storage_type {
+            StorageType::Memory => StorageBackend::new_memory(),
+            StorageType::Sqlite => StorageBackend::new_sqlite(
+                &storage_db_path(&config.storage).to_string_lossy(),
+                "rag_source",
+                source_indexes,
+            )
+            .await
+            .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?,
+            StorageType::Postgres => {
+                let postgres = config.storage.postgres.as_ref().ok_or_else(|| {
+                    crate::error::RuntimeError::Config(
+                        "postgres storage config is missing".to_string(),
+                    )
+                })?;
+                StorageBackend::new_postgres(
+                    &postgres_connection_string(postgres),
+                    "rag_source",
+                    source_indexes,
+                )
+                .await
+                .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?
+            }
+        };
+        let source_store: Arc<dyn wf_api::rag_source::RagSourceStateStore> = Arc::new(
+            wf_api::rag_source::StorageRagSourceStateStore::new(Arc::new(source_backend)),
+        );
+
         let cache = wf_storage::decorator::CacheConfig {
             max_capacity: config.entity_cache_capacity.unwrap_or(1000),
             ttl_seconds: config.entity_cache_ttl_secs.unwrap_or(300),
@@ -271,6 +316,34 @@ impl Runtime {
             )
             .await?,
         );
+        let rag_settings = wf_api::RagCapabilitySettings::from_config(&config.rag);
+        let embedder = if config.embedding.enabled {
+            Some(
+                wf_api::rag::open_embedding_provider(&config.embedding)
+                    .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let rag_handles = embedder.map(|provider| {
+            wf_api::rag::RagHandles::new(
+                vector_store,
+                provider,
+                keyword_index.as_ref().map(|index| index.as_arc().clone()),
+            )
+        });
+        let rag_source_service = rag_handles.clone().map(|handles| {
+            Arc::new(wf_api::rag_source::RagSourceService::with_builtin_readers(
+                handles,
+                web_fetch_backend.clone(),
+                source_store.clone(),
+                rag_settings.index.clone(),
+                rag_settings.max_content_chars,
+                rag_settings.source_roots.clone(),
+            ))
+        });
+        let rag_capability_state = wf_api::RagCapabilityState::new_store(source_store);
+
         let tool_registry = init_tool_registry_with_mcp(
             &mut shell_config,
             &sandbox_runtime,
@@ -603,6 +676,9 @@ impl Runtime {
             event_persistence,
             checkpoint_store,
             keyword_index,
+            rag_handles,
+            rag_source_service,
+            rag_capability_state,
             web_fetch_backend,
             api_ctx: std::sync::OnceLock::new(),
             file_checkpoint_manager,
@@ -619,6 +695,7 @@ impl Runtime {
             retention: retention.clone(),
             user_git: config.user_git.clone(),
         };
+        runtime.attach_rag_capabilities(&config.rag)?;
         runtime.retention_timer_handle =
             crate::retention::spawn_retention_timer(runtime.api_context_arc(), retention);
         info!("Runtime bootstrap complete");

@@ -107,6 +107,21 @@ impl HandlerRegistry {
         Arc::new(self.handlers)
     }
 
+    /// Returns the owned handler map.
+    pub fn into_map(self) -> HashMap<StaticNodeType, Box<dyn NodeHandler>> {
+        self.handlers
+    }
+
+    /// Wraps an existing handler map so callers can add handlers without
+    /// rebuilding the default set.
+    pub fn from_map(handlers: HashMap<StaticNodeType, Box<dyn NodeHandler>>) -> Self {
+        Self {
+            handlers,
+            agent_loop_registry: None,
+            decision_registry: None,
+        }
+    }
+
     /// Register the standard handler set. The LLM gateway is injected here
     /// and shared by the LLM and AGENT_LOOP handlers; script handlers fall
     /// back to their own default sandbox runtime.

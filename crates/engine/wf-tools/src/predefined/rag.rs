@@ -20,6 +20,7 @@ use crate::registry::ToolRegistry;
 
 pub mod evaluate;
 pub mod ingest_url;
+pub mod source;
 pub mod status;
 
 pub use evaluate::{
@@ -27,6 +28,10 @@ pub use evaluate::{
 };
 pub use ingest_url::{
     rag_ingest_url_handler, RagIngestBackend, RagIngestUrlQuery, RagIngestUrlResult, RAG_INGEST_URL,
+};
+pub use source::{
+    RagSourceBackend, RagSourceOperationResult, RagSourceRequest, RAG_DELETE_SOURCE,
+    RAG_INGEST_SOURCE, RAG_REINDEX_SOURCE,
 };
 pub use status::{
     rag_index_status_handler, RagIndexStatus, RagIndexStatusQuery, RagOperationStats,
@@ -100,12 +105,22 @@ pub const BASELINE: &[&ToolDefinition] = &[&RAG_SEARCH];
 
 /// Capability-gated tool definitions. They stay out of generic predefined
 /// registration until the host registers their execution handlers.
-pub const ENHANCED: &[&ToolDefinition] = &[&RAG_INGEST_URL, &RAG_INDEX_STATUS, &RAG_EVALUATE];
+pub const ENHANCED: &[&ToolDefinition] = &[
+    &RAG_INGEST_URL,
+    &RAG_INGEST_SOURCE,
+    &RAG_DELETE_SOURCE,
+    &RAG_REINDEX_SOURCE,
+    &RAG_INDEX_STATUS,
+    &RAG_EVALUATE,
+];
 
 /// All retrieval tool definitions in registration order.
 pub const ALL: &[&ToolDefinition] = &[
     &RAG_SEARCH,
     &RAG_INGEST_URL,
+    &RAG_INGEST_SOURCE,
+    &RAG_DELETE_SOURCE,
+    &RAG_REINDEX_SOURCE,
     &RAG_INDEX_STATUS,
     &RAG_EVALUATE,
 ];
@@ -173,6 +188,7 @@ pub trait RagSearchBackend: Send + Sync {
 #[derive(Clone, Default)]
 pub struct RagCapabilitiesConfig {
     pub ingest: Option<Arc<dyn RagIngestBackend>>,
+    pub source: Option<Arc<dyn RagSourceBackend>>,
     pub status: Option<Arc<dyn RagStatusBackend>>,
     pub evaluate: Option<Arc<dyn RagEvalBackend>>,
 }
@@ -181,6 +197,7 @@ impl std::fmt::Debug for RagCapabilitiesConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RagCapabilitiesConfig")
             .field("ingest_configured", &self.ingest.is_some())
+            .field("source_configured", &self.source.is_some())
             .field("status_configured", &self.status.is_some())
             .field("evaluate_configured", &self.evaluate.is_some())
             .finish()
@@ -395,6 +412,7 @@ pub fn register(registry: &ToolRegistry, config: &RagToolConfig) -> ToolResult<(
     registry.register_stateless_async_handler("rag_search", rag_search_handler(config));
     registry.register_tool(RAG_SEARCH.tool_def());
     ingest_url::register(registry, config);
+    source::register(registry, config);
     status::register(registry, config);
     evaluate::register(registry, config);
     Ok(())

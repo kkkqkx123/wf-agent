@@ -45,6 +45,9 @@ pub struct RagIngestCapabilityConfig {
     pub default_namespace: String,
     pub max_content_chars: usize,
     pub allowed_domains: Vec<String>,
+    /// Filesystem roots available to the `file` source reader.
+    #[serde(default)]
+    pub source_roots: Vec<String>,
 }
 
 impl Default for RagIngestCapabilityConfig {
@@ -55,6 +58,7 @@ impl Default for RagIngestCapabilityConfig {
             default_namespace: "kb".to_string(),
             max_content_chars: 2_000_000,
             allowed_domains: Vec::new(),
+            source_roots: Vec::new(),
         }
     }
 }

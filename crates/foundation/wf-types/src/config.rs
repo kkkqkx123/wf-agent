@@ -12,6 +12,7 @@ pub mod schemas;
 pub mod storage;
 pub mod tool_approval;
 pub mod user_git;
+pub mod vector;
 
 pub use config_index::*;
 pub use file_checkpoint::*;
@@ -27,3 +28,4 @@ pub use schemas::*;
 pub use storage::*;
 pub use tool_approval::*;
 pub use user_git::*;
+pub use vector::*;

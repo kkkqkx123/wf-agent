@@ -3,7 +3,8 @@
 //! Independent package: document handling, chunking, ingest and query
 //! pipelines, hybrid fusion, rerank adaptation and citations live here.
 //! Storage access goes only through [`vector_contracts::VectorStorage`]
-//! and [`keyword_contracts::KeywordIndex`];
+//! and [`keyword_contracts::KeywordIndex`]; source reading goes through
+//! `source_contracts::SourceReader`.
 //! embedding and rerank go only through the llm-suite provider traits;
 //! synthesis and query transforms go only through the completion port in
 //! [`llm`]. Concrete backends and providers are injected by the host, so
@@ -62,8 +63,8 @@ pub use config::{
     RerankOptions,
 };
 pub use converter::{
-    ConvertedDocument, DocumentConverter, JsonConverter, MarkdownConverter, PathJsonConverter,
-    PlainConverter,
+    converter_for, ConvertedDocument, ConverterRegistry, DocumentConverter, JsonConverter,
+    MarkdownConverter, PathJsonConverter, PlainConverter,
 };
 pub use document::{RagChunk, RagDocument};
 #[cfg(feature = "elastic")]

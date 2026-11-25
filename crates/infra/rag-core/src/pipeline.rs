@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use keyword_contracts::{KeywordIndex, KeywordQuery};
+use keyword_contracts::{KeywordIndex, KeywordQuery, KeywordScope};
 use llm_embedding::provider::EmbeddingProvider;
 use llm_rerank::{RerankProvider, RerankRuntimeConfig};
 use vector_contracts::{CollectionSpec, SearchFilter, VectorPoint, VectorQuery, VectorStorage};
@@ -28,6 +28,9 @@ use crate::retriever::{
     blend_keyword, chunk_from_hit, chunk_from_point, fuse_lists, promote_parents, RetrievedChunk,
 };
 use crate::sync as sync_support;
+
+/// Candidate multiplier used when RAG-side conditions are rechecked on keyword hits.
+const KEYWORD_CANDIDATE_OVERFETCH: usize = 4;
 
 /// Ingest outcome counters.
 #[derive(Debug, Clone, Default)]
@@ -283,8 +286,17 @@ where
     .await?;
     let fused = if config.keyword_candidates > 0 {
         let filter = query_filter(namespace, config);
-        let request = KeywordQuery::new(query_text, config.keyword_candidates).with_filter(filter);
-        let keyword_hits = keyword_chunks(&keyword.search(collection, &request).await?);
+        let scope = KeywordScope::new().with_namespace(namespace);
+        let candidate_limit = config
+            .keyword_candidates
+            .saturating_mul(KEYWORD_CANDIDATE_OVERFETCH)
+            .max(config.keyword_candidates);
+        let request = KeywordQuery::new(query_text, candidate_limit).with_scope(scope);
+        let keyword_hits =
+            keyword_chunks(&keyword.search(collection, &request).await?, Some(&filter))
+                .into_iter()
+                .take(config.keyword_candidates)
+                .collect::<Vec<_>>();
         if keyword_hits.is_empty() {
             searched.hits
         } else {
@@ -638,13 +650,16 @@ pub async fn source_counts<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     let filter = SearchFilter::new()
         .with_namespace(namespace)
         .with_source(source);
+    let scope = KeywordScope::new()
+        .with_namespace(namespace)
+        .with_source(source);
     let vector_count = match store.count(collection, Some(&filter)).await {
         Ok(count) => count,
         Err(vector_contracts::VectorError::CollectionMissing(_)) => 0,
         Err(err) => return Err(err.into()),
     };
     let keyword_count = match keyword {
-        Some(keyword) => Some(keyword.count(collection, Some(&filter)).await.unwrap_or(0)),
+        Some(keyword) => Some(keyword.count(collection, Some(&scope)).await.unwrap_or(0)),
         None => None,
     };
     Ok((vector_count, keyword_count))

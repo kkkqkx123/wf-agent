@@ -14,7 +14,7 @@ RAG 混合检索中的关键词侧已经具备可替换后端：SQLite FTS5、Ta
 
 ## 依赖方向
 
-`vector-contracts` 保持叶子包。`keyword-contracts` 依赖 `vector-contracts`，复用 `SearchFilter` 与 `ScoredPoint`，确保混合检索两侧使用同一过滤语义和同一打分点类型。`rag-core` 同时依赖两者，上层应用依赖 `keyword-contracts` 持有检索句柄，依赖 `rag-core` 调用管线与打开后端。
+`vector-contracts` 保持叶子包。`keyword-contracts` 依赖 `vector-contracts`，复用 `ScoredPoint` 作为统一打分点；查询侧使用仅含 namespace 与 source 的 `KeywordScope`，不再复用完整 `SearchFilter`。通用 payload 条件由 `rag-core` 适配层在关键词命中上复核。`rag-core` 同时依赖两者，上层应用依赖 `keyword-contracts` 持有检索句柄，依赖 `rag-core` 调用管线与打开后端。
 
 `keyword-contracts` 依赖 `wf-types` 中已有的关键词配置枚举与格式策略。这样做避免为同一组序列化配置再建一套镜像类型；后端打开时仍由宿主配置解析格式戳，契约本身不访问插件注册表。
 
@@ -22,16 +22,16 @@ RAG 混合检索中的关键词侧已经具备可替换后端：SQLite FTS5、Ta
 
 契约包包含错误类型、文本文档类型、查询对象、格式戳与操作 trait。
 
-文本文档显式携带 id、可索引文本和 payload，关键词后端不再从 payload 中猜测正文字段。查询对象携带文本、可选共享过滤条件和返回上限，后续增加阈值、片段或 explain 能力时不需要改 trait 方法签名。搜索结果直接复用 `ScoredPoint`，由 `rag-core` 的适配器转成 `RetrievedChunk`。
+文本文档显式携带 id、可索引文本和 payload，关键词后端不再从 payload 中猜测正文字段。查询对象携带文本、可选原生作用域和返回上限，后续增加阈值、片段或 explain 能力时不需要改 trait 方法签名。作用域只表达倒排索引能原生执行的范围，避免后端承诺无法保证的通用过滤语义。搜索结果直接复用 `ScoredPoint`，由 `rag-core` 的适配器在复核通用条件后转成 `RetrievedChunk`。
 
-trait 保持对象安全，方法集合与原实现一致：写入、搜索、按 id 删除、按来源删除、计数。`backend_name` 继续用于日志诊断。
+trait 保持对象安全，方法集合为写入、搜索、按 id 删除、按来源删除、按作用域计数。`backend_name` 继续用于日志诊断。
 
 ## 适配层职责
 
 `rag-core` 内保留 `keyword_index` 模块，但职责改为适配：
 
 - 从 `VectorPoint` 读取正文 payload，构造 `KeywordDocument`；无正文的点直接跳过。
-- 把关键词搜索返回的 `ScoredPoint` 转成 `RetrievedChunk`；缺少 RAG 必填 payload 的命中沿用原有忽略行为。
+- 把关键词搜索返回的 `ScoredPoint` 转成 `RetrievedChunk`；先用 RAG 侧完整过滤器复核 payload，再丢弃缺少必填字段的命中。
 - 摄取管线在写入向量后构造关键词文档再写关键词索引。
 - 混合检索在调用关键词侧时构造 `KeywordQuery`，融合前把命中转成 RAG chunk。
 

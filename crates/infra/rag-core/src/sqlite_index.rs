@@ -2,18 +2,18 @@
 //!
 //! Single virtual table holds every collection; only the content column is
 //! indexed while collection and scope columns stay unindexed for filtering.
-//! Relevance comes from the native BM25 rank; generic field conditions are
-//! rechecked in Rust so keyword filtering shares one match semantic.
+//! Relevance comes from the native BM25 rank; native scopes are applied in
+//! SQL while generic payload conditions stay with the RAG adapter.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use keyword_contracts::{
-    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery,
+    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery, KeywordScope,
     Result as KeywordResult,
 };
-use vector_contracts::{ScoredPoint, SearchFilter};
+use vector_contracts::ScoredPoint;
 
 const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts USING fts5(collection UNINDEXED, chunk_id UNINDEXED, namespace UNINDEXED, source UNINDEXED, content, payload UNINDEXED, tokenize='unicode61')";
 
@@ -289,10 +289,10 @@ impl KeywordIndex for SqliteKeywordIndex {
         else {
             return Ok(Vec::new());
         };
-        let filter = query.filter.as_ref();
-        let namespace = filter.and_then(|item| item.namespace.clone());
-        let source = filter.and_then(|item| item.source.clone());
-        let fetch = query.limit.saturating_mul(3).max(query.limit).max(10);
+        let scope = query.scope.as_ref();
+        let namespace = scope.and_then(|item| item.namespace.clone());
+        let source = scope.and_then(|item| item.source.clone());
+        let fetch = query.limit;
         let rows: Vec<(String, f64, String)> = {
             let guard = self.lock()?;
             match (namespace.as_deref(), source.as_deref()) {
@@ -396,11 +396,6 @@ impl KeywordIndex for SqliteKeywordIndex {
         for (chunk_id, rank, payload) in rows {
             let payload_map: HashMap<String, serde_json::Value> = serde_json::from_str(&payload)
                 .map_err(|err| KeywordError::backend(err.to_string()))?;
-            if let Some(wanted) = filter {
-                if !wanted.matches(&payload_map) {
-                    continue;
-                }
-            }
             hits.push(ScoredPoint {
                 id: chunk_id,
                 score: (-rank) as f32,
@@ -458,9 +453,9 @@ impl KeywordIndex for SqliteKeywordIndex {
         Ok(removed as u64)
     }
 
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> KeywordResult<u64> {
+    async fn count(&self, collection: &str, scope: Option<&KeywordScope>) -> KeywordResult<u64> {
         let guard = self.lock()?;
-        let (namespace, source) = match filter {
+        let (namespace, source) = match scope {
             Some(item) => (item.namespace.clone(), item.source.clone()),
             None => (None, None),
         };
@@ -487,10 +482,10 @@ mod tests {
         ]))
     }
 
-    fn query(text: &str, filter: Option<&SearchFilter>, limit: usize) -> KeywordQuery {
+    fn query(text: &str, scope: Option<&KeywordScope>, limit: usize) -> KeywordQuery {
         let query = KeywordQuery::new(text, limit);
-        match filter {
-            Some(filter) => query.with_filter(filter.clone()),
+        match scope {
+            Some(scope) => query.with_scope(scope.clone()),
             None => query,
         }
     }
@@ -512,9 +507,9 @@ mod tests {
             )
             .await
             .expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let hits = index
-            .search("kb", &query("rust ownership", Some(&filter), 5))
+            .search("kb", &query("rust ownership", Some(&scope), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
@@ -548,9 +543,9 @@ mod tests {
             )
             .await
             .expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let hits = index
-            .search("kb", &query("所有权", Some(&filter), 5))
+            .search("kb", &query("所有权", Some(&scope), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
@@ -565,12 +560,12 @@ mod tests {
             Some("missing".to_string()),
         )
         .expect("open");
-        let filter = SearchFilter::new();
+        let scope = KeywordScope::new();
         let err = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("rt")
-            .block_on(index.search("kb", &query("hello", Some(&filter), 5)))
+            .block_on(index.search("kb", &query("hello", Some(&scope), 5)))
             .expect_err("unknown analyzer must fail");
         assert!(err.to_string().contains("unknown text analyzer"));
     }

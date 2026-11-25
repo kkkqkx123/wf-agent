@@ -18,11 +18,11 @@ use std::time::Duration;
 use crate::ElasticKeywordConfig;
 use async_trait::async_trait;
 use keyword_contracts::{
-    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery,
+    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery, KeywordScope,
     Result as KeywordResult,
 };
 use serde_json::json;
-use vector_contracts::{diagnostic_body, ScoredPoint, SearchFilter};
+use vector_contracts::{diagnostic_body, ScoredPoint};
 
 /// Upper bound for automatic read retries on rate limiting and transient faults.
 const MAX_READ_RETRIES: usize = 3;
@@ -304,17 +304,14 @@ impl ElasticKeywordIndex {
     }
 
     /// Native scope filter: collection always, namespace and source when set.
-    /// Generic field conditions stay out; callers recheck them in Rust.
-    pub fn scope_clauses(
-        collection: &str,
-        filter: Option<&SearchFilter>,
-    ) -> Vec<serde_json::Value> {
+    /// Generic payload conditions stay out; the RAG adapter rechecks them.
+    pub fn scope_clauses(collection: &str, scope: Option<&KeywordScope>) -> Vec<serde_json::Value> {
         let mut clauses = vec![json!({"term": {"collection": collection}})];
-        if let Some(filter) = filter {
-            if let Some(namespace) = &filter.namespace {
+        if let Some(scope) = scope {
+            if let Some(namespace) = &scope.namespace {
                 clauses.push(json!({"term": {"namespace": namespace}}));
             }
-            if let Some(source) = &filter.source {
+            if let Some(source) = &scope.source {
                 clauses.push(json!({"term": {"source": source}}));
             }
         }
@@ -381,7 +378,7 @@ impl ElasticKeywordIndex {
     fn search_body_with(
         collection: &str,
         query: &str,
-        filter: Option<&SearchFilter>,
+        scope: Option<&KeywordScope>,
         size: usize,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<&str>,
@@ -411,7 +408,7 @@ impl ElasticKeywordIndex {
         json!({
             "query": {"bool": {
                 "must": must,
-                "filter": Self::scope_clauses(collection, filter),
+                "filter": Self::scope_clauses(collection, scope),
             }},
             "size": size,
             "track_total_hits": true,
@@ -419,8 +416,8 @@ impl ElasticKeywordIndex {
         })
     }
 
-    fn count_body(collection: &str, filter: Option<&SearchFilter>) -> serde_json::Value {
-        json!({"query": {"bool": {"filter": Self::scope_clauses(collection, filter)}}})
+    fn count_body(collection: &str, scope: Option<&KeywordScope>) -> serde_json::Value {
+        json!({"query": {"bool": {"filter": Self::scope_clauses(collection, scope)}}})
     }
 
     fn payload_string(payload: &HashMap<String, serde_json::Value>, key: &str) -> String {
@@ -531,14 +528,14 @@ impl ElasticKeywordIndex {
         &self,
         index: &str,
         collection: &str,
-        filter: Option<&SearchFilter>,
+        scope: Option<&KeywordScope>,
     ) -> KeywordResult<u64> {
         let response = self
             .send_read(|| {
                 self.client
                     .post(self.url(&format!("/{index}/_search")))
                     .json(&json!({
-                        "query": {"bool": {"filter": Self::scope_clauses(collection, filter)}},
+                        "query": {"bool": {"filter": Self::scope_clauses(collection, scope)}},
                         "size": 0,
                         "track_total_hits": false,
                     }))
@@ -641,8 +638,8 @@ impl KeywordIndex for ElasticKeywordIndex {
         if query.limit == 0 || query.text.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let filter = query.filter.as_ref();
-        let fetch = query.limit.saturating_mul(3).max(query.limit).max(10);
+        let scope = query.scope.as_ref();
+        let fetch = query.limit;
         let index = self.index_name().to_string();
         let response = self
             .send_read(|| {
@@ -651,7 +648,7 @@ impl KeywordIndex for ElasticKeywordIndex {
                     .json(&Self::search_body_with(
                         collection,
                         &query.text,
-                        filter,
+                        scope,
                         fetch,
                         self.config.tokenizer,
                         self.config.analyzer_name.as_deref(),
@@ -695,11 +692,6 @@ impl KeywordIndex for ElasticKeywordIndex {
                 .ok_or_else(|| KeywordError::backend("elastic hit has no payload".to_string()))?;
             let payload_map: HashMap<String, serde_json::Value> = serde_json::from_str(payload_raw)
                 .map_err(|err| KeywordError::backend(err.to_string()))?;
-            if let Some(wanted) = filter {
-                if !wanted.matches(&payload_map) {
-                    continue;
-                }
-            }
             let chunk_id = source
                 .get("chunk_id")
                 .and_then(|value| value.as_str())
@@ -782,16 +774,16 @@ impl KeywordIndex for ElasticKeywordIndex {
         namespace: Option<&str>,
         source: &str,
     ) -> KeywordResult<u64> {
-        let mut filter = SearchFilter::new().with_source(source);
+        let mut scope = KeywordScope::new().with_source(source);
         if let Some(namespace) = namespace {
-            filter = filter.with_namespace(namespace);
+            scope = scope.with_namespace(namespace);
         }
         let index = self.index_name().to_string();
         let response = self
             .send(
                 self.client
                     .post(self.url(&format!("/{index}/_delete_by_query?refresh=wait_for")))
-                    .json(&Self::count_body(collection, Some(&filter))),
+                    .json(&Self::count_body(collection, Some(&scope))),
             )
             .await?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -816,16 +808,16 @@ impl KeywordIndex for ElasticKeywordIndex {
             .unwrap_or(0))
     }
 
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> KeywordResult<u64> {
+    async fn count(&self, collection: &str, scope: Option<&KeywordScope>) -> KeywordResult<u64> {
         let index = self.index_name().to_string();
         if !self.config.exact_count {
-            return self.approximate_count(&index, collection, filter).await;
+            return self.approximate_count(&index, collection, scope).await;
         }
         let response = self
             .send_read(|| {
                 self.client
                     .post(self.url(&format!("/{index}/_count")))
-                    .json(&Self::count_body(collection, filter))
+                    .json(&Self::count_body(collection, scope))
             })
             .await?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -852,10 +844,10 @@ impl KeywordIndex for ElasticKeywordIndex {
 mod tests {
     use super::*;
 
-    fn query(text: &str, filter: Option<&SearchFilter>, limit: usize) -> KeywordQuery {
+    fn query(text: &str, scope: Option<&KeywordScope>, limit: usize) -> KeywordQuery {
         let query = KeywordQuery::new(text, limit);
-        match filter {
-            Some(filter) => query.with_filter(filter.clone()),
+        match scope {
+            Some(scope) => query.with_scope(scope.clone()),
             None => query,
         }
     }
@@ -926,8 +918,8 @@ mod tests {
 
     #[test]
     fn scope_clauses_cover_collection_namespace_source() {
-        let filter = SearchFilter::new().with_namespace("kb").with_source("a.md");
-        let clauses = ElasticKeywordIndex::scope_clauses("kb", Some(&filter));
+        let scope = KeywordScope::new().with_namespace("kb").with_source("a.md");
+        let clauses = ElasticKeywordIndex::scope_clauses("kb", Some(&scope));
         assert_eq!(clauses.len(), 3);
         assert!(ElasticKeywordIndex::scope_clauses("kb", None).len() == 1);
     }
@@ -961,13 +953,13 @@ mod tests {
             )),
         ];
         index.upsert("kb", &points).await.expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let hits = index
-            .search("kb", &query("rust ownership", Some(&filter), 5))
+            .search("kb", &query("rust ownership", Some(&scope), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
-        assert_eq!(index.count("kb", Some(&filter)).await.expect("count"), 1);
+        assert_eq!(index.count("kb", Some(&scope)).await.expect("count"), 1);
         assert_eq!(
             index
                 .delete_by_source("kb", Some("kb"), "live.md")
@@ -1016,8 +1008,8 @@ mod tests {
         for writer in writers {
             writer.await.expect("writer");
         }
-        let filter = SearchFilter::new().with_namespace("kb");
-        assert_eq!(index.count("kb", Some(&filter)).await.expect("count"), 4);
+        let scope = KeywordScope::new().with_namespace("kb");
+        assert_eq!(index.count("kb", Some(&scope)).await.expect("count"), 4);
         for shard in 0..4 {
             index
                 .delete_by_source("kb", Some("kb"), &format!("load-{shard}.md"))

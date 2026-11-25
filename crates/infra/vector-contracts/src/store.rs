@@ -235,6 +235,9 @@ pub trait VectorStorage: Send + Sync {
     ) -> Result<u64>;
 
     /// Counts points matching the filter (or every point when unset).
+    /// Remote backends may return approximate counts when configured to
+    /// trade accuracy for cost; callers must not use the result as an exact
+    /// invariant in that mode.
     async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64>;
 
     /// Lists points page by page for maintenance scans. Pages follow the

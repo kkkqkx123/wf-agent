@@ -33,7 +33,8 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::error::{diagnostic_body, Result, VectorError};
-use crate::filter::SearchFilter;
+use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
+use crate::memory::InMemoryVectorStore;
 use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 use crate::types::{DistanceMetric, ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
 
@@ -464,22 +465,98 @@ impl QdrantVectorStore {
         Ok(bound.ceil() as u64)
     }
 
-    /// Whether a filter contains an `IsNull` condition anywhere, which
-    /// needs client-side exact filtering because the remote translation is
-    /// an over-approximation.
-    fn filter_has_is_null(filter: Option<&SearchFilter>) -> bool {
+    /// Whether a filter needs client-side exact filtering because its
+    /// remote translation is an over-approximation.
+    fn filter_needs_exact_match(filter: Option<&SearchFilter>) -> bool {
         let Some(filter) = filter else {
             return false;
         };
-        fn condition_is_null(condition: &crate::filter::FieldFilter) -> bool {
-            condition.operator == crate::filter::FilterOperator::IsNull
+        fn condition_needs_exact(condition: &FieldFilter) -> bool {
+            matches!(
+                condition.operator,
+                FilterOperator::IsNull | FilterOperator::Contains
+            )
         }
-        filter.conditions.iter().any(condition_is_null)
-            || filter.should.iter().any(condition_is_null)
+        filter.conditions.iter().any(condition_needs_exact)
+            || filter.should.iter().any(condition_needs_exact)
             || filter
                 .min_should
                 .as_ref()
-                .is_some_and(|clause| clause.conditions.iter().any(condition_is_null))
+                .is_some_and(|clause| clause.conditions.iter().any(condition_needs_exact))
+    }
+
+    /// Scores a filtered page with the contracts scoring convention so an
+    /// exact client-side search can reuse the paginated scroll path.
+    fn exact_hits(
+        points: Vec<VectorPoint>,
+        query: &VectorQuery,
+        info: CachedCollection,
+    ) -> Result<Vec<ScoredPoint>> {
+        let mut hits = Vec::with_capacity(points.len());
+        for point in points {
+            if query
+                .filter
+                .as_ref()
+                .is_some_and(|filter| !filter.matches_point(&point.id, &point.payload))
+            {
+                continue;
+            }
+            if point.vector.len() != info.dimension {
+                return Err(VectorError::DimensionMismatch {
+                    expected: info.dimension,
+                    actual: point.vector.len(),
+                });
+            }
+            let score =
+                InMemoryVectorStore::similarity(info.distance, &query.vector, &point.vector);
+            if query
+                .score_threshold
+                .is_some_and(|threshold| score < threshold)
+            {
+                continue;
+            }
+            hits.push(ScoredPoint {
+                id: point.id,
+                score,
+                payload: point.payload,
+            });
+        }
+        Ok(hits)
+    }
+
+    /// Exact search path for filters whose remote translation can only
+    /// over-approximate. It walks the collection instead of relying on a
+    /// bounded server-side candidate limit.
+    async fn search_exact(
+        &self,
+        collection: &str,
+        query: &VectorQuery,
+        info: CachedCollection,
+    ) -> Result<Vec<ScoredPoint>> {
+        let mut offset: Option<String> = None;
+        let mut hits = Vec::new();
+        loop {
+            let mut scroll_query = ScrollQuery::new(256);
+            if let Some(filter) = &query.filter {
+                scroll_query = scroll_query.with_filter(filter.clone());
+            }
+            if let Some(cursor) = &offset {
+                scroll_query = scroll_query.with_offset(cursor.clone());
+            }
+            let page = self.scroll(collection, &scroll_query).await?;
+            hits.extend(Self::exact_hits(page.points, query, info)?);
+            match page.next_offset {
+                Some(next) => offset = Some(next),
+                None => break,
+            }
+        }
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hits.truncate(query.limit);
+        Ok(hits)
     }
 
     fn validate_search_params(query: &VectorQuery) -> Result<()> {
@@ -1284,15 +1361,12 @@ impl VectorStorage for QdrantVectorStore {
                 });
             }
         }
-        let has_is_null = Self::filter_has_is_null(query.filter.as_ref());
-        let server_query = if has_is_null {
-            let mut clone = query.clone();
-            clone.limit = clone.limit.max(10000);
-            clone
-        } else {
-            query.clone()
-        };
-        let body = Self::search_body(&server_query)?;
+        if Self::filter_needs_exact_match(query.filter.as_ref()) {
+            let info =
+                info.ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+            return self.search_exact(collection, query, info).await;
+        }
+        let body = Self::search_body(query)?;
         let response = self
             .send_read(|| {
                 self.client
@@ -1347,12 +1421,6 @@ impl VectorStorage for QdrantVectorStore {
                 score: Self::normalize_score(raw, distance),
                 payload,
             });
-        }
-        if has_is_null {
-            if let Some(filter) = &query.filter {
-                hits.retain(|hit| filter.matches_point(&hit.id, &hit.payload));
-            }
-            hits.truncate(query.limit);
         }
         tracing::debug!(backend = "qdrant",
             collection = %collection,
@@ -1535,7 +1603,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64> {
         let started = Instant::now();
-        if Self::filter_has_is_null(filter) {
+        if Self::filter_needs_exact_match(filter) {
             let mut total = 0u64;
             let mut offset: Option<String> = None;
             loop {
@@ -1627,12 +1695,12 @@ impl VectorStorage for QdrantVectorStore {
         let (mut points, next_offset) = Self::parse_scroll_page(&text)?;
         let raw_count = points.len();
         points.truncate(limit);
-        let has_is_null = query
+        let needs_exact = query
             .filter
             .as_ref()
-            .map(|f| Self::filter_has_is_null(Some(f)))
+            .map(|f| Self::filter_needs_exact_match(Some(f)))
             .unwrap_or(false);
-        if has_is_null {
+        if needs_exact {
             if let Some(filter) = &query.filter {
                 points.retain(|point| filter.matches_point(&point.id, &point.payload));
             }
@@ -1762,6 +1830,28 @@ impl VectorStorage for QdrantVectorStore {
 mod tests {
     use super::*;
     use crate::error::MAX_DIAGNOSTIC_BODY_CHARS;
+
+    #[test]
+    fn approximate_operators_request_exact_recheck() {
+        let is_null = SearchFilter::new().with_condition(FieldFilter::new(
+            "missing",
+            FilterOperator::IsNull,
+            true,
+        ));
+        let contains = SearchFilter::new().with_condition(FieldFilter::new(
+            "tags",
+            FilterOperator::Contains,
+            "rust",
+        ));
+        let exact = SearchFilter::new().with_condition(FieldFilter::new(
+            "page",
+            FilterOperator::GreaterEqual,
+            3.0,
+        ));
+        assert!(QdrantVectorStore::filter_needs_exact_match(Some(&is_null)));
+        assert!(QdrantVectorStore::filter_needs_exact_match(Some(&contains)));
+        assert!(!QdrantVectorStore::filter_needs_exact_match(Some(&exact)));
+    }
 
     #[test]
     fn filter_builder_covers_namespace_source_and_fields() {

@@ -1,15 +1,15 @@
 //! Operation contract every keyword backend implements.
 //!
 //! The trait is object-safe so hosts can hold `Arc<dyn KeywordIndex>` and
-//! swap backends through configuration. Backends translate the shared
-//! payload filter into their native form and return scored payload points;
-//! host-specific result mapping stays outside the contract.
+//! swap backends through configuration. Backends apply the native scope and
+//! return scored payload points; generic payload conditions and host-specific
+//! result mapping stay outside the contract.
 
 use async_trait::async_trait;
-use vector_contracts::{ScoredPoint, SearchFilter};
+use vector_contracts::ScoredPoint;
 
 use crate::error::Result;
-use crate::types::{KeywordDocument, KeywordQuery};
+use crate::types::{KeywordDocument, KeywordQuery, KeywordScope};
 
 /// Backend-neutral keyword storage contract.
 #[async_trait]
@@ -35,6 +35,6 @@ pub trait KeywordIndex: Send + Sync {
         source: &str,
     ) -> Result<u64>;
 
-    /// Counts documents matching the filter, or every document when unset.
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64>;
+    /// Counts documents matching the native scope, or every document when unset.
+    async fn count(&self, collection: &str, scope: Option<&KeywordScope>) -> Result<u64>;
 }

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use vector_contracts::SearchFilter;
 use wf_types::config::keyword::{KeywordFormatPolicy, KeywordTokenizer};
 
 use crate::error::KeywordError;
@@ -39,16 +38,53 @@ impl KeywordDocument {
     }
 }
 
+/// Native scope applied by a keyword backend before scoring.
+///
+/// The contract deliberately supports only fields that every inverted index
+/// can apply natively. Generic payload conditions belong to the caller,
+/// which rechecks them on returned hits before fusing keyword results.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeywordScope {
+    /// Restrict to one knowledge base (`payload["namespace"]`).
+    pub namespace: Option<String>,
+    /// Restrict to one source document (`payload["source"]`).
+    pub source: Option<String>,
+}
+
+impl KeywordScope {
+    /// Empty scope matching every document.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Restricts to one knowledge base.
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+
+    /// Restricts to one source document.
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+
+    /// Whether the scope constrains anything.
+    pub fn is_empty(&self) -> bool {
+        self.namespace.is_none() && self.source.is_none()
+    }
+}
+
 /// One keyword search request.
 ///
-/// The filter is the shared payload filter from `vector-contracts`, so dense
-/// and keyword sides can apply the same scope. A zero limit returns no hits.
+/// The scope is applied natively by the backend. A zero limit returns no
+/// hits.
 #[derive(Debug, Clone)]
 pub struct KeywordQuery {
     /// Query text analyzed by the backend tokenizer.
     pub text: String,
-    /// Optional payload filter; unset matches every document.
-    pub filter: Option<SearchFilter>,
+    /// Optional native scope; unset matches every document.
+    pub scope: Option<KeywordScope>,
     /// Maximum hits to return.
     pub limit: usize,
 }
@@ -58,14 +94,14 @@ impl KeywordQuery {
     pub fn new(text: impl Into<String>, limit: usize) -> Self {
         Self {
             text: text.into(),
-            filter: None,
+            scope: None,
             limit,
         }
     }
 
-    /// Restricts candidates with a payload filter.
-    pub fn with_filter(mut self, filter: SearchFilter) -> Self {
-        self.filter = Some(filter);
+    /// Restricts candidates with a native scope.
+    pub fn with_scope(mut self, scope: KeywordScope) -> Self {
+        self.scope = Some(scope);
         self
     }
 }

@@ -4,10 +4,11 @@
 //! predicate, simvec clause group, Qdrant REST JSON), but the accepted
 //! result set is identical: a point matches when every set field and
 //! every structured condition agrees. Exact fields compare on the text
-//! representation (see [`crate::types::payload_text`]); structured
-//! conditions add negation and numeric comparison. Ordering operators
-//! only match numeric payloads against numeric conditions, so the three
-//! backends stay consistent; text and boolean ordering never matches.
+//! representation (see [`crate::types::payload_text`]); array fields match
+//! when any element matches. Structured conditions add negation and numeric
+//! comparison. Ordering operators only match numeric payloads against numeric
+//! conditions, so the three backends stay consistent; text and boolean
+//! ordering never matches.
 
 use std::collections::HashMap;
 
@@ -39,7 +40,7 @@ pub enum FilterOperator {
     LessEqual,
     /// String field starts with the value; arrays match on any string element.
     Prefix,
-    /// String field contains the value; arrays match on membership or substring.
+    /// String field contains the value; arrays match on any equal element.
     Contains,
     /// Field is present and empty (empty string, array or object).
     IsEmpty,
@@ -187,17 +188,20 @@ impl FieldFilter {
 }
 
 fn equals(value: &FilterValue, actual: Option<&serde_json::Value>) -> bool {
-    match (value, actual) {
-        (FilterValue::Text(expected), Some(actual)) => {
-            payload_text(actual).as_deref() == Some(expected.as_str())
-        }
-        (FilterValue::Number(expected), Some(actual)) => {
-            actual.as_f64().is_some_and(|number| number == *expected)
-        }
-        (FilterValue::Bool(expected), Some(actual)) => {
-            actual.as_bool().is_some_and(|flag| flag == *expected)
-        }
-        (_, None) => false,
+    match actual {
+        Some(serde_json::Value::Array(items)) => items.iter().any(|item| equals(value, Some(item))),
+        _ => match (value, actual) {
+            (FilterValue::Text(expected), Some(actual)) => {
+                payload_text(actual).as_deref() == Some(expected.as_str())
+            }
+            (FilterValue::Number(expected), Some(actual)) => {
+                actual.as_f64().is_some_and(|number| number == *expected)
+            }
+            (FilterValue::Bool(expected), Some(actual)) => {
+                actual.as_bool().is_some_and(|flag| flag == *expected)
+            }
+            (_, None) => false,
+        },
     }
 }
 
@@ -253,22 +257,17 @@ fn match_prefix(actual: Option<&serde_json::Value>, prefix: &str) -> bool {
     }
 }
 
-/// Substring match on string payloads; arrays match on membership or when
-/// any string element contains the part. Numeric and boolean payloads
-/// never match.
+/// Substring match on string payloads; arrays match when any element equals
+/// the text. Numeric and boolean array elements use their canonical text
+/// form. Numeric and boolean scalar payloads never match.
 fn match_contains(actual: Option<&serde_json::Value>, part: &str) -> bool {
     match actual {
         Some(serde_json::Value::String(text)) => text.contains(part),
-        Some(serde_json::Value::Array(items)) => items.iter().any(|item| match item {
-            serde_json::Value::String(text) => text.contains(part),
-            _ => value_equals_text(item, part),
-        }),
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .any(|item| payload_text(item).as_deref() == Some(part)),
         _ => false,
     }
-}
-
-fn value_equals_text(actual: &serde_json::Value, expected: &str) -> bool {
-    payload_text(actual).as_deref() == Some(expected)
 }
 
 /// Present-but-empty check: empty string, array or object. Missing fields,
@@ -623,6 +622,9 @@ mod tests {
             .with_condition(FieldFilter::new("tags", FilterOperator::Prefix, "ho"))
             .matches(&array));
         assert!(SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::Contains, "hot"))
+            .matches(&array));
+        assert!(!SearchFilter::new()
             .with_condition(FieldFilter::new("tags", FilterOperator::Contains, "ot"))
             .matches(&array));
         assert!(!SearchFilter::new()
@@ -722,5 +724,32 @@ mod tests {
         assert!(parsed.min_should.is_none());
         assert!(parsed.has_ids.is_empty());
         assert!(parsed.matches(&payload()));
+    }
+
+    #[test]
+    fn array_conditions_use_element_membership() {
+        let mut payload = payload();
+        payload.insert("tags".to_string(), serde_json::json!(["rust", 3, true]));
+        assert!(SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::Equal, "rust"))
+            .matches(&payload));
+        assert!(SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::Equal, 3.0))
+            .matches(&payload));
+        assert!(!SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::Equal, "rus"))
+            .matches(&payload));
+        assert!(!SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::NotEqual, "rust"))
+            .matches(&payload));
+        assert!(SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::NotEqual, "go"))
+            .matches(&payload));
+        assert!(SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::Contains, "true"))
+            .matches(&payload));
+        assert!(!SearchFilter::new()
+            .with_condition(FieldFilter::new("tags", FilterOperator::Contains, "rus"))
+            .matches(&payload));
     }
 }

@@ -695,6 +695,7 @@ pub async fn collection_stats(
         ));
     }
     let filter = vector_contracts::SearchFilter::new().with_namespace(namespace);
+    let scope = keyword_contracts::KeywordScope::new().with_namespace(namespace);
     let point_count = store
         .count(collection, Some(&filter))
         .await
@@ -702,7 +703,7 @@ pub async fn collection_stats(
     let keyword_point_count = match keyword {
         Some(index) => Some(
             index
-                .count(collection, Some(&filter))
+                .count(collection, Some(&scope))
                 .await
                 .map_err(|err| ApiError::Validation(err.to_string()))?,
         ),
@@ -731,6 +732,9 @@ pub async fn source_stats(
     let filter = vector_contracts::SearchFilter::new()
         .with_namespace(namespace)
         .with_source(source);
+    let scope = keyword_contracts::KeywordScope::new()
+        .with_namespace(namespace)
+        .with_source(source);
     let point_count = store
         .count(collection, Some(&filter))
         .await
@@ -738,7 +742,7 @@ pub async fn source_stats(
     let keyword_point_count = match keyword {
         Some(index) => Some(
             index
-                .count(collection, Some(&filter))
+                .count(collection, Some(&scope))
                 .await
                 .map_err(|err| ApiError::Validation(err.to_string()))?,
         ),
@@ -1330,9 +1334,10 @@ mod tests {
         .await
         .expect("ingest");
         let filter = vector_contracts::SearchFilter::new().with_namespace("kb");
+        let scope = keyword_contracts::KeywordScope::new().with_namespace("kb");
         let dense = store.count("kb", Some(&filter)).await.expect("dense count");
         let sparse = keyword
-            .count("kb", Some(&filter))
+            .count("kb", Some(&scope))
             .await
             .expect("keyword count");
         assert_eq!(dense, sparse);

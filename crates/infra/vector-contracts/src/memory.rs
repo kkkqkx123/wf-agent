@@ -117,7 +117,7 @@ impl InMemoryVectorStore {
         Arc::new(Self::new())
     }
 
-    fn similarity(distance: DistanceMetric, query: &[f32], point: &[f32]) -> f32 {
+    pub(crate) fn similarity(distance: DistanceMetric, query: &[f32], point: &[f32]) -> f32 {
         match distance {
             DistanceMetric::Dot => dot(query, point),
             DistanceMetric::Euclid => -euclid(query, point),

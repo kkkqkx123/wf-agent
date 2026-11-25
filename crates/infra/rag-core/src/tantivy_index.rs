@@ -2,15 +2,15 @@
 //!
 //! One tantivy index carries every collection; the content field is the
 //! only analyzed field while collection and scope fields stay exact.
-//! Relevance comes from the native BM25 scorer; generic field conditions
-//! are rechecked in Rust so keyword filtering shares one match semantic.
+//! Relevance comes from the native BM25 scorer; native scopes are applied
+//! in the index while generic payload conditions stay with the RAG adapter.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use keyword_contracts::{
-    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery,
+    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery, KeywordScope,
     Result as KeywordResult,
 };
 use tantivy::collector::{Count, TopDocs};
@@ -18,7 +18,7 @@ use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, Occur, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, Schema, TextOptions, Value, STORED, STRING, TEXT};
 use tantivy::{doc, Index, IndexReader, IndexWriter, TantivyDocument, Term};
-use vector_contracts::{ScoredPoint, SearchFilter};
+use vector_contracts::ScoredPoint;
 
 /// Heap budget for the index writer (50 MiB, single embedded knowledge base).
 const WRITER_HEAP_BYTES: usize = 50_000_000;
@@ -321,14 +321,14 @@ fn must_term(field: Field, value: &str) -> (Occur, Box<dyn tantivy::query::Query
 }
 
 /// Native scope query: collection always, namespace and source when set.
-/// Generic field conditions stay out; callers recheck them in Rust.
-fn scope_query(fields: &Fields, collection: &str, filter: Option<&SearchFilter>) -> BooleanQuery {
+/// Generic payload conditions stay out; the RAG adapter rechecks them.
+fn scope_query(fields: &Fields, collection: &str, scope: Option<&KeywordScope>) -> BooleanQuery {
     let mut clauses = vec![must_term(fields.collection, collection)];
-    if let Some(filter) = filter {
-        if let Some(namespace) = &filter.namespace {
+    if let Some(scope) = scope {
+        if let Some(namespace) = &scope.namespace {
             clauses.push(must_term(fields.namespace, namespace));
         }
-        if let Some(source) = &filter.source {
+        if let Some(source) = &scope.source {
             clauses.push(must_term(fields.source, source));
         }
     }
@@ -439,18 +439,18 @@ impl KeywordIndex for TantivyKeywordIndex {
         ) else {
             return Ok(Vec::new());
         };
-        let filter = query.filter.as_ref();
-        let fetch = query.limit.saturating_mul(3).max(query.limit).max(10);
+        let scope = query.scope.as_ref();
+        let fetch = query.limit;
         let rows: Vec<(f32, TantivyDocument)> = {
             let reader = self.lock_reader()?;
             let mut clauses = vec![(
                 Occur::Must,
                 Box::new(content) as Box<dyn tantivy::query::Query>,
             )];
-            let scope = scope_query(&self.fields, collection, filter);
+            let scope_clause = scope_query(&self.fields, collection, scope);
             clauses.push((
                 Occur::Must,
-                Box::new(scope) as Box<dyn tantivy::query::Query>,
+                Box::new(scope_clause) as Box<dyn tantivy::query::Query>,
             ));
             let merged = BooleanQuery::new(clauses);
             let searcher = reader.searcher();
@@ -471,11 +471,6 @@ impl KeywordIndex for TantivyKeywordIndex {
             };
             let payload_map: HashMap<String, serde_json::Value> =
                 serde_json::from_str(&payload_raw).map_err(keyword_error)?;
-            if let Some(wanted) = filter {
-                if !wanted.matches(&payload_map) {
-                    continue;
-                }
-            }
             let Some(chunk_id) = stored_string(&doc, self.fields.chunk_id) else {
                 continue;
             };
@@ -530,12 +525,11 @@ impl KeywordIndex for TantivyKeywordIndex {
         source: &str,
     ) -> KeywordResult<u64> {
         self.ensure_writable()?;
-        let filter = SearchFilter::new().with_source(source);
-        let filter = match namespace {
-            Some(namespace) => filter.with_namespace(namespace),
-            None => filter,
-        };
-        let scope = scope_query(&self.fields, collection, Some(&filter));
+        let mut keyword_scope = KeywordScope::new().with_source(source);
+        if let Some(namespace) = namespace {
+            keyword_scope = keyword_scope.with_namespace(namespace);
+        }
+        let scope = scope_query(&self.fields, collection, Some(&keyword_scope));
         let found: usize = {
             let reader = self.lock_reader()?;
             reader
@@ -553,8 +547,8 @@ impl KeywordIndex for TantivyKeywordIndex {
         Ok(found as u64)
     }
 
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> KeywordResult<u64> {
-        let scope = scope_query(&self.fields, collection, filter);
+    async fn count(&self, collection: &str, scope: Option<&KeywordScope>) -> KeywordResult<u64> {
+        let scope = scope_query(&self.fields, collection, scope);
         let reader = self.lock_reader()?;
         let found: usize = reader
             .searcher()
@@ -577,10 +571,10 @@ mod tests {
         ]))
     }
 
-    fn query(text: &str, filter: Option<&SearchFilter>, limit: usize) -> KeywordQuery {
+    fn query(text: &str, scope: Option<&KeywordScope>, limit: usize) -> KeywordQuery {
         let query = KeywordQuery::new(text, limit);
-        match filter {
-            Some(filter) => query.with_filter(filter.clone()),
+        match scope {
+            Some(scope) => query.with_scope(scope.clone()),
             None => query,
         }
     }
@@ -598,16 +592,16 @@ mod tests {
             )
             .await
             .expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let hits = index
-            .search("kb", &query("rust ownership", Some(&filter), 5))
+            .search("kb", &query("rust ownership", Some(&scope), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
         assert_eq!(hits[0].id, "a");
         assert_eq!(index.count("kb", None).await.expect("count"), 2);
         assert!(index
-            .search("kb", &query("   ", Some(&filter), 5))
+            .search("kb", &query("   ", Some(&scope), 5))
             .await
             .expect("empty")
             .is_empty());
@@ -664,59 +658,45 @@ mod tests {
         ];
         sqlite.upsert("kb", &points).await.expect("upsert");
         tantivy.upsert("kb", &points).await.expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let sqlite_hits = sqlite
-            .search("kb", &query("rust ownership", Some(&filter), 5))
+            .search("kb", &query("rust ownership", Some(&scope), 5))
             .await
             .expect("search");
         let tantivy_hits = tantivy
-            .search("kb", &query("rust ownership", Some(&filter), 5))
+            .search("kb", &query("rust ownership", Some(&scope), 5))
             .await
             .expect("search");
         let sqlite_ids: Vec<&str> = sqlite_hits.iter().map(|hit| hit.id.as_str()).collect();
         let tantivy_ids: Vec<&str> = tantivy_hits.iter().map(|hit| hit.id.as_str()).collect();
         assert_eq!(sqlite_ids, tantivy_ids);
         assert_eq!(sqlite_ids.first(), Some(&"a"));
-        let scoped = SearchFilter::new().with_namespace("kb").with_source("a.md");
+        let scoped = KeywordScope::new().with_namespace("kb").with_source("a.md");
         assert_eq!(
             sqlite.count("kb", Some(&scoped)).await.expect("count"),
             tantivy.count("kb", Some(&scoped)).await.expect("count")
         );
-        let generic = SearchFilter::new()
-            .with_namespace("kb")
-            .with_field("lang", "en");
-        let sqlite_generic = sqlite
-            .search("kb", &query("rust", Some(&generic), 5))
-            .await
-            .expect("search");
-        let tantivy_generic = tantivy
-            .search("kb", &query("rust", Some(&generic), 5))
-            .await
-            .expect("search");
-        assert_eq!(sqlite_generic.len(), tantivy_generic.len());
-        assert!(sqlite_generic.iter().all(|hit| hit.id != "c"));
-        assert!(tantivy_generic.iter().all(|hit| hit.id != "c"));
         assert!(sqlite
-            .search("kb", &query("   ", Some(&filter), 5))
+            .search("kb", &query("   ", Some(&scope), 5))
             .await
             .expect("empty")
             .is_empty());
         assert!(tantivy
-            .search("kb", &query("   ", Some(&filter), 5))
+            .search("kb", &query("   ", Some(&scope), 5))
             .await
             .expect("empty")
             .is_empty());
         assert!(sqlite
-            .search("kb", &query("rust", Some(&filter), 0))
+            .search("kb", &query("rust", Some(&scope), 0))
             .await
             .expect("zero")
             .is_empty());
         assert!(tantivy
-            .search("kb", &query("rust", Some(&filter), 0))
+            .search("kb", &query("rust", Some(&scope), 0))
             .await
             .expect("zero")
             .is_empty());
-        let selective = SearchFilter::new()
+        let selective = KeywordScope::new()
             .with_namespace("kb")
             .with_source("missing.md");
         assert!(sqlite
@@ -760,9 +740,9 @@ mod tests {
         for _ in 0..8 {
             let owned = index.clone();
             readers.push(tokio::spawn(async move {
-                let filter = SearchFilter::new().with_namespace("kb");
+                let scope = KeywordScope::new().with_namespace("kb");
                 owned
-                    .search("kb", &query("concurrent rust", Some(&filter), 5))
+                    .search("kb", &query("concurrent rust", Some(&scope), 5))
                     .await
                     .expect("search")
             }));
@@ -787,15 +767,15 @@ mod tests {
             )
             .await
             .expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let hits = index
-            .search("kb", &query("所有权", Some(&filter), 5))
+            .search("kb", &query("所有权", Some(&scope), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
         assert_eq!(hits[0].id, "a");
         let english = index
-            .search("kb", &query("rust", Some(&filter), 5))
+            .search("kb", &query("rust", Some(&scope), 5))
             .await
             .expect("search");
         assert!(english.iter().any(|hit| hit.id == "a"));
@@ -815,13 +795,13 @@ mod tests {
         ];
         sqlite.upsert("kb", &points).await.expect("upsert");
         tantivy.upsert("kb", &points).await.expect("upsert");
-        let filter = SearchFilter::new().with_namespace("kb");
+        let scope = KeywordScope::new().with_namespace("kb");
         let sqlite_hits = sqlite
-            .search("kb", &query("所有权", Some(&filter), 5))
+            .search("kb", &query("所有权", Some(&scope), 5))
             .await
             .expect("search");
         let tantivy_hits = tantivy
-            .search("kb", &query("所有权", Some(&filter), 5))
+            .search("kb", &query("所有权", Some(&scope), 5))
             .await
             .expect("search");
         assert!(!sqlite_hits.is_empty());

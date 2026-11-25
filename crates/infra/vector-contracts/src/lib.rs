@@ -25,7 +25,7 @@ pub mod simvec_adapter;
 pub mod store;
 pub mod types;
 
-pub use error::{Result, VectorError};
+pub use error::{diagnostic_body, Result, VectorError, MAX_DIAGNOSTIC_BODY_CHARS};
 pub use filter::{FieldFilter, FilterOperator, FilterValue, SearchFilter};
 pub use memory::InMemoryVectorStore;
 #[cfg(feature = "qdrant")]

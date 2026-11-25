@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::json;
-use vector_contracts::{SearchFilter, VectorPoint};
+use vector_contracts::{diagnostic_body, SearchFilter, VectorPoint};
 
 use crate::error::{RagError, Result};
 use crate::keyword_index::KeywordIndex;
@@ -110,13 +110,25 @@ impl ElasticKeywordIndex {
                 Ok(response) => {
                     if Self::is_retryable_status(response.status()) && attempt < MAX_READ_RETRIES {
                         attempt += 1;
+                        tracing::warn!(
+                            backend = "elastic",
+                            attempt = attempt,
+                            status = %response.status(),
+                            "retrying transient remote failure"
+                        );
                         tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
                         continue;
                     }
                     return Ok(response);
                 }
-                Err(RagError::Keyword(_)) if attempt < MAX_READ_RETRIES => {
+                Err(RagError::Keyword(ref error)) if attempt < MAX_READ_RETRIES => {
                     attempt += 1;
+                    tracing::warn!(
+                        backend = "elastic",
+                        attempt = attempt,
+                        error = %error,
+                        "retrying transient transport failure"
+                    );
                     tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
                     continue;
                 }
@@ -129,10 +141,18 @@ impl ElasticKeywordIndex {
         self.config.index.trim()
     }
 
+    fn status_error(context: &str, status: reqwest::StatusCode, body: &str) -> RagError {
+        RagError::Keyword(format!(
+            "elastic {context} failed (status {status}): {}",
+            diagnostic_body(body)
+        ))
+    }
+
     fn auth_error(status: reqwest::StatusCode, body: &str) -> Option<RagError> {
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             Some(RagError::Keyword(format!(
-                "elastic unauthorized (status {status}): {body}"
+                "elastic unauthorized (status {status}): {}",
+                diagnostic_body(body)
             )))
         } else {
             None
@@ -142,7 +162,8 @@ impl ElasticKeywordIndex {
     fn bad_request_error(status: reqwest::StatusCode, body: &str) -> Option<RagError> {
         if status == reqwest::StatusCode::BAD_REQUEST {
             Some(RagError::InvalidInput(format!(
-                "elastic invalid request (status {status}): {body}"
+                "elastic invalid request (status {status}): {}",
+                diagnostic_body(body)
             )))
         } else {
             None
@@ -174,9 +195,7 @@ impl ElasticKeywordIndex {
             if let Some(err) = Self::bad_request_error(status, &body) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
-                "elastic index probe failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("index probe", status, &body));
         }
         let mut mapping = Self::index_mapping_with(self.config.tokenizer);
         mapping["settings"]["index"]["keyword_format"] = json!(self.format_id());
@@ -203,9 +222,7 @@ impl ElasticKeywordIndex {
         if let Some(err) = Self::bad_request_error(status, &body) {
             return Err(err);
         }
-        Err(RagError::Keyword(format!(
-            "elastic index create failed (status {status}): {body}"
-        )))
+        Err(Self::status_error("index create", status, &body))
     }
 
     fn format_id(&self) -> String {
@@ -320,9 +337,7 @@ impl ElasticKeywordIndex {
             if let Some(err) = Self::auth_error(status, &body) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
-                "elastic mapping probe failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("mapping probe", status, &body));
         }
         let text = response.text().await.unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(Self::decode_error)?;
@@ -482,9 +497,7 @@ impl ElasticKeywordIndex {
         if let Some(err) = Self::auth_error(status, &body) {
             return Err(err);
         }
-        Err(RagError::Keyword(format!(
-            "elastic health check failed (status {status}): {body}"
-        )))
+        Err(Self::status_error("health check", status, &body))
     }
 
     /// Returns the server version string (proprietary extension).
@@ -496,9 +509,7 @@ impl ElasticKeywordIndex {
             if let Some(err) = Self::auth_error(status, &body) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
-                "elastic version probe failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("version probe", status, &body));
         }
         let body = response.text().await.unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&body).map_err(Self::decode_error)?;
@@ -548,9 +559,7 @@ impl ElasticKeywordIndex {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(RagError::Keyword(format!(
-                "elastic approximate count failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("approximate count", status, &body));
         }
         let text = response.text().await.unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(Self::decode_error)?;
@@ -631,7 +640,8 @@ impl KeywordIndex for ElasticKeywordIndex {
                 serde_json::from_str(&text).map_err(Self::decode_error)?;
             if parsed.get("errors").and_then(|value| value.as_bool()) == Some(true) {
                 return Err(RagError::Keyword(format!(
-                    "elastic bulk index reported item errors: {text}"
+                    "elastic bulk index reported item errors: {}",
+                    diagnostic_body(&text)
                 )));
             }
         }
@@ -676,9 +686,7 @@ impl KeywordIndex for ElasticKeywordIndex {
             if let Some(err) = Self::bad_request_error(status, &body) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
-                "elastic search failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("search", status, &body));
         }
         let text = response.text().await.unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(Self::decode_error)?;
@@ -813,9 +821,7 @@ impl KeywordIndex for ElasticKeywordIndex {
             if let Some(err) = Self::bad_request_error(status, &body) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
-                "elastic delete by query failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("delete by query", status, &body));
         }
         let text = response.text().await.unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(Self::decode_error)?;
@@ -846,9 +852,7 @@ impl KeywordIndex for ElasticKeywordIndex {
             if let Some(err) = Self::auth_error(status, &body) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
-                "elastic count failed (status {status}): {body}"
-            )));
+            return Err(Self::status_error("count", status, &body));
         }
         let text = response.text().await.unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&text).map_err(Self::decode_error)?;
@@ -875,6 +879,18 @@ mod tests {
             analyzer_name: None,
             format_policy: Default::default(),
         }
+    }
+
+    #[test]
+    fn status_error_redacts_credentials() {
+        let error = ElasticKeywordIndex::status_error(
+            "probe",
+            reqwest::StatusCode::BAD_GATEWAY,
+            r#"{"error":"bad","api_key":"secret-value"}"#,
+        );
+        let text = error.to_string();
+        assert!(!text.contains("secret-value"));
+        assert!(text.contains("[redacted]"));
     }
 
     #[test]

@@ -209,6 +209,19 @@ pub struct SyncStateView {
     pub error: Option<String>,
 }
 
+/// Read-only tail of the deployed server log on one backend.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BackendLogView {
+    pub backend: String,
+    /// Remote path the text came from, for operator context.
+    pub path: String,
+    /// Requested line count after validation.
+    pub lines: usize,
+    /// True when the bounded response kept only the newest bytes.
+    pub truncated: bool,
+    pub content: String,
+}
+
 /// Outcome of a one-time absolute-path index relink. Counts describe the
 /// inspected rows; unresolved ids are returned for manual decisions.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]

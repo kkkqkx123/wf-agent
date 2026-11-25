@@ -24,6 +24,6 @@ pub use manager::BackendManager;
 #[cfg(feature = "backends")]
 pub use store::BackendStore;
 pub use types::{
-    validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupExportView,
-    BackupRecordView, BackupVerificationView, TunnelStateView,
+    validate_backend_entry, BackendEntry, BackendEntryView, BackendLogView, BackendStatusView,
+    BackupExportView, BackupRecordView, BackupVerificationView, TunnelStateView,
 };

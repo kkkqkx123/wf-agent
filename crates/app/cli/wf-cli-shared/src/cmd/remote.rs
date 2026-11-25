@@ -15,17 +15,18 @@ use crate::args::Cli;
 use crate::args_remote::RemoteSub;
 use crate::backends::{
     apply_server_default_port, apply_server_deploy, cancel_server_deploy_job,
-    collect_backend_candidates, create_server_backend, export_server_backup, fetch_server_backends,
-    fetch_server_backups, fetch_server_sync_states, get_server_deploy_job, import_server_backends,
+    collect_backend_candidates, create_server_backend, export_server_backup,
+    fetch_server_backend_log, fetch_server_backends, fetch_server_backups,
+    fetch_server_sync_states, get_server_deploy_job, import_server_backends,
     list_server_deploy_jobs, load_registry, management_client, plan_server_deploy, probe_backends,
     relink_server_backups, remove_server_backend, reset_server_sync_state, restore_server_backup,
     start_server_tunnel, stop_server_tunnel, submit_server_deploy, trigger_server_backup,
     update_server_backend, verify_server_backup, RemoteHost, ServerBackupRecord,
 };
-use crate::cmd::render::{print_line_to_cli, render_envelope};
+use crate::cmd::render::{print_chunk_to_cli, print_line_to_cli, render_envelope};
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
-use crate::output::OutputEnvelope;
+use crate::output::{OutputEnvelope, OutputFormat};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +355,31 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
                 plan_server_deploy(&client, name, &body).await?
             };
             render_envelope(cli.output, OutputEnvelope::success(kind, data))
+        }
+        RemoteSub::Logs { name, lines } => {
+            if name.trim().is_empty() {
+                return Err(CliError::Arguments(
+                    "remote logs requires a backend name".to_string(),
+                ));
+            }
+            let client = management_client(cli);
+            let report = fetch_server_backend_log(&client, name, *lines).await?;
+            if cli.output == OutputFormat::Text {
+                let content = report
+                    .get("content")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                print_chunk_to_cli(cli, content)?;
+                if !content.ends_with('\n') {
+                    print_chunk_to_cli(cli, "\n")?;
+                }
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("remote-logs", report).with_entity(name.clone()),
+                )?;
+            }
+            Ok(())
         }
         RemoteSub::DeployJobs { name } => {
             let client = management_client(cli);

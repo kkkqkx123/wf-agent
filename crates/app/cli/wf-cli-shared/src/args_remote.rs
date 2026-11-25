@@ -196,6 +196,16 @@ pub enum RemoteSub {
         #[arg(long)]
         force: bool,
     },
+    /// Read the newest lines of a deployed server's process log through the
+    /// management service. The remote path stays fixed under the install root.
+    Logs {
+        /// Registered host name.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Number of newest lines to read. The server applies a hard ceiling.
+        #[arg(long, value_name = "N")]
+        lines: Option<usize>,
+    },
     /// List deployment jobs for one backend or across all backends.
     DeployJobs {
         /// Optional registered host name.

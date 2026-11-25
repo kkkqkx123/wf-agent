@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde_json::json;
 
-use crate::error::{Result, VectorError};
+use crate::error::{diagnostic_body, Result, VectorError};
 use crate::filter::SearchFilter;
 use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 use crate::types::{DistanceMetric, ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
@@ -725,17 +725,43 @@ impl QdrantVectorStore {
         loop {
             match self.send(build()).await {
                 Ok(response) => {
-                    if Self::is_retryable_status(response.status()) && attempt < MAX_READ_RETRIES {
-                        attempt += 1;
-                        tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
-                        continue;
+                    let status = response.status();
+                    if Self::is_retryable_status(status) {
+                        if attempt < MAX_READ_RETRIES {
+                            attempt += 1;
+                            tracing::warn!(backend = "qdrant",
+                                attempt,
+                                status = %status,
+                                "qdrant read retry on transient status"
+                            );
+                            tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
+                            continue;
+                        }
+                        tracing::warn!(backend = "qdrant",
+                            attempt,
+                            status = %status,
+                            "qdrant read retries exhausted on transient status"
+                        );
                     }
                     return Ok(response);
                 }
-                Err(VectorError::Transport(_)) if attempt < MAX_READ_RETRIES => {
-                    attempt += 1;
-                    tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
-                    continue;
+                Err(VectorError::Transport(err)) => {
+                    if attempt < MAX_READ_RETRIES {
+                        attempt += 1;
+                        tracing::warn!(backend = "qdrant",
+                            attempt,
+                            error = %err,
+                            "qdrant read transport failure; retrying"
+                        );
+                        tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
+                        continue;
+                    }
+                    tracing::warn!(backend = "qdrant",
+                        attempt,
+                        error = %err,
+                        "qdrant read transport retries exhausted"
+                    );
+                    return Err(VectorError::Transport(err));
                 }
                 Err(other) => return Err(other),
             }
@@ -746,6 +772,7 @@ impl QdrantVectorStore {
         if status.is_success() {
             return Ok(());
         }
+        let diagnostic = diagnostic_body(body);
         if status == reqwest::StatusCode::NOT_FOUND {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
@@ -758,16 +785,16 @@ impl QdrantVectorStore {
             || status == reqwest::StatusCode::UNPROCESSABLE_ENTITY
         {
             return Err(VectorError::InvalidInput(format!(
-                "qdrant rejected request (status {status}): {body}"
+                "qdrant rejected request (status {status}): {diagnostic}"
             )));
         }
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
             return Err(VectorError::Transport(format!(
-                "qdrant transient failure (status {status}): {body}"
+                "qdrant transient failure (status {status}): {diagnostic}"
             )));
         }
         Err(VectorError::Backend(format!(
-            "qdrant status {status}: {body}"
+            "qdrant status {status}: {diagnostic}"
         )))
     }
 
@@ -832,15 +859,16 @@ impl QdrantVectorStore {
                         continue;
                     }
                     let body = response.text().await.unwrap_or_default();
-                    tracing::warn!(
+                    tracing::warn!(backend = "qdrant",
                         collection = collection,
                         field = field,
                         status = %status,
-                        "qdrant index creation reported {status}: {body}"
+                        body = %diagnostic_body(&body),
+                        "qdrant index creation reported {status}"
                     );
                 }
                 Err(err) => {
-                    tracing::warn!(
+                    tracing::warn!(backend = "qdrant",
                         collection = collection,
                         field = field,
                         error = %err,
@@ -977,7 +1005,8 @@ impl QdrantVectorStore {
         let body = response.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(VectorError::Backend(format!(
-                "qdrant list failed with status {status}: {body}"
+                "qdrant list failed with status {status}: {}",
+                diagnostic_body(&body)
             )));
         }
         let parsed: serde_json::Value =
@@ -1010,6 +1039,7 @@ impl QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         tracing::debug!(
+            backend = "qdrant",
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant health check"
         );
@@ -1017,7 +1047,8 @@ impl QdrantVectorStore {
             return Ok(());
         }
         Err(VectorError::Transport(format!(
-            "qdrant health check failed with status {status}: {body}"
+            "qdrant health check failed with status {status}: {}",
+            diagnostic_body(&body)
         )))
     }
 
@@ -1028,7 +1059,8 @@ impl QdrantVectorStore {
         let body = response.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(VectorError::Backend(format!(
-                "qdrant version probe failed with status {status}: {body}"
+                "qdrant version probe failed with status {status}: {}",
+                diagnostic_body(&body)
             )));
         }
         let parsed: serde_json::Value =
@@ -1048,7 +1080,7 @@ impl QdrantVectorStore {
         let server = self.version().await?;
         let compatible = Self::is_compatible_version(client_version, &server);
         if !compatible {
-            tracing::warn!(
+            tracing::warn!(backend = "qdrant",
                 client_version = client_version,
                 server_version = %server,
                 "qdrant version drift detected"
@@ -1066,7 +1098,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
         let started = Instant::now();
-        tracing::debug!(collection = %spec.name, dimension = spec.dimension, "qdrant ensure collection");
+        tracing::debug!(backend = "qdrant", collection = %spec.name, dimension = spec.dimension, "qdrant ensure collection");
         if spec.name.is_empty() {
             return Err(VectorError::InvalidInput(
                 "collection name must not be empty".to_string(),
@@ -1101,7 +1133,7 @@ impl VectorStorage for QdrantVectorStore {
             }
             self.remember(&spec.name, dimension, distance);
             self.ensure_payload_indexes(&spec.name).await;
-            tracing::debug!(
+            tracing::debug!(backend = "qdrant",
                 collection = %spec.name,
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "qdrant ensure collection hit"
@@ -1113,7 +1145,8 @@ impl VectorStorage for QdrantVectorStore {
             let body = response.text().await.unwrap_or_default();
             Self::map_status(status, &body, &spec.name)?;
             return Err(VectorError::Backend(format!(
-                "qdrant describe failed with status {status}: {body}"
+                "qdrant describe failed with status {status}: {}",
+                diagnostic_body(&body)
             )));
         }
         let response = self
@@ -1128,7 +1161,7 @@ impl VectorStorage for QdrantVectorStore {
         Self::map_status(status, &body, &spec.name)?;
         self.remember(&spec.name, spec.dimension, spec.distance);
         self.ensure_payload_indexes(&spec.name).await;
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %spec.name,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant ensure collection created"
@@ -1143,7 +1176,7 @@ impl VectorStorage for QdrantVectorStore {
             ));
         }
         let started = Instant::now();
-        tracing::debug!(collection = %collection, "qdrant delete collection");
+        tracing::debug!(backend = "qdrant", collection = %collection, "qdrant delete collection");
         let response = self
             .send(
                 self.client
@@ -1154,7 +1187,7 @@ impl VectorStorage for QdrantVectorStore {
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, collection)?;
         self.collections.write().remove(collection);
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant delete collection done"
@@ -1164,7 +1197,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, count = points.len(), "qdrant upsert");
+        tracing::debug!(backend = "qdrant", collection = %collection, count = points.len(), "qdrant upsert");
         for point in points {
             if point.id.is_empty() {
                 return Err(VectorError::InvalidInput(
@@ -1225,7 +1258,7 @@ impl VectorStorage for QdrantVectorStore {
             }
             Self::map_status(status, &body, collection)?;
         }
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             count = points.len(),
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1236,7 +1269,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn search(&self, collection: &str, query: &VectorQuery) -> Result<Vec<ScoredPoint>> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, limit = query.limit, "qdrant search");
+        tracing::debug!(backend = "qdrant", collection = %collection, limit = query.limit, "qdrant search");
         if query.vector.iter().any(|v| !v.is_finite()) {
             return Err(VectorError::InvalidInput(
                 "query vector contains non-finite elements".to_string(),
@@ -1321,7 +1354,7 @@ impl VectorStorage for QdrantVectorStore {
             }
             hits.truncate(query.limit);
         }
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             hits = hits.len(),
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1332,7 +1365,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn fetch(&self, collection: &str, ids: &[String]) -> Result<Vec<VectorPoint>> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, count = ids.len(), "qdrant fetch");
+        tracing::debug!(backend = "qdrant", collection = %collection, count = ids.len(), "qdrant fetch");
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1398,7 +1431,7 @@ impl VectorStorage for QdrantVectorStore {
             .iter()
             .filter_map(|id| by_pid.remove(id))
             .collect::<Vec<_>>();
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             requested = ids.len(),
             found = ordered.len(),
@@ -1410,7 +1443,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn delete_by_id(&self, collection: &str, ids: &[String]) -> Result<u64> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, count = ids.len(), "qdrant delete by id");
+        tracing::debug!(backend = "qdrant", collection = %collection, count = ids.len(), "qdrant delete by id");
         if ids.is_empty() {
             return Ok(0);
         }
@@ -1454,7 +1487,7 @@ impl VectorStorage for QdrantVectorStore {
             let body = response.text().await.unwrap_or_default();
             Self::map_status(status, &body, collection)?;
         }
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             removed = counted,
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1470,7 +1503,7 @@ impl VectorStorage for QdrantVectorStore {
         source: &str,
     ) -> Result<u64> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, source = %source, "qdrant delete by source");
+        tracing::debug!(backend = "qdrant", collection = %collection, source = %source, "qdrant delete by source");
         let mut filter = SearchFilter::new().with_source(source);
         if let Some(namespace) = namespace {
             filter = filter.with_namespace(namespace);
@@ -1491,7 +1524,7 @@ impl VectorStorage for QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, collection)?;
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             removed = existing,
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1520,7 +1553,7 @@ impl VectorStorage for QdrantVectorStore {
                     None => break,
                 }
             }
-            tracing::debug!(
+            tracing::debug!(backend = "qdrant",
                 collection = %collection,
                 count = total,
                 elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1553,7 +1586,7 @@ impl VectorStorage for QdrantVectorStore {
             .ok_or_else(|| {
                 VectorError::Decode("qdrant count response has no result.count".to_string())
             })?;
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             count = count,
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1564,7 +1597,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn scroll(&self, collection: &str, query: &ScrollQuery) -> Result<ScrollPage> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, limit = query.limit, "qdrant scroll");
+        tracing::debug!(backend = "qdrant", collection = %collection, limit = query.limit, "qdrant scroll");
         let limit = query.limit.max(1);
         let mut body = json!({
             "limit": limit,
@@ -1609,7 +1642,7 @@ impl VectorStorage for QdrantVectorStore {
         } else {
             next_offset
         };
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             points = points.len(),
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -1628,7 +1661,7 @@ impl VectorStorage for QdrantVectorStore {
         payload: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, "qdrant overwrite payload");
+        tracing::debug!(backend = "qdrant", collection = %collection, "qdrant overwrite payload");
         Self::check_payload_target(id)?;
         self.require_point(collection, id).await?;
         let mut full = payload;
@@ -1646,7 +1679,7 @@ impl VectorStorage for QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, collection)?;
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant overwrite payload done"
@@ -1661,7 +1694,7 @@ impl VectorStorage for QdrantVectorStore {
         fields: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, "qdrant merge payload");
+        tracing::debug!(backend = "qdrant", collection = %collection, "qdrant merge payload");
         Self::check_payload_target(id)?;
         self.require_point(collection, id).await?;
         let mut merged = fields;
@@ -1682,7 +1715,7 @@ impl VectorStorage for QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, collection)?;
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant merge payload done"
@@ -1692,7 +1725,7 @@ impl VectorStorage for QdrantVectorStore {
 
     async fn delete_payload_keys(&self, collection: &str, id: &str, keys: &[String]) -> Result<()> {
         let started = Instant::now();
-        tracing::debug!(collection = %collection, "qdrant delete payload keys");
+        tracing::debug!(backend = "qdrant", collection = %collection, "qdrant delete payload keys");
         Self::check_payload_target(id)?;
         self.require_point(collection, id).await?;
         let kept: Vec<String> = keys
@@ -1716,7 +1749,7 @@ impl VectorStorage for QdrantVectorStore {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Self::map_status(status, &body, collection)?;
-        tracing::debug!(
+        tracing::debug!(backend = "qdrant",
             collection = %collection,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant delete payload keys done"
@@ -1728,6 +1761,7 @@ impl VectorStorage for QdrantVectorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::MAX_DIAGNOSTIC_BODY_CHARS;
 
     #[test]
     fn filter_builder_covers_namespace_source_and_fields() {
@@ -2439,5 +2473,22 @@ mod tests {
             let result = store.ensure_collection(&CollectionSpec::new("", 8)).await;
             assert!(matches!(result, Err(VectorError::InvalidInput(_))));
         });
+    }
+
+    #[test]
+    fn diagnostic_body_redacts_credentials() {
+        let body = r#"{"error":"bad","api-key":"secret-value","token":"abc"}"#;
+        let rendered = diagnostic_body(body);
+        assert!(!rendered.contains("secret-value"));
+        assert!(!rendered.contains("abc"));
+        assert!(rendered.contains("[redacted]"));
+    }
+
+    #[test]
+    fn diagnostic_body_bounds_non_json_text() {
+        let body = "x".repeat(MAX_DIAGNOSTIC_BODY_CHARS + 50);
+        let rendered = diagnostic_body(&body);
+        assert_eq!(rendered.chars().count(), MAX_DIAGNOSTIC_BODY_CHARS + 3);
+        assert!(rendered.ends_with("..."));
     }
 }

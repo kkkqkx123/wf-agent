@@ -670,6 +670,24 @@ pub async fn export_server_backup(
 // frontend (web) sees the same result.
 // ---------------------------------------------------------------------------
 
+/// Read the newest process log lines of one managed backend.
+pub async fn fetch_server_backend_log(
+    client: &wf_client::WfClient,
+    name: &str,
+    lines: Option<usize>,
+) -> CliResult<serde_json::Value> {
+    let suffix = lines
+        .map(|lines| format!("?lines={lines}"))
+        .unwrap_or_default();
+    let path = format!("/api/v1/system/backends/{name}/logs{suffix}");
+    let result: wf_client::ClientResult<serde_json::Value> = client.get_json(&path).await;
+    match result {
+        Ok(data) => Ok(data),
+        Err(e) if is_fallback_error(&e) => Err(CliError::Unavailable(server_unavailable_hint())),
+        Err(e) => Err(CliError::from(e)),
+    }
+}
+
 /// Dry run on the server: the same steps `apply` would run, plus the
 /// blocking reasons.
 pub async fn plan_server_deploy(

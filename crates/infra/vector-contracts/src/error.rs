@@ -1,6 +1,67 @@
 //! Error type shared by the contract surface and every backend.
 
+use serde_json::json;
 use thiserror::Error;
+
+/// Maximum characters of a remote response body kept in diagnostics.
+pub const MAX_DIAGNOSTIC_BODY_CHARS: usize = 256;
+
+/// Whether a JSON field carries credential-like content.
+fn is_secret_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    [
+        "api-key",
+        "api_key",
+        "token",
+        "secret",
+        "password",
+        "authorization",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn redact_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                if is_secret_key(key) {
+                    *child = json!("[redacted]");
+                } else {
+                    redact_json(child);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items.iter_mut() {
+                redact_json(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Bound and sanitize a remote body before it reaches logs or error text.
+/// JSON bodies have credential-like fields replaced; non-JSON bodies are
+/// kept verbatim but still bounded and stripped of control characters.
+pub fn diagnostic_body(body: &str) -> String {
+    let sanitized = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(mut value) => {
+            redact_json(&mut value);
+            value.to_string()
+        }
+        Err(_) => body.to_string(),
+    };
+    let clean: String = sanitized
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect();
+    let mut truncated: String = clean.chars().take(MAX_DIAGNOSTIC_BODY_CHARS).collect();
+    if clean.chars().count() > MAX_DIAGNOSTIC_BODY_CHARS {
+        truncated.push_str("...");
+    }
+    truncated
+}
 
 /// Failure modes of vector storage operations.
 #[derive(Debug, Error)]

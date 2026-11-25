@@ -61,6 +61,12 @@ pub const DEFAULT_SUBMITTED_BY: &str = "api-key";
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 /// Largest combined payload of one deployment request.
 const MAX_TOTAL_BYTES: usize = 4 * 1024 * 1024;
+/// Lines returned by a backend log read when the caller does not choose.
+pub const DEFAULT_REMOTE_LOG_LINES: usize = 200;
+/// Largest line count a single log read may request.
+pub const MAX_REMOTE_LOG_LINES: usize = 2000;
+/// Largest log text one response carries; the newest bytes win.
+const MAX_REMOTE_LOG_BYTES: usize = 64 * 1024;
 /// Upper bound on any single remote command.
 const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 120;
 /// How long a start waits for the process to answer its health endpoint.
@@ -803,6 +809,48 @@ where
             timed_out: true,
         },
     }
+}
+
+/// Read the newest lines of the deployed server log.
+///
+/// The command shape is fixed: a bounded line count and a path derived from
+/// the normalized install root. No caller string reaches the remote shell.
+pub(crate) async fn read_log(
+    name: &str,
+    entry: &BackendEntry,
+    settings: &DeploySettings,
+    local_port: u16,
+    lines: usize,
+) -> Result<(String, bool), String> {
+    let lines = lines.clamp(1, MAX_REMOTE_LOG_LINES);
+    let command = format!("tail -n {lines} {}", log_path(&settings.install_root));
+    let channel = DeployChannel::new(
+        entry,
+        local_port,
+        Duration::from_secs(settings.exec_timeout_secs.max(1)),
+    );
+    let output = channel.run(&command, None).await?;
+    if !output.success() {
+        let detail = trim_bounded(&output.stderr)
+            .unwrap_or_else(|| "no diagnostic output".to_string());
+        return Err(format!(
+            "cannot read remote log for backend '{name}': {detail}"
+        ));
+    }
+    Ok(bound_log_tail(&output.stdout))
+}
+
+/// Keep the newest bytes of a log response so a few very long lines cannot
+/// push the useful tail out of one bounded reply.
+fn bound_log_tail(raw: &str) -> (String, bool) {
+    if raw.len() <= MAX_REMOTE_LOG_BYTES {
+        return (raw.to_string(), false);
+    }
+    let mut start = raw.len() - MAX_REMOTE_LOG_BYTES;
+    while start < raw.len() && !raw.is_char_boundary(start) {
+        start += 1;
+    }
+    (format!("...{}", &raw[start..]), true)
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,6 +1647,11 @@ impl Layout {
     }
 }
 
+/// Fixed path of the process log under one install root.
+pub(crate) fn log_path(root: &str) -> String {
+    format!("{}/logs/wf-server.log", Layout::new(root).root)
+}
+
 fn mkdir_step(layout: &Layout) -> DeployStepView {
     DeployStepView {
         id: "layout".to_string(),
@@ -2368,6 +2421,22 @@ mod tests {
         assert!(normalize_install_root("~/wf").is_err());
         assert!(normalize_install_root("../outside").is_err());
         assert!(normalize_install_root("a b").is_err());
+    }
+
+    #[test]
+    fn log_path_stays_under_the_quoted_install_root() {
+        let path = log_path(".wf-server");
+        assert_eq!(path, "\"$HOME\"/'.wf-server'/logs/wf-server.log");
+    }
+
+    #[test]
+    fn log_tail_keeps_the_newest_bytes_on_a_char_boundary() {
+        let raw = format!("{}{}", "x".repeat(MAX_REMOTE_LOG_BYTES), "é");
+        let (text, truncated) = bound_log_tail(&raw);
+        assert!(truncated);
+        assert!(text.starts_with("..."));
+        assert!(text.ends_with('é'));
+        assert!(text.len() <= MAX_REMOTE_LOG_BYTES + 3);
     }
 
     fn target(platform: &str) -> DeployTarget {

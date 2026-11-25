@@ -3,7 +3,7 @@
 //! return 503 while the backend domain is disabled, so the direct-link
 //! chain keeps zero behavior change.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
@@ -11,12 +11,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::backends::deploy::{
     DeployJobView, DeployOutcomeView, DeployPlanView, DeployProbeView, DeployRequest,
-    DeploySourceView, DEFAULT_INSTALL_ROOT,
+    DeploySourceView, DEFAULT_INSTALL_ROOT, DEFAULT_REMOTE_LOG_LINES, MAX_REMOTE_LOG_LINES,
 };
 use crate::backends::manager::DeployJobCancel;
 use crate::backends::types::{
-    BackendEntry, BackendEntryView, BackupExportView, BackupRecordView, BackupRelinkReport,
-    BackupVerificationView, SyncStateView,
+    BackendEntry, BackendEntryView, BackendLogView, BackupExportView, BackupRecordView,
+    BackupRelinkReport, BackupVerificationView, SyncStateView,
 };
 use crate::envelope::{error_response, ok, service_unavailable};
 use crate::extract::IdPath;
@@ -40,6 +40,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/system/backends/{name}",
             get(handle_get).put(handle_update).delete(handle_remove),
         )
+        .route("/system/backends/{name}/logs", get(handle_backend_log))
         .route(
             "/system/backends/{name}/tunnel/start",
             post(handle_tunnel_start),
@@ -585,6 +586,45 @@ pub(crate) async fn handle_trigger_backup(
             id: name,
         })
         .into_response(),
+        Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct BackendLogQuery {
+    /// Number of newest lines to return.
+    lines: Option<usize>,
+}
+
+#[utoipa::path(get, path = "/api/v1/system/backends/{name}/logs", operation_id = "get_system_backend_log", tag = "system", params(crate::extract::NamePath, BackendLogQuery), responses((status = 200, description = "Newest process log lines", body = crate::envelope::ApiEnvelope<BackendLogView>), (status = 400, description = "Invalid line count", body = crate::envelope::ErrorResponse), (status = 404, description = "Unknown backend", body = crate::envelope::ErrorResponse), (status = 503, description = "Backend management disabled", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_backend_log(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+    Query(query): Query<BackendLogQuery>,
+) -> impl IntoResponse {
+    let Some(backends) = state.backends.clone() else {
+        return disabled();
+    };
+    if !backends.is_enabled() {
+        return disabled();
+    }
+    let lines = query.lines.unwrap_or(DEFAULT_REMOTE_LOG_LINES);
+    if lines == 0 || lines > MAX_REMOTE_LOG_LINES {
+        return error_response(wf_api::ApiError::Validation(format!(
+            "lines must be between 1 and {MAX_REMOTE_LOG_LINES}"
+        )))
+        .into_response();
+    }
+    match backends.backend_log(&name, lines).await {
+        Ok(view) => ok(view).into_response(),
+        Err(e) if e.contains("not found") => {
+            error_response(wf_api::ApiError::NotFound {
+                entity_type: "backend".to_string(),
+                id: name,
+            })
+            .into_response()
+        }
         Err(e) => error_response(wf_api::ApiError::execution(e)).into_response(),
     }
 }

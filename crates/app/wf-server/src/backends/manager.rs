@@ -24,8 +24,9 @@ use super::deploy::{
 use super::store::BackendStore;
 use super::tunnel::TunnelSupervisor;
 use super::types::{
-    validate_backend_entry, BackendEntry, BackendEntryView, BackendStatusView, BackupExportView,
-    BackupRecordView, BackupRelinkReport, BackupVerificationView, SyncStateView, TunnelStateView,
+    validate_backend_entry, BackendEntry, BackendEntryView, BackendLogView, BackendStatusView,
+    BackupExportView, BackupRecordView, BackupRelinkReport, BackupVerificationView, SyncStateView,
+    TunnelStateView,
 };
 
 /// Bounded window a cancelled job gets to settle before its task is aborted
@@ -1680,6 +1681,29 @@ impl BackendManager {
             .get_entry(name)
             .await?
             .ok_or_else(|| format!("backend '{name}' not found"))
+    }
+
+    /// Read the newest process-log lines from one backend. This is a live
+    /// remote read: no log content is cached in the management database.
+    pub async fn backend_log(&self, name: &str, lines: usize) -> Result<BackendLogView, String> {
+        let entry = self.entry_for(name).await?;
+        let settings = self.config.deploy_settings();
+        let lines = lines.clamp(1, deploy::MAX_REMOTE_LOG_LINES);
+        let (content, truncated) = deploy::read_log(
+            name,
+            &entry,
+            &settings,
+            self.config.default_local_port,
+            lines,
+        )
+        .await?;
+        Ok(BackendLogView {
+            backend: name.to_string(),
+            path: deploy::log_path(&settings.install_root),
+            lines,
+            truncated,
+            content,
+        })
     }
 
     /// Remote facts for one backend. Cached because it costs one SSH round

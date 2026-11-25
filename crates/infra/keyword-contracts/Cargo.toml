@@ -1,0 +1,11 @@
+[package]
+name = "keyword-contracts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vector-contracts = { path = "../vector-contracts" }
+wf-types = { path = "../../foundation/wf-types" }
+async-trait.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -9,16 +9,16 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use keyword_contracts::{
+    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery,
+    Result as KeywordResult,
+};
 use tantivy::collector::{Count, TopDocs};
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, Occur, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, Schema, TextOptions, Value, STORED, STRING, TEXT};
 use tantivy::{doc, Index, IndexReader, IndexWriter, TantivyDocument, Term};
-use vector_contracts::{SearchFilter, VectorPoint};
-
-use crate::error::{RagError, Result};
-use crate::keyword_index::KeywordIndex;
-use crate::retriever::{chunk_from_hit, RetrievedChunk};
+use vector_contracts::{ScoredPoint, SearchFilter};
 
 /// Heap budget for the index writer (50 MiB, single embedded knowledge base).
 const WRITER_HEAP_BYTES: usize = 50_000_000;
@@ -35,8 +35,8 @@ const UPSERT_BATCH_SIZE: usize = 256;
 /// Unit separators never appear in collection names or chunk ids.
 const UID_SEPARATOR: char = '\u{1f}';
 
-fn keyword_error(err: impl std::fmt::Display) -> RagError {
-    RagError::Keyword(err.to_string())
+fn keyword_error(err: impl std::fmt::Display) -> KeywordError {
+    KeywordError::backend(err.to_string())
 }
 
 fn uid_for(collection: &str, chunk_id: &str) -> String {
@@ -167,7 +167,7 @@ impl TantivyKeywordIndex {
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
         writer_heap_bytes: usize,
-    ) -> Result<Self> {
+    ) -> KeywordResult<Self> {
         if tokenizer == wf_types::config::keyword::KeywordTokenizer::Mixed {
             index.tokenizers().register("mixed", MixedTokenizer);
         }
@@ -184,7 +184,7 @@ impl TantivyKeywordIndex {
     }
 
     /// Opens an in-RAM database for tests and ephemeral knowledge bases.
-    pub fn open_in_memory() -> Result<Self> {
+    pub fn open_in_memory() -> KeywordResult<Self> {
         Self::open_in_memory_with(wf_types::config::keyword::KeywordTokenizer::English, None)
     }
 
@@ -192,14 +192,14 @@ impl TantivyKeywordIndex {
     pub fn open_in_memory_with(
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
-    ) -> Result<Self> {
+    ) -> KeywordResult<Self> {
         let (schema, fields) = build_schema_with(tokenizer);
         let index = Index::create_in_ram(schema);
         Self::from_index(index, fields, tokenizer, analyzer_name, WRITER_HEAP_BYTES)
     }
 
     /// Opens or creates a file database rooted at the directory.
-    pub fn open(path: &str) -> Result<Self> {
+    pub fn open(path: &str) -> KeywordResult<Self> {
         Self::open_with(
             path,
             wf_types::config::keyword::KeywordTokenizer::English,
@@ -212,8 +212,8 @@ impl TantivyKeywordIndex {
         path: &str,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
-    ) -> Result<Self> {
-        let format = crate::keyword_index::KeywordFormat::new(tokenizer, analyzer_name);
+    ) -> KeywordResult<Self> {
+        let format = KeywordFormat::new(tokenizer, analyzer_name);
         Self::open_with_format(path, format, None)
     }
 
@@ -224,16 +224,16 @@ impl TantivyKeywordIndex {
     /// coexists inside one index.
     pub fn open_with_format(
         path: &str,
-        format: crate::keyword_index::KeywordFormat,
+        format: KeywordFormat,
         writer_heap_bytes: Option<usize>,
-    ) -> Result<Self> {
+    ) -> KeywordResult<Self> {
         if path.trim().is_empty() {
-            return Err(RagError::InvalidInput(
-                "tantivy keyword path must not be empty".to_string(),
+            return Err(KeywordError::invalid_input(
+                "tantivy keyword path must not be empty",
             ));
         }
         std::fs::create_dir_all(path)
-            .map_err(|err| RagError::Keyword(format!("create tantivy dir '{path}': {err}")))?;
+            .map_err(|err| KeywordError::backend(format!("create tantivy dir '{path}': {err}")))?;
         let stamp_path = std::path::Path::new(path).join(FORMAT_SIDECAR);
         let existing = std::fs::read_to_string(&stamp_path)
             .ok()
@@ -248,9 +248,7 @@ impl TantivyKeywordIndex {
                 if format.policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
                     readonly = true;
                 } else {
-                    return Err(crate::keyword_index::KeywordFormat::mismatch_error(
-                        &existing, &current,
-                    ));
+                    return Err(KeywordFormat::mismatch_error(&existing, &current));
                 }
             }
         }
@@ -267,8 +265,9 @@ impl TantivyKeywordIndex {
             writer_heap_bytes.unwrap_or(WRITER_HEAP_BYTES),
         )?;
         if !readonly {
-            std::fs::write(&stamp_path, &current)
-                .map_err(|err| RagError::Keyword(format!("write tantivy format stamp: {err}")))?;
+            std::fs::write(&stamp_path, &current).map_err(|err| {
+                KeywordError::backend(format!("write tantivy format stamp: {err}"))
+            })?;
         } else {
             index
                 .readonly
@@ -277,29 +276,24 @@ impl TantivyKeywordIndex {
         Ok(index)
     }
 
-    fn ensure_writable(&self) -> Result<()> {
+    fn ensure_writable(&self) -> KeywordResult<()> {
         if self.readonly.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err(RagError::Keyword(
-                "tantivy keyword index opened read-only after a format mismatch; rebuild before writing"
-                    .to_string(),
+            return Err(KeywordError::backend(
+                "tantivy keyword index opened read-only after a format mismatch; rebuild before writing",
             ));
         }
         Ok(())
     }
 
-    fn lock_writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {
-        self.writer
-            .lock()
-            .map_err(|err| RagError::Keyword(err.to_string()))
+    fn lock_writer(&self) -> KeywordResult<std::sync::MutexGuard<'_, IndexWriter>> {
+        self.writer.lock().map_err(keyword_error)
     }
 
-    fn lock_reader(&self) -> Result<std::sync::RwLockReadGuard<'_, IndexReader>> {
-        self.reader
-            .read()
-            .map_err(|err| RagError::Keyword(err.to_string()))
+    fn lock_reader(&self) -> KeywordResult<std::sync::RwLockReadGuard<'_, IndexReader>> {
+        self.reader.read().map_err(keyword_error)
     }
 
-    fn reload(&self) -> Result<()> {
+    fn reload(&self) -> KeywordResult<()> {
         self.lock_reader()?.reload().map_err(keyword_error)
     }
 }
@@ -375,49 +369,41 @@ impl KeywordIndex for TantivyKeywordIndex {
         "tantivy"
     }
 
-    async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()> {
+    async fn upsert(&self, collection: &str, documents: &[KeywordDocument]) -> KeywordResult<()> {
         if collection.is_empty() {
-            return Err(RagError::InvalidInput(
-                "collection must not be empty".to_string(),
-            ));
+            return Err(KeywordError::invalid_input("collection must not be empty"));
         }
         if let Some(name) = self
             .analyzer_name
             .as_deref()
             .filter(|name| !name.trim().is_empty())
         {
-            crate::tokenizer::ensure_analyzer_registered(name).map_err(RagError::InvalidInput)?;
+            crate::tokenizer::ensure_analyzer_registered(name)
+                .map_err(KeywordError::invalid_input)?;
         }
         self.ensure_writable()?;
-        for batch in points.chunks(UPSERT_BATCH_SIZE.max(1)) {
+        for batch in documents.chunks(UPSERT_BATCH_SIZE.max(1)) {
             let mut writer = self.lock_writer()?;
-            for point in batch {
-                if point.id.is_empty() {
-                    return Err(RagError::InvalidInput(
-                        "point id must not be empty".to_string(),
-                    ));
-                }
-                let content = payload_string(&point.payload, crate::document::CONTENT_KEY);
-                if content.trim().is_empty() {
-                    continue;
+            for document in batch {
+                if document.id.is_empty() {
+                    return Err(KeywordError::invalid_input("document id must not be empty"));
                 }
                 let namespace =
-                    payload_string(&point.payload, vector_contracts::types::NAMESPACE_KEY);
-                let source = payload_string(&point.payload, vector_contracts::types::SOURCE_KEY);
-                let payload = serde_json::to_string(&point.payload)
-                    .map_err(|err| RagError::Keyword(err.to_string()))?;
+                    payload_string(&document.payload, vector_contracts::types::NAMESPACE_KEY);
+                let source = payload_string(&document.payload, vector_contracts::types::SOURCE_KEY);
+                let payload = serde_json::to_string(&document.payload).map_err(keyword_error)?;
                 writer.delete_term(Term::from_field_text(
                     self.fields.uid,
-                    &uid_for(collection, &point.id),
+                    &uid_for(collection, &document.id),
                 ));
                 writer
                     .add_document(doc!(
                         self.fields.collection => collection,
-                        self.fields.uid => uid_for(collection, &point.id),
-                        self.fields.chunk_id => point.id.clone(),
+                        self.fields.uid => uid_for(collection, &document.id),
+                        self.fields.chunk_id => document.id.clone(),
                         self.fields.namespace => namespace,
                         self.fields.source => source,
-                        self.fields.content => content,
+                        self.fields.content => document.text.clone(),
                         self.fields.payload => payload
                     ))
                     .map_err(keyword_error)?;
@@ -432,11 +418,9 @@ impl KeywordIndex for TantivyKeywordIndex {
     async fn search(
         &self,
         collection: &str,
-        query: &str,
-        filter: Option<&SearchFilter>,
-        limit: usize,
-    ) -> Result<Vec<RetrievedChunk>> {
-        if limit == 0 {
+        query: &KeywordQuery,
+    ) -> KeywordResult<Vec<ScoredPoint>> {
+        if query.limit == 0 {
             return Ok(Vec::new());
         }
         if let Some(name) = self
@@ -444,17 +428,19 @@ impl KeywordIndex for TantivyKeywordIndex {
             .as_deref()
             .filter(|name| !name.trim().is_empty())
         {
-            crate::tokenizer::ensure_analyzer_registered(name).map_err(RagError::InvalidInput)?;
+            crate::tokenizer::ensure_analyzer_registered(name)
+                .map_err(KeywordError::invalid_input)?;
         }
         let Some(content) = content_query_with(
             &self.fields,
-            query,
+            &query.text,
             self.tokenizer,
             self.analyzer_name.as_deref(),
         ) else {
             return Ok(Vec::new());
         };
-        let fetch = limit.saturating_mul(3).max(limit).max(10);
+        let filter = query.filter.as_ref();
+        let fetch = query.limit.saturating_mul(3).max(query.limit).max(10);
         let rows: Vec<(f32, TantivyDocument)> = {
             let reader = self.lock_reader()?;
             let mut clauses = vec![(
@@ -484,8 +470,7 @@ impl KeywordIndex for TantivyKeywordIndex {
                 continue;
             };
             let payload_map: HashMap<String, serde_json::Value> =
-                serde_json::from_str(&payload_raw)
-                    .map_err(|err| RagError::Keyword(err.to_string()))?;
+                serde_json::from_str(&payload_raw).map_err(keyword_error)?;
             if let Some(wanted) = filter {
                 if !wanted.matches(&payload_map) {
                     continue;
@@ -494,22 +479,19 @@ impl KeywordIndex for TantivyKeywordIndex {
             let Some(chunk_id) = stored_string(&doc, self.fields.chunk_id) else {
                 continue;
             };
-            let scored = vector_contracts::ScoredPoint {
+            hits.push(ScoredPoint {
                 id: chunk_id,
                 score,
                 payload: payload_map,
-            };
-            if let Ok(chunk) = chunk_from_hit(&scored) {
-                hits.push(chunk);
-            }
-            if hits.len() >= limit {
+            });
+            if hits.len() >= query.limit {
                 break;
             }
         }
         Ok(hits)
     }
 
-    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> Result<u64> {
+    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> KeywordResult<u64> {
         if ids.is_empty() {
             return Ok(0);
         }
@@ -546,7 +528,7 @@ impl KeywordIndex for TantivyKeywordIndex {
         collection: &str,
         namespace: Option<&str>,
         source: &str,
-    ) -> Result<u64> {
+    ) -> KeywordResult<u64> {
         self.ensure_writable()?;
         let filter = SearchFilter::new().with_source(source);
         let filter = match namespace {
@@ -571,7 +553,7 @@ impl KeywordIndex for TantivyKeywordIndex {
         Ok(found as u64)
     }
 
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64> {
+    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> KeywordResult<u64> {
         let scope = scope_query(&self.fields, collection, filter);
         let reader = self.lock_reader()?;
         let found: usize = reader
@@ -586,14 +568,21 @@ impl KeywordIndex for TantivyKeywordIndex {
 mod tests {
     use super::*;
 
-    fn point(id: &str, content: &str, namespace: &str, source: &str) -> VectorPoint {
-        VectorPoint::new(id, vec![0.0; 2]).with_payload(HashMap::from([
-            ("content".to_string(), serde_json::json!(content)),
+    fn point(id: &str, content: &str, namespace: &str, source: &str) -> KeywordDocument {
+        KeywordDocument::new(id, content).with_payload(HashMap::from([
             ("chunk_id".to_string(), serde_json::json!(id)),
             ("document_id".to_string(), serde_json::json!("d")),
             ("namespace".to_string(), serde_json::json!(namespace)),
             ("source".to_string(), serde_json::json!(source)),
         ]))
+    }
+
+    fn query(text: &str, filter: Option<&SearchFilter>, limit: usize) -> KeywordQuery {
+        let query = KeywordQuery::new(text, limit);
+        match filter {
+            Some(filter) => query.with_filter(filter.clone()),
+            None => query,
+        }
     }
 
     #[tokio::test]
@@ -611,14 +600,14 @@ mod tests {
             .expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let hits = index
-            .search("kb", "rust ownership", Some(&filter), 5)
+            .search("kb", &query("rust ownership", Some(&filter), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
-        assert_eq!(hits[0].chunk_id, "a");
+        assert_eq!(hits[0].id, "a");
         assert_eq!(index.count("kb", None).await.expect("count"), 2);
         assert!(index
-            .search("kb", "   ", Some(&filter), 5)
+            .search("kb", &query("   ", Some(&filter), 5))
             .await
             .expect("empty")
             .is_empty());
@@ -651,9 +640,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn tagged_point(id: &str, content: &str, lang: &str) -> VectorPoint {
-        VectorPoint::new(id, vec![0.0; 2]).with_payload(HashMap::from([
-            ("content".to_string(), serde_json::json!(content)),
+    fn tagged_point(id: &str, content: &str, lang: &str) -> KeywordDocument {
+        KeywordDocument::new(id, content).with_payload(HashMap::from([
             ("chunk_id".to_string(), serde_json::json!(id)),
             ("document_id".to_string(), serde_json::json!("d")),
             ("namespace".to_string(), serde_json::json!("kb")),
@@ -678,21 +666,15 @@ mod tests {
         tantivy.upsert("kb", &points).await.expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let sqlite_hits = sqlite
-            .search("kb", "rust ownership", Some(&filter), 5)
+            .search("kb", &query("rust ownership", Some(&filter), 5))
             .await
             .expect("search");
         let tantivy_hits = tantivy
-            .search("kb", "rust ownership", Some(&filter), 5)
+            .search("kb", &query("rust ownership", Some(&filter), 5))
             .await
             .expect("search");
-        let sqlite_ids: Vec<&str> = sqlite_hits
-            .iter()
-            .map(|hit| hit.chunk_id.as_str())
-            .collect();
-        let tantivy_ids: Vec<&str> = tantivy_hits
-            .iter()
-            .map(|hit| hit.chunk_id.as_str())
-            .collect();
+        let sqlite_ids: Vec<&str> = sqlite_hits.iter().map(|hit| hit.id.as_str()).collect();
+        let tantivy_ids: Vec<&str> = tantivy_hits.iter().map(|hit| hit.id.as_str()).collect();
         assert_eq!(sqlite_ids, tantivy_ids);
         assert_eq!(sqlite_ids.first(), Some(&"a"));
         let scoped = SearchFilter::new().with_namespace("kb").with_source("a.md");
@@ -704,33 +686,33 @@ mod tests {
             .with_namespace("kb")
             .with_field("lang", "en");
         let sqlite_generic = sqlite
-            .search("kb", "rust", Some(&generic), 5)
+            .search("kb", &query("rust", Some(&generic), 5))
             .await
             .expect("search");
         let tantivy_generic = tantivy
-            .search("kb", "rust", Some(&generic), 5)
+            .search("kb", &query("rust", Some(&generic), 5))
             .await
             .expect("search");
         assert_eq!(sqlite_generic.len(), tantivy_generic.len());
-        assert!(sqlite_generic.iter().all(|hit| hit.chunk_id != "c"));
-        assert!(tantivy_generic.iter().all(|hit| hit.chunk_id != "c"));
+        assert!(sqlite_generic.iter().all(|hit| hit.id != "c"));
+        assert!(tantivy_generic.iter().all(|hit| hit.id != "c"));
         assert!(sqlite
-            .search("kb", "   ", Some(&filter), 5)
+            .search("kb", &query("   ", Some(&filter), 5))
             .await
             .expect("empty")
             .is_empty());
         assert!(tantivy
-            .search("kb", "   ", Some(&filter), 5)
+            .search("kb", &query("   ", Some(&filter), 5))
             .await
             .expect("empty")
             .is_empty());
         assert!(sqlite
-            .search("kb", "rust", Some(&filter), 0)
+            .search("kb", &query("rust", Some(&filter), 0))
             .await
             .expect("zero")
             .is_empty());
         assert!(tantivy
-            .search("kb", "rust", Some(&filter), 0)
+            .search("kb", &query("rust", Some(&filter), 0))
             .await
             .expect("zero")
             .is_empty());
@@ -738,12 +720,12 @@ mod tests {
             .with_namespace("kb")
             .with_source("missing.md");
         assert!(sqlite
-            .search("kb", "rust", Some(&selective), 5)
+            .search("kb", &query("rust", Some(&selective), 5))
             .await
             .expect("selective")
             .is_empty());
         assert!(tantivy
-            .search("kb", "rust", Some(&selective), 5)
+            .search("kb", &query("rust", Some(&selective), 5))
             .await
             .expect("selective")
             .is_empty());
@@ -780,7 +762,7 @@ mod tests {
             readers.push(tokio::spawn(async move {
                 let filter = SearchFilter::new().with_namespace("kb");
                 owned
-                    .search("kb", "concurrent rust", Some(&filter), 5)
+                    .search("kb", &query("concurrent rust", Some(&filter), 5))
                     .await
                     .expect("search")
             }));
@@ -807,16 +789,16 @@ mod tests {
             .expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let hits = index
-            .search("kb", "所有权", Some(&filter), 5)
+            .search("kb", &query("所有权", Some(&filter), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
-        assert_eq!(hits[0].chunk_id, "a");
+        assert_eq!(hits[0].id, "a");
         let english = index
-            .search("kb", "rust", Some(&filter), 5)
+            .search("kb", &query("rust", Some(&filter), 5))
             .await
             .expect("search");
-        assert!(english.iter().any(|hit| hit.chunk_id == "a"));
+        assert!(english.iter().any(|hit| hit.id == "a"));
     }
 
     #[tokio::test]
@@ -835,15 +817,15 @@ mod tests {
         tantivy.upsert("kb", &points).await.expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let sqlite_hits = sqlite
-            .search("kb", "所有权", Some(&filter), 5)
+            .search("kb", &query("所有权", Some(&filter), 5))
             .await
             .expect("search");
         let tantivy_hits = tantivy
-            .search("kb", "所有权", Some(&filter), 5)
+            .search("kb", &query("所有权", Some(&filter), 5))
             .await
             .expect("search");
         assert!(!sqlite_hits.is_empty());
         assert!(!tantivy_hits.is_empty());
-        assert_eq!(sqlite_hits[0].chunk_id, tantivy_hits[0].chunk_id);
+        assert_eq!(sqlite_hits[0].id, tantivy_hits[0].id);
     }
 }

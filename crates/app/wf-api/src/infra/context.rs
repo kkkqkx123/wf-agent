@@ -124,7 +124,7 @@ pub struct ApiContext {
     rag_handles: Option<crate::rag::RagHandles>,
     /// Shared keyword index opened by the host runtime. Stored separately
     /// so hybrid consumers observe it before the vector backend exists.
-    keyword_index: Option<std::sync::Arc<dyn rag_core::KeywordIndex>>,
+    keyword_index: Option<std::sync::Arc<dyn keyword_contracts::KeywordIndex>>,
     /// Live code-context service state. `None` keeps the diagnostics view
     /// reporting the service as disabled.
     code_context: Option<wf_integration::SharedCodeContextService>,
@@ -394,7 +394,7 @@ impl ApiContext {
     /// consumers can observe it before the vector backend exists.
     pub fn with_keyword_index(
         mut self,
-        keyword: std::sync::Arc<dyn rag_core::KeywordIndex>,
+        keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex>,
     ) -> Self {
         self.keyword_index = Some(keyword);
         self
@@ -413,14 +413,16 @@ impl ApiContext {
         self.code_context.as_ref()
     }
 
-    pub fn keyword_index(&self) -> Option<&std::sync::Arc<dyn rag_core::KeywordIndex>> {
+    pub fn keyword_index(&self) -> Option<&std::sync::Arc<dyn keyword_contracts::KeywordIndex>> {
         self.keyword_index.as_ref()
     }
 
     /// Effective keyword index shared by execution and observability.
     /// Retrieval-handle state wins; the context-level index fills the
     /// gap so node behavior and management counts observe one rule.
-    pub fn effective_keyword_index(&self) -> Option<std::sync::Arc<dyn rag_core::KeywordIndex>> {
+    pub fn effective_keyword_index(
+        &self,
+    ) -> Option<std::sync::Arc<dyn keyword_contracts::KeywordIndex>> {
         self.rag_handles
             .as_ref()
             .and_then(|handles| handles.keyword.clone())

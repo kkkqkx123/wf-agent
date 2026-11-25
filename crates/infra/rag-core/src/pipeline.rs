@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use keyword_contracts::{KeywordIndex, KeywordQuery};
 use llm_embedding::provider::EmbeddingProvider;
 use llm_rerank::{RerankProvider, RerankRuntimeConfig};
 use vector_contracts::{CollectionSpec, SearchFilter, VectorPoint, VectorQuery, VectorStorage};
@@ -19,7 +20,7 @@ use crate::document::{
     NEXT_ID_KEY, ORDINAL_KEY, PARENT_ID_KEY, PREV_ID_KEY,
 };
 use crate::error::{RagError, Result};
-use crate::keyword_index::KeywordIndex;
+use crate::keyword_index::{keyword_chunks, keyword_documents};
 use crate::metrics::{rank_pairs, RetrievalMetrics};
 use crate::postprocess::window_content;
 use crate::rerank_adapter::{rerank_hits, RankedChunk};
@@ -176,10 +177,11 @@ where
         stats.points += batch.len();
     }
     if let Some(keyword) = keyword {
-        if let Err(err) = keyword.upsert(collection, &points).await {
+        let documents = keyword_documents(&points);
+        if let Err(err) = keyword.upsert(collection, &documents).await {
             let ids: Vec<String> = points.iter().map(|point| point.id.clone()).collect();
             let _ = store.delete_by_id(collection, &ids).await;
-            return Err(err);
+            return Err(err.into());
         }
     }
     Ok(stats)
@@ -281,14 +283,8 @@ where
     .await?;
     let fused = if config.keyword_candidates > 0 {
         let filter = query_filter(namespace, config);
-        let keyword_hits = keyword
-            .search(
-                collection,
-                query_text,
-                Some(&filter),
-                config.keyword_candidates,
-            )
-            .await?;
+        let request = KeywordQuery::new(query_text, config.keyword_candidates).with_filter(filter);
+        let keyword_hits = keyword_chunks(&keyword.search(collection, &request).await?);
         if keyword_hits.is_empty() {
             searched.hits
         } else {
@@ -595,7 +591,8 @@ pub async fn delete_source<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
         Some(keyword) => keyword
             .delete_by_source(collection, namespace, source)
             .await
-            .map(|_| ()),
+            .map(|_| ())
+            .map_err(Into::into),
         None => Ok(()),
     };
     match (vector_outcome, keyword_outcome) {
@@ -615,7 +612,11 @@ pub async fn delete_by_ids<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
 ) -> Result<u64> {
     let vector_outcome = sync_support::remove_by_ids(store, collection, ids).await;
     let keyword_outcome: Result<()> = match keyword {
-        Some(keyword) => keyword.delete_by_id(collection, ids).await.map(|_| ()),
+        Some(keyword) => keyword
+            .delete_by_id(collection, ids)
+            .await
+            .map(|_| ())
+            .map_err(Into::into),
         None => Ok(()),
     };
     match (vector_outcome, keyword_outcome) {

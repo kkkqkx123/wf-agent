@@ -27,9 +27,16 @@ pub enum RagError {
     /// A stored point lacks the payload RAG ingest always writes.
     #[error("point '{0}' misses RAG payload")]
     MissingPayload(String),
-    /// Keyword index operation failed; the message carries the backend error.
+    /// Keyword index operation failed.
     #[error("keyword index error: {0}")]
-    Keyword(String),
+    Keyword(#[from] keyword_contracts::KeywordError),
+}
+
+impl RagError {
+    /// Builds a keyword failure from a readable message.
+    pub fn keyword(message: impl Into<String>) -> Self {
+        Self::Keyword(keyword_contracts::KeywordError::backend(message))
+    }
 }
 
 /// Fallible result of RAG operations.

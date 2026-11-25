@@ -1,93 +1,45 @@
-//! Keyword index abstraction over keyword backends.
+//! Adapters between the RAG point model and the keyword storage contract.
 //!
-//! The trait owns no retrieval semantics beyond keyword matching: backends
-//! map the caller filter to their native form and return ranked chunks.
-//! The SQLite FTS5 implementation in [`crate::sqlite_index`] is the
-//! built-in backend for production and tests.
+//! Pipelines write dense points, while keyword backends consume explicit
+//! text documents and return shared scored points. These helpers keep the
+//! payload contract in one place and prevent backend-specific result types
+//! from leaking into the RAG chunk model.
 
-use async_trait::async_trait;
-use vector_contracts::{SearchFilter, VectorPoint};
+use keyword_contracts::KeywordDocument;
+use vector_contracts::{payload_text, ScoredPoint, VectorPoint};
 
-use crate::error::{RagError, Result};
-use crate::retriever::RetrievedChunk;
+use crate::document::CONTENT_KEY;
+use crate::retriever::{chunk_from_hit, RetrievedChunk};
 
-/// Format stamp carried by every keyword backend. It binds the persisted
-/// index layout (tokenization, analyzer, internal format revision) to the
-/// open-time configuration so a stale index is detected before mixed
-/// semantics can coexist inside one index.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeywordFormat {
-    /// Built-in segmentation choice.
-    pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
-    /// Plugin analyzer name; `None` keeps the built-in path.
-    pub analyzer_name: Option<String>,
-    /// Behavior on an existing index with a different stamp.
-    pub policy: wf_types::config::keyword::KeywordFormatPolicy,
+/// Builds keyword documents from dense points written by ingest.
+///
+/// Points without searchable content are skipped so backends never need to
+/// inspect a RAG payload key.
+pub fn keyword_documents(points: &[VectorPoint]) -> Vec<KeywordDocument> {
+    points
+        .iter()
+        .filter_map(|point| {
+            let text = point
+                .payload
+                .get(CONTENT_KEY)
+                .and_then(|value| match value {
+                    serde_json::Value::String(text) => Some(text.clone()),
+                    other => payload_text(other),
+                })?;
+            if text.trim().is_empty() {
+                return None;
+            }
+            Some(KeywordDocument::new(point.id.clone(), text).with_payload(point.payload.clone()))
+        })
+        .collect()
 }
 
-impl KeywordFormat {
-    /// Format with the default reject policy.
-    pub fn new(
-        tokenizer: wf_types::config::keyword::KeywordTokenizer,
-        analyzer_name: Option<String>,
-    ) -> Self {
-        Self {
-            tokenizer,
-            analyzer_name,
-            policy: wf_types::config::keyword::KeywordFormatPolicy::default(),
-        }
-    }
-
-    /// Stable stamp stored in backend metadata and compared on open.
-    pub fn id(&self) -> String {
-        let analyzer = self
-            .analyzer_name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-            .map(|name| format!("analyzer:{name}"))
-            .unwrap_or_else(|| "builtin".to_string());
-        format!("v1/{:?}/{analyzer}", self.tokenizer)
-    }
-
-    /// Error reported when an existing index carries a different stamp.
-    pub fn mismatch_error(existing: &str, current: &str) -> RagError {
-        RagError::Keyword(format!(
-            "keyword index format mismatch: index holds '{existing}' but the configuration resolves to '{current}'; rebuild the index before use"
-        ))
-    }
-}
-
-/// Backend-neutral keyword storage contract.
-#[async_trait]
-pub trait KeywordIndex: Send + Sync {
-    /// Backend name for logging and diagnostics.
-    fn backend_name(&self) -> &'static str;
-
-    /// Inserts points or overwrites points with the same id.
-    /// Only the id and payload matter; vectors are ignored.
-    async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()>;
-
-    /// Keyword search ordered by descending score (higher is better).
-    async fn search(
-        &self,
-        collection: &str,
-        query: &str,
-        filter: Option<&SearchFilter>,
-        limit: usize,
-    ) -> Result<Vec<RetrievedChunk>>;
-
-    /// Deletes points by id; returns the number of removed points.
-    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> Result<u64>;
-
-    /// Deletes every point chunked from one source document, optionally
-    /// scoped to a namespace; returns the number of removed points.
-    async fn delete_by_source(
-        &self,
-        collection: &str,
-        namespace: Option<&str>,
-        source: &str,
-    ) -> Result<u64>;
-
-    /// Counts points matching the filter (or every point when unset).
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64>;
+/// Maps shared keyword hits into the RAG chunk model.
+///
+/// Hits missing required RAG payload fields are skipped, matching the
+/// previous backend behavior of ignoring unusable rows.
+pub fn keyword_chunks(hits: &[ScoredPoint]) -> Vec<RetrievedChunk> {
+    hits.iter()
+        .filter_map(|hit| chunk_from_hit(hit).ok())
+        .collect()
 }

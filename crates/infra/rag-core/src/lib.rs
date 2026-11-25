@@ -3,7 +3,7 @@
 //! Independent package: document handling, chunking, ingest and query
 //! pipelines, hybrid fusion, rerank adaptation and citations live here.
 //! Storage access goes only through [`vector_contracts::VectorStorage`]
-//! and the [`keyword_index::KeywordIndex`] keyword contract;
+//! and [`keyword_contracts::KeywordIndex`];
 //! embedding and rerank go only through the llm-suite provider traits;
 //! synthesis and query transforms go only through the completion port in
 //! [`llm`]. Concrete backends and providers are injected by the host, so
@@ -48,6 +48,8 @@ pub mod tantivy_index;
 pub mod tokenizer;
 pub mod transform;
 
+use keyword_contracts::{KeywordFormat, KeywordIndex};
+
 pub use chunker::{count_tokens, ChunkerConfig, RecursiveChunker};
 pub use citation::{
     build_citations, build_citations_with_style, check_answer_citations, check_completeness,
@@ -70,7 +72,7 @@ pub use error::{RagError, Result};
 pub use eval::{
     run_eval_cases, score_case, summarize, EvalCase, EvalOutcome, EvalRun, EvalSummary,
 };
-pub use keyword_index::KeywordIndex;
+pub use keyword_index::{keyword_chunks, keyword_documents};
 pub use llm::CompletionLlm;
 pub use metrics::{rank_pairs, RetrievalMetrics};
 pub use pipeline::{
@@ -195,8 +197,8 @@ pub fn open_tantivy_ram_keyword_with(
     #[cfg(not(feature = "tantivy"))]
     {
         let _ = (tokenizer, analyzer_name);
-        Err(RagError::Keyword(
-            "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+        Err(RagError::keyword(
+            "tantivy backend is not compiled; enable rag-core/tantivy",
         ))
     }
 }
@@ -225,8 +227,8 @@ pub fn open_tantivy_dir_keyword_with(
     #[cfg(not(feature = "tantivy"))]
     {
         let _ = (path, tokenizer, analyzer_name);
-        Err(RagError::Keyword(
-            "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+        Err(RagError::keyword(
+            "tantivy backend is not compiled; enable rag-core/tantivy",
         ))
     }
 }
@@ -254,7 +256,7 @@ pub fn open_sqlite_file_keyword_with(
 /// enabling the format-mismatch reject or read-only degrade policies.
 pub fn open_sqlite_file_keyword_format(
     path: &str,
-    format: keyword_index::KeywordFormat,
+    format: KeywordFormat,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     let index = sqlite_index::SqliteKeywordIndex::open_with_format(path, format)?;
     Ok(std::sync::Arc::new(index))
@@ -265,7 +267,7 @@ pub fn open_sqlite_file_keyword_format(
 #[cfg(feature = "tantivy")]
 pub fn open_tantivy_dir_keyword_format(
     path: &str,
-    format: keyword_index::KeywordFormat,
+    format: KeywordFormat,
     writer_heap_bytes: Option<usize>,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     let index =
@@ -277,12 +279,12 @@ pub fn open_tantivy_dir_keyword_format(
 #[cfg(not(feature = "tantivy"))]
 pub fn open_tantivy_dir_keyword_format(
     path: &str,
-    format: keyword_index::KeywordFormat,
+    format: KeywordFormat,
     writer_heap_bytes: Option<usize>,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     let _ = (path, format, writer_heap_bytes);
-    Err(RagError::Keyword(
-        "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+    Err(RagError::keyword(
+        "tantivy backend is not compiled; enable rag-core/tantivy",
     ))
 }
 
@@ -300,8 +302,8 @@ pub fn open_elastic_keyword(
     #[cfg(not(feature = "elastic"))]
     {
         let _ = config;
-        Err(RagError::Keyword(
-            "elastic backend is not compiled; enable rag-core/elastic".to_string(),
+        Err(RagError::keyword(
+            "elastic backend is not compiled; enable rag-core/elastic",
         ))
     }
 }
@@ -315,13 +317,13 @@ pub async fn probe_elastic_keyword(config: &ElasticKeywordConfig) -> Result<Stri
     {
         let index = elastic_index::ElasticKeywordIndex::new(config)?;
         index.health_check().await?;
-        index.version().await
+        index.version().await.map_err(Into::into)
     }
     #[cfg(not(feature = "elastic"))]
     {
         let _ = config;
-        Err(RagError::Keyword(
-            "elastic backend is not compiled; enable rag-core/elastic".to_string(),
+        Err(RagError::keyword(
+            "elastic backend is not compiled; enable rag-core/elastic",
         ))
     }
 }

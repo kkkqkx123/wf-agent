@@ -15,14 +15,14 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use serde_json::json;
-use vector_contracts::{diagnostic_body, SearchFilter, VectorPoint};
-
-use crate::error::{RagError, Result};
-use crate::keyword_index::KeywordIndex;
-use crate::retriever::{chunk_from_hit, RetrievedChunk};
 use crate::ElasticKeywordConfig;
+use async_trait::async_trait;
+use keyword_contracts::{
+    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery,
+    Result as KeywordResult,
+};
+use serde_json::json;
+use vector_contracts::{diagnostic_body, ScoredPoint, SearchFilter};
 
 /// Upper bound for automatic read retries on rate limiting and transient faults.
 const MAX_READ_RETRIES: usize = 3;
@@ -35,10 +35,10 @@ pub struct ElasticKeywordIndex {
 
 impl ElasticKeywordIndex {
     /// Builds the backend; no request is issued until first use.
-    pub fn new(config: &ElasticKeywordConfig) -> Result<Self> {
+    pub fn new(config: &ElasticKeywordConfig) -> KeywordResult<Self> {
         let base_url = config.base_url.trim();
         if base_url.is_empty() {
-            return Err(RagError::InvalidInput(
+            return Err(KeywordError::invalid_input(
                 "elastic base_url must not be empty".to_string(),
             ));
         }
@@ -47,12 +47,13 @@ impl ElasticKeywordIndex {
             .as_deref()
             .filter(|name| !name.trim().is_empty())
         {
-            crate::tokenizer::ensure_analyzer_registered(name).map_err(RagError::InvalidInput)?;
+            crate::tokenizer::ensure_analyzer_registered(name)
+                .map_err(KeywordError::InvalidInput)?;
         }
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs.max(1)))
             .build()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+            .map_err(|err| KeywordError::backend(err.to_string()))?;
         Ok(Self {
             client,
             config: config.clone(),
@@ -77,7 +78,7 @@ impl ElasticKeywordIndex {
         self.config.batch_size.max(1)
     }
 
-    async fn send(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+    async fn send(&self, request: reqwest::RequestBuilder) -> KeywordResult<reqwest::Response> {
         let mut request = request;
         if let Some(api_key) = self.config.api_key.as_deref().filter(|key| !key.is_empty()) {
             request = request.header("Authorization", format!("ApiKey {api_key}"));
@@ -85,7 +86,7 @@ impl ElasticKeywordIndex {
         request
             .send()
             .await
-            .map_err(|err| RagError::Keyword(err.to_string()))
+            .map_err(|err| KeywordError::backend(err.to_string()))
     }
 
     fn is_retryable_status(status: reqwest::StatusCode) -> bool {
@@ -103,7 +104,7 @@ impl ElasticKeywordIndex {
     async fn send_read(
         &self,
         build: impl Fn() -> reqwest::RequestBuilder,
-    ) -> Result<reqwest::Response> {
+    ) -> KeywordResult<reqwest::Response> {
         let mut attempt = 0;
         loop {
             match self.send(build()).await {
@@ -121,7 +122,7 @@ impl ElasticKeywordIndex {
                     }
                     return Ok(response);
                 }
-                Err(RagError::Keyword(ref error)) if attempt < MAX_READ_RETRIES => {
+                Err(KeywordError::Backend(ref error)) if attempt < MAX_READ_RETRIES => {
                     attempt += 1;
                     tracing::warn!(
                         backend = "elastic",
@@ -141,16 +142,16 @@ impl ElasticKeywordIndex {
         self.config.index.trim()
     }
 
-    fn status_error(context: &str, status: reqwest::StatusCode, body: &str) -> RagError {
-        RagError::Keyword(format!(
+    fn status_error(context: &str, status: reqwest::StatusCode, body: &str) -> KeywordError {
+        KeywordError::backend(format!(
             "elastic {context} failed (status {status}): {}",
             diagnostic_body(body)
         ))
     }
 
-    fn auth_error(status: reqwest::StatusCode, body: &str) -> Option<RagError> {
+    fn auth_error(status: reqwest::StatusCode, body: &str) -> Option<KeywordError> {
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-            Some(RagError::Keyword(format!(
+            Some(KeywordError::backend(format!(
                 "elastic unauthorized (status {status}): {}",
                 diagnostic_body(body)
             )))
@@ -159,9 +160,9 @@ impl ElasticKeywordIndex {
         }
     }
 
-    fn bad_request_error(status: reqwest::StatusCode, body: &str) -> Option<RagError> {
+    fn bad_request_error(status: reqwest::StatusCode, body: &str) -> Option<KeywordError> {
         if status == reqwest::StatusCode::BAD_REQUEST {
-            Some(RagError::InvalidInput(format!(
+            Some(KeywordError::invalid_input(format!(
                 "elastic invalid request (status {status}): {}",
                 diagnostic_body(body)
             )))
@@ -170,14 +171,14 @@ impl ElasticKeywordIndex {
         }
     }
 
-    fn decode_error(err: impl std::fmt::Display) -> RagError {
-        RagError::Keyword(format!("elastic decode error: {err}"))
+    fn decode_error(err: impl std::fmt::Display) -> KeywordError {
+        KeywordError::backend(format!("elastic decode error: {err}"))
     }
 
     /// Creates the index with the keyword mapping when missing.
     /// Existing indexes pass through after a mapping compatibility check;
     /// mapping conflicts fail explicitly instead of auto-migrating.
-    async fn ensure_index(&self) -> Result<()> {
+    async fn ensure_index(&self) -> KeywordResult<()> {
         let index = self.index_name().to_string();
         let probe = self
             .send_read(|| self.client.get(self.url(&format!("/{index}"))))
@@ -226,18 +227,14 @@ impl ElasticKeywordIndex {
     }
 
     fn format_id(&self) -> String {
-        crate::keyword_index::KeywordFormat::new(
-            self.config.tokenizer,
-            self.config.analyzer_name.clone(),
-        )
-        .id()
+        KeywordFormat::new(self.config.tokenizer, self.config.analyzer_name.clone()).id()
     }
 
     /// Reads the persisted format stamp from index settings and compares
     /// it with the resolved format. A missing stamp is treated as legacy
     /// adoption when the configuration resolves to the built-in English
     /// path; any other drift fails or degrades per the policy.
-    async fn check_format(&self, index: &str) -> Result<()> {
+    async fn check_format(&self, index: &str) -> KeywordResult<()> {
         let response = self
             .send_read(|| self.client.get(self.url(&format!("/{index}/_settings"))))
             .await?;
@@ -274,7 +271,7 @@ impl ElasticKeywordIndex {
         if self.config.format_policy == wf_types::config::keyword::KeywordFormatPolicy::ReadOnly {
             return Ok(());
         }
-        Err(crate::keyword_index::KeywordFormat::mismatch_error(
+        Err(KeywordFormat::mismatch_error(
             stamp.as_deref().unwrap_or("legacy-unstamped"),
             &current,
         ))
@@ -327,7 +324,7 @@ impl ElasticKeywordIndex {
     /// Verifies the live mapping carries every keyword field with a
     /// compatible type; conflicts fail explicitly, missing indexes are
     /// the caller's `ensure_index` path and never reach here.
-    async fn check_mapping(&self, index: &str) -> Result<()> {
+    async fn check_mapping(&self, index: &str) -> KeywordResult<()> {
         let response = self
             .send_read(|| self.client.get(self.url(&format!("/{index}/_mapping"))))
             .await?;
@@ -372,7 +369,7 @@ impl ElasticKeywordIndex {
                 .and_then(|kind| kind.as_str())
             {
                 if actual != expected {
-                    return Err(RagError::Keyword(format!(
+                    return Err(KeywordError::backend(format!(
                         "elastic mapping conflict on '{field}': expected {expected}, found {actual}"
                     )));
                 }
@@ -438,46 +435,38 @@ impl ElasticKeywordIndex {
 
     fn doc_body_with(
         collection: &str,
-        point: &VectorPoint,
+        document: &KeywordDocument,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<&str>,
-    ) -> Result<(String, serde_json::Value)> {
-        if point.id.is_empty() {
-            return Err(RagError::InvalidInput(
-                "point id must not be empty".to_string(),
-            ));
-        }
-        let content = Self::payload_string(&point.payload, crate::document::CONTENT_KEY);
-        if content.trim().is_empty() {
-            return Err(RagError::InvalidInput(format!(
-                "point '{}' has no indexable content",
-                point.id
-            )));
+    ) -> KeywordResult<(String, serde_json::Value)> {
+        if document.id.is_empty() {
+            return Err(KeywordError::invalid_input("document id must not be empty"));
         }
         let namespace =
-            Self::payload_string(&point.payload, vector_contracts::types::NAMESPACE_KEY);
-        let source = Self::payload_string(&point.payload, vector_contracts::types::SOURCE_KEY);
-        let payload = serde_json::to_string(&point.payload)
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
-        let id = Self::doc_id(collection, &point.id);
+            Self::payload_string(&document.payload, vector_contracts::types::NAMESPACE_KEY);
+        let source = Self::payload_string(&document.payload, vector_contracts::types::SOURCE_KEY);
+        let payload = serde_json::to_string(&document.payload)
+            .map_err(|err| KeywordError::backend(err.to_string()))?;
+        let id = Self::doc_id(collection, &document.id);
         use wf_types::config::keyword::KeywordTokenizer as Selection;
         let body = match tokenizer {
             Selection::English => json!({
                 "collection": collection,
-                "chunk_id": point.id,
+                "chunk_id": document.id.clone(),
                 "namespace": namespace,
                 "source": source,
-                "content": content,
+                "content": document.text.clone(),
                 "payload": payload,
             }),
             Selection::Mixed => {
-                let tokens = crate::tokenizer::pretokenize(&content, tokenizer, analyzer_name);
+                let tokens =
+                    crate::tokenizer::pretokenize(&document.text, tokenizer, analyzer_name);
                 json!({
                     "collection": collection,
-                    "chunk_id": point.id,
+                    "chunk_id": document.id.clone(),
                     "namespace": namespace,
                     "source": source,
-                    "content": content,
+                    "content": document.text.clone(),
                     "content_tokens": tokens,
                     "payload": payload,
                 })
@@ -487,7 +476,7 @@ impl ElasticKeywordIndex {
     }
 
     /// Checks server reachability (proprietary extension, not part of the contract).
-    pub async fn health_check(&self) -> Result<()> {
+    pub async fn health_check(&self) -> KeywordResult<()> {
         let response = self.send_read(|| self.client.get(self.url("/"))).await?;
         if response.status().is_success() {
             return Ok(());
@@ -501,7 +490,7 @@ impl ElasticKeywordIndex {
     }
 
     /// Returns the server version string (proprietary extension).
-    pub async fn version(&self) -> Result<String> {
+    pub async fn version(&self) -> KeywordResult<String> {
         let response = self.send_read(|| self.client.get(self.url("/"))).await?;
         if !response.status().is_success() {
             let status = response.status();
@@ -517,7 +506,9 @@ impl ElasticKeywordIndex {
             .pointer("/version/number")
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| RagError::Keyword("elastic version response has no number".to_string()))
+            .ok_or_else(|| {
+                KeywordError::backend("elastic version response has no number".to_string())
+            })
     }
 
     /// Warns on major-version drift without blocking startup: the major
@@ -541,7 +532,7 @@ impl ElasticKeywordIndex {
         index: &str,
         collection: &str,
         filter: Option<&SearchFilter>,
-    ) -> Result<u64> {
+    ) -> KeywordResult<u64> {
         let response = self
             .send_read(|| {
                 self.client
@@ -566,7 +557,7 @@ impl ElasticKeywordIndex {
         parsed
             .pointer("/hits/total/value")
             .and_then(|value| value.as_u64())
-            .ok_or_else(|| RagError::Keyword("elastic search total has no value".to_string()))
+            .ok_or_else(|| KeywordError::backend("elastic search total has no value".to_string()))
     }
 }
 
@@ -576,38 +567,32 @@ impl KeywordIndex for ElasticKeywordIndex {
         "elastic"
     }
 
-    async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()> {
+    async fn upsert(&self, collection: &str, documents: &[KeywordDocument]) -> KeywordResult<()> {
         if collection.is_empty() {
-            return Err(RagError::InvalidInput(
-                "collection must not be empty".to_string(),
-            ));
+            return Err(KeywordError::invalid_input("collection must not be empty"));
         }
-        if points.is_empty() {
+        if documents.is_empty() {
             return Ok(());
         }
         self.ensure_index().await?;
-        for batch in points.chunks(self.batch_size()) {
+        for batch in documents.chunks(self.batch_size()) {
             let mut body = String::new();
             let mut actionable = 0;
-            for point in batch {
-                let content = Self::payload_string(&point.payload, crate::document::CONTENT_KEY);
-                if content.trim().is_empty() {
-                    continue;
-                }
+            for document in batch {
                 let (id, doc) = Self::doc_body_with(
                     collection,
-                    point,
+                    document,
                     self.config.tokenizer,
                     self.config.analyzer_name.as_deref(),
                 )?;
                 body.push_str(
                     &serde_json::to_string(&json!({"index": {"_id": id}}))
-                        .map_err(|err| RagError::Keyword(err.to_string()))?,
+                        .map_err(|err| KeywordError::backend(err.to_string()))?,
                 );
                 body.push('\n');
                 body.push_str(
                     &serde_json::to_string(&doc)
-                        .map_err(|err| RagError::Keyword(err.to_string()))?,
+                        .map_err(|err| KeywordError::backend(err.to_string()))?,
                 );
                 body.push('\n');
                 actionable += 1;
@@ -632,14 +617,14 @@ impl KeywordIndex for ElasticKeywordIndex {
                 if let Some(err) = Self::bad_request_error(status, &text) {
                     return Err(err);
                 }
-                return Err(RagError::Keyword(format!(
+                return Err(KeywordError::backend(format!(
                     "elastic bulk index failed (status {status}): {text}"
                 )));
             }
             let parsed: serde_json::Value =
                 serde_json::from_str(&text).map_err(Self::decode_error)?;
             if parsed.get("errors").and_then(|value| value.as_bool()) == Some(true) {
-                return Err(RagError::Keyword(format!(
+                return Err(KeywordError::backend(format!(
                     "elastic bulk index reported item errors: {}",
                     diagnostic_body(&text)
                 )));
@@ -651,14 +636,13 @@ impl KeywordIndex for ElasticKeywordIndex {
     async fn search(
         &self,
         collection: &str,
-        query: &str,
-        filter: Option<&SearchFilter>,
-        limit: usize,
-    ) -> Result<Vec<RetrievedChunk>> {
-        if limit == 0 || query.trim().is_empty() {
+        query: &KeywordQuery,
+    ) -> KeywordResult<Vec<ScoredPoint>> {
+        if query.limit == 0 || query.text.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let fetch = limit.saturating_mul(3).max(limit).max(10);
+        let filter = query.filter.as_ref();
+        let fetch = query.limit.saturating_mul(3).max(query.limit).max(10);
         let index = self.index_name().to_string();
         let response = self
             .send_read(|| {
@@ -666,7 +650,7 @@ impl KeywordIndex for ElasticKeywordIndex {
                     .post(self.url(&format!("/{index}/_search")))
                     .json(&Self::search_body_with(
                         collection,
-                        query,
+                        &query.text,
                         filter,
                         fetch,
                         self.config.tokenizer,
@@ -693,7 +677,9 @@ impl KeywordIndex for ElasticKeywordIndex {
         let hits = parsed
             .pointer("/hits/hits")
             .and_then(|value| value.as_array())
-            .ok_or_else(|| RagError::Keyword("elastic search response has no hits".to_string()))?;
+            .ok_or_else(|| {
+                KeywordError::backend("elastic search response has no hits".to_string())
+            })?;
         let mut out = Vec::new();
         for hit in hits {
             let score = hit
@@ -702,13 +688,13 @@ impl KeywordIndex for ElasticKeywordIndex {
                 .unwrap_or(0.0) as f32;
             let source = hit
                 .get("_source")
-                .ok_or_else(|| RagError::Keyword("elastic hit has no _source".to_string()))?;
+                .ok_or_else(|| KeywordError::backend("elastic hit has no _source".to_string()))?;
             let payload_raw = source
                 .get("payload")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| RagError::Keyword("elastic hit has no payload".to_string()))?;
+                .ok_or_else(|| KeywordError::backend("elastic hit has no payload".to_string()))?;
             let payload_map: HashMap<String, serde_json::Value> = serde_json::from_str(payload_raw)
-                .map_err(|err| RagError::Keyword(err.to_string()))?;
+                .map_err(|err| KeywordError::backend(err.to_string()))?;
             if let Some(wanted) = filter {
                 if !wanted.matches(&payload_map) {
                     continue;
@@ -719,22 +705,19 @@ impl KeywordIndex for ElasticKeywordIndex {
                 .and_then(|value| value.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let scored = vector_contracts::ScoredPoint {
+            out.push(ScoredPoint {
                 id: chunk_id,
                 score,
                 payload: payload_map,
-            };
-            if let Ok(chunk) = chunk_from_hit(&scored) {
-                out.push(chunk);
-            }
-            if out.len() >= limit {
+            });
+            if out.len() >= query.limit {
                 break;
             }
         }
         Ok(out)
     }
 
-    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> Result<u64> {
+    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> KeywordResult<u64> {
         if ids.is_empty() {
             return Ok(0);
         }
@@ -743,7 +726,7 @@ impl KeywordIndex for ElasticKeywordIndex {
             let doc_id = Self::doc_id(collection, id);
             body.push_str(
                 &serde_json::to_string(&json!({"delete": {"_id": doc_id}}))
-                    .map_err(|err| RagError::Keyword(err.to_string()))?,
+                    .map_err(|err| KeywordError::backend(err.to_string()))?,
             );
             body.push('\n');
         }
@@ -767,7 +750,7 @@ impl KeywordIndex for ElasticKeywordIndex {
             if let Some(err) = Self::bad_request_error(status, &text) {
                 return Err(err);
             }
-            return Err(RagError::Keyword(format!(
+            return Err(KeywordError::backend(format!(
                 "elastic bulk delete failed (status {status}): {text}"
             )));
         }
@@ -776,7 +759,9 @@ impl KeywordIndex for ElasticKeywordIndex {
         let items = parsed
             .get("items")
             .and_then(|value| value.as_array())
-            .ok_or_else(|| RagError::Keyword("elastic bulk response has no items".to_string()))?;
+            .ok_or_else(|| {
+                KeywordError::backend("elastic bulk response has no items".to_string())
+            })?;
         let mut removed = 0_u64;
         for item in items {
             let status = item
@@ -796,7 +781,7 @@ impl KeywordIndex for ElasticKeywordIndex {
         collection: &str,
         namespace: Option<&str>,
         source: &str,
-    ) -> Result<u64> {
+    ) -> KeywordResult<u64> {
         let mut filter = SearchFilter::new().with_source(source);
         if let Some(namespace) = namespace {
             filter = filter.with_namespace(namespace);
@@ -831,7 +816,7 @@ impl KeywordIndex for ElasticKeywordIndex {
             .unwrap_or(0))
     }
 
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64> {
+    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> KeywordResult<u64> {
         let index = self.index_name().to_string();
         if !self.config.exact_count {
             return self.approximate_count(&index, collection, filter).await;
@@ -859,13 +844,21 @@ impl KeywordIndex for ElasticKeywordIndex {
         parsed
             .get("count")
             .and_then(|value| value.as_u64())
-            .ok_or_else(|| RagError::Keyword("elastic count response has no count".to_string()))
+            .ok_or_else(|| KeywordError::backend("elastic count response has no count".to_string()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn query(text: &str, filter: Option<&SearchFilter>, limit: usize) -> KeywordQuery {
+        let query = KeywordQuery::new(text, limit);
+        match filter {
+            Some(filter) => query.with_filter(filter.clone()),
+            None => query,
+        }
+    }
 
     fn test_config() -> ElasticKeywordConfig {
         ElasticKeywordConfig {
@@ -903,10 +896,10 @@ mod tests {
                 .is_some(),
             "mixed mapping must carry a whitespace sidecar"
         );
-        let point = VectorPoint::new("a", vec![0.0; 2]).with_payload(HashMap::from([
-            ("content".to_string(), serde_json::json!("hello world")),
-            ("chunk_id".to_string(), serde_json::json!("a")),
-        ]));
+        let point = KeywordDocument::new("a", "hello world").with_payload(HashMap::from([(
+            "chunk_id".to_string(),
+            serde_json::json!("a"),
+        )]));
         let (_, doc) =
             ElasticKeywordIndex::doc_body_with("kb", &point, KeywordTokenizer::Mixed, None)
                 .expect("doc");
@@ -959,20 +952,18 @@ mod tests {
         let index = ElasticKeywordIndex::new(&config).expect("client");
         index.health_check().await.expect("health");
         let points = vec![
-            VectorPoint::new("live#0", vec![0.0; 2]).with_payload(HashMap::from([
-                (
-                    "content".to_string(),
-                    serde_json::json!("rust ownership borrowing"),
-                ),
-                ("chunk_id".to_string(), serde_json::json!("live#0")),
-                ("namespace".to_string(), serde_json::json!("kb")),
-                ("source".to_string(), serde_json::json!("live.md")),
-            ])),
+            KeywordDocument::new("live#0", "rust ownership borrowing").with_payload(HashMap::from(
+                [
+                    ("chunk_id".to_string(), serde_json::json!("live#0")),
+                    ("namespace".to_string(), serde_json::json!("kb")),
+                    ("source".to_string(), serde_json::json!("live.md")),
+                ],
+            )),
         ];
         index.upsert("kb", &points).await.expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let hits = index
-            .search("kb", "rust ownership", Some(&filter), 5)
+            .search("kb", &query("rust ownership", Some(&filter), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
@@ -1004,25 +995,21 @@ mod tests {
         for shard in 0..4 {
             let owned = index.clone();
             writers.push(tokio::spawn(async move {
-                let points = vec![
-                    VectorPoint::new(format!("concurrent#{shard}"), vec![0.0; 2]).with_payload(
-                        HashMap::from([
-                            (
-                                "content".to_string(),
-                                serde_json::json!("concurrent bulk rust ownership"),
-                            ),
-                            (
-                                "chunk_id".to_string(),
-                                serde_json::json!(format!("concurrent#{shard}")),
-                            ),
-                            ("namespace".to_string(), serde_json::json!("kb")),
-                            (
-                                "source".to_string(),
-                                serde_json::json!(format!("load-{shard}.md")),
-                            ),
-                        ]),
+                let points = vec![KeywordDocument::new(
+                    format!("concurrent#{shard}"),
+                    "concurrent bulk rust ownership",
+                )
+                .with_payload(HashMap::from([
+                    (
+                        "chunk_id".to_string(),
+                        serde_json::json!(format!("concurrent#{shard}")),
                     ),
-                ];
+                    ("namespace".to_string(), serde_json::json!("kb")),
+                    (
+                        "source".to_string(),
+                        serde_json::json!(format!("load-{shard}.md")),
+                    ),
+                ]))];
                 owned.upsert("kb", &points).await.expect("upsert");
             }));
         }

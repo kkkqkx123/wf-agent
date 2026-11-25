@@ -29,7 +29,7 @@ pub struct RagHandles {
     pub embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
     /// Keyword index shared with tools and workflow nodes; `None`
     /// disables hybrid retrieval and dual writes.
-    pub keyword: Option<Arc<dyn rag_core::KeywordIndex>>,
+    pub keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
 }
 
 impl RagHandles {
@@ -37,7 +37,7 @@ impl RagHandles {
     pub fn new(
         store: Arc<dyn vector_contracts::VectorStorage>,
         embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
-        keyword: Option<Arc<dyn rag_core::KeywordIndex>>,
+        keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
     ) -> Self {
         Self {
             store,
@@ -412,17 +412,17 @@ fn env_path(name: &str) -> Option<PathBuf> {
 /// already depend on the core unwrap the inner handle.
 #[derive(Clone)]
 pub struct SharedKeywordIndex {
-    inner: Arc<dyn rag_core::KeywordIndex>,
+    inner: Arc<dyn keyword_contracts::KeywordIndex>,
 }
 
 impl SharedKeywordIndex {
     /// Wraps an already opened index.
-    pub fn new(inner: Arc<dyn rag_core::KeywordIndex>) -> Self {
+    pub fn new(inner: Arc<dyn keyword_contracts::KeywordIndex>) -> Self {
         Self { inner }
     }
 
     /// Borrows the inner handle for retrieval calls.
-    pub fn as_arc(&self) -> &Arc<dyn rag_core::KeywordIndex> {
+    pub fn as_arc(&self) -> &Arc<dyn keyword_contracts::KeywordIndex> {
         &self.inner
     }
 }
@@ -486,7 +486,7 @@ pub fn open_keyword_index_with(
                 }
             }
             let raw = path.to_string_lossy().into_owned();
-            let format = rag_core::keyword_index::KeywordFormat {
+            let format = keyword_contracts::KeywordFormat {
                 tokenizer: selection.tokenizer,
                 analyzer_name: selection.analyzer_name.clone(),
                 policy: selection.format_policy,
@@ -517,7 +517,7 @@ pub fn open_keyword_index_with(
                 })?,
                 Some(dir) => {
                     let raw = dir.to_string_lossy().into_owned();
-                    let format = rag_core::keyword_index::KeywordFormat {
+                    let format = keyword_contracts::KeywordFormat {
                         tokenizer: selection.tokenizer,
                         analyzer_name: selection.analyzer_name.clone(),
                         policy: selection.format_policy,
@@ -558,7 +558,7 @@ pub fn open_keyword_index_with(
 /// wrong port or unreachable server fails fast instead of degrading.
 fn open_elastic_handle(
     location: &ElasticLocation,
-) -> Result<std::sync::Arc<dyn rag_core::KeywordIndex>, rag_core::RagError> {
+) -> Result<std::sync::Arc<dyn keyword_contracts::KeywordIndex>, rag_core::RagError> {
     let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
     config.api_key.clone_from(&location.api_key);
     config.index.clone_from(&location.index);
@@ -685,7 +685,7 @@ pub struct CollectionStats {
 /// keep working.
 pub async fn collection_stats(
     store: &dyn vector_contracts::VectorStorage,
-    keyword: Option<&dyn rag_core::KeywordIndex>,
+    keyword: Option<&dyn keyword_contracts::KeywordIndex>,
     collection: &str,
     namespace: &str,
 ) -> ApiResult<CollectionStats> {
@@ -719,7 +719,7 @@ pub async fn collection_stats(
 /// Counts points for one source inside a namespace scope on both indexes.
 pub async fn source_stats(
     store: &dyn vector_contracts::VectorStorage,
-    keyword: Option<&dyn rag_core::KeywordIndex>,
+    keyword: Option<&dyn keyword_contracts::KeywordIndex>,
     collection: &str,
     namespace: &str,
     source: &str,
@@ -899,7 +899,7 @@ fn truncate_excerpt(content: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rag_core::KeywordIndex;
+    use keyword_contracts::KeywordIndex;
     use std::sync::atomic::{AtomicU64, Ordering};
     use vector_contracts::VectorStorage as _;
 
@@ -1414,7 +1414,7 @@ mod tests {
     async fn host_management_and_workflow_wiring_share_singleton() {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
-        let keyword: std::sync::Arc<dyn rag_core::KeywordIndex> =
+        let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> =
             std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         rag_core::pipeline::ingest_documents(
             store.as_ref(),
@@ -1466,9 +1466,9 @@ mod tests {
         use std::sync::Arc;
         let store = Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = Arc::new(UnitEmbedder { dimension: 8 });
-        let handle_keyword: Arc<dyn rag_core::KeywordIndex> =
+        let handle_keyword: Arc<dyn keyword_contracts::KeywordIndex> =
             Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
-        let ctx_keyword: Arc<dyn rag_core::KeywordIndex> =
+        let ctx_keyword: Arc<dyn keyword_contracts::KeywordIndex> =
             Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         let ctx_with_both = crate::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),

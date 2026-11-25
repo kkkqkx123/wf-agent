@@ -22,6 +22,7 @@ members = [
     # Backend-neutral vector storage contracts (independent package: no
     # project-specific semantics, extractable to its own repository).
     "crates/infra/vector-contracts",
+    "crates/infra/keyword-contracts",
     # Independent RAG pipelines over vector-contracts (neutral naming keeps
     # the extraction path open, mirroring vector-contracts).
     "crates/infra/rag-core",

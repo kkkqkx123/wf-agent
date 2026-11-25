@@ -3400,6 +3400,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyword-contracts"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "thiserror 2.0.21",
+ "vector-contracts",
+ "wf-types",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4998,6 +5009,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "jieba-rs",
+ "keyword-contracts",
  "llm-suite-embedding",
  "llm-suite-rerank",
  "once_cell",
@@ -8319,6 +8331,7 @@ dependencies = [
  "futures",
  "glob",
  "hex",
+ "keyword-contracts",
  "llm-suite-embedding",
  "portable-pty",
  "rag-core",
@@ -8834,6 +8847,7 @@ dependencies = [
  "futures",
  "hex",
  "http",
+ "keyword-contracts",
  "llm-suite-embedding",
  "percent-encoding",
  "rag-core",
@@ -8940,6 +8954,7 @@ dependencies = [
  "gix-ignore",
  "globset",
  "html5ever",
+ "keyword-contracts",
  "llm-suite-embedding",
  "llm-suite-proxy",
  "rag-core",
@@ -9027,6 +9042,7 @@ dependencies = [
  "base64 0.22.1",
  "dashmap",
  "futures",
+ "keyword-contracts",
  "llm-suite-embedding",
  "rag-core",
  "regex",

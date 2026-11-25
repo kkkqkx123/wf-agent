@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 rag-core = { path = "../../infra/rag-core" }
 vector-contracts = { path = "../../infra/vector-contracts" }
+keyword-contracts = { path = "../../infra/keyword-contracts" }
 llm-embedding = { package = "llm-suite-embedding", path = "../../infra/llm-suite/crates/llm-suite-embedding" }
 serde.workspace = true
 serde_json.workspace = true

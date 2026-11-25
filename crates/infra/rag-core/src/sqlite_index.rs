@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use vector_contracts::{SearchFilter, VectorPoint};
-
-use crate::error::{RagError, Result};
-use crate::keyword_index::KeywordIndex;
-use crate::retriever::{chunk_from_hit, RetrievedChunk};
+use keyword_contracts::{
+    KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery,
+    Result as KeywordResult,
+};
+use vector_contracts::{ScoredPoint, SearchFilter};
 
 const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts USING fts5(collection UNINDEXED, chunk_id UNINDEXED, namespace UNINDEXED, source UNINDEXED, content, payload UNINDEXED, tokenize='unicode61')";
 
@@ -25,14 +25,18 @@ const META_SCHEMA: &str =
     "CREATE TABLE IF NOT EXISTS keyword_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)";
 
 /// Maps a schema error to a readable message when FTS5 is missing.
-fn schema_error(err: rusqlite::Error) -> RagError {
+fn schema_error(err: rusqlite::Error) -> KeywordError {
     let text = err.to_string();
     if text.contains("no such module") {
-        return RagError::Keyword(format!(
+        return KeywordError::backend(format!(
             "SQLite lacks the FTS5 module; rebuild rusqlite with the fts5 feature: {text}"
         ));
     }
-    RagError::Keyword(text)
+    KeywordError::backend(text)
+}
+
+fn keyword_error(err: impl std::fmt::Display) -> KeywordError {
+    KeywordError::backend(err.to_string())
 }
 
 /// Built-in keyword backend powered by SQLite FTS5.
@@ -47,7 +51,7 @@ pub struct SqliteKeywordIndex {
 
 impl SqliteKeywordIndex {
     /// Opens an in-memory database for tests and ephemeral knowledge bases.
-    pub fn open_in_memory() -> Result<Self> {
+    pub fn open_in_memory() -> KeywordResult<Self> {
         Self::open_in_memory_with(wf_types::config::keyword::KeywordTokenizer::English, None)
     }
 
@@ -55,9 +59,8 @@ impl SqliteKeywordIndex {
     pub fn open_in_memory_with(
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
-    ) -> Result<Self> {
-        let conn = rusqlite::Connection::open_in_memory()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+    ) -> KeywordResult<Self> {
+        let conn = rusqlite::Connection::open_in_memory().map_err(keyword_error)?;
         let index = Self {
             conn: Mutex::new(conn),
             tokenizer,
@@ -70,7 +73,7 @@ impl SqliteKeywordIndex {
     }
 
     /// Opens or creates a file database.
-    pub fn open(path: &str) -> Result<Self> {
+    pub fn open(path: &str) -> KeywordResult<Self> {
         Self::open_with(
             path,
             wf_types::config::keyword::KeywordTokenizer::English,
@@ -83,8 +86,8 @@ impl SqliteKeywordIndex {
         path: &str,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<String>,
-    ) -> Result<Self> {
-        let format = crate::keyword_index::KeywordFormat::new(tokenizer, analyzer_name);
+    ) -> KeywordResult<Self> {
+        let format = KeywordFormat::new(tokenizer, analyzer_name);
         Self::open_with_format(path, format)
     }
 
@@ -92,22 +95,18 @@ impl SqliteKeywordIndex {
     /// An existing database whose stamp differs from the resolved format
     /// fails under the reject policy or opens read-only under the degrade
     /// policy, so mixed tokenization never coexists inside one database.
-    pub fn open_with_format(
-        path: &str,
-        format: crate::keyword_index::KeywordFormat,
-    ) -> Result<Self> {
+    pub fn open_with_format(path: &str, format: KeywordFormat) -> KeywordResult<Self> {
         if path.trim().is_empty() {
-            return Err(RagError::InvalidInput(
-                "keyword database path must not be empty".to_string(),
+            return Err(KeywordError::invalid_input(
+                "keyword database path must not be empty",
             ));
         }
-        let conn =
-            rusqlite::Connection::open(path).map_err(|err| RagError::Keyword(err.to_string()))?;
+        let conn = rusqlite::Connection::open(path).map_err(keyword_error)?;
         conn.execute_batch("PRAGMA busy_timeout = 5000;")
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+            .map_err(keyword_error)?;
         let _ = conn
             .execute_batch("PRAGMA journal_mode = WAL;")
-            .map_err(|err| RagError::Keyword(err.to_string()));
+            .map_err(keyword_error);
         let index = Self {
             conn: Mutex::new(conn),
             tokenizer: format.tokenizer,
@@ -119,11 +118,8 @@ impl SqliteKeywordIndex {
         Ok(index)
     }
 
-    fn ensure_schema(&self) -> Result<()> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+    fn ensure_schema(&self) -> KeywordResult<()> {
+        let guard = self.conn.lock().map_err(keyword_error)?;
         guard.execute_batch(SCHEMA).map_err(schema_error)?;
         guard.execute_batch(META_SCHEMA).map_err(schema_error)?;
         Ok(())
@@ -133,11 +129,8 @@ impl SqliteKeywordIndex {
     /// database created before stamping existed and indexed with the
     /// built-in English path is claimed by an equivalent configuration,
     /// while any other resolution is a mismatch.
-    fn check_format_stamp(&self, format: &crate::keyword_index::KeywordFormat) -> Result<()> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+    fn check_format_stamp(&self, format: &KeywordFormat) -> KeywordResult<()> {
+        let guard = self.conn.lock().map_err(keyword_error)?;
         let existing = guard
             .query_row(
                 "SELECT value FROM keyword_meta WHERE key = ?1",
@@ -163,22 +156,15 @@ impl SqliteKeywordIndex {
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                     return Ok(());
                 }
-                return Err(crate::keyword_index::KeywordFormat::mismatch_error(
-                    &existing, &current,
-                ));
+                return Err(KeywordFormat::mismatch_error(&existing, &current));
             }
         }
         Ok(())
     }
 
-    fn write_format_stamp(&self) -> Result<()> {
-        let stamp =
-            crate::keyword_index::KeywordFormat::new(self.tokenizer, self.analyzer_name.clone())
-                .id();
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+    fn write_format_stamp(&self) -> KeywordResult<()> {
+        let stamp = KeywordFormat::new(self.tokenizer, self.analyzer_name.clone()).id();
+        let guard = self.conn.lock().map_err(keyword_error)?;
         guard
             .execute(
                 "INSERT INTO keyword_meta (key, value) VALUES (?1, ?2)
@@ -189,20 +175,17 @@ impl SqliteKeywordIndex {
         Ok(())
     }
 
-    fn ensure_writable(&self) -> Result<()> {
+    fn ensure_writable(&self) -> KeywordResult<()> {
         if self.readonly.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err(RagError::Keyword(
-                "keyword index opened read-only after a format mismatch; rebuild before writing"
-                    .to_string(),
+            return Err(KeywordError::backend(
+                "keyword index opened read-only after a format mismatch; rebuild before writing",
             ));
         }
         Ok(())
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>> {
-        self.conn
-            .lock()
-            .map_err(|err| RagError::Keyword(err.to_string()))
+    fn lock(&self) -> KeywordResult<std::sync::MutexGuard<'_, rusqlite::Connection>> {
+        self.conn.lock().map_err(keyword_error)
     }
 }
 
@@ -236,9 +219,9 @@ fn fts_query_for_with(
     Some(terms.join(" OR "))
 }
 
-fn check_analyzer(analyzer_name: Option<&str>) -> Result<()> {
+fn check_analyzer(analyzer_name: Option<&str>) -> KeywordResult<()> {
     if let Some(name) = analyzer_name.filter(|name| !name.trim().is_empty()) {
-        crate::tokenizer::ensure_analyzer_registered(name).map_err(RagError::InvalidInput)?;
+        crate::tokenizer::ensure_analyzer_registered(name).map_err(KeywordError::invalid_input)?;
     }
     Ok(())
 }
@@ -249,37 +232,27 @@ impl KeywordIndex for SqliteKeywordIndex {
         "sqlite-fts"
     }
 
-    async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()> {
+    async fn upsert(&self, collection: &str, documents: &[KeywordDocument]) -> KeywordResult<()> {
         if collection.is_empty() {
-            return Err(RagError::InvalidInput(
-                "collection must not be empty".to_string(),
-            ));
+            return Err(KeywordError::invalid_input("collection must not be empty"));
         }
         check_analyzer(self.analyzer_name.as_deref())?;
         self.ensure_writable()?;
         let mut guard = self.lock()?;
-        let tx = guard
-            .transaction()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
-        for point in points {
-            if point.id.is_empty() {
-                return Err(RagError::InvalidInput(
-                    "point id must not be empty".to_string(),
-                ));
+        let tx = guard.transaction().map_err(keyword_error)?;
+        for document in documents {
+            if document.id.is_empty() {
+                return Err(KeywordError::invalid_input("document id must not be empty"));
             }
-            let content = payload_string(&point.payload, crate::document::CONTENT_KEY);
-            if content.trim().is_empty() {
-                continue;
-            }
-            let namespace = payload_string(&point.payload, vector_contracts::types::NAMESPACE_KEY);
-            let source = payload_string(&point.payload, vector_contracts::types::SOURCE_KEY);
-            let payload = serde_json::to_string(&point.payload)
-                .map_err(|err| RagError::Keyword(err.to_string()))?;
+            let namespace =
+                payload_string(&document.payload, vector_contracts::types::NAMESPACE_KEY);
+            let source = payload_string(&document.payload, vector_contracts::types::SOURCE_KEY);
+            let payload = serde_json::to_string(&document.payload).map_err(keyword_error)?;
             use wf_types::config::keyword::KeywordTokenizer as Selection;
             let index_content = match self.tokenizer {
-                Selection::English => content,
+                Selection::English => document.text.clone(),
                 Selection::Mixed => crate::tokenizer::pretokenize(
-                    &content,
+                    &document.text,
                     self.tokenizer,
                     self.analyzer_name.as_deref(),
                 ),
@@ -289,39 +262,37 @@ impl KeywordIndex for SqliteKeywordIndex {
             }
             tx.execute(
                 "DELETE FROM keyword_fts WHERE collection = ?1 AND chunk_id = ?2",
-                rusqlite::params![collection, point.id],
+                rusqlite::params![collection, document.id],
             )
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+            .map_err(keyword_error)?;
             tx.execute(
                 "INSERT INTO keyword_fts (collection, chunk_id, namespace, source, content, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![collection, point.id, namespace, source, index_content, payload],
+                rusqlite::params![collection, document.id, namespace, source, index_content, payload],
             )
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+            .map_err(keyword_error)?;
         }
-        tx.commit()
-            .map_err(|err| RagError::Keyword(err.to_string()))?;
+        tx.commit().map_err(keyword_error)?;
         Ok(())
     }
 
     async fn search(
         &self,
         collection: &str,
-        query: &str,
-        filter: Option<&SearchFilter>,
-        limit: usize,
-    ) -> Result<Vec<RetrievedChunk>> {
-        if limit == 0 {
+        query: &KeywordQuery,
+    ) -> KeywordResult<Vec<ScoredPoint>> {
+        if query.limit == 0 {
             return Ok(Vec::new());
         }
         check_analyzer(self.analyzer_name.as_deref())?;
         let Some(match_query) =
-            fts_query_for_with(query, self.tokenizer, self.analyzer_name.as_deref())
+            fts_query_for_with(&query.text, self.tokenizer, self.analyzer_name.as_deref())
         else {
             return Ok(Vec::new());
         };
+        let filter = query.filter.as_ref();
         let namespace = filter.and_then(|item| item.namespace.clone());
         let source = filter.and_then(|item| item.source.clone());
-        let fetch = limit.saturating_mul(3).max(limit).max(10);
+        let fetch = query.limit.saturating_mul(3).max(query.limit).max(10);
         let rows: Vec<(String, f64, String)> = {
             let guard = self.lock()?;
             match (namespace.as_deref(), source.as_deref()) {
@@ -329,7 +300,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                     let sql = format!("SELECT chunk_id, payload, bm25(keyword_fts) AS rank FROM keyword_fts WHERE keyword_fts MATCH ?1 AND collection = ?2 AND namespace = ?3 AND source = ?4 ORDER BY rank LIMIT {fetch}");
                     let mut stmt = guard
                         .prepare(&sql)
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut rows = stmt
                         .query_map(
                             rusqlite::params![match_query, collection, namespace, source],
@@ -340,10 +311,10 @@ impl KeywordIndex for SqliteKeywordIndex {
                                 Ok((chunk_id, rank, payload))
                             },
                         )
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut collected = Vec::new();
                     for row in rows.by_ref() {
-                        collected.push(row.map_err(|err| RagError::Keyword(err.to_string()))?);
+                        collected.push(row.map_err(|err| KeywordError::backend(err.to_string()))?);
                         if collected.len() >= fetch {
                             break;
                         }
@@ -354,7 +325,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                     let sql = format!("SELECT chunk_id, payload, bm25(keyword_fts) AS rank FROM keyword_fts WHERE keyword_fts MATCH ?1 AND collection = ?2 AND namespace = ?3 ORDER BY rank LIMIT {fetch}");
                     let mut stmt = guard
                         .prepare(&sql)
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut rows = stmt
                         .query_map(
                             rusqlite::params![match_query, collection, namespace],
@@ -365,10 +336,10 @@ impl KeywordIndex for SqliteKeywordIndex {
                                 Ok((chunk_id, rank, payload))
                             },
                         )
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut collected = Vec::new();
                     for row in rows.by_ref() {
-                        collected.push(row.map_err(|err| RagError::Keyword(err.to_string()))?);
+                        collected.push(row.map_err(|err| KeywordError::backend(err.to_string()))?);
                         if collected.len() >= fetch {
                             break;
                         }
@@ -379,7 +350,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                     let sql = format!("SELECT chunk_id, payload, bm25(keyword_fts) AS rank FROM keyword_fts WHERE keyword_fts MATCH ?1 AND collection = ?2 AND source = ?3 ORDER BY rank LIMIT {fetch}");
                     let mut stmt = guard
                         .prepare(&sql)
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut rows = stmt
                         .query_map(rusqlite::params![match_query, collection, source], |row| {
                             let chunk_id: String = row.get(0)?;
@@ -387,10 +358,10 @@ impl KeywordIndex for SqliteKeywordIndex {
                             let rank: f64 = row.get(2)?;
                             Ok((chunk_id, rank, payload))
                         })
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut collected = Vec::new();
                     for row in rows.by_ref() {
-                        collected.push(row.map_err(|err| RagError::Keyword(err.to_string()))?);
+                        collected.push(row.map_err(|err| KeywordError::backend(err.to_string()))?);
                         if collected.len() >= fetch {
                             break;
                         }
@@ -401,7 +372,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                     let sql = format!("SELECT chunk_id, payload, bm25(keyword_fts) AS rank FROM keyword_fts WHERE keyword_fts MATCH ?1 AND collection = ?2 ORDER BY rank LIMIT {fetch}");
                     let mut stmt = guard
                         .prepare(&sql)
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut rows = stmt
                         .query_map(rusqlite::params![match_query, collection], |row| {
                             let chunk_id: String = row.get(0)?;
@@ -409,10 +380,10 @@ impl KeywordIndex for SqliteKeywordIndex {
                             let rank: f64 = row.get(2)?;
                             Ok((chunk_id, rank, payload))
                         })
-                        .map_err(|err| RagError::Keyword(err.to_string()))?;
+                        .map_err(|err| KeywordError::backend(err.to_string()))?;
                     let mut collected = Vec::new();
                     for row in rows.by_ref() {
-                        collected.push(row.map_err(|err| RagError::Keyword(err.to_string()))?);
+                        collected.push(row.map_err(|err| KeywordError::backend(err.to_string()))?);
                         if collected.len() >= fetch {
                             break;
                         }
@@ -423,29 +394,26 @@ impl KeywordIndex for SqliteKeywordIndex {
         };
         let mut hits = Vec::new();
         for (chunk_id, rank, payload) in rows {
-            let payload_map: HashMap<String, serde_json::Value> =
-                serde_json::from_str(&payload).map_err(|err| RagError::Keyword(err.to_string()))?;
+            let payload_map: HashMap<String, serde_json::Value> = serde_json::from_str(&payload)
+                .map_err(|err| KeywordError::backend(err.to_string()))?;
             if let Some(wanted) = filter {
                 if !wanted.matches(&payload_map) {
                     continue;
                 }
             }
-            let scored = vector_contracts::ScoredPoint {
+            hits.push(ScoredPoint {
                 id: chunk_id,
                 score: (-rank) as f32,
                 payload: payload_map,
-            };
-            if let Ok(chunk) = chunk_from_hit(&scored) {
-                hits.push(chunk);
-            }
-            if hits.len() >= limit {
+            });
+            if hits.len() >= query.limit {
                 break;
             }
         }
         Ok(hits)
     }
 
-    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> Result<u64> {
+    async fn delete_by_id(&self, collection: &str, ids: &[String]) -> KeywordResult<u64> {
         if ids.is_empty() {
             return Ok(0);
         }
@@ -458,7 +426,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                     "DELETE FROM keyword_fts WHERE collection = ?1 AND chunk_id = ?2",
                     rusqlite::params![collection, id],
                 )
-                .map_err(|err| RagError::Keyword(err.to_string()))?;
+                .map_err(|err| KeywordError::backend(err.to_string()))?;
             removed += count as u64;
         }
         Ok(removed)
@@ -469,7 +437,7 @@ impl KeywordIndex for SqliteKeywordIndex {
         collection: &str,
         namespace: Option<&str>,
         source: &str,
-    ) -> Result<u64> {
+    ) -> KeywordResult<u64> {
         self.ensure_writable()?;
         let guard = self.lock()?;
         let removed = if let Some(namespace) = namespace {
@@ -478,29 +446,29 @@ impl KeywordIndex for SqliteKeywordIndex {
                     "DELETE FROM keyword_fts WHERE collection = ?1 AND namespace = ?2 AND source = ?3",
                     rusqlite::params![collection, namespace, source],
                 )
-                .map_err(|err| RagError::Keyword(err.to_string()))?
+                .map_err(|err| KeywordError::backend(err.to_string()))?
         } else {
             guard
                 .execute(
                     "DELETE FROM keyword_fts WHERE collection = ?1 AND source = ?2",
                     rusqlite::params![collection, source],
                 )
-                .map_err(|err| RagError::Keyword(err.to_string()))?
+                .map_err(|err| KeywordError::backend(err.to_string()))?
         };
         Ok(removed as u64)
     }
 
-    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64> {
+    async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> KeywordResult<u64> {
         let guard = self.lock()?;
         let (namespace, source) = match filter {
             Some(item) => (item.namespace.clone(), item.source.clone()),
             None => (None, None),
         };
         let count: i64 = match (namespace, source) {
-            (Some(namespace), Some(source)) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1 AND namespace = ?2 AND source = ?3", rusqlite::params![collection, namespace, source], |row| row.get(0)).map_err(|err| RagError::Keyword(err.to_string()))?,
-            (Some(namespace), None) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1 AND namespace = ?2", rusqlite::params![collection, namespace], |row| row.get(0)).map_err(|err| RagError::Keyword(err.to_string()))?,
-            (None, Some(source)) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1 AND source = ?2", rusqlite::params![collection, source], |row| row.get(0)).map_err(|err| RagError::Keyword(err.to_string()))?,
-            (None, None) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1", rusqlite::params![collection], |row| row.get(0)).map_err(|err| RagError::Keyword(err.to_string()))?,
+            (Some(namespace), Some(source)) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1 AND namespace = ?2 AND source = ?3", rusqlite::params![collection, namespace, source], |row| row.get(0)).map_err(|err| KeywordError::backend(err.to_string()))?,
+            (Some(namespace), None) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1 AND namespace = ?2", rusqlite::params![collection, namespace], |row| row.get(0)).map_err(|err| KeywordError::backend(err.to_string()))?,
+            (None, Some(source)) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1 AND source = ?2", rusqlite::params![collection, source], |row| row.get(0)).map_err(|err| KeywordError::backend(err.to_string()))?,
+            (None, None) => guard.query_row("SELECT COUNT(*) FROM keyword_fts WHERE collection = ?1", rusqlite::params![collection], |row| row.get(0)).map_err(|err| KeywordError::backend(err.to_string()))?,
         };
         Ok(count.max(0) as u64)
     }
@@ -510,14 +478,21 @@ impl KeywordIndex for SqliteKeywordIndex {
 mod tests {
     use super::*;
 
-    fn point(id: &str, content: &str, namespace: &str, source: &str) -> VectorPoint {
-        VectorPoint::new(id, vec![0.0; 2]).with_payload(HashMap::from([
-            ("content".to_string(), serde_json::json!(content)),
+    fn point(id: &str, content: &str, namespace: &str, source: &str) -> KeywordDocument {
+        KeywordDocument::new(id, content).with_payload(HashMap::from([
             ("chunk_id".to_string(), serde_json::json!(id)),
             ("document_id".to_string(), serde_json::json!("d")),
             ("namespace".to_string(), serde_json::json!(namespace)),
             ("source".to_string(), serde_json::json!(source)),
         ]))
+    }
+
+    fn query(text: &str, filter: Option<&SearchFilter>, limit: usize) -> KeywordQuery {
+        let query = KeywordQuery::new(text, limit);
+        match filter {
+            Some(filter) => query.with_filter(filter.clone()),
+            None => query,
+        }
     }
 
     #[tokio::test]
@@ -539,11 +514,11 @@ mod tests {
             .expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let hits = index
-            .search("kb", "rust ownership", Some(&filter), 5)
+            .search("kb", &query("rust ownership", Some(&filter), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
-        assert_eq!(hits[0].chunk_id, "a");
+        assert_eq!(hits[0].id, "a");
         assert_eq!(index.count("kb", None).await.expect("count"), 2);
         assert_eq!(
             index
@@ -575,11 +550,11 @@ mod tests {
             .expect("upsert");
         let filter = SearchFilter::new().with_namespace("kb");
         let hits = index
-            .search("kb", "所有权", Some(&filter), 5)
+            .search("kb", &query("所有权", Some(&filter), 5))
             .await
             .expect("search");
         assert!(!hits.is_empty());
-        assert_eq!(hits[0].chunk_id, "a");
+        assert_eq!(hits[0].id, "a");
     }
 
     #[test]
@@ -595,7 +570,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("rt")
-            .block_on(index.search("kb", "hello", Some(&filter), 5))
+            .block_on(index.search("kb", &query("hello", Some(&filter), 5)))
             .expect_err("unknown analyzer must fail");
         assert!(err.to_string().contains("unknown text analyzer"));
     }

@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 vector-contracts = { path = "../vector-contracts" }
+keyword-contracts = { path = "../keyword-contracts" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 jieba-rs = { workspace = true }

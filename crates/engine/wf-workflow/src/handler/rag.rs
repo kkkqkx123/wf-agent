@@ -138,7 +138,7 @@ pub struct RagNodeHandles {
     /// Vector backend shared with tools and API callers.
     pub store: Arc<dyn vector_contracts::VectorStorage>,
     /// Keyword index shared with tools and API callers; `None` disables hybrid.
-    pub keyword: Option<Arc<dyn rag_core::KeywordIndex>>,
+    pub keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
     /// Embedding provider shared with tools and API callers.
     pub embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
     /// Default collection used when node config omits one.
@@ -181,7 +181,7 @@ impl RagNodeHandles {
     }
 
     /// Attaches the keyword index enabling hybrid retrieval and dual writes.
-    pub fn with_keyword(mut self, keyword: Arc<dyn rag_core::KeywordIndex>) -> Self {
+    pub fn with_keyword(mut self, keyword: Arc<dyn keyword_contracts::KeywordIndex>) -> Self {
         self.keyword = Some(keyword);
         self
     }

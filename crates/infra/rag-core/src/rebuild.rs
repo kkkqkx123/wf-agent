@@ -12,8 +12,9 @@ use std::sync::Arc;
 use vector_contracts::VectorPoint;
 
 use crate::error::{RagError, Result};
-use crate::keyword_index::{KeywordFormat, KeywordIndex};
+use crate::keyword_index::keyword_documents;
 use crate::sqlite_index::SqliteKeywordIndex;
+use keyword_contracts::{KeywordFormat, KeywordIndex, KeywordQuery};
 
 /// Embedded index kinds a shadow rebuild can swap. Remote Elasticsearch
 /// indexes are rebuilt through the provider's own alias workflow and are
@@ -101,9 +102,10 @@ async fn rebuild_sqlite(
     for (done, batch) in batches.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
             let _ = std::fs::remove_file(&shadow);
-            return Err(RagError::Keyword("rebuild cancelled".to_string()));
+            return Err(RagError::keyword("rebuild cancelled".to_string()));
         }
-        index.upsert("kb", batch).await?;
+        let documents = keyword_documents(batch);
+        index.upsert("kb", &documents).await?;
         points_done += batch.len() as u64;
         let _ = done;
         let _ = RebuildProgress {
@@ -126,20 +128,20 @@ fn count_file_sqlite(path: &str) -> Result<u64> {
         return Ok(0);
     }
     let conn =
-        rusqlite::Connection::open(path).map_err(|err| RagError::Keyword(err.to_string()))?;
+        rusqlite::Connection::open(path).map_err(|err| RagError::keyword(err.to_string()))?;
     let exists: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'keyword_fts'",
             [],
             |row| row.get(0),
         )
-        .map_err(|err| RagError::Keyword(err.to_string()))?;
+        .map_err(|err| RagError::keyword(err.to_string()))?;
     if exists == 0 {
         return Ok(0);
     }
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM keyword_fts", [], |row| row.get(0))
-        .map_err(|err| RagError::Keyword(err.to_string()))?;
+        .map_err(|err| RagError::keyword(err.to_string()))?;
     Ok(count.max(0) as u64)
 }
 
@@ -166,9 +168,10 @@ async fn rebuild_tantivy(
         for (done, batch) in batches.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 let _ = std::fs::remove_dir_all(&shadow);
-                return Err(RagError::Keyword("rebuild cancelled".to_string()));
+                return Err(RagError::keyword("rebuild cancelled".to_string()));
             }
-            index.upsert("kb", batch).await?;
+            let documents = keyword_documents(batch);
+            index.upsert("kb", &documents).await?;
             points_done += batch.len() as u64;
             let _ = RebuildProgress {
                 batches_done: done + 1,
@@ -185,7 +188,7 @@ async fn rebuild_tantivy(
     #[cfg(not(feature = "tantivy"))]
     {
         let _ = (format, params, batches, cancel);
-        Err(RagError::Keyword(
+        Err(RagError::keyword(
             "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
         ))
     }
@@ -197,10 +200,10 @@ async fn rebuild_tantivy(
 fn swap_files(live: &str, shadow: &str, backup: &str) -> Result<()> {
     if std::path::Path::new(live).exists() {
         std::fs::rename(live, backup)
-            .map_err(|err| RagError::Keyword(format!("rebuild backup rename: {err}")))?;
+            .map_err(|err| RagError::keyword(format!("rebuild backup rename: {err}")))?;
     }
     std::fs::rename(shadow, live)
-        .map_err(|err| RagError::Keyword(format!("rebuild live rename: {err}")))
+        .map_err(|err| RagError::keyword(format!("rebuild live rename: {err}")))
 }
 /// Verifies a rebuilt index answers a sample query against expected live
 /// data; used by the post-swap sanity probe.
@@ -209,6 +212,7 @@ pub async fn sample_probe(
     collection: &str,
     query: &str,
 ) -> Result<bool> {
-    let hits = index.search(collection, query, None, 1).await?;
+    let request = KeywordQuery::new(query, 1);
+    let hits = index.search(collection, &request).await?;
     Ok(!hits.is_empty())
 }

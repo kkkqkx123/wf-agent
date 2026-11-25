@@ -77,6 +77,7 @@ tokio = { workspace = true, features = ["io-util"] }
 tokio-tungstenite.workspace = true
 async-trait.workspace = true
 vector-contracts = { path = "../../infra/vector-contracts" }
+keyword-contracts = { path = "../../infra/keyword-contracts" }
 rag-core = { path = "../../infra/rag-core" }
 llm-embedding = { package = "llm-suite-embedding", path = "../../infra/llm-suite/crates/llm-suite-embedding" }
 wf-common = { path = "../../foundation/wf-common" }

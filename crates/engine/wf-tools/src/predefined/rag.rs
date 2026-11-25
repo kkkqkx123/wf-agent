@@ -242,7 +242,7 @@ pub async fn search_with_defaults<S, E, K>(
 where
     S: vector_contracts::VectorStorage + ?Sized,
     E: llm_embedding::provider::EmbeddingProvider + ?Sized,
-    K: rag_core::KeywordIndex + ?Sized,
+    K: keyword_contracts::KeywordIndex + ?Sized,
 {
     let mut config = defaults.clone();
     config.top_k = query.top_k.max(1);
@@ -297,7 +297,7 @@ where
 pub struct RagService<S, E> {
     store: Arc<S>,
     embedder: Arc<E>,
-    keyword: Option<Arc<dyn rag_core::KeywordIndex>>,
+    keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
     query_defaults: rag_core::RagQueryConfig,
 }
 
@@ -321,7 +321,7 @@ impl<S, E> RagService<S, E> {
     /// Attaches the keyword index enabling hybrid retrieval and dual
     /// writes. Reads stay purely dense until the query defaults carry a
     /// nonzero keyword candidate count.
-    pub fn with_keyword(mut self, keyword: Arc<dyn rag_core::KeywordIndex>) -> Self {
+    pub fn with_keyword(mut self, keyword: Arc<dyn keyword_contracts::KeywordIndex>) -> Self {
         self.keyword = Some(keyword);
         self
     }

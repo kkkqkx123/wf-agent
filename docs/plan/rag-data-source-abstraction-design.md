@@ -4,7 +4,7 @@
 
 * 当前 RAG 已经把“存到哪里”抽象成 `VectorStorage` 与 `KeywordIndex`，但没有把“从哪里来”抽象成可枚举、可复用的数据源契约；`source` 只是 payload 里的一个字符串标签。
 * 借鉴 llama_index 的文档、节点、带分结果三层模型与幂等摄取思路，但不引入它的组件运行时和索引体系。工作流图继续承担编排职责。
-* 设计目标是补一层 `source-contracts`：描述数据源描述符、版本号、读取会话和归一化转换；`rag-core` 仍只负责清洗、切分、嵌入、索引与召回，不直接访问网络或文件系统。
+* 设计目标是补一层 `source-contracts`：描述数据源描述符、版本号、读取会话和归一化转换；`wf-rag` 仍只负责清洗、切分、嵌入、索引与召回，不直接访问网络或文件系统。
 * source 状态成为权威记录，向量索引与关键词索引都是从 source 派生的可重建结果。状态持久化到 `wf-storage`，替换当前进程内状态。
 * 宿主负责打开向量后端、选择 embedding provider、注册数据源读取器并注入 RAG 句柄。运行时装配缺失是当前最大的功能缺口，必须与抽象设计一起解决。
 
@@ -23,8 +23,8 @@
 
 ### 当前缺口
 
-* `rag-core/src/converter.rs` 定义了 `DocumentConverter`，但管线、工具和工作流都没有调用它；文件、PDF、结构化网页没有统一入口。
-* `rag-core/src/sync.rs` 提供变更判定纯函数，但已索引 source 列表由调用方维护；`RagCapabilityState` 只用内存 `DashMap` 记录少量同步状态，重启即丢失。
+* `wf-rag/src/converter.rs` 定义了 `DocumentConverter`，但管线、工具和工作流都没有调用它；文件、PDF、结构化网页没有统一入口。
+* `wf-rag/src/sync.rs` 提供变更判定纯函数，但已索引 source 列表由调用方维护；`RagCapabilityState` 只用内存 `DashMap` 记录少量同步状态，重启即丢失。
 * `RagHandles` 需要宿主注入 store、embedder 与可选 keyword，但仓库内生产入口没有调用 `with_rag_handles` 或 `attach_rag_capabilities`；HTTP 诊断路由和工具因此处于不可用状态。
 * 关键词索引已有 `KeywordIndexLocation` 与配置解析；向量侧没有对应配置，simvec 与 Qdrant 实现停留在库级 feature，宿主无法配置切换。
 * `wf-server` 只有 stats、preview、diagnose 三个只读端点，没有 source 列举、摄取、删除或重建入口。
@@ -64,7 +64,7 @@
 
 ### 新增 source-contracts
 
-在 `crates/infra/source-contracts` 建立叶子契约包，职责只有四类：
+在 `crates/infra/rag/source-contracts` 建立叶子契约包，职责只有四类：
 
 * source 描述符与 revision 值类型；
 * 分页读取结果与不透明游标；
@@ -75,9 +75,9 @@
 
 ### 依赖方向
 
-`source-contracts` 依赖最小基础类型，不依赖 `rag-core`。`rag-core` 依赖它，并在摄取管线内编排读取结果、清洗、切分、嵌入与双写。`wf-api` 依赖 `rag-core`、`wf-tools` 与 `wf-storage`，负责实现受权限约束的 URL 与文件读取器、持有 source 状态并装配工具。`wf-runtime` 负责打开后端并注入句柄，不改变现有 crate DAG 方向。
+`source-contracts` 依赖最小基础类型，不依赖 `wf-rag`。`wf-rag` 依赖它，并在摄取管线内编排读取结果、清洗、切分、嵌入与双写。`wf-api` 依赖 `wf-rag`、`wf-tools` 与 `wf-storage`，负责实现受权限约束的 URL 与文件读取器、持有 source 状态并装配工具。`wf-runtime` 负责打开后端并注入句柄，不改变现有 crate DAG 方向。
 
-`converter.rs` 中的 trait 与值类型迁入 `source-contracts`；`rag-core` 保留 RAG 专属的 converter 注册表、选择策略与适配器，不保留重复定义。
+`converter.rs` 中的 trait 与值类型迁入 `source-contracts`；`wf-rag` 保留 RAG 专属的 converter 注册表、选择策略与适配器，不保留重复定义。
 
 ### SourceReader 语义
 
@@ -161,7 +161,7 @@ document converter 可按同样模式开放原生贡献，但排序由宿主配�
 
 ## 9. 迁移与验证
 
-开发期不做兼容层。删除 `RagCapabilityState` 的内存 source 表，改用持久化状态；删除 `rag-core` 内重复的 converter 定义；已有索引通过显式 reindex 重新生成，不设计自动迁移。
+开发期不做兼容层。删除 `RagCapabilityState` 的内存 source 表，改用持久化状态；删除 `wf-rag` 内重复的 converter 定义；已有索引通过显式 reindex 重新生成，不设计自动迁移。
 
 验证范围覆盖 reader 与 converter 契约一致性、稳定 source id、分页完整性、哈希与 HTTP 增量判定、失败补偿、重启后状态恢复、URL 与本地文件适配器、HTTP 路由、工具和节点装配。feature 关闭时 opener 给出可读错误，不静默降级。
 

@@ -18,7 +18,7 @@
 | API | `crates/app/wf-api/Cargo.toml` | 把向量/检索、PTY、code-context、文件检查点相关依赖改为可选并绑定 feature |
 | API | `crates/app/wf-api/src/{rag.rs,pty.rs,infra/context.rs}` | 关键词索引槽位与检索句柄按 feature 收敛为“不存在”，保留既有服务不可用语义 |
 | 检查点门面 | `crates/infra/checkpoint/wf-checkpoint/Cargo.toml` 与门面导出 | `checkpoint-file` 改为可选；执行检查点能力无条件保留；上层仍只依赖门面 |
-| 检索 | `crates/infra/rag-core/Cargo.toml` | 新增 `keyword-sqlite`、`vector` feature；SQLite FTS 与分词、向量与重排依赖分别归属 |
+| 检索 | `crates/infra/rag/wf-rag/Cargo.toml` | 新增 `keyword-sqlite`、`vector` feature；SQLite FTS 与分词、向量与重排依赖分别归属 |
 | 工具 | `crates/engine/wf-tools/Cargo.toml` | 新增 `mcp` feature 控制 rmcp 及子进程传输依赖；内置 shell 节点保持核心 |
 | 指标 | `crates/infra/wf-metrics/Cargo.toml` | 新增 `metrics` feature 控制细分采集器；保留最小 registry 类型供健康端点使用 |
 | 存储 | `crates/infra/wf-storage/Cargo.toml` 与 `src/decorator/cache.rs` | 按 feature 选择存储实现；缓存容量与 TTL 从固定默认值改为配置入参 |
@@ -28,8 +28,8 @@
 
 - `plugins` / `lua` / `native` / `wasm` 保持现有链路：server → runtime → 插件与沙箱 crate，不再扩展语义。
 - `file-checkpoint`：server → runtime → `wf-checkpoint` → `checkpoint-file`。门面内部收敛 re-export，禁止上层直接依赖内部 crate。
-- `keyword`：server → runtime → `wf-api` → `rag-core/keyword-sqlite`。只控制 SQLite FTS 与分词；现有 `tantivy`、`elastic` 名称不变。
-- `rag-vector`：server → runtime → `wf-api` → `rag-core/vector` 与 `vector-contracts`。不牵连 `keyword`，两者可独立组合。
+- `keyword`：server → runtime → `wf-api` → `wf-rag/keyword-sqlite`。只控制 SQLite FTS 与分词；现有 `tantivy`、`elastic` 名称不变。
+- `rag-vector`：server → runtime → `wf-api` → `wf-rag/vector` 与 `vector-contracts`。不牵连 `keyword`，两者可独立组合。
 - `pty`：server → `wf-api`；`mcp`：server → runtime → `wf-tools`；`git-fs`：仅 server 域路由。
 - `backends`：仅 server 域，连带其直接依赖的 reqwest、sqlx、zstd 使用。
 - `metrics`：server → runtime → `wf-metrics`；`storage-sqlite` / `storage-postgres`：server → runtime → `wf-storage` → 工作区 sqlx 驱动 feature。
@@ -107,7 +107,7 @@
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| 新增 feature 与转发 | 已落地 | server / runtime / api / checkpoint / tools / metrics / storage / rag-core 均声明了档位 feature，默认 feature 全开，嵌入式档位显式关闭 |
+| 新增 feature 与转发 | 已落地 | server / runtime / api / checkpoint / tools / metrics / storage / wf-rag 均声明了档位 feature，默认 feature 全开，嵌入式档位显式关闭 |
 | 路由门控 | 已落地 | 文件检查点、Git/FS、PTY、RAG 管理、后端管理、指标端点在关闭时不再进入路由表；OpenAPI 模块随完整档位编译 |
 | 运行时装配门控 | 已落地 | bootstrap 在关闭关键词索引、MCP、文件检查点时跳过打开/初始化/后台任务；缺位不注册、不启动、不占位 |
 | 配置暴露 | 已落地 | 新增 `--worker-threads` 与 `WF_SERVER_WORKER_THREADS`、`WF_SERVER_EVENT_BUS_CAPACITY`、`WF_SERVER_ENTITY_CACHE_*`；实体缓存容量进入 `StorageManager` |
@@ -116,7 +116,7 @@
 
 尚未做到依赖级移除的部分（feature 目前只裁剪路由与初始化，依赖仍链接）：
 
-- `rag-core` 的向量管线与 `wf-tools` / `wf-workflow` 的检索节点共用同一套 API；移除 `llm-embedding` / `llm-rerank` 需要同时给两个 engine crate 增加 feature 并改造节点注册，留待后续改动。
+- `wf-rag` 的向量管线与 `wf-tools` / `wf-workflow` 的检索节点共用同一套 API；移除 `llm-embedding` / `llm-rerank` 需要同时给两个 engine crate 增加 feature 并改造节点注册，留待后续改动。
 - `checkpoint-file` 的类型被执行检查点门面的协调器与多个 engine 模块直接使用；移除 gitoxide 栈需要先把文件域类型从执行检查点类型中分离。
 - `rmcp` 的 `McpToolInfo` 被 MCP 注册与元数据模块共用；移除该依赖需要把数据类型与传输客户端拆开。
 - sqlx 的 sqlite/postgres 驱动由工作区统一启用；拆分驱动 feature 需要同时改造 `wf-storage` 的上下文宏与 `backend` 枚举。

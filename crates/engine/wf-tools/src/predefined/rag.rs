@@ -176,7 +176,7 @@ pub struct RagHit {
 }
 
 /// Host-provided retrieval capability. The default service below implements
-/// it over `rag-core`; tests and custom deployments inject their own.
+/// it over `wf-rag`; tests and custom deployments inject their own.
 #[async_trait]
 pub trait RagSearchBackend: Send + Sync {
     /// Runs the normalized query and returns ranked passages.
@@ -253,7 +253,7 @@ pub async fn search_with_defaults<S, E, K>(
     store: &S,
     embedder: &E,
     keyword: Option<&K>,
-    defaults: &rag_core::RagQueryConfig,
+    defaults: &wf_rag::RagQueryConfig,
     query: RagSearchQuery,
 ) -> ToolResult<Vec<RagHit>>
 where
@@ -271,7 +271,7 @@ where
     }
     let hits = match keyword.filter(|_| config.keyword_candidates > 0) {
         Some(keyword) => {
-            rag_core::pipeline::query_hybrid(
+            wf_rag::pipeline::query_hybrid(
                 store,
                 keyword,
                 embedder,
@@ -283,7 +283,7 @@ where
             .await
         }
         None => {
-            rag_core::pipeline::query(
+            wf_rag::pipeline::query(
                 store,
                 embedder,
                 &query.collection,
@@ -315,7 +315,7 @@ pub struct RagService<S, E> {
     store: Arc<S>,
     embedder: Arc<E>,
     keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
-    query_defaults: rag_core::RagQueryConfig,
+    query_defaults: wf_rag::RagQueryConfig,
 }
 
 impl<S, E> RagService<S, E> {
@@ -325,12 +325,12 @@ impl<S, E> RagService<S, E> {
             store,
             embedder,
             keyword: None,
-            query_defaults: rag_core::RagQueryConfig::default(),
+            query_defaults: wf_rag::RagQueryConfig::default(),
         }
     }
 
     /// Overrides the default read-path shaping; request fields still win.
-    pub fn with_query_defaults(mut self, defaults: rag_core::RagQueryConfig) -> Self {
+    pub fn with_query_defaults(mut self, defaults: wf_rag::RagQueryConfig) -> Self {
         self.query_defaults = defaults;
         self
     }

@@ -7,7 +7,7 @@
 
 ## 依赖关系
 
-`wf-core`（注册表 trait）、`wf-types`（工具/消息/审批类型）、`wf-common`（重试/超时/模板）、`wf-llm`（工具协议无关）、`wf-shell`（shell 执行引擎）、`wf-sandbox`（沙箱网关）、`wf-checkpoint`（执行侧写）、`wf-integration`（代码上下文传输）、`rag-core` / `vector-contracts`（检索后端契约）、`wf-metrics`（工具指标）。内部形成 `predefined → filesystem/shell/skill → executor/mcp/approval → registry` 的单向依赖，无循环。
+`wf-core`（注册表 trait）、`wf-types`（工具/消息/审批类型）、`wf-common`（重试/超时/模板）、`wf-llm`（工具协议无关）、`wf-shell`（shell 执行引擎）、`wf-sandbox`（沙箱网关）、`wf-checkpoint`（执行侧写）、`wf-integration`（代码上下文传输）、`wf-rag` / `vector-contracts`（检索后端契约）、`wf-metrics`（工具指标）。内部形成 `predefined → filesystem/shell/skill → executor/mcp/approval → registry` 的单向依赖，无循环。
 
 ## 模块一览
 

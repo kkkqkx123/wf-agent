@@ -436,18 +436,18 @@ mod tests {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
         let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> =
-            std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
-        rag_core::pipeline::ingest_documents(
+            std::sync::Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        wf_rag::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),
             embedder.as_ref(),
             "kb",
-            &[rag_core::RagDocument::new(
+            &[wf_rag::RagDocument::new(
                 "d1",
                 "rust ownership borrowing rules",
                 "rust.md",
             )],
-            &rag_core::RagIndexConfig::new("kb"),
+            &wf_rag::RagIndexConfig::new("kb"),
         )
         .await
         .expect("ingest");

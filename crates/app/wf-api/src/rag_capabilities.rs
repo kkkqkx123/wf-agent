@@ -40,9 +40,9 @@ pub struct RagCapabilitySettings {
     /// Maximum evaluation cases accepted in one call.
     pub max_cases: usize,
     /// Ingest defaults inherited by URL calls.
-    pub index: rag_core::RagIndexConfig,
+    pub index: wf_rag::RagIndexConfig,
     /// Query defaults used by evaluation runs.
-    pub query: rag_core::RagQueryConfig,
+    pub query: wf_rag::RagQueryConfig,
     /// Maximum cleaned characters stored from one fetched page.
     pub max_content_chars: usize,
     /// Domains published to the approval layer for URL ingestion.
@@ -50,9 +50,9 @@ pub struct RagCapabilitySettings {
     /// Filesystem roots available to the `file` source reader.
     pub source_roots: Vec<PathBuf>,
     /// Default change-detection basis when a call omits one.
-    pub sync_basis: rag_core::SyncBasis,
+    pub sync_basis: wf_rag::SyncBasis,
     /// Citation presentation used by host prompt assembly.
-    pub citation: rag_core::CitationStyle,
+    pub citation: wf_rag::CitationStyle,
 }
 
 impl Default for RagCapabilitySettings {
@@ -64,13 +64,13 @@ impl Default for RagCapabilitySettings {
             default_collection: "kb".to_string(),
             default_namespace: "kb".to_string(),
             max_cases: 100,
-            index: rag_core::RagIndexConfig::new("kb"),
-            query: rag_core::RagQueryConfig::default(),
+            index: wf_rag::RagIndexConfig::new("kb"),
+            query: wf_rag::RagQueryConfig::default(),
             max_content_chars: 2_000_000,
             allowed_domains: Vec::new(),
             source_roots: Vec::new(),
-            sync_basis: rag_core::SyncBasis::ContentHash,
-            citation: rag_core::CitationStyle::default(),
+            sync_basis: wf_rag::SyncBasis::ContentHash,
+            citation: wf_rag::CitationStyle::default(),
         }
     }
 }
@@ -80,14 +80,14 @@ impl RagCapabilitySettings {
     pub fn from_config(config: &wf_types::config::rag::RagCapabilitiesConfig) -> Self {
         use wf_types::config::rag::{RagChunkPreset, RagFusionMode, RagSyncBasis};
         let chunk_preset = match config.chunking.preset {
-            RagChunkPreset::Default => rag_core::ChunkPreset::Default,
-            RagChunkPreset::Markdown => rag_core::ChunkPreset::Markdown,
-            RagChunkPreset::Sentence => rag_core::ChunkPreset::Sentence,
-            RagChunkPreset::Code => rag_core::ChunkPreset::Code,
-            RagChunkPreset::Table => rag_core::ChunkPreset::Table,
+            RagChunkPreset::Default => wf_rag::ChunkPreset::Default,
+            RagChunkPreset::Markdown => wf_rag::ChunkPreset::Markdown,
+            RagChunkPreset::Sentence => wf_rag::ChunkPreset::Sentence,
+            RagChunkPreset::Code => wf_rag::ChunkPreset::Code,
+            RagChunkPreset::Table => wf_rag::ChunkPreset::Table,
         };
-        let mut index = rag_core::RagIndexConfig::new(&config.default_namespace);
-        index.chunking = rag_core::config::ChunkerConfigData {
+        let mut index = wf_rag::RagIndexConfig::new(&config.default_namespace);
+        index.chunking = wf_rag::config::ChunkerConfigData {
             preset: chunk_preset,
             target_chars: config.chunking.target_chars,
             overlap_chars: config.chunking.overlap_chars,
@@ -95,32 +95,32 @@ impl RagCapabilitySettings {
         };
         index.hierarchical = config.chunking.hierarchical;
         let sync_basis = match config.sync.basis {
-            RagSyncBasis::ContentHash => rag_core::SyncBasis::ContentHash,
-            RagSyncBasis::HttpValidation => rag_core::SyncBasis::HttpValidation,
+            RagSyncBasis::ContentHash => wf_rag::SyncBasis::ContentHash,
+            RagSyncBasis::HttpValidation => wf_rag::SyncBasis::HttpValidation,
         };
         let fusion_mode = match config.retrieval.fusion_mode {
-            RagFusionMode::Rrf => rag_core::FusionMode::Rrf,
-            RagFusionMode::Concat => rag_core::FusionMode::Concat,
-            RagFusionMode::Weighted => rag_core::FusionMode::Weighted,
+            RagFusionMode::Rrf => wf_rag::FusionMode::Rrf,
+            RagFusionMode::Concat => wf_rag::FusionMode::Concat,
+            RagFusionMode::Weighted => wf_rag::FusionMode::Weighted,
         };
-        let fusion = rag_core::FusionConfig {
+        let fusion = wf_rag::FusionConfig {
             mode: fusion_mode,
             ..Default::default()
         };
-        let query = rag_core::RagQueryConfig {
+        let query = wf_rag::RagQueryConfig {
             keyword_candidates: if config.retrieval.hybrid {
                 config.retrieval.keyword_candidates
             } else {
                 0
             },
             fusion,
-            rerank: config.retrieval.rerank.then_some(rag_core::RerankOptions {
+            rerank: config.retrieval.rerank.then_some(wf_rag::RerankOptions {
                 top_n: config.retrieval.rerank_top_n,
                 truncate_chars: 500,
             }),
             window_radius: config.retrieval.window_radius,
             context_budget_chars: config.retrieval.context_budget_chars,
-            ..rag_core::RagQueryConfig::default()
+            ..wf_rag::RagQueryConfig::default()
         };
         Self {
             enabled: config.enabled,
@@ -140,7 +140,7 @@ impl RagCapabilitySettings {
                 .map(PathBuf::from)
                 .collect(),
             sync_basis,
-            citation: rag_core::CitationStyle {
+            citation: wf_rag::CitationStyle {
                 excerpt_chars: config.citation.excerpt_chars,
                 include_score: config.citation.include_score,
                 no_hits_template: config.citation.no_hits_template.clone(),
@@ -227,7 +227,7 @@ impl RagCapabilityService {
     }
 
     /// Citation presentation retained for host prompt assembly.
-    pub fn citation_style(&self) -> &rag_core::CitationStyle {
+    pub fn citation_style(&self) -> &wf_rag::CitationStyle {
         &self.settings.citation
     }
 
@@ -258,13 +258,13 @@ impl RagCapabilityService {
     }
 
     /// Replaces the ingest defaults.
-    pub fn with_index_config(mut self, config: rag_core::RagIndexConfig) -> Self {
+    pub fn with_index_config(mut self, config: wf_rag::RagIndexConfig) -> Self {
         self.settings.index = config;
         self
     }
 
     /// Replaces the query defaults used by evaluation.
-    pub fn with_query_config(mut self, config: rag_core::RagQueryConfig) -> Self {
+    pub fn with_query_config(mut self, config: wf_rag::RagQueryConfig) -> Self {
         self.settings.query = config;
         self
     }
@@ -314,9 +314,9 @@ impl RagIngestBackend for RagCapabilityService {
             .await
             .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
         let action = match result.action {
-            RagSourceSyncAction::Insert => rag_core::SyncAction::Insert,
-            RagSourceSyncAction::Update => rag_core::SyncAction::Update,
-            RagSourceSyncAction::Skip => rag_core::SyncAction::Skip,
+            RagSourceSyncAction::Insert => wf_rag::SyncAction::Insert,
+            RagSourceSyncAction::Update => wf_rag::SyncAction::Update,
+            RagSourceSyncAction::Skip => wf_rag::SyncAction::Skip,
         };
         let title = query
             .title
@@ -333,7 +333,7 @@ impl RagIngestBackend for RagCapabilityService {
             .get("final_url")
             .cloned()
             .unwrap_or_else(|| query.url.clone());
-        let validator = rag_core::HttpValidator::new(
+        let validator = wf_rag::HttpValidator::new(
             result.revision.etag.clone(),
             result.revision.last_modified.clone(),
         );
@@ -444,7 +444,7 @@ impl RagStatusBackend for RagCapabilityService {
                 stale_sources.push(state.source.clone());
             }
             let validator =
-                rag_core::HttpValidator::new(state.etag.clone(), state.last_modified.clone());
+                wf_rag::HttpValidator::new(state.etag.clone(), state.last_modified.clone());
             sources.push(RagSourceStatus {
                 source: state.source,
                 point_count: view.point_count,
@@ -488,11 +488,11 @@ impl RagEvalBackend for RagCapabilityService {
                 self.settings.max_cases
             )));
         }
-        let config = rag_core::RagQueryConfig {
+        let config = wf_rag::RagQueryConfig {
             top_k: query.top_k,
             ..self.settings.query.clone()
         };
-        let run = rag_core::run_eval_cases(
+        let run = wf_rag::run_eval_cases(
             self.handles.store.as_ref(),
             self.handles.embedder.as_ref(),
             &query.collection,
@@ -622,8 +622,8 @@ mod tests {
             selector: None,
             exclude_selector: None,
             min_words: 0,
-            sync_basis: Some(rag_core::SyncBasis::HttpValidation),
-            duplicate_policy: rag_core::DuplicatePolicy::Overwrite,
+            sync_basis: Some(wf_rag::SyncBasis::HttpValidation),
+            duplicate_policy: wf_rag::DuplicatePolicy::Overwrite,
         }
     }
 
@@ -634,7 +634,7 @@ mod tests {
             .ingest_url(ingest_query())
             .await
             .expect("first ingest");
-        assert_eq!(first.action, rag_core::SyncAction::Insert);
+        assert_eq!(first.action, wf_rag::SyncAction::Insert);
         assert!(first.points > 0);
         assert_eq!(
             first
@@ -648,7 +648,7 @@ mod tests {
             .ingest_url(ingest_query())
             .await
             .expect("second ingest");
-        assert_eq!(second.action, rag_core::SyncAction::Skip);
+        assert_eq!(second.action, wf_rag::SyncAction::Skip);
         assert_eq!(second.points, 0);
 
         let status = service
@@ -676,7 +676,7 @@ mod tests {
                 collection: "kb".to_string(),
                 namespace: "kb".to_string(),
                 top_k: 5,
-                cases: vec![rag_core::EvalCase {
+                cases: vec![wf_rag::EvalCase {
                     id: "c1".to_string(),
                     query: "ownership borrowing".to_string(),
                     expected_sources: vec!["https://example.com/guide".to_string()],
@@ -695,7 +695,7 @@ mod tests {
     async fn evaluation_rejects_more_cases_than_configured() {
         let mut service = service();
         service.settings.max_cases = 1;
-        let case = rag_core::EvalCase {
+        let case = wf_rag::EvalCase {
             id: "c1".to_string(),
             query: "ownership".to_string(),
             expected_sources: vec!["rust.md".to_string()],

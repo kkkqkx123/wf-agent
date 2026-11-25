@@ -1,5 +1,5 @@
 [package]
-name = "rag-core"
+name = "wf-rag"
 version.workspace = true
 edition.workspace = true
 
@@ -7,12 +7,12 @@ edition.workspace = true
 vector-contracts = { path = "../vector-contracts" }
 keyword-contracts = { path = "../keyword-contracts" }
 source-contracts = { path = "../source-contracts" }
-wf-types = { path = "../../foundation/wf-types" }
-wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
+wf-types = { path = "../../../foundation/wf-types" }
+wf-plugin-sdk = { path = "../../../foundation/wf-plugin-sdk" }
 jieba-rs = { workspace = true }
 once_cell = { workspace = true }
-llm-embedding = { package = "llm-suite-embedding", path = "../llm-suite/crates/llm-suite-embedding" }
-llm-rerank = { package = "llm-suite-rerank", path = "../llm-suite/crates/llm-suite-rerank" }
+llm-embedding = { package = "llm-suite-embedding", path = "../../llm-suite/crates/llm-suite-embedding" }
+llm-rerank = { package = "llm-suite-rerank", path = "../../llm-suite/crates/llm-suite-rerank" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

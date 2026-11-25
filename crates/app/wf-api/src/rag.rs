@@ -461,7 +461,7 @@ pub fn open_keyword_index_with(
             Ok(None)
         }
         KeywordIndexLocation::Memory => {
-            let index = rag_core::open_sqlite_ram_keyword_with(
+            let index = wf_rag::open_sqlite_ram_keyword_with(
                 selection.tokenizer,
                 selection.analyzer_name.clone(),
             )
@@ -491,7 +491,7 @@ pub fn open_keyword_index_with(
                 analyzer_name: selection.analyzer_name.clone(),
                 policy: selection.format_policy,
             };
-            let index = rag_core::open_sqlite_file_keyword_format(&raw, format).map_err(|err| {
+            let index = wf_rag::open_sqlite_file_keyword_format(&raw, format).map_err(|err| {
                 ApiError::execution(format!(
                     "Failed to open keyword index at '{}': {err}",
                     path.display()
@@ -506,7 +506,7 @@ pub fn open_keyword_index_with(
         }
         KeywordIndexLocation::Tantivy(path) => {
             let index = match path {
-                None => rag_core::open_tantivy_ram_keyword_with(
+                None => wf_rag::open_tantivy_ram_keyword_with(
                     selection.tokenizer,
                     selection.analyzer_name.clone(),
                 )
@@ -522,7 +522,7 @@ pub fn open_keyword_index_with(
                         analyzer_name: selection.analyzer_name.clone(),
                         policy: selection.format_policy,
                     };
-                    rag_core::open_tantivy_dir_keyword_format(
+                    wf_rag::open_tantivy_dir_keyword_format(
                         &raw,
                         format,
                         selection.writer_heap_bytes,
@@ -558,8 +558,8 @@ pub fn open_keyword_index_with(
 /// wrong port or unreachable server fails fast instead of degrading.
 fn open_elastic_handle(
     location: &ElasticLocation,
-) -> Result<std::sync::Arc<dyn keyword_contracts::KeywordIndex>, rag_core::RagError> {
-    let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
+) -> Result<std::sync::Arc<dyn keyword_contracts::KeywordIndex>, wf_rag::RagError> {
+    let mut config = wf_rag::ElasticKeywordConfig::new(location.base_url.clone());
     config.api_key.clone_from(&location.api_key);
     config.index.clone_from(&location.index);
     config.timeout_secs = location.timeout_secs;
@@ -567,11 +567,11 @@ fn open_elastic_handle(
     config.exact_count = location.exact_count;
     config.tokenizer = location.tokenizer;
     config.analyzer_name.clone_from(&location.analyzer_name);
-    rag_core::open_elastic_keyword(&config)
+    wf_rag::open_elastic_keyword(&config)
 }
 
-fn elastic_config_for(location: &ElasticLocation) -> rag_core::ElasticKeywordConfig {
-    let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
+fn elastic_config_for(location: &ElasticLocation) -> wf_rag::ElasticKeywordConfig {
+    let mut config = wf_rag::ElasticKeywordConfig::new(location.base_url.clone());
     config.api_key.clone_from(&location.api_key);
     config.index.clone_from(&location.index);
     config.timeout_secs = location.timeout_secs;
@@ -608,7 +608,7 @@ pub async fn open_keyword_index_async_with(
             {
                 config.tokenizer = selection.tokenizer;
             }
-            let version = rag_core::probe_elastic_keyword(&config)
+            let version = wf_rag::probe_elastic_keyword(&config)
                 .await
                 .map_err(|err| {
                     ApiError::execution(format!(
@@ -973,12 +973,12 @@ pub async fn preview_search(
     if query_text.trim().is_empty() {
         return Err(ApiError::Validation("query must not be empty".to_string()));
     }
-    let config = rag_core::RagQueryConfig {
+    let config = wf_rag::RagQueryConfig {
         top_k: top_k.clamp(1, 50),
         ..Default::default()
     };
     let hits =
-        rag_core::pipeline::query(store, embedder, collection, namespace, query_text, &config)
+        wf_rag::pipeline::query(store, embedder, collection, namespace, query_text, &config)
             .await
             .map_err(|err| ApiError::Validation(err.to_string()))?;
     Ok(hits
@@ -1511,19 +1511,19 @@ mod tests {
     #[tokio::test]
     async fn memory_index_dual_write_and_hybrid_hit() {
         let store = vector_contracts::InMemoryVectorStore::new();
-        let keyword = rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword");
+        let keyword = wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword");
         let embedder = UnitEmbedder { dimension: 8 };
-        rag_core::pipeline::ingest_documents(
+        wf_rag::pipeline::ingest_documents(
             &store,
             Some(&keyword),
             &embedder,
             "kb",
-            &[rag_core::RagDocument::new(
+            &[wf_rag::RagDocument::new(
                 "d1",
                 "rust ownership borrowing rules",
                 "rust.md",
             )],
-            &rag_core::RagIndexConfig::new("kb"),
+            &wf_rag::RagIndexConfig::new("kb"),
         )
         .await
         .expect("ingest");
@@ -1536,11 +1536,11 @@ mod tests {
             .expect("keyword count");
         assert_eq!(dense, sparse);
         assert!(dense > 0);
-        let config = rag_core::RagQueryConfig {
+        let config = wf_rag::RagQueryConfig {
             keyword_candidates: 5,
             ..Default::default()
         };
-        let hits = rag_core::pipeline::query_hybrid(
+        let hits = wf_rag::pipeline::query_hybrid(
             &store,
             &keyword,
             &embedder,
@@ -1561,18 +1561,18 @@ mod tests {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
         let keyword =
-            std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
-        rag_core::pipeline::ingest_documents(
+            std::sync::Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        wf_rag::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),
             embedder.as_ref(),
             "kb",
-            &[rag_core::RagDocument::new(
+            &[wf_rag::RagDocument::new(
                 "d1",
                 "rust ownership borrowing rules",
                 "rust.md",
             )],
-            &rag_core::RagIndexConfig::new("kb"),
+            &wf_rag::RagIndexConfig::new("kb"),
         )
         .await
         .expect("ingest");
@@ -1591,7 +1591,7 @@ mod tests {
         assert!(!dense_hits.is_empty());
         let hybrid_service = RagService::new(store, embedder)
             .with_keyword(keyword)
-            .with_query_defaults(rag_core::RagQueryConfig {
+            .with_query_defaults(wf_rag::RagQueryConfig {
                 keyword_candidates: 5,
                 ..Default::default()
             });
@@ -1614,18 +1614,18 @@ mod tests {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
         let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> =
-            std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
-        rag_core::pipeline::ingest_documents(
+            std::sync::Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        wf_rag::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),
             embedder.as_ref(),
             "kb",
-            &[rag_core::RagDocument::new(
+            &[wf_rag::RagDocument::new(
                 "d1",
                 "rust ownership borrowing rules",
                 "rust.md",
             )],
-            &rag_core::RagIndexConfig::new("kb"),
+            &wf_rag::RagIndexConfig::new("kb"),
         )
         .await
         .expect("ingest");
@@ -1666,9 +1666,9 @@ mod tests {
         let store = Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = Arc::new(UnitEmbedder { dimension: 8 });
         let handle_keyword: Arc<dyn keyword_contracts::KeywordIndex> =
-            Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+            Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         let ctx_keyword: Arc<dyn keyword_contracts::KeywordIndex> =
-            Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+            Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         let ctx_with_both = crate::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
             Arc::new(wf_resource::registry::ResourceRegistries::new()),

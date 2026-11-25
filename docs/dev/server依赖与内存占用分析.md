@@ -22,7 +22,7 @@
 | 序列化与工具库 | serde/serde_json、utoipa、clap、base64、hex、sha2、blake3、thiserror、tracing | server 直接依赖；utoipa 的 schema 代码默认参与编译，`openapi-docs` 只控制路由是否暴露 |
 | 存储 | sqlx（同时启用 sqlite 与 postgres）、moka、dashmap、wf-storage、rusqlite（bundled）、zstd | `wf-runtime` → `wf-storage`；24 个实体存储，SQLite 模式每个包一层 1000 条/300 秒的 moka 缓存 |
 | 检查点与 Git | checkpoint-base/state/file、gitoxide 系列（gix-*）、rusqlite、zstd | `wf-checkpoint` → `checkpoint-file`，当前无条件编译，即使文件检查点默认关闭 |
-| RAG 与向量 | rag-core、jieba-rs（约 5 MB 词典）、rusqlite FTS5、vector-contracts、llm-suite-embedding/rerank | `wf-api`/`wf-runtime` 无条件依赖；tantivy 与 elastic 后端是可选 feature，当前未开启 |
+| RAG 与向量 | wf-rag、jieba-rs（约 5 MB 词典）、rusqlite FTS5、vector-contracts、llm-suite-embedding/rerank | `wf-api`/`wf-runtime` 无条件依赖；tantivy 与 elastic 后端是可选 feature，当前未开启 |
 | LLM 栈 | wf-llm、wf-pricing、wf-llm-catalog、llm-suite-client/auth/gateway/discovery/codec 等约 20 个 crate、reqwest 0.13 + rustls/aws-lc | 默认配置只使用内置 provider 与静态表，但整栈始终链接 |
 | 工具与脚本 | wf-tools、rmcp（子进程与 HTTP MCP 客户端）、wf-script、wf-shell、portable-pty、notify、wf-integration/code-context | 工具注册、MCP、PTY、shell 会话、代码上下文服务 |
 | 插件与沙箱 | wf-plugin、wf-sandbox、mlua/Lua 5.4（vendored 源码构建）、wasmtime 34 + Cranelift 系列、libloading、ed25519-dalek、cap-std、moka | `wf-server` 默认 feature 为 `plugins,lua,native,wasm`；native 运行时默认禁用但仍然编译 |
@@ -86,7 +86,7 @@ cargo build --release --locked -p wf-server --bin wf-server --no-default-feature
 
 | 候选 feature | 裁掉的内容 | 预期收益 |
 |---|---|---|
-| `rag` / `keyword-sqlite` | `rag-core`、jieba、rusqlite FTS、向量/embedding/rerank 链、RAG 管理路由与检索节点 | 免于加载词典与索引代码，去掉一整条向量栈；仅保留关键词 SQLite 时仍可做混合检索的降级形态 |
+| `rag` / `keyword-sqlite` | `wf-rag`、jieba、rusqlite FTS、向量/embedding/rerank 链、RAG 管理路由与检索节点 | 免于加载词典与索引代码，去掉一整条向量栈；仅保留关键词 SQLite 时仍可做混合检索的降级形态 |
 | `file-checkpoint` | `checkpoint-file`、gitoxide 全栈、zstd、notify、文件检查点 watcher/GC/审批/provenance 路由 | 大幅缩小镜像，消除快照时的整工作区内存峰值 |
 | `workspace-tools` | PTY、shell 会话与事件桥、Git/FS 写路由、MCP 客户端（rmcp 及子进程传输）、code-context 集成 | 得到纯 API 执行服务，去掉大量常驻会话状态与外部进程依赖 |
 | `backends` | server 自有后端注册表、探测、SSH tunnel、备份；连带 server 直连的 reqwest/sqlx/zstd | 默认已关闭，编译期去掉可进一步缩小镜像 |

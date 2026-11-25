@@ -189,7 +189,7 @@ async fn rebuild_tantivy(
     {
         let _ = (format, params, batches, cancel);
         Err(RagError::keyword(
-            "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+            "tantivy backend is not compiled; enable wf-rag/tantivy".to_string(),
         ))
     }
 }

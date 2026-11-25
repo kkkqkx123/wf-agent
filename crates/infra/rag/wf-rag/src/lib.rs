@@ -199,7 +199,7 @@ pub fn open_tantivy_ram_keyword_with(
     {
         let _ = (tokenizer, analyzer_name);
         Err(RagError::keyword(
-            "tantivy backend is not compiled; enable rag-core/tantivy",
+            "tantivy backend is not compiled; enable wf-rag/tantivy",
         ))
     }
 }
@@ -229,7 +229,7 @@ pub fn open_tantivy_dir_keyword_with(
     {
         let _ = (path, tokenizer, analyzer_name);
         Err(RagError::keyword(
-            "tantivy backend is not compiled; enable rag-core/tantivy",
+            "tantivy backend is not compiled; enable wf-rag/tantivy",
         ))
     }
 }
@@ -285,7 +285,7 @@ pub fn open_tantivy_dir_keyword_format(
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     let _ = (path, format, writer_heap_bytes);
     Err(RagError::keyword(
-        "tantivy backend is not compiled; enable rag-core/tantivy",
+        "tantivy backend is not compiled; enable wf-rag/tantivy",
     ))
 }
 
@@ -304,7 +304,7 @@ pub fn open_elastic_keyword(
     {
         let _ = config;
         Err(RagError::keyword(
-            "elastic backend is not compiled; enable rag-core/elastic",
+            "elastic backend is not compiled; enable wf-rag/elastic",
         ))
     }
 }
@@ -324,7 +324,7 @@ pub async fn probe_elastic_keyword(config: &ElasticKeywordConfig) -> Result<Stri
     {
         let _ = config;
         Err(RagError::keyword(
-            "elastic backend is not compiled; enable rag-core/elastic",
+            "elastic backend is not compiled; enable wf-rag/elastic",
         ))
     }
 }

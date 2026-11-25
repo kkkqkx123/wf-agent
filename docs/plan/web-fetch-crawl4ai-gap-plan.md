@@ -18,7 +18,7 @@
 | HTML 清洗 | `LXMLWebScrapingStrategy` 支持排除标签/选择器、属性清理、媒体与表格抽取 | 固定跳过标签 + 单一渲染器 | 需增加可配置筛选与结构化摘要 |
 | Markdown | raw/citations/references/fit 多种输出 | 单一内联链接 Markdown | 需增加引用模式 |
 | 内容过滤 | Pruning / BM25 / LLM 三类 Filter | 仅 `selector` 与 `max_chars` 截断 | 需增加轻量密度与焦点筛选，不引入 LLM |
-| 抽取/分块 | extraction/chunking 策略族 | fetch 内没有；项目另有 `rag-core` | 保持在 fetch 之外，需要时桥接 RAG |
+| 抽取/分块 | extraction/chunking 策略族 | fetch 内没有；项目另有 `wf-rag` | 保持在 fetch 之外，需要时桥接 RAG |
 | 结果对象 | `CrawlResult` 字段完整但体积大 | 紧凑包络，缺诊断字段 | 只补充低基数诊断与结构化摘要 |
 | 渲染 | Playwright 与 HTTP 两种策略 | 仅 HTTP，render 由插件承诺但无能力校验 | 不内置浏览器，改能力发现与契约校验 |
 | 缓存/robots | 持久化缓存、标准 robots、代理轮换、反爬重试 | 进程内条件缓存、简化 robots、固定限速 | 补齐 robots 语义、重试、抖动、压缩与指标 |
@@ -99,5 +99,5 @@
 ## 后续迭代
 
 - 若真实站点仍大量触发封禁，可在插件侧增加 UA 池、代理轮换与 sticky session；核心只消费能力声明，不内嵌策略。
-- 若需要把抓取结果沉淀为知识库，使用单独的 RAG 设计方案，在宿主层桥接 `rag-core`，不在 fetch 内复制分块与索引逻辑。
+- 若需要把抓取结果沉淀为知识库，使用单独的 RAG 设计方案，在宿主层桥接 `wf-rag`，不在 fetch 内复制分块与索引逻辑。
 - SSRF 的 DNS rebinding 防护需要 resolve-and-pin 出网代理，属于部署层能力，单独评估。

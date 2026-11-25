@@ -17,7 +17,7 @@ wf-config = { path = "../../infra/wf-config" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-api = { path = "../wf-api" }
-source-contracts = { path = "../../infra/source-contracts" }
+source-contracts = { path = "../../infra/rag/source-contracts" }
 wf-types = { path = "../../foundation/wf-types", features = ["utoipa"] }
 wf-runtime = { path = "../wf-runtime", default-features = false }
 tower.workspace = true
@@ -77,9 +77,9 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 tokio-tungstenite.workspace = true
 async-trait.workspace = true
-vector-contracts = { path = "../../infra/vector-contracts" }
-keyword-contracts = { path = "../../infra/keyword-contracts" }
-rag-core = { path = "../../infra/rag-core" }
+vector-contracts = { path = "../../infra/rag/vector-contracts" }
+keyword-contracts = { path = "../../infra/rag/keyword-contracts" }
+wf-rag = { path = "../../infra/rag/wf-rag" }
 llm-embedding = { package = "llm-suite-embedding", path = "../../infra/llm-suite/crates/llm-suite-embedding" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }

@@ -51,3 +51,17 @@ network 能力刻意保留了两类可插拔抽象，因此动态派发是必要
 | `wf-agent/src/coordinator/iteration.rs` | `Arc<dyn CompactionEngine>` 实例字段 | 每次执行解析一次并冻结，杜绝多套压缩逻辑并行 |
 
 具体生产者（无需动态派发即可静态识别）：`BuiltinEngine`（内建，包装原生决策与规划）、插件经原生边界实现的工厂与引擎。`Arc<dyn CompactionEngine>` 只在注册表与实例字段边界出现；引擎返回的写回意图是强类型 `CompactionOutcome`，写回由宿主执行。
+
+## RAG 数据源动态派发
+
+`source-contracts` 刻意保留读取器与转换器两个可插拔端口，因此动态派发是必要的：宿主注册多种 source reader（URL、本地文件、插件贡献的原生读取器），按 descriptor 的 kind 在运行时选择；文档 converter 同理，按显式名或扩展名在注册表内选择。只有统一 trait 对象能让宿主在不感知具体实现的情况下装配与调度这些贡献，且让运行时切换即时生效。
+
+| 位置 | 派发类型 | 必要性 |
+| --- | --- | --- |
+| `source-contracts/src/reader.rs` | `SourceReader: Send + Sync` trait | 异构读取器统一读取端口，reader 只产出规范化文档与 revision |
+| `source-contracts/src/converter.rs` | `DocumentConverter: Send + Sync` trait、`&dyn DocumentConverter`（`converter_for` 参数） | 异构转换器按扩展名匹配，显式名选择 |
+| `infra/rag/wf-rag/src/converter.rs` | `Vec<Arc<dyn DocumentConverter>>`（`ConverterRegistry` 字段） | 宿主按名/扩展名选择转换器，支持插件前置注册 |
+| `wf-api/src/rag_source.rs` | `DashMap<String, Arc<dyn SourceReader>>`（`SourceReaderRegistry` 内部） | 进程级按 kind 索引异构读取器，重名拒绝 |
+| `wf-api/src/rag_source.rs` | `Arc<dyn RagSourceStateStore>`（`RagSourceService` 字段） | 状态持久化后端可替换，读取路径不感知存储实现 |
+
+具体生产者（无需动态派发即可静态识别）：`UrlSourceReader`、`FileSourceReader`、`PlainConverter`、`MarkdownConverter`、`JsonConverter`、`PathJsonConverter`。读取端口只返回强类型 `SourcePage` / `ConvertedDocument`，从不直接写索引，因此派发边界收敛在装配与选择两处。

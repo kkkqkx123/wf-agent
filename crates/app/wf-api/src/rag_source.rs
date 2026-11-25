@@ -338,9 +338,9 @@ pub enum RagSourceSyncAction {
 pub struct RagSourceService {
     handles: RagHandles,
     readers: Arc<SourceReaderRegistry>,
-    converters: Arc<rag_core::ConverterRegistry>,
+    converters: Arc<wf_rag::ConverterRegistry>,
     states: Arc<dyn RagSourceStateStore>,
-    index_defaults: rag_core::RagIndexConfig,
+    index_defaults: wf_rag::RagIndexConfig,
 }
 
 impl RagSourceService {
@@ -348,12 +348,12 @@ impl RagSourceService {
         handles: RagHandles,
         readers: Arc<SourceReaderRegistry>,
         states: Arc<dyn RagSourceStateStore>,
-        index_defaults: rag_core::RagIndexConfig,
+        index_defaults: wf_rag::RagIndexConfig,
     ) -> Self {
         Self {
             handles,
             readers,
-            converters: Arc::new(rag_core::ConverterRegistry::with_defaults()),
+            converters: Arc::new(wf_rag::ConverterRegistry::with_defaults()),
             states,
             index_defaults,
         }
@@ -364,7 +364,7 @@ impl RagSourceService {
         handles: RagHandles,
         fetch: Arc<dyn wf_tools::predefined::web::WebFetchBackend>,
         states: Arc<dyn RagSourceStateStore>,
-        index_defaults: rag_core::RagIndexConfig,
+        index_defaults: wf_rag::RagIndexConfig,
         max_content_chars: usize,
         source_roots: Vec<std::path::PathBuf>,
     ) -> Self {
@@ -385,7 +385,7 @@ impl RagSourceService {
     }
 
     /// Replaces the converter registry with a host-extended one.
-    pub fn with_converters(mut self, converters: Arc<rag_core::ConverterRegistry>) -> Self {
+    pub fn with_converters(mut self, converters: Arc<wf_rag::ConverterRegistry>) -> Self {
         self.converters = converters;
         self
     }
@@ -426,7 +426,7 @@ impl RagSourceService {
             .collect::<Vec<_>>()
             .join("\n");
         let content_hash = if revision.content_hash.is_empty() {
-            rag_core::content_hash(&combined)
+            wf_rag::content_hash(&combined)
         } else {
             revision.content_hash.clone()
         };
@@ -511,7 +511,7 @@ impl RagSourceService {
                 source_metadata = metadata.clone();
             }
             rag_documents.push(
-                rag_core::RagDocument::new(
+                wf_rag::RagDocument::new(
                     document.id,
                     converted.content,
                     descriptor.source.clone(),
@@ -521,8 +521,8 @@ impl RagSourceService {
         }
         let mut index = self.index_defaults.clone();
         index.namespace = descriptor.namespace.clone();
-        index.duplicate_policy = rag_core::DuplicatePolicy::Skip;
-        let stats = match rag_core::pipeline::ingest_documents(
+        index.duplicate_policy = wf_rag::DuplicatePolicy::Skip;
+        let stats = match wf_rag::pipeline::ingest_documents(
             self.handles.store.as_ref(),
             self.handles.keyword.as_deref(),
             self.handles.embedder.as_ref(),
@@ -596,7 +596,7 @@ impl RagSourceService {
         let states = self.states.list(collection, namespace, source).await?;
         let mut views = Vec::with_capacity(states.len());
         for state in states {
-            let (points, keyword_points) = rag_core::pipeline::source_counts(
+            let (points, keyword_points) = wf_rag::pipeline::source_counts(
                 self.handles.store.as_ref(),
                 self.handles.keyword.as_deref(),
                 collection,
@@ -666,13 +666,13 @@ async fn delete_source_scope(
     namespace: Option<&str>,
     source: &str,
 ) -> ApiResult<u64> {
-    let removed = match rag_core::pipeline::delete_source(
+    let removed = match wf_rag::pipeline::delete_source(
         store, keyword, collection, namespace, source,
     )
     .await
     {
         Ok(removed) => removed,
-        Err(rag_core::RagError::Store(VectorError::CollectionMissing(_))) => 0,
+        Err(wf_rag::RagError::Store(VectorError::CollectionMissing(_))) => 0,
         Err(err) => {
             return Err(ApiError::execution(format!(
                 "delete source scope failed: {err}"

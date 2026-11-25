@@ -64,7 +64,7 @@ pub static RAG_EVALUATE: ToolDefinition = ToolDefinition {
 #[serde(deny_unknown_fields)]
 struct RagEvaluateParams {
     #[serde(default)]
-    cases: Vec<rag_core::EvalCase>,
+    cases: Vec<wf_rag::EvalCase>,
     #[serde(default)]
     collection: Option<String>,
     #[serde(default)]
@@ -79,14 +79,14 @@ pub struct RagEvaluateQuery {
     pub collection: String,
     pub namespace: String,
     pub top_k: usize,
-    pub cases: Vec<rag_core::EvalCase>,
+    pub cases: Vec<wf_rag::EvalCase>,
 }
 
 /// Evaluation result envelope.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RagEvaluateResult {
-    pub outcomes: Vec<rag_core::EvalOutcome>,
-    pub summary: rag_core::EvalSummary,
+    pub outcomes: Vec<wf_rag::EvalOutcome>,
+    pub summary: wf_rag::EvalSummary,
 }
 
 /// Host-provided offline evaluation capability.
@@ -169,7 +169,7 @@ mod tests {
             assert_eq!(query.cases.len(), 1);
             Ok(RagEvaluateResult {
                 outcomes: Vec::new(),
-                summary: rag_core::EvalSummary {
+                summary: wf_rag::EvalSummary {
                     cases: 1,
                     hit_rate: 1.0,
                     mean_recall: 1.0,

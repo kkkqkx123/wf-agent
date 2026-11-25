@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-rag-core = { path = "../../infra/rag-core" }
-vector-contracts = { path = "../../infra/vector-contracts" }
-keyword-contracts = { path = "../../infra/keyword-contracts" }
-source-contracts = { path = "../../infra/source-contracts" }
+wf-rag = { path = "../../infra/rag/wf-rag" }
+vector-contracts = { path = "../../infra/rag/vector-contracts" }
+keyword-contracts = { path = "../../infra/rag/keyword-contracts" }
+source-contracts = { path = "../../infra/rag/source-contracts" }
 llm-embedding = { package = "llm-suite-embedding", path = "../../infra/llm-suite/crates/llm-suite-embedding" }
 serde.workspace = true
 serde_json.workspace = true
@@ -50,9 +50,9 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 default = []
 lua = ["wf-sandbox/lua"]
 file-checkpoint = []
-keyword = ["rag-core/keyword-sqlite"]
+keyword = ["wf-rag/keyword-sqlite"]
 rag-vector = [
-    "rag-core/vector",
+    "wf-rag/vector",
     "vector-contracts/qdrant",
     "vector-contracts/simvec",
 ]

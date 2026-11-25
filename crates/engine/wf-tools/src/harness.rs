@@ -659,7 +659,7 @@ impl RagIngestBackend for HarnessRagIngestBackend {
             final_url: query.url.clone(),
             source: query.url,
             title: Some("Fixture page".into()),
-            action: rag_core::SyncAction::Insert,
+            action: wf_rag::SyncAction::Insert,
             documents: 1,
             chunks: 2,
             points: 2,
@@ -712,7 +712,7 @@ impl RagEvalBackend for HarnessRagEvalBackend {
             outcomes: query
                 .cases
                 .iter()
-                .map(|case| rag_core::EvalOutcome {
+                .map(|case| wf_rag::EvalOutcome {
                     case_id: case.id.clone(),
                     hit: true,
                     recall: 1.0,
@@ -721,7 +721,7 @@ impl RagEvalBackend for HarnessRagEvalBackend {
                     surfaced_sources: case.expected_sources.clone(),
                 })
                 .collect(),
-            summary: rag_core::EvalSummary {
+            summary: wf_rag::EvalSummary {
                 cases: query.cases.len(),
                 hit_rate: 1.0,
                 mean_recall: 1.0,

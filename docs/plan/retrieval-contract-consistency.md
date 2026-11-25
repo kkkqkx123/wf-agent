@@ -2,7 +2,7 @@
 
 ## 范围
 
-本次只处理 `vector-contracts`、`keyword-contracts` 与其直接消费者 `rag-core` 中已经影响查询正确性的契约问题。包拆分、编译裁剪和错误类型重构不在本次范围，见文末说明。
+本次只处理 `vector-contracts`、`keyword-contracts` 与其直接消费者 `wf-rag` 中已经影响查询正确性的契约问题。包拆分、编译裁剪和错误类型重构不在本次范围，见文末说明。
 
 ## 问题清单
 
@@ -20,7 +20,7 @@
 
 在 `keyword-contracts` 中新增独立的 `KeywordScope`，只表达后端能够原生执行的作用域：namespace 与 source。`KeywordQuery` 使用 `KeywordScope` 替代 `SearchFilter`，`KeywordIndex::count` 同步改为按 scope 计数。这样关键词契约不再承诺自己无法保证的通用元数据过滤语义。
 
-`rag-core` 的适配层承担通用过滤职责：`keyword_chunks` 接收 RAG 侧的完整 `SearchFilter`，基于关键词命中返回的 payload 做精确匹配后再转换。混合检索先用 scope 查询关键词后端，再在适配层应用配置中的 fields 与 conditions。候选放大只发生在 RAG 适配层，后端不再做固定倍数的隐式截断。
+`wf-rag` 的适配层承担通用过滤职责：`keyword_chunks` 接收 RAG 侧的完整 `SearchFilter`，基于关键词命中返回的 payload 做精确匹配后再转换。混合检索先用 scope 查询关键词后端，再在适配层应用配置中的 fields 与 conditions。候选放大只发生在 RAG 适配层，后端不再做固定倍数的隐式截断。
 
 三个关键词后端删除“取放大候选后本地再过滤”的逻辑，直接使用查询 limit；counts 直接使用 scope。相关单测改为验证 scope 语义，并补充适配层的通用过滤测试。
 
@@ -36,13 +36,13 @@ Qdrant 把 `IsNull` 与 `Contains` 标记为需要精确复核的条件。搜索
 
 ## 执行结果
 
-- 阶段一与阶段二代码修改已完成；`keyword-contracts` 查询契约收窄为 `KeywordScope`，`rag-core` 适配层负责通用条件复核，Qdrant 对近似操作符改为分页精确复核。
-- 编译与测试全部在 devs 执行：`cargo check --locked --workspace --all-targets --all-features` 通过；`vector-contracts`、`keyword-contracts`、`rag-core --all-features`、`wf-api` 测试通过。
+- 阶段一与阶段二代码修改已完成；`keyword-contracts` 查询契约收窄为 `KeywordScope`，`wf-rag` 适配层负责通用条件复核，Qdrant 对近似操作符改为分页精确复核。
+- 编译与测试全部在 devs 执行：`cargo check --locked --workspace --all-targets --all-features` 通过；`vector-contracts`、`keyword-contracts`、`wf-rag --all-features`、`wf-api` 测试通过。
 - 远端日志保存在 `~/devs-logs/check-7a30d0ac.log` 与 `~/devs-logs/verify-final-7a30d0ac.log`，编译产物未回传。
 
 ## 不在本次范围
 
-- `vector-contracts` 同时包含契约与后端实现、`keyword-contracts` 后端仍留在 `rag-core`：这是依赖方向上的权衡，改动会波及宿主装配，单独处理。
+- `vector-contracts` 同时包含契约与后端实现、`keyword-contracts` 后端仍留在 `wf-rag`：这是依赖方向上的权衡，改动会波及宿主装配，单独处理。
 - `KeywordFormat` 依赖 `wf-types` 配置枚举且携带打开策略：属于格式策略边界问题，不影响查询正确性。
 - `keyword-sqlite` 与 `vector` 空 feature：属于编译裁剪问题，需要配合宿主 feature 链路单独改造。
 - `KeywordError` 与 `VectorError` 的错误粒度差异：属于可观测性改进，不影响本次语义修复。

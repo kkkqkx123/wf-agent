@@ -5,9 +5,9 @@ edition.workspace = true
 
 [dependencies]
 wf-integration = { path = "../../infra/wf-integration" }
-rag-core = { path = "../../infra/rag-core" }
-vector-contracts = { path = "../../infra/vector-contracts" }
-keyword-contracts = { path = "../../infra/keyword-contracts" }
+wf-rag = { path = "../../infra/rag/wf-rag" }
+vector-contracts = { path = "../../infra/rag/vector-contracts" }
+keyword-contracts = { path = "../../infra/rag/keyword-contracts" }
 llm-embedding = { package = "llm-suite-embedding", path = "../../infra/llm-suite/crates/llm-suite-embedding" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }

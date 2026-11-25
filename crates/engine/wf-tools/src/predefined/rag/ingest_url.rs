@@ -153,8 +153,8 @@ pub struct RagIngestUrlQuery {
     pub selector: Option<String>,
     pub exclude_selector: Option<String>,
     pub min_words: usize,
-    pub sync_basis: Option<rag_core::SyncBasis>,
-    pub duplicate_policy: rag_core::DuplicatePolicy,
+    pub sync_basis: Option<wf_rag::SyncBasis>,
+    pub duplicate_policy: wf_rag::DuplicatePolicy,
 }
 
 /// Outcome of one URL ingestion call.
@@ -164,13 +164,13 @@ pub struct RagIngestUrlResult {
     pub final_url: String,
     pub source: String,
     pub title: Option<String>,
-    pub action: rag_core::SyncAction,
+    pub action: wf_rag::SyncAction,
     pub documents: usize,
     pub chunks: usize,
     pub points: usize,
     pub skipped: usize,
     pub content_hash: String,
-    pub validator: Option<rag_core::HttpValidator>,
+    pub validator: Option<wf_rag::HttpValidator>,
 }
 
 /// Host-provided URL ingestion capability.
@@ -211,8 +211,8 @@ pub fn rag_ingest_url_handler(config: &super::RagToolConfig) -> StatelessAsyncHa
             }
             let sync_basis = match params.sync_basis.as_deref() {
                 None => None,
-                Some("content_hash") => Some(rag_core::SyncBasis::ContentHash),
-                Some("http_validation") => Some(rag_core::SyncBasis::HttpValidation),
+                Some("content_hash") => Some(wf_rag::SyncBasis::ContentHash),
+                Some("http_validation") => Some(wf_rag::SyncBasis::HttpValidation),
                 Some(other) => {
                     return Err(ToolError::ValidationFailed(format!(
                         "unknown sync_basis '{other}'"
@@ -220,9 +220,9 @@ pub fn rag_ingest_url_handler(config: &super::RagToolConfig) -> StatelessAsyncHa
                 }
             };
             let duplicate_policy = match params.duplicate_policy.as_deref().unwrap_or("overwrite") {
-                "overwrite" => rag_core::DuplicatePolicy::Overwrite,
-                "skip" => rag_core::DuplicatePolicy::Skip,
-                "fail" => rag_core::DuplicatePolicy::Fail,
+                "overwrite" => wf_rag::DuplicatePolicy::Overwrite,
+                "skip" => wf_rag::DuplicatePolicy::Skip,
+                "fail" => wf_rag::DuplicatePolicy::Fail,
                 other => {
                     return Err(ToolError::ValidationFailed(format!(
                         "unknown duplicate_policy '{other}'"
@@ -291,7 +291,7 @@ mod tests {
                 final_url: query.url.clone(),
                 source: query.url,
                 title: None,
-                action: rag_core::SyncAction::Insert,
+                action: wf_rag::SyncAction::Insert,
                 documents: 1,
                 chunks: 2,
                 points: 2,

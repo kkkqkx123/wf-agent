@@ -27,7 +27,7 @@ Top level contains `apps/`, `Cargo.toml`, `rust-toolchain.toml`, `crates/`. The 
 
 foundation layer: `wf-types`, `wf-common`, `wf-core`
 
-infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `vector-contracts` (backend-neutral vector storage contracts: types, filter, operation contract, memory/simvec/Qdrant backends), `keyword-contracts` (backend-neutral keyword storage contracts over the shared payload filter), `rag-core` (independent RAG pipelines over vector-contracts and keyword-contracts: chunking, ingest/query, fusion, rerank, citations, keyword backends), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
+infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `rag/` (RAG subsystem: internal contracts + facade, see below), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
 
 engine layer: `wf-tools` (tool registry, executors, MCP), `wf-resource` (resource management: registries, rendering, custom resources), `wf-execution-shared` (shared execution infrastructure: interaction registry, interactive script session subsystem, single-shot LLM calls), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
 
@@ -41,7 +41,9 @@ tui layer: `tui-clock` (monotonic clock helper, leaf), `tui-terminal` (terminal 
 
 foundation: wf-types ← wf-common ← wf-core
 
-infra: wf-metrics wf-storage wf-config wf-script wf-llm wf-sandbox wf-shell wf-plugin checkpoint/
+infra: wf-metrics wf-storage wf-config wf-script wf-llm wf-sandbox wf-shell wf-plugin rag/ checkpoint/
+
+rag: vector-contracts (leaf: backend-neutral vector storage contracts, memory/simvec/Qdrant backends); source-contracts (leaf: backend-neutral data source reading + conversion ports); keyword-contracts (→ vector-contracts: backend-neutral keyword storage contracts); wf-rag (facade → vector-contracts/keyword-contracts/source-contracts: chunking, ingest/query, fusion, rerank, citations, keyword backends). Internal contracts carry no wf- prefix; only the facade keeps wf- prefix, mirroring checkpoint/.
 
 checkpoint: checkpoint-base (leaf: errors, actors, policies, deltas, diff); checkpoint-state (→ checkpoint-base: execution snapshots, restore); checkpoint-file (→ checkpoint-base: file history, observe, branches, sqlite storage); wf-checkpoint (facade → checkpoint-base/checkpoint-state/checkpoint-file: coordinators + re-exports)
 
@@ -60,6 +62,8 @@ tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-cloc
 `app/tui/` holds the low-level TUI building blocks split out of the former monolithic `wf-tui` crate. These crates carry no `wf-` prefix so both `wf-tui` and `wf-mini` can depend on them directly without implying they are top-level application products. The `tui/*` crates form their own strict DAG (leaf: `tui-clock`; `tui-terminal` may depend on `wf-cli-shared` for the shared `CliResult`/`CliError` types, which does not create a cycle because `wf-cli-shared` has no TUI dependencies).
 
 `infra/checkpoint/` groups the checkpoint subsystem split out of the former monolithic `wf-checkpoint` crate, mirroring `app/cli/` + `app/tui/`. Internal crates carry no `wf-` prefix (`checkpoint-base`, `checkpoint-state`, `checkpoint-file`); only the externally integrated facade keeps the `wf-` prefix (`wf-checkpoint`). Upper layers (`wf-tools` / `wf-execution-shared` / `wf-agent` / `wf-workflow` / `wf-api` / `wf-runtime`) depend only on the `wf-checkpoint` facade, never on the internal crates directly. The `checkpoint/*` crates form their own strict DAG (leaf: `checkpoint-base`; `checkpoint-state` → `checkpoint-base`; `checkpoint-file` → `checkpoint-base`; `wf-checkpoint` → `checkpoint-base` / `checkpoint-state` / `checkpoint-file`).
+
+`infra/rag/` groups the RAG subsystem, mirroring `infra/checkpoint/`. The former flat `rag-core` crate is now the facade `wf-rag`; internal contract crates carry no `wf-` prefix (`vector-contracts`, `keyword-contracts`, `source-contracts`). Hosts depend on `wf-rag` for pipelines and may depend directly on `vector-contracts` / `keyword-contracts` / `source-contracts` to hold backend-neutral handles. The `rag/*` crates form their own strict DAG (leaves: `vector-contracts`, `source-contracts`; `keyword-contracts` → `vector-contracts`; `wf-rag` → `vector-contracts` / `keyword-contracts` / `source-contracts`). `source-contracts` stays independent of `wf-rag`: source reading and conversion are input-side ports shared by the host, distinct from retrieval.
 
 ## Building and Running
 

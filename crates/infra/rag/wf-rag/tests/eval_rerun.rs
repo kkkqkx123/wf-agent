@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use rag_core::{score_case, summarize, EvalCase, RagDocument, RagIndexConfig, RagQueryConfig};
+use wf_rag::{score_case, summarize, EvalCase, RagDocument, RagIndexConfig, RagQueryConfig};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -72,7 +72,7 @@ async fn eval_set_reruns_with_full_recall() {
     assert!(!set.cases.is_empty());
 
     let store = vector_contracts::InMemoryVectorStore::new();
-    let keyword = rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword index");
+    let keyword = wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
     let documents: Vec<RagDocument> = set
         .documents
@@ -84,7 +84,7 @@ async fn eval_set_reruns_with_full_recall() {
             metadata: HashMap::new(),
         })
         .collect();
-    rag_core::pipeline::ingest_documents(
+    wf_rag::pipeline::ingest_documents(
         &store,
         Some(&keyword),
         &embedder,
@@ -97,7 +97,7 @@ async fn eval_set_reruns_with_full_recall() {
 
     let mut outcomes = Vec::new();
     for case in &set.cases {
-        let hits = rag_core::pipeline::query(
+        let hits = wf_rag::pipeline::query(
             &store,
             &embedder,
             &set.collection,

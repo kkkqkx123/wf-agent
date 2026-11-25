@@ -1,7 +1,7 @@
 //! Retrieval context and citation templates.
 //!
 //! The retrieval kernel produces numbered context plus a citation list
-//! (see `rag-core` citation helpers); these templates decide the final
+//! (see `wf-rag` citation helpers); these templates decide the final
 //! layout. Two render modes share one variable shape: display text for
 //! humans and strict text for the model. Truncation stays with the caller
 //! through `excerpt_chars` so templates never guess length budgets.
@@ -103,11 +103,11 @@ pub fn rag_templates() -> Vec<Template> {
 
 /// Builds the shared variable table for context templates from hits.
 pub fn build_context_variables(
-    hits: &[rag_core::RetrievedChunk],
+    hits: &[wf_rag::RetrievedChunk],
     query: &str,
     excerpt_chars: usize,
 ) -> HashMap<String, serde_json::Value> {
-    let (context, _) = rag_core::render_context(hits, excerpt_chars);
+    let (context, _) = wf_rag::render_context(hits, excerpt_chars);
     HashMap::from([
         ("context".to_string(), serde_json::Value::String(context)),
         (
@@ -123,7 +123,7 @@ pub fn build_context_variables(
 
 /// Formats one citation through the citation template, falling back to the
 /// kernel layout when the template is not registered.
-pub fn format_citation(regs: &ResourceRegistries, citation: &rag_core::Citation) -> String {
+pub fn format_citation(regs: &ResourceRegistries, citation: &wf_rag::Citation) -> String {
     let variables = HashMap::from([
         (
             "index".to_string(),
@@ -154,7 +154,7 @@ pub fn format_citation(regs: &ResourceRegistries, citation: &rag_core::Citation)
 /// Renders model-bound retrieval context, denying residual placeholders.
 pub fn render_model_context(
     regs: &ResourceRegistries,
-    hits: &[rag_core::RetrievedChunk],
+    hits: &[wf_rag::RetrievedChunk],
     query: &str,
     excerpt_chars: usize,
 ) -> Option<String> {
@@ -165,12 +165,12 @@ pub fn render_model_context(
 /// Renders display retrieval context, keeping residuals verbatim.
 pub fn render_display_context(
     regs: &ResourceRegistries,
-    hits: &[rag_core::RetrievedChunk],
+    hits: &[wf_rag::RetrievedChunk],
     query: &str,
     excerpt_chars: usize,
 ) -> Option<String> {
     use crate::template::TemplateRenderOptions;
-    let (context, _) = rag_core::render_context(hits, excerpt_chars);
+    let (context, _) = wf_rag::render_context(hits, excerpt_chars);
     let mut flat = HashMap::new();
     flat.insert("context".to_string(), context);
     flat.insert("query".to_string(), query.to_string());
@@ -225,8 +225,8 @@ mod tests {
     use super::*;
     use wf_core::Registry;
 
-    fn hit(id: &str, source: &str) -> rag_core::RetrievedChunk {
-        rag_core::RetrievedChunk {
+    fn hit(id: &str, source: &str) -> wf_rag::RetrievedChunk {
+        wf_rag::RetrievedChunk {
             chunk_id: id.to_string(),
             document_id: "d".to_string(),
             source: source.to_string(),
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn citation_formats_and_no_hit_renders() {
         let regs = regs();
-        let (_, citations) = rag_core::render_context(&[hit("a", "doc.md")], 100);
+        let (_, citations) = wf_rag::render_context(&[hit("a", "doc.md")], 100);
         let line = format_citation(&regs, &citations[0]);
         assert!(line.contains("[1]"));
         assert!(line.contains("doc.md"));

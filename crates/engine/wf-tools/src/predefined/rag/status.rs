@@ -81,7 +81,7 @@ pub struct RagSourceStatus {
     pub point_count: u64,
     pub keyword_point_count: Option<u64>,
     pub content_hash: Option<String>,
-    pub validator: Option<rag_core::HttpValidator>,
+    pub validator: Option<wf_rag::HttpValidator>,
     pub final_url: Option<String>,
     pub fetched_at: Option<String>,
 }

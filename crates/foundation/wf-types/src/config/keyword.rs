@@ -23,9 +23,9 @@ pub enum KeywordBackend {
     /// Built-in SQLite FTS5 index.
     #[default]
     Sqlite,
-    /// Embedded tantivy index (requires `rag-core/tantivy`).
+    /// Embedded tantivy index (requires `wf-rag/tantivy`).
     Tantivy,
-    /// Remote Elasticsearch index (requires `rag-core/elastic`).
+    /// Remote Elasticsearch index (requires `wf-rag/elastic`).
     Elastic,
 }
 

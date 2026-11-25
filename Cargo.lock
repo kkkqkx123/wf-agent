@@ -5004,7 +5004,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
-name = "rag-core"
+name = "wf-rag"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -8345,7 +8345,7 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "portable-pty",
- "rag-core",
+ "wf-rag",
  "regex",
  "serde",
  "serde_json",
@@ -8755,7 +8755,7 @@ dependencies = [
  "futures",
  "llm-suite-proxy",
  "moka",
- "rag-core",
+ "wf-rag",
  "regex",
  "reqwest",
  "serde",
@@ -8783,7 +8783,7 @@ dependencies = [
  "dashmap",
  "fs4",
  "futures",
- "rag-core",
+ "wf-rag",
  "serde",
  "serde_json",
  "tempfile",
@@ -8862,7 +8862,7 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "percent-encoding",
- "rag-core",
+ "wf-rag",
  "reqwest",
  "serde",
  "serde_json",
@@ -8970,7 +8970,7 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "llm-suite-proxy",
- "rag-core",
+ "wf-rag",
  "regex",
  "reqwest",
  "rmcp",
@@ -9057,7 +9057,7 @@ dependencies = [
  "futures",
  "keyword-contracts",
  "llm-suite-embedding",
- "rag-core",
+ "wf-rag",
  "regex",
  "serde",
  "serde_json",

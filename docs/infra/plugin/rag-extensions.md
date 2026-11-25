@@ -2,8 +2,8 @@
 
 本文说明九种 RAG 插件扩展的后端归属、建议型语义、管线消费方式与推迟项。
 实现以代码为准：贡献形状见 `wf-plugin-sdk/src/contributions.rs`，
-桥接注册表与应用辅助见 `rag-core/src/plugin.rs`，
-管线消费见 `rag-core/src/pipeline.rs`、`src/router.rs`、`src/synth.rs`。
+桥接注册表与应用辅助见 `wf-rag/src/plugin.rs`，
+管线消费见 `wf-rag/src/pipeline.rs`、`src/router.rs`、`src/synth.rs`。
 最小原生示例见 `crates/infra/wf-plugin/examples/rag-advisory-demo/`。
 
 ## 九种扩展一览

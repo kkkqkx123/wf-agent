@@ -19,14 +19,12 @@ members = [
     "crates/infra/wf-sandbox",
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
-    # Backend-neutral vector storage contracts (independent package: no
-    # project-specific semantics, extractable to its own repository).
-    "crates/infra/vector-contracts",
-    "crates/infra/keyword-contracts",
-    "crates/infra/source-contracts",
-    # Independent RAG pipelines over vector-contracts (neutral naming keeps
-    # the extraction path open, mirroring vector-contracts).
-    "crates/infra/rag-core",
+    # RAG subsystem grouped under infra/rag/ (mirrors checkpoint/cli/tui):
+    # internal contracts carry no wf- prefix; only the facade wf-rag does.
+    "crates/infra/rag/vector-contracts",
+    "crates/infra/rag/source-contracts",
+    "crates/infra/rag/keyword-contracts",
+    "crates/infra/rag/wf-rag",
     # llm-suite (crates/infra/llm-suite/) is an independent workspace and git
     # repository, consumed here by path; excluded so the two workspaces do
     # not claim the same packages.

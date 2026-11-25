@@ -146,11 +146,11 @@ pub struct RagNodeHandles {
     /// Default namespace used when node config omits one.
     pub default_namespace: String,
     /// Default read-path shaping.
-    pub default_query: rag_core::RagQueryConfig,
+    pub default_query: wf_rag::RagQueryConfig,
     /// Default write-path shaping.
-    pub default_index: rag_core::RagIndexConfig,
+    pub default_index: wf_rag::RagIndexConfig,
     /// Optional question rewriter; `None` keeps single-question lookup.
-    pub rewriter: Option<Arc<dyn rag_core::QueryRewriter>>,
+    pub rewriter: Option<Arc<dyn wf_rag::QueryRewriter>>,
 }
 
 impl RagNodeHandles {
@@ -168,14 +168,14 @@ impl RagNodeHandles {
             embedder,
             default_collection: collection.into(),
             default_namespace: namespace.clone(),
-            default_query: rag_core::RagQueryConfig::default(),
-            default_index: rag_core::RagIndexConfig::new(namespace),
+            default_query: wf_rag::RagQueryConfig::default(),
+            default_index: wf_rag::RagIndexConfig::new(namespace),
             rewriter: None,
         }
     }
 
     /// Attaches a question rewriter used before multi-variant fusion.
-    pub fn with_rewriter(mut self, rewriter: Arc<dyn rag_core::QueryRewriter>) -> Self {
+    pub fn with_rewriter(mut self, rewriter: Arc<dyn wf_rag::QueryRewriter>) -> Self {
         self.rewriter = Some(rewriter);
         self
     }
@@ -282,9 +282,9 @@ impl RagQueryHandler {
         }
         if let Some(mode) = config.fusion_mode.as_deref() {
             query_config.fusion.mode = match mode.to_lowercase().as_str() {
-                "concat" => rag_core::FusionMode::Concat,
-                "weighted" => rag_core::FusionMode::Weighted,
-                "rrf" => rag_core::FusionMode::Rrf,
+                "concat" => wf_rag::FusionMode::Concat,
+                "weighted" => wf_rag::FusionMode::Weighted,
+                "rrf" => wf_rag::FusionMode::Rrf,
                 other => {
                     return Err(WorkflowError::OperationError(format!(
                         "Unknown fusion_mode '{other}' (expected rrf, concat or weighted)"
@@ -307,14 +307,14 @@ impl RagQueryHandler {
         };
         let variants = match &self.handles.rewriter {
             Some(rewriter) => {
-                let base = rag_core::rewrite_with_fallback(rewriter.as_ref(), &query_text).await;
-                rag_core::merge_variants(base, &extra_variants)
+                let base = wf_rag::rewrite_with_fallback(rewriter.as_ref(), &query_text).await;
+                wf_rag::merge_variants(base, &extra_variants)
             }
-            None => rag_core::merge_variants(vec![query_text.clone()], &extra_variants),
+            None => wf_rag::merge_variants(vec![query_text.clone()], &extra_variants),
         };
         let hybrid_enabled = query_config.keyword_candidates > 0 && self.handles.keyword.is_some();
         let hits = if variants.len() > 1 {
-            rag_core::pipeline::query_multi(
+            wf_rag::pipeline::query_multi(
                 self.handles.store.as_ref(),
                 self.handles.embedder.as_ref(),
                 &collection,
@@ -330,7 +330,7 @@ impl RagQueryHandler {
                 .keyword
                 .as_ref()
                 .expect("keyword index present");
-            rag_core::pipeline::query_hybrid(
+            wf_rag::pipeline::query_hybrid(
                 self.handles.store.as_ref(),
                 keyword.as_ref(),
                 self.handles.embedder.as_ref(),
@@ -342,7 +342,7 @@ impl RagQueryHandler {
             .await
             .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
         } else {
-            rag_core::pipeline::query(
+            wf_rag::pipeline::query(
                 self.handles.store.as_ref(),
                 self.handles.embedder.as_ref(),
                 &collection,
@@ -457,9 +457,9 @@ impl RagIngestHandler {
         index_config.namespace = namespace.clone();
         if let Some(policy) = config.duplicate_policy {
             index_config.duplicate_policy = match policy.to_lowercase().as_str() {
-                "skip" => rag_core::DuplicatePolicy::Skip,
-                "overwrite" => rag_core::DuplicatePolicy::Overwrite,
-                "fail" => rag_core::DuplicatePolicy::Fail,
+                "skip" => wf_rag::DuplicatePolicy::Skip,
+                "overwrite" => wf_rag::DuplicatePolicy::Overwrite,
+                "fail" => wf_rag::DuplicatePolicy::Fail,
                 other => {
                     return Err(WorkflowError::OperationError(format!(
                         "Unknown duplicate_policy '{other}' (expected skip, overwrite or fail)"
@@ -471,10 +471,10 @@ impl RagIngestHandler {
             index_config.hierarchical = hierarchical;
         }
         let started = std::time::Instant::now();
-        let mut documents: Vec<rag_core::RagDocument> = supplied
+        let mut documents: Vec<wf_rag::RagDocument> = supplied
             .into_iter()
             .map(|item| {
-                let mut document = rag_core::RagDocument::new(item.id, item.content, item.source);
+                let mut document = wf_rag::RagDocument::new(item.id, item.content, item.source);
                 document.metadata = item.metadata;
                 document
             })
@@ -497,18 +497,18 @@ impl RagIngestHandler {
         let mut skip_count = 0_usize;
         let mut updated_hashes: Option<std::collections::HashMap<String, String>> = None;
         if incremental {
-            let decisions = rag_core::decisions_for_documents(&documents, &indexed_hashes);
-            let pending = rag_core::pending_sources(&decisions);
+            let decisions = wf_rag::decisions_for_documents(&documents, &indexed_hashes);
+            let pending = wf_rag::pending_sources(&decisions);
             skip_count = decisions
                 .iter()
-                .filter(|decision| matches!(decision.action, rag_core::SyncAction::Skip))
+                .filter(|decision| matches!(decision.action, wf_rag::SyncAction::Skip))
                 .count();
             let incoming: std::collections::HashMap<String, String> = decisions
                 .iter()
                 .map(|decision| (decision.source.clone(), decision.incoming_hash.clone()))
                 .collect();
-            for stale in rag_core::stale_sources(&incoming, &indexed_hashes) {
-                let _ = rag_core::pipeline::delete_source(
+            for stale in wf_rag::stale_sources(&incoming, &indexed_hashes) {
+                let _ = wf_rag::pipeline::delete_source(
                     self.handles.store.as_ref(),
                     self.handles.keyword.as_deref(),
                     &collection,
@@ -519,8 +519,8 @@ impl RagIngestHandler {
                 indexed_hashes.remove(&stale);
             }
             for decision in &decisions {
-                if matches!(decision.action, rag_core::SyncAction::Update) {
-                    let _ = rag_core::pipeline::delete_source(
+                if matches!(decision.action, wf_rag::SyncAction::Update) {
+                    let _ = wf_rag::pipeline::delete_source(
                         self.handles.store.as_ref(),
                         self.handles.keyword.as_deref(),
                         &collection,
@@ -566,7 +566,7 @@ impl RagIngestHandler {
                 return Ok(result);
             }
         }
-        let mut stats = rag_core::pipeline::ingest_documents(
+        let mut stats = wf_rag::pipeline::ingest_documents(
             self.handles.store.as_ref(),
             self.handles.keyword.as_deref(),
             self.handles.embedder.as_ref(),

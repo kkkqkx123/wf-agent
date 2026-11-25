@@ -176,6 +176,7 @@ mod tests {
 
     fn snapshot(iteration: u32, start: Option<u64>, end: Option<u64>) -> AgentStateSnapshot {
         AgentStateSnapshot {
+            authorization: None,
             agent_loop_id: "loop-1".to_string(),
             status: "running".to_string(),
             current_iteration: iteration,

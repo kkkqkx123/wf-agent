@@ -307,6 +307,7 @@ mod tests {
             read_prefixes: vec![".".to_string()],
             write_prefixes: vec![".".to_string()],
             checkpoint_prefixes: checkpoint_prefixes.iter().map(|s| s.to_string()).collect(),
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         }
     }

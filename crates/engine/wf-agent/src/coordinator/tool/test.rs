@@ -411,6 +411,7 @@ async fn test_predefined_read_file_auto_approved_under_safe_preset() {
         auto_approve_patterns: None,
         categories: None,
         file_permissions: None,
+        path_grants: None,
         command: None,
         mcp: None,
         network: None,

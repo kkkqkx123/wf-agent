@@ -165,9 +165,11 @@ async fn drive_turn(
     while let Some(event) = stream.next().await {
         let action = match event {
             Ok(event) => acc.consume(event),
-            Err(error) => return TurnOutcome::Failed {
-                error: error.to_string(),
-            },
+            Err(error) => {
+                return TurnOutcome::Failed {
+                    error: error.to_string(),
+                }
+            }
         };
         let frame = match action {
             AccumAction::Text(content) => ExecutionStreamEvent::LlmDelta { content },
@@ -197,9 +199,7 @@ async fn drive_turn(
         };
     };
     session.record_reply(message, acc.usage.as_ref());
-    TurnOutcome::Completed {
-        answer: acc.answer,
-    }
+    TurnOutcome::Completed { answer: acc.answer }
 }
 
 /// Persist the messages a completed turn added under the session anchor.

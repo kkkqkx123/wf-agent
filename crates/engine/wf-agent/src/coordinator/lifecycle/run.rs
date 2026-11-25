@@ -89,6 +89,20 @@ impl AgentLoopCoordinator {
         sink: Option<AgentEventSink>,
     ) -> AgentResult<AgentLoopOutput> {
         self.validate_checkpoint_config(config)?;
+        // Persisted authorization wins on resume. Only a fresh run without
+        // checkpoint state is initialized from the host approval options.
+        {
+            let mut state = entity.state.write().await;
+            if state.authorization().grants.is_empty() {
+                if let Some(ref options) = self.approval_options {
+                    let grants = options.path_grants.clone().unwrap_or_default();
+                    if !grants.is_empty() {
+                        *state.authorization_mut() =
+                            wf_types::tool::path_grant::AuthorizationState::from_grants(grants);
+                    }
+                }
+            }
+        }
         if let Some(ref registry) = self.entity_registry {
             if let Err(e) = registry.register(entity.clone()) {
                 // Entity build derived this child onto the parent manager;

@@ -441,6 +441,7 @@ mod tests {
             read_prefixes: vec![dir.path().to_string_lossy().to_string()],
             write_prefixes: vec![frontend.to_string_lossy().to_string()],
             checkpoint_prefixes: vec![frontend.to_string_lossy().to_string()],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         };
         let session =
@@ -466,6 +467,7 @@ mod tests {
             read_prefixes: vec![dir.path().to_string_lossy().to_string()],
             write_prefixes: vec![dir.path().join("frontend").to_string_lossy().to_string()],
             checkpoint_prefixes: vec![dir.path().join("frontend").to_string_lossy().to_string()],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         };
         let session =
@@ -490,6 +492,7 @@ mod tests {
             read_prefixes: vec![dir.path().to_string_lossy().to_string()],
             write_prefixes: vec![dir.path().to_string_lossy().to_string()],
             checkpoint_prefixes: vec![],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         };
         let session =

@@ -86,6 +86,7 @@ mod scope_tests {
             read_prefixes: owned(read),
             write_prefixes: owned(write),
             checkpoint_prefixes: owned(checkpoint),
+            untracked_write_prefixes: None,
             workdir: None,
         }
     }
@@ -121,6 +122,7 @@ mod scope_tests {
             read_prefixes: vec!["/repo".to_string()],
             write_prefixes: vec!["/repo/frontend".to_string()],
             checkpoint_prefixes: vec!["/repo/frontend".to_string()],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         };
         let call = exec(None, None, Some(vec!["/repo/backend"]), None);
@@ -140,6 +142,7 @@ mod scope_tests {
             read_prefixes: vec![],
             write_prefixes: vec![],
             checkpoint_prefixes: vec![],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         };
         assert!(is_file_channel_closed(Some(&closed)));

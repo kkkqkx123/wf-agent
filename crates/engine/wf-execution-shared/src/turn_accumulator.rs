@@ -129,9 +129,9 @@ mod tests {
         }
         assert_eq!(acc.answer, "hello");
         assert!(matches!(
-            acc.consume(MessageStreamEvent::Usage(wf_types::llm::MessageStreamUsage {
-                usage: usage(3),
-            })),
+            acc.consume(MessageStreamEvent::Usage(
+                wf_types::llm::MessageStreamUsage { usage: usage(3) }
+            )),
             AccumAction::Usage(_)
         ));
         assert_eq!(acc.usage.as_ref().unwrap().prompt_tokens, 3);
@@ -140,10 +140,12 @@ mod tests {
     #[test]
     fn refusal_reason_wins_over_fallback() {
         let mut acc = TurnAccumulator::new();
-        acc.consume(MessageStreamEvent::Refusal(wf_types::llm::MessageStreamRefusal {
-            refusal: String::new(),
-            snapshot: "declined".into(),
-        }));
+        acc.consume(MessageStreamEvent::Refusal(
+            wf_types::llm::MessageStreamRefusal {
+                refusal: String::new(),
+                snapshot: "declined".into(),
+            },
+        ));
         assert_eq!(acc.missing_message_reason("fallback"), "declined");
     }
 }

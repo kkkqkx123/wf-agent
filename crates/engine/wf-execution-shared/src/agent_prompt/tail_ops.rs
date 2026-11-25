@@ -13,6 +13,42 @@ pub const TOOL_VISIBILITY_MESSAGE_TYPE: &str = "tool_visibility";
 /// array differences (added, removed, activated, blocked). Shares the tail
 /// system-message convention with `tool_visibility`.
 pub const TOOL_CHANGE_MESSAGE_TYPE: &str = "tool_change";
+/// Generic incremental context note. Unlike volatile tails, these notes are
+/// not required to sit at the end of the wire conversation; their purpose is
+/// to explain a state change without competing for attention with the latest
+/// user input.
+pub const INCREMENTAL_NOTE_MESSAGE_TYPE: &str = "incremental_note";
+pub const TOOL_CHANGE_NOTE_KEY: &str = "tool_change";
+pub const AUTHORIZATION_NOTE_KEY: &str = "authorization";
+
+/// One incremental explanation attached to a round conversation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncrementalNote {
+    /// Stable key: a fresh note with the same key replaces the old one.
+    pub key: String,
+    pub text: String,
+    /// `true` keeps the note at the tail for changes the model must act on
+    /// immediately; `false` places it next to the stable context.
+    pub tail: bool,
+}
+
+impl IncrementalNote {
+    pub fn inline(key: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            text: text.into(),
+            tail: false,
+        }
+    }
+
+    pub fn tail(key: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            text: text.into(),
+            tail: true,
+        }
+    }
+}
 
 /// How the volatile tail travels: as a separate marked user message, so
 /// dynamic state reads as the latest round user context while the user
@@ -24,6 +60,51 @@ pub enum DynamicTailBearing {
 }
 
 /// True for tail volatile messages carrying the dynamic marker.
+pub fn is_incremental_note(msg: &wf_types::message::Message) -> bool {
+    msg.metadata.as_ref().and_then(|meta| meta.get("type"))
+        == Some(&Value::String(INCREMENTAL_NOTE_MESSAGE_TYPE.to_string()))
+}
+
+pub fn note_key(msg: &wf_types::message::Message) -> Option<&str> {
+    if !is_incremental_note(msg) {
+        return None;
+    }
+    msg.metadata
+        .as_ref()?
+        .get("key")
+        .and_then(|value| value.as_str())
+}
+
+/// Drop stale incremental notes. `None` clears every note; a key clears only
+/// that explanation so other state changes survive unchanged.
+pub fn strip_incremental_notes(
+    conversation: Vec<wf_types::message::Message>,
+    key: Option<&str>,
+) -> Vec<wf_types::message::Message> {
+    conversation
+        .into_iter()
+        .filter(|message| {
+            if !is_incremental_note(message) {
+                return true;
+            }
+            key.is_some_and(|wanted| note_key(message) != Some(wanted))
+        })
+        .collect()
+}
+
+/// Render one incremental note as a marked user message.
+pub fn incremental_note_message(note: &IncrementalNote) -> wf_types::message::Message {
+    let mut message = wf_types::message::Message::user_text(note.text.clone());
+    message.metadata = Some(std::collections::HashMap::from([
+        (
+            "type".to_string(),
+            Value::String(INCREMENTAL_NOTE_MESSAGE_TYPE.to_string()),
+        ),
+        ("key".to_string(), Value::String(note.key.clone())),
+    ]));
+    message
+}
+
 pub fn is_dynamic_context_message(msg: &wf_types::message::Message) -> bool {
     msg.metadata
         .as_ref()
@@ -34,11 +115,13 @@ pub fn is_dynamic_context_message(msg: &wf_types::message::Message) -> bool {
 
 /// True for explicit tool change tail announcements.
 pub fn is_tool_change_message(msg: &wf_types::message::Message) -> bool {
-    msg.metadata
-        .as_ref()
-        .and_then(|meta| meta.get("type"))
-        .map(|t| t == &Value::String(TOOL_CHANGE_MESSAGE_TYPE.to_string()))
-        .unwrap_or(false)
+    note_key(msg) == Some(TOOL_CHANGE_NOTE_KEY)
+        || msg
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.get("type"))
+            .map(|t| t == &Value::String(TOOL_CHANGE_MESSAGE_TYPE.to_string()))
+            .unwrap_or(false)
 }
 
 /// True for tool visibility tail announcements.
@@ -65,6 +148,7 @@ fn stable_system_index(conversation: &[wf_types::message::Message]) -> Option<us
     conversation.iter().position(|m| {
         m.role == wf_types::message::MessageRole::System
             && !is_tool_visibility_message(m)
+            && !is_incremental_note(m)
             && !is_tool_change_message(m)
             && !is_dynamic_context_message(m)
     })
@@ -112,12 +196,7 @@ pub fn split_trailing_dynamic_tail(
 /// stability. Marked so stable header checks skip it and transcripts can
 /// filter it.
 pub fn tool_change_message(content: String) -> wf_types::message::Message {
-    let mut message = wf_types::message::Message::user_text(content);
-    message.metadata = Some(HashMap::from([(
-        "type".to_string(),
-        Value::String(TOOL_CHANGE_MESSAGE_TYPE.to_string()),
-    )]));
-    message
+    incremental_note_message(&IncrementalNote::tail(TOOL_CHANGE_NOTE_KEY, content))
 }
 
 /// Drop stale tool announcements (`tool_change` and `tool_visibility`)
@@ -129,7 +208,9 @@ pub fn strip_tool_announcements(
 ) -> Vec<wf_types::message::Message> {
     conversation
         .into_iter()
-        .filter(|m| !is_tool_change_message(m) && !is_tool_visibility_message(m))
+        .filter(|m| {
+            !is_tool_change_message(m) && !is_incremental_note(m) && !is_tool_visibility_message(m)
+        })
         .collect()
 }
 
@@ -150,12 +231,10 @@ pub fn dynamic_context_message(content: String) -> wf_types::message::Message {
 }
 
 /// Apply assembled outputs to a round conversation: insert the stable header
-/// as the leading system message once, then carry the tail as a separate
-/// marked user message. A stale header is refreshed in place so
-/// configuration changes take effect instead of lingering. Stored volatile
-/// tails are always dropped first, so repeated assembly stays idempotent
-/// without caller cleanup. The user task message stays pure input and is
-/// never mutated here.
+/// as the leading system message once, carry incremental notes at their
+/// declared position, then append the volatile tail. Stored notes and tails
+/// are dropped first, so repeated assembly stays idempotent. The user task
+/// message stays pure input and is never mutated here.
 pub fn apply_assembled_prompt(
     conversation: &mut Vec<wf_types::message::Message>,
     assembled: &AssembledPrompt,
@@ -172,15 +251,24 @@ pub fn apply_assembled_prompt(
             }
         }
     }
-    if conversation.iter().any(is_dynamic_context_message) {
-        conversation.retain(|m| !is_dynamic_context_message(m));
-    }
-    let Some(ref tail) = assembled.volatile_tail else {
-        return;
+    conversation.retain(|m| !is_dynamic_context_message(m) && !is_incremental_note(m));
+    let mut inline_index = if assembled.stable_header.is_some() {
+        1
+    } else {
+        0
     };
-    match bearing {
-        DynamicTailBearing::SeparateUserMessage => {
-            conversation.push(dynamic_context_message(tail.clone()));
+    for note in assembled.notes.iter().filter(|note| !note.tail) {
+        conversation.insert(inline_index, incremental_note_message(note));
+        inline_index += 1;
+    }
+    for note in assembled.notes.iter().filter(|note| note.tail) {
+        conversation.push(incremental_note_message(note));
+    }
+    if let Some(ref tail) = assembled.volatile_tail {
+        match bearing {
+            DynamicTailBearing::SeparateUserMessage => {
+                conversation.push(dynamic_context_message(tail.clone()));
+            }
         }
     }
 }

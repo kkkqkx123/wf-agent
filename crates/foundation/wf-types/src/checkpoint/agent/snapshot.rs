@@ -104,6 +104,11 @@ pub struct AgentStateSnapshot {
     /// migration, which are explicitly not auto-recoverable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loop_config: Option<crate::agent_execution::AgentLoopConfig>,
+    /// Effective path authorization at capture time. Restoring uses this
+    /// instead of re-deriving from host config, so model-facing notes stay
+    /// consistent with the permissions actually restored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization: Option<crate::tool::path_grant::AuthorizationState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -26,8 +26,8 @@ pub mod script_router;
 pub mod single_shot;
 pub mod title;
 pub mod token_events;
-pub mod turn_accumulator;
 pub mod token_tracker;
+pub mod turn_accumulator;
 pub mod types;
 
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};

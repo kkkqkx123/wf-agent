@@ -43,10 +43,25 @@ pub async fn build_agent_request(
     // never the full append-only history: compression shrinks requests
     // while checkpoints keep everything.
     let mut messages = entity.conversation().read().await.view_messages();
-    let activated_tools = {
+    let (activated_tools, authorization) = {
         let state = entity.state.read().await;
-        state.tool_discovery().activated_tools.clone()
+        (
+            state.tool_discovery().activated_tools.clone(),
+            state.authorization().clone(),
+        )
     };
+    // The note is rebuilt from durable state on every request; stale copies
+    // are removed from the per-request clone so compacted history cannot
+    // resurrect an authorization that was later revoked.
+    messages = wf_execution_shared::agent_prompt::strip_incremental_notes(
+        messages,
+        Some(wf_execution_shared::agent_prompt::AUTHORIZATION_NOTE_KEY),
+    );
+    if let Some(note) = wf_execution_shared::agent_prompt::authorization_note(&authorization) {
+        messages.push(wf_execution_shared::agent_prompt::incremental_note_message(
+            &note,
+        ));
+    }
 
     // Explicit pure chat run: available pool set to an empty list with no
     // initial or discoverable tools. Renders no tools instead of resolving

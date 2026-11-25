@@ -36,7 +36,7 @@ use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::retention::RetentionConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
-use wf_types::config::tool_approval::ToolApprovalConfig;
+use wf_types::config::tool_approval::{validate_tool_approval_config, ToolApprovalConfig};
 use wf_types::script::sandbox::{SandboxGlobalConfig, SandboxMode};
 
 /// Fixed file names backing each infrastructure config domain.
@@ -354,7 +354,7 @@ impl ConfigOrchestratorLoaded {
 
         // Missing domain files fall back to defaults; present but invalid
         // files fail.
-        let file_checkpoint = load_merged_domain_config_with_metrics::<FileCheckpointConfig>(
+        let mut file_checkpoint = load_merged_domain_config_with_metrics::<FileCheckpointConfig>(
             &candidates(&files.file_checkpoint),
             defaults.file_checkpoint.clone().unwrap_or_default(),
             metrics,
@@ -364,6 +364,7 @@ impl ConfigOrchestratorLoaded {
             defaults.tool_approval.clone().unwrap_or_default(),
             metrics,
         )?;
+        apply_path_grants_to_file_checkpoint(&mut file_checkpoint, &tool_approval)?;
         let presets =
             transform_presets_config(load_merged_domain_config_with_metrics::<PresetsConfig>(
                 &candidates(&files.presets),
@@ -579,6 +580,8 @@ impl ConfigOrchestratorLoaded {
             validate_file_checkpoint_config(&config.file_checkpoint)?;
         }
         if let Some(tool_approval) = overrides.tool_approval {
+            validate_tool_approval_config(&tool_approval).map_err(ConfigError::Validation)?;
+            apply_path_grants_to_file_checkpoint(&mut config.file_checkpoint, &tool_approval)?;
             config.tool_approval = tool_approval;
         }
         if let Some(presets) = overrides.presets {
@@ -597,6 +600,31 @@ impl ConfigOrchestratorLoaded {
         }
         Ok(())
     }
+}
+
+/// Path grants from active authorization presets become untracked write
+/// prefixes of the default execution scope. They are deliberately outside
+/// checkpoint tracking and outside the workspace-root containment check.
+fn apply_path_grants_to_file_checkpoint(
+    checkpoint: &mut FileCheckpointConfig,
+    approval: &ToolApprovalConfig,
+) -> ConfigResult<()> {
+    validate_tool_approval_config(approval).map_err(ConfigError::Validation)?;
+    let prefixes = approval.untracked_write_prefixes();
+    if prefixes.is_empty() {
+        return Ok(());
+    }
+    let scope = checkpoint
+        .default_scope
+        .get_or_insert_with(Default::default);
+    let mut merged = scope.untracked_write_prefixes.clone().unwrap_or_default();
+    for prefix in prefixes {
+        if !merged.contains(&prefix) {
+            merged.push(prefix);
+        }
+    }
+    scope.untracked_write_prefixes = Some(merged);
+    Ok(())
 }
 
 fn env_string(key: &str, value: EnvValue) -> ConfigResult<String> {

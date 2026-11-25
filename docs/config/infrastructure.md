@@ -58,7 +58,7 @@
 - `conflict_behavior`：`marker` | `fail` | `approval`
 - `manual_watch`、`manual_poll_ms`：手动 watcher
 - `gc_interval_secs`、`gc_retention.keep_recent_heads`：物理 GC
-- `default_scope`：无显式 scope 时的默认执行文件范围（`enabled`、`read_prefixes`、`write_prefixes`、`checkpoint_prefixes`、`workdir`；缺失继承，显式空列表拒绝全部）
+- `default_scope`：无显式 scope 时的默认执行文件范围（`enabled`、`read_prefixes`、`write_prefixes`、`checkpoint_prefixes`、`untracked_write_prefixes`、`workdir`；缺失继承，显式空列表拒绝全部；`untracked_write_prefixes` 由路径授权预设注入，可写但不受检查点追踪，也不受工作区根约束）
 - `store_in_workspace`：对象库存放在工作区 `.wf-checkpoint-git`
 - `max_file_size`：单文件内容上限（字节）
 - `scope_serialization`：shell 采样窗口串行化（`enabled`、`lock_timeout_ms`）
@@ -70,7 +70,10 @@
 
 - `enabled`：是否启用宿主默认工具级审批
 - `[options]`：可选策略覆盖；未设置字段继承 balanced 基线
-- 覆盖字段包括：`security_preset`、`categories`（`always_allow_read_only/write/execute/mcp/network/interaction`）、`auto_approve_patterns`、`file_permissions`、`command`、`mcp`、`network`、`allow_write_protected`
+- 覆盖字段包括：`security_preset`、`categories`（`always_allow_read_only/write/execute/mcp/network/interaction`）、`auto_approve_patterns`、`file_permissions`、`path_grants`、`command`、`mcp`、`network`、`allow_write_protected`
+- `active_presets`：会话启动时批量生效的路径授权预设名；`scratch` 为内建预设，根目录取进程临时目录
+- `[presets.<name>]`：`paths`、`operation`（`read`/`write`/`read_write`）、`checkpointed`、`ttl_secs`、`disclosure`（`paths`/`category`/`none`）；工作区外路径必须设 `checkpointed = false`，路径支持 `~/` 与 `{{TEMP_DIR}}` 展开
+- 路径授权只放宽审批判定；落盘仍由执行作用域与检查点门裁决；密钥、凭据与证书不受授权影响
 - 空 `[options]` 仍解析为基线，不会退化为全部询问
 
 ## presets.toml

@@ -101,7 +101,13 @@ fn ensure_mcp_uri_in_scope(
             ),
         ));
     }
-    match check_path_bounds(&resolved, &scope.read_prefixes) {
+    let bounds: Vec<String> = scope
+        .read_prefixes
+        .iter()
+        .chain(scope.untracked_write_prefixes.iter())
+        .cloned()
+        .collect();
+    match check_path_bounds(&resolved, &bounds) {
         PathVerdict::Inside(_) => Ok(()),
         PathVerdict::Outside(_) => Err(ToolError::scope_violation(
             tool_name,
@@ -499,6 +505,7 @@ mod tests {
                 read_prefixes: vec![root_str.clone()],
                 write_prefixes: vec![root_str],
                 checkpoint_prefixes: vec![],
+                untracked_write_prefixes: Vec::new(),
                 workdir: None,
             },
         ));

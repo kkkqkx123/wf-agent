@@ -16,6 +16,11 @@ pub struct ExecutionFileScope {
     pub write_prefixes: Option<Vec<String>>,
     #[serde(default)]
     pub checkpoint_prefixes: Option<Vec<String>>,
+    /// Prefixes admitted by explicit path-authorization presets. They are
+    /// writable but intentionally outside checkpoint tracking, so writes
+    /// there cannot be restored. Missing inherits; explicit empty denies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub untracked_write_prefixes: Option<Vec<String>>,
     #[serde(default)]
     pub workdir: Option<String>,
 }
@@ -28,6 +33,7 @@ pub struct ResolvedFileScope {
     pub read_prefixes: Vec<String>,
     pub write_prefixes: Vec<String>,
     pub checkpoint_prefixes: Vec<String>,
+    pub untracked_write_prefixes: Vec<String>,
     pub workdir: Option<String>,
 }
 
@@ -185,6 +191,10 @@ pub fn merge_file_scope(
             .checkpoint_prefixes
             .clone()
             .or_else(|| base.checkpoint_prefixes.clone()),
+        untracked_write_prefixes: upper
+            .untracked_write_prefixes
+            .clone()
+            .or_else(|| base.untracked_write_prefixes.clone()),
         workdir: upper.workdir.clone().or_else(|| base.workdir.clone()),
     }
 }
@@ -222,6 +232,20 @@ fn validate_optional_path_list(entries: Option<&[String]>, field: &str) -> Resul
 fn validate_optional_path(value: Option<&str>, field: &str) -> Result<(), String> {
     if let Some(path) = value {
         validate_entry(path, field)?;
+    }
+    Ok(())
+}
+
+fn check_untracked_disjoint(untracked: &[String], checkpoint: &[String]) -> Result<(), String> {
+    for prefix in untracked {
+        if checkpoint
+            .iter()
+            .any(|bound| scope_path_contains(bound, prefix) || scope_path_contains(prefix, bound))
+        {
+            return Err(format!(
+                "scope.untracked_write_prefixes entry '{prefix}' overlaps checkpoint prefixes"
+            ));
+        }
     }
     Ok(())
 }
@@ -265,12 +289,22 @@ pub fn validate_file_scope(scope: &ExecutionFileScope) -> Result<(), String> {
         scope.checkpoint_prefixes.as_deref(),
         "scope.checkpoint_prefixes",
     )?;
+    validate_optional_path_list(
+        scope.untracked_write_prefixes.as_deref(),
+        "scope.untracked_write_prefixes",
+    )?;
     validate_optional_path(scope.workdir.as_deref(), "scope.workdir")?;
     if let (Some(checkpoint), Some(write)) = (
         scope.checkpoint_prefixes.as_deref(),
         scope.write_prefixes.as_deref(),
     ) {
         check_checkpoint_subset(checkpoint, write)?;
+    }
+    if let (Some(untracked), Some(checkpoint)) = (
+        scope.untracked_write_prefixes.as_deref(),
+        scope.checkpoint_prefixes.as_deref(),
+    ) {
+        check_untracked_disjoint(untracked, checkpoint)?;
     }
     if let (Some(read), Some(write), Some(workdir)) = (
         scope.read_prefixes.as_deref(),
@@ -338,6 +372,13 @@ pub fn expand_file_scope(
         .iter()
         .map(|p| absolutize_prefix(p, workspace_root))
         .collect();
+    let untracked_write_prefixes: Vec<String> = resolve_prefix_list(
+        scope.untracked_write_prefixes.as_ref(),
+        global_default.and_then(|g| g.untracked_write_prefixes.as_ref()),
+    )
+    .iter()
+    .map(|p| absolutize_prefix(p, workspace_root))
+    .collect();
     let enabled = scope
         .enabled
         .or_else(|| global_default.and_then(|g| g.enabled))
@@ -352,6 +393,7 @@ pub fn expand_file_scope(
         read_prefixes,
         write_prefixes,
         checkpoint_prefixes,
+        untracked_write_prefixes,
         workdir,
     }
 }
@@ -384,10 +426,15 @@ pub fn validate_resolved_file_scope(scope: &ResolvedFileScope) -> Result<(), Str
     validate_path_list(&scope.read_prefixes, "scope.read_prefixes")?;
     validate_path_list(&scope.write_prefixes, "scope.write_prefixes")?;
     validate_path_list(&scope.checkpoint_prefixes, "scope.checkpoint_prefixes")?;
+    validate_path_list(
+        &scope.untracked_write_prefixes,
+        "scope.untracked_write_prefixes",
+    )?;
     if let Some(workdir) = scope.workdir.as_deref() {
         validate_entry(workdir, "scope.workdir")?;
     }
     check_checkpoint_subset(&scope.checkpoint_prefixes, &scope.write_prefixes)?;
+    check_untracked_disjoint(&scope.untracked_write_prefixes, &scope.checkpoint_prefixes)?;
     if let Some(workdir) = scope.workdir.as_deref() {
         check_workdir_within_bounds(workdir, &scope.read_prefixes, &scope.write_prefixes)?;
     }
@@ -405,6 +452,7 @@ pub fn check_child_scope_subset(
         .iter()
         .chain(child.write_prefixes.iter())
         .chain(child.checkpoint_prefixes.iter())
+        .chain(child.untracked_write_prefixes.iter())
     {
         let inside_read = parent
             .read_prefixes
@@ -413,6 +461,7 @@ pub fn check_child_scope_subset(
         let inside_write = parent
             .write_prefixes
             .iter()
+            .chain(parent.untracked_write_prefixes.iter())
             .any(|bound| scope_path_contains(bound, prefix));
         if !inside_read && !inside_write {
             return Err(format!(
@@ -489,6 +538,7 @@ pub fn resolve_execution_scope_checked(
         read_prefixes: Some(p.read_prefixes.clone()),
         write_prefixes: Some(p.write_prefixes.clone()),
         checkpoint_prefixes: Some(p.checkpoint_prefixes.clone()),
+        untracked_write_prefixes: Some(p.untracked_write_prefixes.clone()),
         workdir: p.workdir.clone(),
     });
     let resolved = resolve_execution_scope(
@@ -498,13 +548,14 @@ pub fn resolve_execution_scope_checked(
         call,
         workspace_root,
     );
-    for path in resolved
+    for prefix in resolved
         .read_prefixes
         .iter()
         .chain(resolved.write_prefixes.iter())
         .chain(resolved.checkpoint_prefixes.iter())
+        .chain(resolved.untracked_write_prefixes.iter())
     {
-        validate_scope_path(path, "scope.prefix")?;
+        validate_scope_path(prefix, "scope.prefix")?;
     }
     if let Some(workdir) = resolved.workdir.as_deref() {
         validate_scope_path(workdir, "scope.workdir")?;
@@ -520,6 +571,10 @@ pub fn resolve_execution_scope_checked(
             ));
         }
     }
+    check_untracked_disjoint(
+        &resolved.untracked_write_prefixes,
+        &resolved.checkpoint_prefixes,
+    )?;
     if let Some(workdir) = resolved.workdir.as_deref() {
         let inside = resolved
             .read_prefixes
@@ -603,6 +658,7 @@ mod tests {
             read_prefixes: Some(vec!["work/sub".to_string()]),
             write_prefixes: Some(vec!["work/sub".to_string()]),
             checkpoint_prefixes: Some(vec!["work/sub".to_string()]),
+            untracked_write_prefixes: None,
             workdir: None,
         };
         assert!(
@@ -613,6 +669,7 @@ mod tests {
             read_prefixes: Some(vec!["/etc".to_string()]),
             write_prefixes: Some(vec!["/etc".to_string()]),
             checkpoint_prefixes: Some(vec!["/etc".to_string()]),
+            untracked_write_prefixes: None,
             workdir: None,
         };
         assert!(
@@ -624,6 +681,7 @@ mod tests {
             read_prefixes: Some(vec!["/etc".to_string()]),
             write_prefixes: Some(vec!["/etc".to_string()]),
             checkpoint_prefixes: Some(vec!["/etc".to_string()]),
+            untracked_write_prefixes: None,
             workdir: None,
         };
         assert!(resolve_execution_scope_checked(
@@ -634,5 +692,37 @@ mod tests {
             Some(".")
         )
         .is_err());
+    }
+
+    #[test]
+    fn untracked_write_prefixes_survive_workspace_containment() {
+        let scope = ExecutionFileScope {
+            enabled: Some(true),
+            read_prefixes: Some(vec!["/repo".to_string()]),
+            write_prefixes: Some(vec!["/repo".to_string()]),
+            checkpoint_prefixes: Some(vec!["/repo".to_string()]),
+            untracked_write_prefixes: Some(vec!["/home/user/.config".to_string()]),
+            workdir: Some("/repo".to_string()),
+        };
+        let resolved =
+            resolve_execution_scope_checked(None, None, Some(&scope), None, Some("/repo"))
+                .expect("untracked prefix must stay outside workspace containment");
+        assert_eq!(
+            resolved.untracked_write_prefixes,
+            vec!["/home/user/.config".to_string()]
+        );
+    }
+
+    #[test]
+    fn untracked_prefixes_cannot_overlap_checkpoint_prefixes() {
+        let scope = ExecutionFileScope {
+            enabled: Some(true),
+            read_prefixes: Some(vec!["/repo".to_string()]),
+            write_prefixes: Some(vec!["/repo".to_string()]),
+            checkpoint_prefixes: Some(vec!["/repo".to_string()]),
+            untracked_write_prefixes: Some(vec!["/repo/tracked".to_string()]),
+            workdir: None,
+        };
+        assert!(validate_file_scope(&scope).is_err());
     }
 }

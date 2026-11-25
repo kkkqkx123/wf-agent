@@ -793,6 +793,7 @@ pub(crate) fn scope_file_scope(
         read_prefixes: Some(vec![root.clone()]),
         write_prefixes: Some(vec![root.clone()]),
         checkpoint_prefixes: Some(vec![root.clone()]),
+        untracked_write_prefixes: None,
         workdir: Some(root),
     }
 }
@@ -953,6 +954,7 @@ mod tests {
             read_prefixes: Some(vec![root.join("src").to_string_lossy().into_owned()]),
             write_prefixes: Some(vec![root.to_string_lossy().into_owned()]),
             checkpoint_prefixes: None,
+            untracked_write_prefixes: None,
             workdir: Some(root.to_string_lossy().into_owned()),
             enabled: None,
         };
@@ -971,6 +973,7 @@ mod tests {
             read_prefixes: Some(vec![outside.to_string_lossy().into_owned()]),
             write_prefixes: None,
             checkpoint_prefixes: None,
+            untracked_write_prefixes: None,
             workdir: None,
             enabled: None,
         };
@@ -993,6 +996,7 @@ mod tests {
             read_prefixes: Some(vec![format!("{root}-sibling")]),
             write_prefixes: None,
             checkpoint_prefixes: None,
+            untracked_write_prefixes: None,
             workdir: None,
             enabled: None,
         };

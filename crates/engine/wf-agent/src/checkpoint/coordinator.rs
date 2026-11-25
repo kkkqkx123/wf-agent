@@ -628,6 +628,7 @@ impl AgentCheckpointIntegration {
         }
 
         Ok(AgentLoopStateSnapshot {
+            authorization: snapshot.authorization.clone().unwrap_or_default(),
             status: parse_runtime_status(&snapshot.status)?,
             current_iteration: snapshot.current_iteration,
             tool_call_count: snapshot.tool_call_count,
@@ -833,6 +834,7 @@ impl AgentCheckpointIntegration {
         let event_records = state.event_records().to_vec();
 
         AgentStateSnapshot {
+            authorization: Some(state.authorization().clone()),
             agent_loop_id: entity.id().to_string(),
             status: state.status().as_str().to_string(),
             current_iteration: state.current_iteration(),

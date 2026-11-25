@@ -290,6 +290,7 @@ mod tests {
             read_prefixes: None,
             write_prefixes: Some(vec![]),
             checkpoint_prefixes: Some(vec![]),
+            untracked_write_prefixes: None,
             workdir: None,
         });
         let merged = merge_file_checkpoint_with_defaults(&user);
@@ -442,6 +443,7 @@ mod tests {
             read_prefixes: Some(vec![]),
             write_prefixes: Some(vec![]),
             checkpoint_prefixes: Some(vec![]),
+            untracked_write_prefixes: None,
             workdir: None,
         });
         assert!(validate_file_checkpoint_config(&config).is_ok());
@@ -455,6 +457,7 @@ mod tests {
             read_prefixes: Some(vec!["/workspace".to_string()]),
             write_prefixes: Some(vec!["/workspace/app".to_string()]),
             checkpoint_prefixes: Some(vec!["/workspace/other".to_string()]),
+            untracked_write_prefixes: None,
             workdir: None,
         });
         assert!(validate_file_checkpoint_config(&config).is_err());

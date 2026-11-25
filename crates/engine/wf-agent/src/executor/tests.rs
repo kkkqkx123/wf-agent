@@ -1096,6 +1096,7 @@ fn inherit_file_scope_rejects_out_of_bounds_child() {
         read_prefixes: vec!["/repo".to_string()],
         write_prefixes: vec!["/repo/frontend".to_string()],
         checkpoint_prefixes: vec!["/repo/frontend".to_string()],
+        untracked_write_prefixes: Vec::new(),
         workdir: None,
     };
     let manager = wf_core::hierarchy::ExecutionHierarchyManager::new(
@@ -1116,6 +1117,7 @@ fn inherit_file_scope_rejects_out_of_bounds_child() {
         read_prefixes: None,
         write_prefixes: Some(vec!["/repo/backend".to_string()]),
         checkpoint_prefixes: None,
+        untracked_write_prefixes: None,
         workdir: None,
     });
     assert!(AgentLoopExecutor::inherit_file_scope(config, Some(&parent)).is_err());

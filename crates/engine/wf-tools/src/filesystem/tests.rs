@@ -533,6 +533,7 @@ fn scoped_ctx(execution: &str, root: &std::path::Path, write_sub: &str) -> ToolE
             read_prefixes: vec![root_str.clone()],
             write_prefixes: vec![write_prefix],
             checkpoint_prefixes: vec![root.join(write_sub).to_string_lossy().to_string()],
+            untracked_write_prefixes: Vec::new(),
             workdir: Some(root_str),
         },
     ))
@@ -634,6 +635,7 @@ fn checkpoint_narrow_ctx(execution: &str, root: &std::path::Path) -> ToolExecuti
             read_prefixes: vec![root_str.clone()],
             write_prefixes: vec![write_prefix],
             checkpoint_prefixes: vec![checkpoint_prefix],
+            untracked_write_prefixes: Vec::new(),
             workdir: Some(root_str),
         },
     ))
@@ -918,6 +920,7 @@ fn closed_channel_denies_writes_but_allows_reads() {
             read_prefixes: vec![root_str.clone()],
             write_prefixes: vec![root_str.clone()],
             checkpoint_prefixes: vec![root_str],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         },
     ));
@@ -1065,4 +1068,34 @@ fn stale_anchor_points_at_the_nearest_line() {
     let text = err.to_string();
     assert!(text.contains("nearest line 2"), "{text}");
     assert!(text.contains("let value = 1;"), "{text}");
+}
+
+#[test]
+fn untracked_write_prefix_allows_write_with_unrestorable_note() {
+    let workspace = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(workspace.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = ToolExecutionContext::new("exec-untracked".into()).with_file_scope(Some(
+        wf_types::config::file_scope::ResolvedFileScope {
+            enabled: true,
+            read_prefixes: vec![workspace.path().to_string_lossy().to_string()],
+            write_prefixes: vec![workspace.path().to_string_lossy().to_string()],
+            checkpoint_prefixes: vec![workspace.path().to_string_lossy().to_string()],
+            untracked_write_prefixes: vec![external.path().to_string_lossy().to_string()],
+            workdir: Some(workspace.path().to_string_lossy().to_string()),
+        },
+    ));
+    let target = external.path().join("settings.toml");
+    let output = handlers
+        .write_file(
+            &serde_json::json!({"path": target.to_str().unwrap(), "content": "key=1"}),
+            &ctx,
+        )
+        .expect("untracked write must succeed");
+    assert!(target.exists());
+    assert!(output.as_str().unwrap().contains("cannot be restored"));
 }

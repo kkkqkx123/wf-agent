@@ -103,6 +103,10 @@ impl AgentLoopHandler {
                     .and_then(|scope| scope.workdir.as_deref()),
             )
             .as_deref(),
+            ctx.file_scope
+                .as_ref()
+                .map(|scope| scope.untracked_write_prefixes.as_slice())
+                .unwrap_or_default(),
         );
 
         let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
@@ -176,6 +180,7 @@ impl AgentLoopHandler {
                     read_prefixes: Some(s.read_prefixes.clone()),
                     write_prefixes: Some(s.write_prefixes.clone()),
                     checkpoint_prefixes: Some(s.checkpoint_prefixes.clone()),
+                    untracked_write_prefixes: Some(s.untracked_write_prefixes.clone()),
                     workdir: s.workdir.clone(),
                 }
             }),

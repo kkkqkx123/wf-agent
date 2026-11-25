@@ -32,10 +32,12 @@ pub use exposure::{build_exposure_artifacts, ExposureArtifacts};
 pub use stable_header::{build_stable_header, resolve_system_prompt_text};
 pub use tail_ops::{
     apply_assembled_prompt, dynamic_context_message, has_stable_system_message,
-    is_dynamic_context_message, is_tool_change_message, is_tool_visibility_message,
-    split_trailing_dynamic_tail, stable_system_message, strip_dynamic_context_messages,
-    strip_tool_announcements, tool_change_message, DynamicTailBearing,
-    DYNAMIC_CONTEXT_MESSAGE_TYPE, TOOL_CHANGE_MESSAGE_TYPE, TOOL_VISIBILITY_MESSAGE_TYPE,
+    incremental_note_message, is_dynamic_context_message, is_incremental_note,
+    is_tool_change_message, is_tool_visibility_message, note_key, split_trailing_dynamic_tail,
+    stable_system_message, strip_dynamic_context_messages, strip_incremental_notes,
+    strip_tool_announcements, tool_change_message, DynamicTailBearing, IncrementalNote,
+    AUTHORIZATION_NOTE_KEY, DYNAMIC_CONTEXT_MESSAGE_TYPE, INCREMENTAL_NOTE_MESSAGE_TYPE,
+    TOOL_CHANGE_MESSAGE_TYPE, TOOL_CHANGE_NOTE_KEY, TOOL_VISIBILITY_MESSAGE_TYPE,
 };
 pub use variables::{PromptEnvironment, VariableSource};
 pub use volatile_tail::build_volatile_tail;
@@ -44,6 +46,9 @@ pub use volatile_tail::build_volatile_tail;
 pub struct AssembledPrompt {
     pub stable_header: Option<String>,
     pub volatile_tail: Option<String>,
+    /// Incremental explanations carried as marked user messages. Inline notes
+    /// do not compete with the volatile tail for the model's attention.
+    pub notes: Vec<IncrementalNote>,
 }
 
 /// Assemble both outputs for one run. `working_directory` carries the
@@ -56,11 +61,47 @@ pub fn assemble_agent_prompt(
     env: &PromptEnvironment,
     available: wf_tools::tool_exposure::AvailablePool<'_>,
     working_directory: Option<&str>,
+    untracked_write_prefixes: &[String],
 ) -> AssembledPrompt {
+    // Path authorization is rendered at the loop boundary from the durable
+    // authorization state, not from this caller-supplied scope snapshot.
+    let _ = untracked_write_prefixes;
     AssembledPrompt {
         stable_header: build_stable_header(agent_config, env, available, working_directory),
         volatile_tail: build_volatile_tail(agent_config, vars),
+        notes: Vec::new(),
     }
+}
+
+/// Render the model-facing note for a durable authorization state. Grants
+/// marked `None` are deliberately invisible; `Category` announcements never
+/// disclose their concrete paths.
+pub fn authorization_note(
+    state: &wf_types::tool::path_grant::AuthorizationState,
+) -> Option<IncrementalNote> {
+    let paths = state.disclosed_prefixes();
+    let categories = state.disclosed_categories();
+    if paths.is_empty() && categories.is_empty() {
+        return None;
+    }
+    let mut lines = vec!["[Path authorization] Standing path access is active.".to_string()];
+    if !paths.is_empty() {
+        lines.push(format!(
+            "Writable paths outside checkpoint tracking: {}.",
+            paths.join(", ")
+        ));
+    }
+    if !categories.is_empty() {
+        lines.push(format!(
+            "Applied authorization presets: {}.",
+            categories.join(", ")
+        ));
+    }
+    lines.push("Untracked writes cannot be restored.".to_string());
+    Some(IncrementalNote::inline(
+        AUTHORIZATION_NOTE_KEY,
+        lines.join(" "),
+    ))
 }
 
 /// Normalize a scope workdir for prompt display: absolute paths pass

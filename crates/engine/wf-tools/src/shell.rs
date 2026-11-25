@@ -65,14 +65,7 @@ fn scope_violation(
 }
 
 fn scope_guidance(scope: &wf_types::config::file_scope::ResolvedFileScope, kind: &str) -> String {
-    match scope.workdir.as_deref() {
-        Some(workdir) => format!(
-            " Work inside '{workdir}' and keep paths under the allowed {kind} prefixes of this execution."
-        ),
-        None => format!(
-            " Keep paths under the allowed {kind} prefixes of this execution."
-        ),
-    }
+    crate::scope_gate::scope_guidance(scope, kind)
 }
 
 fn ensure_shell_path_in_scope(
@@ -107,10 +100,22 @@ fn ensure_shell_path_in_scope(
             execution,
         );
     }
+    let write_bounds: Vec<String> = scope
+        .write_prefixes
+        .iter()
+        .chain(scope.untracked_write_prefixes.iter())
+        .cloned()
+        .collect();
+    let read_bounds: Vec<String> = scope
+        .read_prefixes
+        .iter()
+        .chain(scope.untracked_write_prefixes.iter())
+        .cloned()
+        .collect();
     let bounds = if want_write {
-        &scope.write_prefixes
+        &write_bounds
     } else {
-        &scope.read_prefixes
+        &read_bounds
     };
     match check_path_bounds(path, bounds) {
         PathVerdict::Inside(_) => Ok(()),
@@ -221,6 +226,7 @@ pub(crate) fn check_shell_scope(
         .read_prefixes
         .iter()
         .chain(scope.write_prefixes.iter())
+        .chain(scope.untracked_write_prefixes.iter())
         .any(|bound| {
             wf_types::config::file_scope::scope_path_contains(
                 bound,
@@ -442,8 +448,13 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 let fs = policy
                     .filesystem
                     .get_or_insert(wf_types::script::sandbox::FilesystemPolicy::default());
-                fs.allowed_read_paths = Some(scope.read_prefixes.clone());
-                fs.allowed_write_paths = Some(scope.write_prefixes.clone());
+                let mut read_paths = scope.read_prefixes.clone();
+                read_paths.extend(scope.untracked_write_prefixes.iter().cloned());
+                let mut write_paths = scope.write_prefixes.clone();
+                write_paths.extend(scope.untracked_write_prefixes.iter().cloned());
+                fs.allowed_read_paths = Some(read_paths);
+                fs.allowed_write_paths = Some(write_paths.clone());
+                // Deletion is not implied by an untracked write grant.
                 fs.allowed_remove_paths = Some(scope.write_prefixes.clone());
                 policy
             });
@@ -664,6 +675,7 @@ mod tests {
                 read_prefixes: vec![root_str.clone()],
                 write_prefixes: vec![sub_str.clone()],
                 checkpoint_prefixes: vec![sub_str],
+                untracked_write_prefixes: Vec::new(),
                 workdir: Some(root_str),
             },
         ))
@@ -727,6 +739,7 @@ mod tests {
                 read_prefixes: vec![root_str],
                 write_prefixes: vec![],
                 checkpoint_prefixes: vec![],
+                untracked_write_prefixes: Vec::new(),
                 workdir: None,
             },
         ));

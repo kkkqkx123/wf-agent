@@ -50,6 +50,7 @@ fn execute_approval_options(command: Option<CommandApprovalSettings>) -> ToolApp
             always_allow_interaction: None,
         }),
         file_permissions: None,
+        path_grants: None,
         command,
         mcp: None,
         network: None,
@@ -141,6 +142,7 @@ fn test_safe_preset_blocks_write() {
         auto_approve_patterns: None,
         categories: None,
         file_permissions: None,
+        path_grants: None,
         command: None,
         mcp: None,
         network: None,
@@ -160,6 +162,7 @@ fn test_auto_approve_patterns() {
         auto_approve_patterns: Some(vec!["read_*".to_string()]),
         categories: None,
         file_permissions: None,
+        path_grants: None,
         command: None,
         mcp: None,
         network: None,
@@ -380,6 +383,7 @@ fn test_write_protected_file_is_still_hard_denied() {
         auto_approve_patterns: None,
         categories: None,
         file_permissions: None,
+        path_grants: None,
         command: None,
         mcp: None,
         network: None,
@@ -409,6 +413,7 @@ fn mcp_options() -> ToolApprovalOptions {
             always_allow_interaction: None,
         }),
         file_permissions: None,
+        path_grants: None,
         command: None,
         mcp: Some(McpApprovalSettings {
             servers: vec![McpApprovalServerConfig {
@@ -639,4 +644,71 @@ fn test_nested_arguments_paths_are_extracted() {
     assert!(paths.iter().any(|p| p.ends_with("secrets/key.txt")));
     assert!(paths.contains(&"/workspace/app".to_string()));
     assert!(paths.iter().any(|p| p.ends_with(".env")));
+}
+
+#[test]
+fn test_path_grant_allows_environment_config_write() {
+    use wf_types::tool::path_grant::{PathGrant, PathGrantOperation};
+    let options = ToolApprovalOptions {
+        auto_approval_enabled: Some(true),
+        security_preset: Some(SecurityPreset::Permissive),
+        categories: Some(ApprovalCategories {
+            always_allow_write: Some(true),
+            ..ApprovalCategories::default()
+        }),
+        path_grants: Some(vec![PathGrant {
+            pattern: "/home/user/project/.env".to_string(),
+            operation: PathGrantOperation::ReadWrite,
+            preset: Some("user_config".to_string()),
+            checkpointed: false,
+            ttl_secs: None,
+            disclosure: wf_types::tool::path_grant::PathDisclosure::Paths,
+        }]),
+        ..ToolApprovalOptions::empty()
+    };
+    let coordinator = ToolApprovalCoordinator::new(options);
+    let mut request = make_request("grant-1", "write_file", Some("write"));
+    request.parameters = json!({ "path": "/home/user/project/.env" });
+    assert_eq!(
+        coordinator.check_approval(&request, None, None),
+        ApprovalDecision::Approve
+    );
+}
+
+#[test]
+fn test_path_grant_cannot_override_key_material() {
+    use wf_types::tool::path_grant::{PathGrant, PathGrantOperation};
+    let options = ToolApprovalOptions {
+        path_grants: Some(vec![PathGrant {
+            pattern: "/repo".to_string(),
+            operation: PathGrantOperation::ReadWrite,
+            preset: None,
+            checkpointed: true,
+            ttl_secs: None,
+            disclosure: wf_types::tool::path_grant::PathDisclosure::Paths,
+        }]),
+        ..ToolApprovalOptions::balanced_defaults()
+    };
+    let coordinator = ToolApprovalCoordinator::new(options);
+    let mut request = make_request("grant-2", "read_file", Some("read_only"));
+    request.parameters = json!({ "path": "/repo/secrets/private.key" });
+    assert_eq!(
+        coordinator.check_approval(&request, None, None),
+        ApprovalDecision::Ask
+    );
+}
+
+#[test]
+fn test_tool_name_whitelist_does_not_bypass_file_permissions() {
+    let options = ToolApprovalOptions {
+        auto_approve_patterns: Some(vec!["write_*".to_string()]),
+        ..ToolApprovalOptions::balanced_defaults()
+    };
+    let coordinator = ToolApprovalCoordinator::new(options);
+    let mut request = make_request("grant-3", "write_file", Some("write"));
+    request.parameters = json!({ "path": "/repo/.env" });
+    assert_eq!(
+        coordinator.check_approval(&request, None, None),
+        ApprovalDecision::Ask
+    );
 }

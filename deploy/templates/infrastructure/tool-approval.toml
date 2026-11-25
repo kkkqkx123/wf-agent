@@ -14,6 +14,21 @@
 
 enabled = true
 
+# Named path-authorization presets. Selecting a preset at startup grants
+# every listed path in one step, so the model does not ask for each call.
+# Paths outside the request workspace must set checkpointed = false: they
+# are admitted as untracked write prefixes and writes there cannot be
+# restored. The built-in `scratch` preset uses the process temporary
+# directory without hardcoding a platform path.
+# active_presets = ["scratch", "user_config"]
+
+# [presets.user_config]
+# paths = ["~/.config/my-app/settings.toml", "~/.env"]
+# operation = "read_write"
+# checkpointed = false
+# ttl_secs = 3600
+# disclosure = "category"  # paths | category | none
+
 [options]
 # Optional policy overrides on top of the engine baseline (balanced
 # preset): security_preset, categories (per-risk-level always_allow_*),

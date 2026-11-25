@@ -9,6 +9,7 @@ mod tests {
         let calc = AgentDiffCalculator::new();
         let prev = make_agent_snapshot(1);
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             current_iteration: 2,
             ..prev.clone()
         };
@@ -44,6 +45,7 @@ mod tests {
         let calc = AgentDiffCalculator::new();
         let prev = make_agent_snapshot(1);
         let curr = AgentStateSnapshot {
+            authorization: None,
             tool_call_count: 5,
             error_records: Some(vec![serde_json::json!({"type": "tool_error"})]),
             stream_message: Some("partial".to_string()),
@@ -74,6 +76,7 @@ mod tests {
         let calc = AgentDiffCalculator::new();
         let prev = make_agent_snapshot(1);
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             status: "completed".to_string(),
             ..prev.clone()
         };
@@ -92,11 +95,13 @@ mod tests {
         let m3 = make_message("m3", "third");
 
         let prev = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![m1.clone(), m2.clone()]),
             message_seq_start: Some(10),
             ..make_agent_snapshot(1)
         };
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![m1.clone(), m2.clone(), m3.clone()]),
             ..prev.clone()
         };
@@ -114,10 +119,12 @@ mod tests {
     #[tokio::test]
     async fn agent_message_prefix_divergence_full_replacement() {
         let prev = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![make_message("m1", "old")]),
             ..make_agent_snapshot(1)
         };
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![
                 make_message("n1", "new"),
                 make_message("n2", "also new"),
@@ -139,6 +146,7 @@ mod tests {
     async fn agent_message_identical_no_delta() {
         let calc = AgentDiffCalculator::new();
         let prev = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![make_message("m1", "hello")]),
             message_seq_start: Some(5),
             ..make_agent_snapshot(1)
@@ -155,6 +163,7 @@ mod tests {
     async fn agent_field_removal_round_trip() {
         let calc = AgentDiffCalculator::new();
         let prev = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             tool_call_count: 5,
             stream_message: Some("partial".to_string()),
             error_records: Some(vec![serde_json::json!({"type": "tool_error"})]),
@@ -162,6 +171,7 @@ mod tests {
             ..make_agent_snapshot(1)
         };
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             tool_call_count: 0,
             stream_message: None,
             error_records: None,
@@ -184,11 +194,13 @@ mod tests {
     async fn agent_merge_deltas_equals_sequential_apply() {
         let calc = AgentDiffCalculator::new();
         let base = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![make_message("m1", "hello")]),
             message_seq_start: Some(10),
             ..make_agent_snapshot(1)
         };
         let mid = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![
                 make_message("m1", "hello"),
                 make_message("m2", "world"),
@@ -196,6 +208,7 @@ mod tests {
             ..base.clone()
         };
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             status: "completed".to_string(),
             conversation_snapshot: Some(vec![
                 make_message("m1", "hello"),
@@ -231,6 +244,7 @@ mod tests {
 
         let calc = AgentDiffCalculator::new();
         let base = wf_types::checkpoint::agent::AgentStateSnapshot {
+            authorization: None,
             conversation_snapshot: Some(vec![make_message("m1", "hello")]),
             message_seq_start: Some(10),
             ..make_agent_snapshot(1)

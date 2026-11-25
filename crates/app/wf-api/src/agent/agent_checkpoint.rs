@@ -229,6 +229,7 @@ async fn merge_back(
 /// Seed snapshot for an agent loop with no live state to read.
 fn empty_snapshot(agent_loop_id: &str) -> wf_types::checkpoint::agent::AgentStateSnapshot {
     wf_types::checkpoint::agent::AgentStateSnapshot {
+        authorization: None,
         agent_loop_id: agent_loop_id.to_string(),
         status: "running".into(),
         current_iteration: 0,
@@ -310,6 +311,7 @@ pub async fn restore(
         let mut state = entity.state.write().await;
         state
             .restore_from_snapshot(wf_agent::state::AgentLoopStateSnapshot {
+                authorization: snapshot.authorization.clone().unwrap_or_default(),
                 status,
                 current_iteration: snapshot.current_iteration,
                 tool_call_count: snapshot.tool_call_count,

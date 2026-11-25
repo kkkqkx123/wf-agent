@@ -97,6 +97,7 @@ fn stable_header_prefers_inline_over_template() {
         &env,
         wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
         None,
+        &[],
     );
     assert_eq!(assembled.stable_header.as_deref(), Some("inline"));
     assert!(assembled.volatile_tail.is_none());
@@ -132,6 +133,7 @@ fn stable_header_renders_template_id() {
         &env,
         wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
         None,
+        &[],
     );
     assert_eq!(assembled.stable_header.as_deref(), Some("hello world"));
 }
@@ -150,6 +152,7 @@ fn stable_header_excludes_volatile_time() {
         &env,
         wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
         None,
+        &[],
     );
     assert_eq!(assembled.stable_header.as_deref(), Some("base"));
     assert!(assembled.volatile_tail.is_some());
@@ -170,6 +173,7 @@ fn stable_header_reports_execution_workdir() {
         &env,
         wf_tools::tool_exposure::AvailablePool::Explicit(&[]),
         Some("/sessions/abc"),
+        &[],
     );
     let header = assembled.stable_header.expect("header");
     assert!(header.contains("Working directory: /sessions/abc"));
@@ -278,6 +282,7 @@ fn apply_inserts_header_once_and_appends_tail() {
         &AssembledPrompt {
             stable_header: Some("header".into()),
             volatile_tail: Some("tail".into()),
+            notes: Vec::new(),
         },
         DynamicTailBearing::SeparateUserMessage,
     );
@@ -295,6 +300,7 @@ fn apply_refreshes_stale_header_in_place() {
         &AssembledPrompt {
             stable_header: Some("new".into()),
             volatile_tail: None,
+            notes: Vec::new(),
         },
         DynamicTailBearing::SeparateUserMessage,
     );
@@ -340,4 +346,51 @@ fn workflow_and_direct_variable_sources_agree() {
     );
     assert_eq!(stable_map, stable_node);
     assert!(!stable_map.unwrap().contains("TODO"));
+}
+
+#[test]
+fn authorization_note_honors_disclosure() {
+    use wf_types::tool::path_grant::{
+        AuthorizationState, PathDisclosure, PathGrant, PathGrantOperation,
+    };
+    let grant = |disclosure| PathGrant {
+        pattern: "/home/user/.config".to_string(),
+        operation: PathGrantOperation::Write,
+        preset: Some("user_config".to_string()),
+        checkpointed: false,
+        ttl_secs: None,
+        disclosure,
+    };
+
+    let paths = AuthorizationState::from_grants(vec![grant(PathDisclosure::Paths)]);
+    let note = authorization_note(&paths).expect("paths disclosure emits a note");
+    assert!(note.text.contains("/home/user/.config"));
+
+    let categories = AuthorizationState::from_grants(vec![grant(PathDisclosure::Category)]);
+    let note = authorization_note(&categories).expect("category disclosure emits a note");
+    assert!(!note.text.contains("/home/user/.config"));
+    assert!(note.text.contains("user_config"));
+
+    let hidden = AuthorizationState::from_grants(vec![grant(PathDisclosure::None)]);
+    assert!(authorization_note(&hidden).is_none());
+}
+
+#[test]
+fn apply_replaces_notes_instead_of_accumulating() {
+    let mut conversation = vec![incremental_note_message(&IncrementalNote::inline(
+        AUTHORIZATION_NOTE_KEY,
+        "old",
+    ))];
+    apply_assembled_prompt(
+        &mut conversation,
+        &AssembledPrompt {
+            stable_header: None,
+            volatile_tail: None,
+            notes: vec![IncrementalNote::inline(AUTHORIZATION_NOTE_KEY, "new")],
+        },
+        DynamicTailBearing::SeparateUserMessage,
+    );
+    assert_eq!(conversation.len(), 1);
+    assert_eq!(conversation[0].text_content(), "new");
+    assert!(is_incremental_note(&conversation[0]));
 }

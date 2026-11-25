@@ -60,6 +60,11 @@ pub fn attach_prompt_assembly(
         env,
         wf_tools::tool_exposure::AvailablePool::from_option(config.available_tool_names.as_deref()),
         normalize_prompt_workdir(workdir).as_deref(),
+        config
+            .file_scope
+            .as_ref()
+            .and_then(|scope| scope.untracked_write_prefixes.as_deref())
+            .unwrap_or_default(),
     );
     apply_assembled_prompt(
         &mut input.conversation,

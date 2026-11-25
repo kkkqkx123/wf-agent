@@ -85,18 +85,10 @@ impl FsToolHandlers {
     }
 
     pub(super) fn scope_guidance(&self, ctx: &ToolExecutionContext, kind: &str) -> String {
-        match ctx
-            .file_scope
+        ctx.file_scope
             .as_ref()
-            .and_then(|s| s.workdir.as_deref())
-        {
-            Some(workdir) => format!(
-                " Work inside '{workdir}' and keep paths under the allowed {kind} prefixes of this execution."
-            ),
-            None => format!(
-                " Keep paths under the allowed {kind} prefixes of this execution."
-            ),
-        }
+            .map(|scope| crate::scope_gate::scope_guidance(scope, kind))
+            .unwrap_or_else(|| format!(" Keep paths under the allowed {kind} prefixes."))
     }
 
     pub(super) fn ensure_in_scope(
@@ -150,10 +142,22 @@ impl FsToolHandlers {
                 want_write,
             );
         }
+        let write_bounds: Vec<String> = scope
+            .write_prefixes
+            .iter()
+            .chain(scope.untracked_write_prefixes.iter())
+            .cloned()
+            .collect();
+        let read_bounds: Vec<String> = scope
+            .read_prefixes
+            .iter()
+            .chain(scope.untracked_write_prefixes.iter())
+            .cloned()
+            .collect();
         let bounds = if want_write {
-            &scope.write_prefixes
+            &write_bounds
         } else {
-            &scope.read_prefixes
+            &read_bounds
         };
         use crate::scope_gate::{check_path_bounds, PathVerdict};
         match check_path_bounds(resolved, bounds) {
@@ -249,6 +253,7 @@ pub(super) fn scope_allows_read(
     let lexically_inside = scope
         .read_prefixes
         .iter()
+        .chain(scope.untracked_write_prefixes.iter())
         .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &lexical));
     if !lexically_inside {
         return false;
@@ -258,6 +263,7 @@ pub(super) fn scope_allows_read(
         return scope
             .read_prefixes
             .iter()
+            .chain(scope.untracked_write_prefixes.iter())
             .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &physical_str));
     }
     true

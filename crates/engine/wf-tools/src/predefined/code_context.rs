@@ -651,6 +651,7 @@ mod tests {
                 read_prefixes: vec![frontend],
                 write_prefixes: vec![],
                 checkpoint_prefixes: vec![],
+                untracked_write_prefixes: Vec::new(),
                 workdir: Some(root_str),
             }));
         let options = wf_types::tool::ToolExecutionOptions {

@@ -154,6 +154,8 @@ pub struct AgentLoopStateSnapshot {
     /// retries.
     #[serde(default)]
     pub scope_violation_streak: u32,
+    #[serde(default)]
+    pub authorization: wf_types::tool::path_grant::AuthorizationState,
 }
 
 pub struct AgentLoopState {
@@ -185,6 +187,8 @@ pub struct AgentLoopState {
     /// Consecutive all-violation tool rounds, mirroring the snapshot field
     /// of the same name.
     scope_violation_streak: u32,
+    /// Effective session authorization. Durable through checkpoints.
+    authorization: wf_types::tool::path_grant::AuthorizationState,
     /// Streaming message buffer: content accumulated while streaming.
     streaming_message_buffer: Option<String>,
     /// Whether the stream is currently active.
@@ -220,6 +224,7 @@ impl AgentLoopState {
             timeout_count: 0,
             permanently_failed_tools: HashSet::new(),
             scope_violation_streak: 0,
+            authorization: wf_types::tool::path_grant::AuthorizationState::default(),
             streaming_message_buffer: None,
             is_streaming: false,
         }
@@ -326,6 +331,14 @@ impl AgentLoopState {
     /// Live tool discovery state (activated tools / general discoveries).
     pub fn tool_discovery(&self) -> &ToolDiscoveryState {
         &self.tool_discovery
+    }
+
+    pub fn authorization(&self) -> &wf_types::tool::path_grant::AuthorizationState {
+        &self.authorization
+    }
+
+    pub fn authorization_mut(&mut self) -> &mut wf_types::tool::path_grant::AuthorizationState {
+        &mut self.authorization
     }
 
     /// Mutably borrow the tool discovery state for a state transition.
@@ -740,6 +753,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         &self,
     ) -> Result<AgentLoopStateSnapshot, wf_execution_shared::error::ExecutionSharedError> {
         Ok(AgentLoopStateSnapshot {
+            authorization: self.authorization.clone(),
             status: self.status.clone(),
             current_iteration: self.current_iteration,
             tool_call_count: self.tool_call_count,

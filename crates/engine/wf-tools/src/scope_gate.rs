@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains, ResolvedFileScope};
 
 /// Outcome of a path-in-bounds check. `Outside` carries the normalized path
 /// when the lexical containment check failed; `Inside` carries the physical
@@ -23,6 +23,42 @@ pub enum PathVerdict {
     Outside(PathBuf),
     Inside(PathBuf),
     Escaped(PathBuf),
+}
+
+/// Short model-facing guidance listing the concrete prefixes in force.
+/// Callers use this in scope violations so the model does not have to guess
+/// which directories are reachable.
+pub fn scope_guidance(scope: &ResolvedFileScope, kind: &str) -> String {
+    let mut prefixes: Vec<String> = if kind == "write" {
+        scope
+            .write_prefixes
+            .iter()
+            .chain(scope.untracked_write_prefixes.iter())
+            .cloned()
+            .collect()
+    } else {
+        scope.read_prefixes.clone()
+    };
+    prefixes.sort();
+    prefixes.dedup();
+    let workdir = scope
+        .workdir
+        .as_deref()
+        .map(|dir| format!(" Work inside '{dir}'."))
+        .unwrap_or_default();
+    let untracked = if kind == "write" && !scope.untracked_write_prefixes.is_empty() {
+        " Untracked write prefixes are not restorable."
+    } else {
+        ""
+    };
+    format!(
+        "{workdir} Allowed {kind} prefixes: {}.{untracked}",
+        if prefixes.is_empty() {
+            "none".to_string()
+        } else {
+            prefixes.join(", ")
+        }
+    )
 }
 
 /// Check `resolved` against `bounds`: lexical containment first, then the

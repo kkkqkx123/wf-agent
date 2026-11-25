@@ -42,6 +42,16 @@ impl FsToolHandlers {
     /// durability. Paths outside the anchor cannot be evaluated and stay
     /// unmarked; scope gating already passed them.
     pub(super) fn capture_ignored(&self, ctx: &ToolExecutionContext, path: &Path) -> bool {
+        if let Some(scope) = ctx.file_scope.as_ref() {
+            let admitted = path.to_string_lossy();
+            if scope
+                .untracked_write_prefixes
+                .iter()
+                .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &admitted))
+            {
+                return true;
+            }
+        }
         let anchor = self.scope_anchor(ctx);
         if !anchor.is_absolute() {
             return false;

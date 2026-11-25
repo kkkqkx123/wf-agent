@@ -942,6 +942,7 @@ mod tests {
             read_prefixes: Vec::new(),
             write_prefixes: Vec::new(),
             checkpoint_prefixes: Vec::new(),
+            untracked_write_prefixes: Vec::new(),
             workdir: Some(workdir),
         };
         let config = crate::predefined::web::WebToolConfig {

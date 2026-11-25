@@ -115,6 +115,31 @@ pub struct AgentLoopEntity {
 }
 
 impl AgentLoopEntity {
+    /// Apply a resolved preset to the live execution's durable authorization
+    /// state. Callers must validate resolved grants against the execution
+    /// scope before invoking this; note rendering is derived from the state
+    /// on the next request, so no separate prompt mutation is needed.
+    pub async fn apply_authorization_preset(
+        &self,
+        name: &str,
+        grants: Vec<wf_types::tool::path_grant::PathGrant>,
+    ) {
+        self.state
+            .write()
+            .await
+            .authorization_mut()
+            .apply_preset(name, grants);
+    }
+
+    /// Revoke one preset from the durable authorization state.
+    pub async fn revoke_authorization_preset(&self, name: &str) {
+        self.state
+            .write()
+            .await
+            .authorization_mut()
+            .revoke_preset(name);
+    }
+
     pub fn new(id: Id) -> Self {
         let definition_id = id.clone();
         let hierarchy = Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(

@@ -99,6 +99,7 @@ impl AgentLoopExecutor {
             read_prefixes: Some(child_resolved.read_prefixes.clone()),
             write_prefixes: Some(child_resolved.write_prefixes.clone()),
             checkpoint_prefixes: Some(child_resolved.checkpoint_prefixes.clone()),
+            untracked_write_prefixes: Some(child_resolved.untracked_write_prefixes.clone()),
             workdir: child_resolved.workdir.clone(),
         });
         Ok(config)

@@ -39,14 +39,19 @@ impl FsToolHandlers {
             return Ok(admitted.to_path_buf());
         };
         let admitted_str = admitted.to_string_lossy().to_string();
-        let tracked = scope
-            .checkpoint_prefixes
+        let in_untracked = scope
+            .untracked_write_prefixes
             .iter()
-            .any(|bound| scope_path_contains(bound, &admitted_str))
-            && scope
+            .any(|bound| scope_path_contains(bound, &admitted_str));
+        let tracked = in_untracked
+            || (scope
                 .checkpoint_prefixes
                 .iter()
-                .any(|bound| scope_path_contains(bound, lexical));
+                .any(|bound| scope_path_contains(bound, &admitted_str))
+                && scope
+                    .checkpoint_prefixes
+                    .iter()
+                    .any(|bound| scope_path_contains(bound, lexical)));
         if !tracked {
             tracing::warn!(
                 execution = %ctx.execution_id,

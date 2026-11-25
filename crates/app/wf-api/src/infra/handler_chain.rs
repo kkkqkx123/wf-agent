@@ -170,6 +170,7 @@ impl NodeHandler for TemplateSubgraphHandler {
                     read_prefixes: Some(resolved.read_prefixes.clone()),
                     write_prefixes: Some(resolved.write_prefixes.clone()),
                     checkpoint_prefixes: Some(resolved.checkpoint_prefixes.clone()),
+                    untracked_write_prefixes: Some(resolved.untracked_write_prefixes.clone()),
                     workdir: resolved.workdir.clone(),
                 }
             }),

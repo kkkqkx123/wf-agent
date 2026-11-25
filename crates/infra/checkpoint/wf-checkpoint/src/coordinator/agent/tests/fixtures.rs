@@ -5,6 +5,7 @@ use wf_types::checkpoint::CheckpointTiming;
 
 pub(super) fn make_snapshot() -> AgentStateSnapshot {
     AgentStateSnapshot {
+        authorization: None,
         agent_loop_id: "loop-1".to_string(),
         status: "running".to_string(),
         current_iteration: 1,

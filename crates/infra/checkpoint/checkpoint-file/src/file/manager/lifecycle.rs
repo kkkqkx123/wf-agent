@@ -105,6 +105,7 @@ impl FileCheckpointManager {
                     read_prefixes: Some(vec![root.clone()]),
                     write_prefixes: Some(vec![root.clone()]),
                     checkpoint_prefixes: Some(vec![root]),
+                    untracked_write_prefixes: None,
                     workdir: None,
                 }
             })

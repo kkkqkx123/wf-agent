@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::file_permission::FilePermissionSettings;
 use super::mcp_approval::McpApprovalSettings;
+use super::path_grant::PathGrant;
 use super::ToolCall;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +57,10 @@ pub struct ToolApprovalOptions {
     pub categories: Option<ApprovalCategories>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_permissions: Option<FilePermissionSettings>,
+    /// Session path grants resolved from authorization presets. They relax
+    /// only the approval decision, never execution scope or checkpoint bounds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_grants: Option<Vec<PathGrant>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<CommandApprovalSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -75,6 +80,7 @@ impl ToolApprovalOptions {
             auto_approve_patterns: None,
             categories: None,
             file_permissions: None,
+            path_grants: None,
             command: None,
             mcp: None,
             network: None,
@@ -106,6 +112,7 @@ impl ToolApprovalOptions {
             auto_approve_patterns: None,
             categories: None,
             file_permissions: Some(FilePermissionSettings::default_rules()),
+            path_grants: None,
             command: None,
             mcp: None,
             network: None,

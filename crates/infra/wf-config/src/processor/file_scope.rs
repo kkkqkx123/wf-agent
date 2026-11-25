@@ -82,6 +82,7 @@ mod tests {
             read_prefixes: owned(read),
             write_prefixes: owned(write),
             checkpoint_prefixes: owned(checkpoint),
+            untracked_write_prefixes: None,
             workdir: workdir.map(str::to_string),
         }
     }
@@ -200,6 +201,7 @@ mod tests {
             read_prefixes: vec!["/repo".to_string()],
             write_prefixes: vec!["/repo/app".to_string()],
             checkpoint_prefixes: vec!["/repo/other".to_string()],
+            untracked_write_prefixes: Vec::new(),
             workdir: None,
         };
         assert!(validate_resolved_file_scope(&expanded).is_err());

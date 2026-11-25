@@ -8,6 +8,7 @@
 pub mod file_policy;
 pub mod mcp;
 pub mod network_policy;
+pub mod path_grants;
 
 #[cfg(test)]
 mod tests;
@@ -30,6 +31,7 @@ use wf_shell::config::ShellToolConfig;
 use file_policy::{extract_file_operation, extract_file_paths, extract_shell_file_paths};
 use mcp::handle_mcp_approval;
 use network_policy::{domain_matches, extract_domain};
+use path_grants::granted;
 
 #[derive(Debug, Clone)]
 pub struct ToolBatch {
@@ -166,23 +168,30 @@ impl ToolApprovalCoordinator {
             return ApprovalDecision::Ask;
         }
 
-        if let Some(ref patterns) = self.options.auto_approve_patterns {
-            if !patterns.is_empty() {
-                let matched = patterns.iter().any(|p| {
-                    if let Ok(glob) = globset::GlobBuilder::new(p).case_insensitive(true).build() {
-                        glob.compile_matcher().is_match(&tool.tool_name)
-                    } else {
-                        false
-                    }
-                });
-                if matched {
-                    return ApprovalDecision::Approve;
-                }
-            }
-        }
-
         let risk_level =
             ToolRiskLevel::parse_case_insensitive(tool.risk_level.as_deref().unwrap_or("write"));
+
+        if let Ok(op) = extract_file_operation(&tool.tool_name, risk_level, &tool.parameters) {
+            let paths = extract_file_paths(&tool.parameters);
+            if granted(self.options.path_grants.as_deref(), &paths, &op) {
+                return ApprovalDecision::Approve;
+            }
+        }
+        if let Some(command) = tool.parameters.get("command").and_then(|v| v.as_str()) {
+            let (reads, writes) = extract_shell_file_paths(command);
+            if granted(
+                self.options.path_grants.as_deref(),
+                &reads,
+                &FileOperationType::Read,
+            ) && granted(
+                self.options.path_grants.as_deref(),
+                &writes,
+                &FileOperationType::Write,
+            ) && (!reads.is_empty() || !writes.is_empty())
+            {
+                return ApprovalDecision::Approve;
+            }
+        }
 
         if let Some(ref fp) = self.options.file_permissions {
             if let Ok(op) = extract_file_operation(&tool.tool_name, risk_level, &tool.parameters) {
@@ -208,6 +217,23 @@ impl ToolApprovalCoordinator {
                     .any(|p| !check_file_permission(p, &FileOperationType::Read, fp));
                 if write_blocked || read_blocked {
                     return ApprovalDecision::Ask;
+                }
+            }
+        }
+
+        // Tool-name whitelists run after file policy on purpose: a broad
+        // name pattern must never silently skip sensitive-path review.
+        if let Some(ref patterns) = self.options.auto_approve_patterns {
+            if !patterns.is_empty() {
+                let matched = patterns.iter().any(|p| {
+                    if let Ok(glob) = globset::GlobBuilder::new(p).case_insensitive(true).build() {
+                        glob.compile_matcher().is_match(&tool.tool_name)
+                    } else {
+                        false
+                    }
+                });
+                if matched {
+                    return ApprovalDecision::Approve;
                 }
             }
         }

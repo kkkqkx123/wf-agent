@@ -414,8 +414,7 @@ mod tests {
             compaction_engine: None,
             compaction_engine_config: None,
         };
-        let entity = AgentLoopEntity::new(Id::from(id.to_string()))
-            .with_effective_config(config);
+        let entity = AgentLoopEntity::new(Id::from(id.to_string())).with_effective_config(config);
         let entity = Arc::new(entity);
         {
             let mut state = entity.state.write().await;

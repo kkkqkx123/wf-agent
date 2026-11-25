@@ -15,7 +15,6 @@ async-trait.workspace = true
 dashmap = { workspace = true }
 moka = { workspace = true }
 flate2.workspace = true
-futures = { workspace = true }
 sha2 = { workspace = true }
 
 wf-types = { path = "../../../foundation/wf-types" }
@@ -34,4 +33,5 @@ file-checkpoint = []
 
 [dev-dependencies]
 tempfile.workspace = true
+futures.workspace = true
 sqlx = { workspace = true }

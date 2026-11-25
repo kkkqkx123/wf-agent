@@ -66,7 +66,6 @@ exclude = ["crates/infra/llm-suite", ".wf-user/plugins/example-llm-auth-claude-s
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.97"
 
 [workspace.dependencies]
 wf-common = { path = "crates/foundation/wf-common" }

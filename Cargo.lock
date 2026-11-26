@@ -5004,31 +5004,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
-name = "wf-rag"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "jieba-rs",
- "keyword-contracts",
- "llm-suite-embedding",
- "llm-suite-rerank",
- "once_cell",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "source-contracts",
- "tantivy",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "vector-contracts",
- "wf-plugin-sdk",
- "wf-types",
-]
-
-[[package]]
 name = "rand"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8345,7 +8320,6 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "portable-pty",
- "wf-rag",
  "regex",
  "serde",
  "serde_json",
@@ -8366,6 +8340,7 @@ dependencies = [
  "wf-integration",
  "wf-llm",
  "wf-metrics",
+ "wf-rag",
  "wf-resource",
  "wf-sandbox",
  "wf-script",
@@ -8745,6 +8720,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "wf-rag"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "jieba-rs",
+ "keyword-contracts",
+ "llm-suite-embedding",
+ "llm-suite-rerank",
+ "once_cell",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "source-contracts",
+ "tantivy",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "vector-contracts",
+ "wf-plugin-sdk",
+ "wf-types",
+]
+
+[[package]]
 name = "wf-resource"
 version = "0.1.0"
 dependencies = [
@@ -8755,7 +8755,6 @@ dependencies = [
  "futures",
  "llm-suite-proxy",
  "moka",
- "wf-rag",
  "regex",
  "reqwest",
  "serde",
@@ -8769,6 +8768,7 @@ dependencies = [
  "wf-core",
  "wf-integration",
  "wf-metrics",
+ "wf-rag",
  "wf-tools",
  "wf-types",
 ]
@@ -8783,7 +8783,6 @@ dependencies = [
  "dashmap",
  "fs4",
  "futures",
- "wf-rag",
  "serde",
  "serde_json",
  "tempfile",
@@ -8805,6 +8804,7 @@ dependencies = [
  "wf-metrics",
  "wf-plugin",
  "wf-pricing",
+ "wf-rag",
  "wf-resource",
  "wf-sandbox",
  "wf-shell",
@@ -8862,7 +8862,6 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "percent-encoding",
- "wf-rag",
  "reqwest",
  "serde",
  "serde_json",
@@ -8884,6 +8883,7 @@ dependencies = [
  "wf-config",
  "wf-core",
  "wf-metrics",
+ "wf-rag",
  "wf-resource",
  "wf-runtime",
  "wf-storage",
@@ -8970,7 +8970,6 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "llm-suite-proxy",
- "wf-rag",
  "regex",
  "reqwest",
  "rmcp",
@@ -8992,6 +8991,7 @@ dependencies = [
  "wf-integration",
  "wf-llm",
  "wf-metrics",
+ "wf-rag",
  "wf-sandbox",
  "wf-shell",
  "wf-types",
@@ -9057,7 +9057,6 @@ dependencies = [
  "futures",
  "keyword-contracts",
  "llm-suite-embedding",
- "wf-rag",
  "regex",
  "serde",
  "serde_json",
@@ -9075,6 +9074,7 @@ dependencies = [
  "wf-integration",
  "wf-llm",
  "wf-metrics",
+ "wf-rag",
  "wf-resource",
  "wf-sandbox",
  "wf-script",

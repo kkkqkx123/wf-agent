@@ -47,6 +47,28 @@ impl SimvecVectorStore {
         }
     }
 
+    /// Maps a contracts payload to the engine's payload enum, field for field.
+    fn map_vector_data(data: &VectorData) -> Result<simvec::VectorData> {
+        Ok(match data {
+            VectorData::Dense(vector) => simvec::VectorData::dense(vector.clone()),
+            VectorData::Sparse { indices, values } => {
+                simvec::VectorData::sparse(indices.clone(), values.clone())
+            }
+            VectorData::Multi(vectors) => simvec::VectorData::multi(vectors.clone()),
+        })
+    }
+
+    /// Maps an engine payload back to the contracts payload enum.
+    fn map_engine_data(data: simvec::VectorData) -> VectorData {
+        match data {
+            simvec::VectorData::Dense(vector) => VectorData::Dense(vector),
+            simvec::VectorData::Sparse { indices, values } => {
+                VectorData::Sparse { indices, values }
+            }
+            simvec::VectorData::Multi(vectors) => VectorData::Multi(vectors),
+        }
+    }
+
     fn map_compression(compression: crate::types::CompressionRatio) -> simvec::CompressionRatio {
         match compression {
             crate::types::CompressionRatio::X4 => simvec::CompressionRatio::X4,
@@ -88,6 +110,51 @@ impl SimvecVectorStore {
             config.on_disk = Some(on_disk);
         }
         config.validate().map_err(map_engine_error)?;
+        Ok(config)
+    }
+
+    /// Maps a contracts kind to the engine kind enum.
+    fn map_kind(kind: VectorKind) -> simvec::VectorKind {
+        match kind {
+            VectorKind::Dense => simvec::VectorKind::Dense,
+            VectorKind::Sparse => simvec::VectorKind::Sparse,
+            VectorKind::Multi => simvec::VectorKind::Multi,
+        }
+    }
+
+    /// Maps an engine kind back to the contracts kind enum.
+    fn map_engine_kind(kind: simvec::VectorKind) -> VectorKind {
+        match kind {
+            simvec::VectorKind::Dense => VectorKind::Dense,
+            simvec::VectorKind::Sparse => VectorKind::Sparse,
+            simvec::VectorKind::Multi => VectorKind::Multi,
+        }
+    }
+
+    /// Builds the engine config for a non-dense collection spec.
+    fn kind_collection_config(&self, spec: &CollectionSpec) -> Result<simvec::CollectionConfig> {
+        let config = match spec.kind {
+            VectorKind::Sparse => simvec::CollectionConfig::with_sparse(
+                spec.dimension,
+                Self::map_distance(spec.distance),
+                simvec::SparseConfig {
+                    // Indices are bounded by the declared dimension unless the
+                    // spec carries an explicit (larger) vocabulary bound.
+                    vocab_size: spec
+                        .sparse_max_index
+                        .map(|max| max as usize + 1)
+                        .unwrap_or(spec.dimension),
+                },
+            ),
+            VectorKind::Multi => simvec::CollectionConfig::with_multi(
+                spec.dimension,
+                Self::map_distance(spec.distance),
+                simvec::MultiConfig {
+                    max_vectors_per_point: spec.multi_max_vectors.unwrap_or(16),
+                },
+            ),
+            VectorKind::Dense => unreachable!("dense configs use the dense path"),
+        };
         Ok(config)
     }
 
@@ -407,16 +474,10 @@ impl VectorStorage for SimvecVectorStore {
     }
 
     fn supported_kinds(&self) -> Vec<VectorKind> {
-        vec![VectorKind::Dense]
+        vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
     }
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
-        if spec.kind != VectorKind::Dense {
-            return Err(VectorError::unsupported(
-                self.backend_name(),
-                spec.kind.as_name(),
-            ));
-        }
         if spec.name.is_empty() {
             return Err(VectorError::InvalidInput(
                 "collection name must not be empty".to_string(),
@@ -426,6 +487,51 @@ impl VectorStorage for SimvecVectorStore {
             return Err(VectorError::InvalidInput(
                 "collection dimension must be positive".to_string(),
             ));
+        }
+        if spec.kind != VectorKind::Dense {
+            if spec.quantization.is_some() || spec.hnsw.is_some() {
+                return Err(VectorError::InvalidInput(format!(
+                    "{} collections do not support quantization or hnsw tuning",
+                    spec.kind.as_name()
+                )));
+            }
+            if spec.vector_name.is_some() {
+                return Err(VectorError::unsupported(
+                    self.backend_name(),
+                    "named vectors",
+                ));
+            }
+            if !self.engine.collection_exists(&spec.name) {
+                let config = self.kind_collection_config(spec)?;
+                self.engine
+                    .create_collection(&spec.name, &config)
+                    .map_err(map_engine_error)?;
+                return Ok(true);
+            }
+            let existing = self
+                .engine
+                .collection_config(&spec.name)
+                .map_err(map_engine_error)?
+                .ok_or_else(|| VectorError::CollectionMissing(spec.name.clone()))?;
+            if existing.kind != Self::map_kind(spec.kind) {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses {:?} kind, requested {:?}",
+                    spec.name, existing.kind, spec.kind
+                )));
+            }
+            if existing.vector_size != spec.dimension {
+                return Err(VectorError::DimensionMismatch {
+                    expected: existing.vector_size,
+                    actual: spec.dimension,
+                });
+            }
+            if existing.distance != Self::map_distance(spec.distance) {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses {:?} distance, requested {:?}",
+                    spec.name, existing.distance, spec.distance
+                )));
+            }
+            return Ok(false);
         }
         if spec.quantization.is_some() && spec.dimension == 0 {
             return Err(VectorError::InvalidInput(
@@ -530,30 +636,37 @@ impl VectorStorage for SimvecVectorStore {
         if !self.engine.collection_exists(collection) {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
-        let dimension = self
+        let config = self
             .engine
             .collection_config(collection)
             .map_err(map_engine_error)?
-            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?
-            .vector_size;
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        let dimension = config.vector_size;
+        let max_vectors = config.multi_config.map(|c| c.max_vectors_per_point);
         let mut mapped = Vec::with_capacity(points.len());
         for point in points {
-            if point.vector.kind() != VectorKind::Dense {
-                return Err(VectorError::unsupported(
-                    self.backend_name(),
-                    point.vector.kind().as_name(),
+            point
+                .vector
+                .validate(Self::map_engine_kind(config.kind), dimension, max_vectors)?;
+            if point.id.is_empty() {
+                return Err(VectorError::InvalidInput(
+                    "point id must not be empty".to_string(),
                 ));
             }
-            point.validate(dimension)?;
             let mut payload: HashMap<String, serde_json::Value> = point.payload.clone();
             payload.insert(PID_KEY.to_string(), serde_json::json!(point.id));
-            mapped.push(
-                simvec::VectorPoint::new(
+            let engine_point = match &point.vector {
+                VectorData::Dense(dense) => {
+                    simvec::VectorPoint::new(Self::point_id(&point.id), dense.to_vec())
+                        .with_payload(payload)
+                }
+                other => simvec::VectorPoint::with_data(
                     Self::point_id(&point.id),
-                    point.vector.as_dense()?.to_vec(),
+                    Self::map_vector_data(other)?,
                 )
                 .with_payload(payload),
-            );
+            };
+            mapped.push(engine_point);
         }
         self.engine
             .upsert_batch(collection, &mapped)
@@ -565,59 +678,83 @@ impl VectorStorage for SimvecVectorStore {
         if !self.engine.collection_exists(collection) {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
-        if query.vector.kind() != VectorKind::Dense {
-            return Err(VectorError::unsupported(
-                self.backend_name(),
-                query.vector.kind().as_name(),
-            ));
-        }
-        Self::validate_search_params(query)?;
-        let mut request = simvec::SearchQuery::new(query.vector.as_dense()?.to_vec(), query.limit);
-        if let Some(threshold) = query.score_threshold {
-            request = request.with_score_threshold(threshold);
-        }
-        if let Some(filter) = &query.filter {
-            if let Some(mapped) = Self::map_filter(filter)? {
-                request = request.with_filter(mapped);
+        // Shared result shaping: scores pass through untouched and the point
+        // id is recovered from the pid payload key.
+        let shape = |hits: Vec<simvec::SearchResult>| -> Vec<ScoredPoint> {
+            hits.into_iter()
+                .map(|hit| {
+                    let id = hit
+                        .payload
+                        .as_ref()
+                        .and_then(|payload| payload.get(PID_KEY))
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| Self::id_string(&hit.id));
+                    ScoredPoint {
+                        id,
+                        score: hit.score,
+                        payload: hit.payload.unwrap_or_default(),
+                    }
+                })
+                .collect()
+        };
+        let request = match &query.vector {
+            VectorData::Dense(dense) => {
+                Self::validate_search_params(query)?;
+                let mut request = simvec::SearchQuery::new(dense.to_vec(), query.limit);
+                if let Some(threshold) = query.score_threshold {
+                    request = request.with_score_threshold(threshold);
+                }
+                if let Some(filter) = &query.filter {
+                    if let Some(mapped) = Self::map_filter(filter)? {
+                        request = request.with_filter(mapped);
+                    }
+                }
+                if let Some(hnsw_ef) = query.hnsw_ef {
+                    request = request.with_search_mode(simvec::SearchMode::KNN {
+                        k: query.limit,
+                        ef_search: Some(hnsw_ef as usize),
+                    });
+                }
+                if let Some(params) = &query.quantization {
+                    request = request.with_quantization_params(simvec::QuantizationSearchParams {
+                        ignore: params.ignore.unwrap_or(false),
+                        exact: query.exact.unwrap_or(false),
+                        rescore: params.rescore,
+                        oversampling: params.oversampling,
+                    });
+                } else if query.exact == Some(true) {
+                    request = request.with_exact(true);
+                }
+                request
             }
-        }
-        if let Some(hnsw_ef) = query.hnsw_ef {
-            request = request.with_search_mode(simvec::SearchMode::KNN {
-                k: query.limit,
-                ef_search: Some(hnsw_ef as usize),
-            });
-        }
-        if let Some(params) = &query.quantization {
-            request = request.with_quantization_params(simvec::QuantizationSearchParams {
-                ignore: params.ignore.unwrap_or(false),
-                exact: query.exact.unwrap_or(false),
-                rescore: params.rescore,
-                oversampling: params.oversampling,
-            });
-        } else if query.exact == Some(true) {
-            request = request.with_exact(true);
-        }
+            other => {
+                if query.hnsw_ef.is_some() || query.quantization.is_some() {
+                    return Err(VectorError::InvalidInput(
+                        "hnsw_ef and quantization controls only apply to dense collections"
+                            .to_string(),
+                    ));
+                }
+                let mut request = simvec::SearchQuery::with_data(
+                    Self::map_vector_data(other)?,
+                    query.limit,
+                );
+                if let Some(threshold) = query.score_threshold {
+                    request = request.with_score_threshold(threshold);
+                }
+                if let Some(filter) = &query.filter {
+                    if let Some(mapped) = Self::map_filter(filter)? {
+                        request = request.with_filter(mapped);
+                    }
+                }
+                request
+            }
+        };
         let hits = self
             .engine
             .search(collection, &request)
             .map_err(map_engine_error)?;
-        Ok(hits
-            .into_iter()
-            .map(|hit| {
-                let id = hit
-                    .payload
-                    .as_ref()
-                    .and_then(|payload| payload.get(PID_KEY))
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| Self::id_string(&hit.id));
-                ScoredPoint {
-                    id,
-                    score: hit.score,
-                    payload: hit.payload.unwrap_or_default(),
-                }
-            })
-            .collect())
+        Ok(shape(hits))
     }
 
     async fn fetch(&self, collection: &str, ids: &[String]) -> Result<Vec<VectorPoint>> {
@@ -638,9 +775,13 @@ impl VectorStorage for SimvecVectorStore {
                     .and_then(|value| value.as_str())
                     .map(str::to_string)
                     .unwrap_or_else(|| id.clone());
+                let vector = match point.data {
+                    Some(data) => Self::map_engine_data(data),
+                    None => VectorData::Dense(point.vector),
+                };
                 found.push(VectorPoint {
                     id: resolved,
-                    vector: VectorData::Dense(point.vector),
+                    vector,
                     payload: point.payload.unwrap_or_default(),
                 });
             }
@@ -860,19 +1001,91 @@ mod tests {
     }
 
     #[test]
-    fn simvec_claims_only_dense_and_rejects_other_kinds() {
+    fn simvec_claims_all_kinds_and_serves_sparse_multi() {
         let dir = std::env::temp_dir().join(format!(
-            "vector-contracts-simvec-kind-{}",
-            std::process::id()
+            "vector-contracts-simvec-kinds-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
         ));
-        let store = SimvecVectorStore::open(dir).expect("open store");
-        assert_eq!(store.supported_kinds(), vec![VectorKind::Dense]);
+        let store = SimvecVectorStore::open(&dir).expect("open store");
+        assert_eq!(
+            store.supported_kinds(),
+            vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
+        );
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("runtime");
         runtime.block_on(async {
-            let spec = CollectionSpec::new("kb", 3).with_kind(VectorKind::Sparse);
+            // Sparse: end-to-end ensure/upsert/search/fetch round trip.
+            let spec = CollectionSpec::new("sparse-kb", 100).with_kind(VectorKind::Sparse);
+            assert!(store.ensure_collection(&spec).await.expect("ensure"));
+            let sparse_point = |id: &str, pairs: &[(u32, f32)]| {
+                let (indices, values): (Vec<u32>, Vec<f32>) = pairs.iter().copied().unzip();
+                VectorPoint {
+                    id: id.to_string(),
+                    vector: VectorData::Sparse { indices, values },
+                    payload: HashMap::from([(
+                        PID_KEY.to_string(),
+                        serde_json::json!(id),
+                    )]),
+                }
+            };
+            store
+                .upsert(
+                    "sparse-kb",
+                    &[
+                        sparse_point("weak", &[(1, 0.5), (2, 0.5)]),
+                        sparse_point("strong", &[(1, 2.0), (3, 1.0)]),
+                    ],
+                )
+                .await
+                .expect("upsert");
+            let query = VectorQuery::with_data(
+                VectorData::sparse(vec![1, 3], vec![1.0, 1.0]),
+                2,
+            );
+            let hits = store.search("sparse-kb", &query).await.expect("search");
+            assert_eq!(hits[0].id, "strong");
+            assert!((hits[0].score - 3.0).abs() < 1e-5);
+            let fetched = store
+                .fetch("sparse-kb", &["strong".to_string()])
+                .await
+                .expect("fetch");
+            assert!(matches!(fetched[0].vector, VectorData::Sparse { .. }));
+
+            // Multi: kind-specific config is persisted and MaxSim ordering holds.
+            let spec = CollectionSpec::new("multi-kb", 2)
+                .with_kind(VectorKind::Multi)
+                .with_multi_max_vectors(4);
+            assert!(store.ensure_collection(&spec).await.expect("ensure"));
+            let multi_point = |id: &str, vectors: Vec<Vec<f32>>| VectorPoint {
+                id: id.to_string(),
+                vector: VectorData::Multi(vectors),
+                payload: HashMap::from([(PID_KEY.to_string(), serde_json::json!(id))]),
+            };
+            store
+                .upsert(
+                    "multi-kb",
+                    &[
+                        multi_point("a", vec![vec![1.0, 0.0], vec![0.0, 0.5]]),
+                        multi_point("b", vec![vec![0.0, 1.0], vec![0.0, 1.0]]),
+                    ],
+                )
+                .await
+                .expect("upsert");
+            let query = VectorQuery::with_data(VectorData::multi(vec![vec![1.0, 0.0]]), 2);
+            let hits = store.search("multi-kb", &query).await.expect("search");
+            assert_eq!(hits[0].id, "a");
+            assert!((hits[0].score - 1.0).abs() < 1e-5);
+
+            // Named vectors stay explicitly unsupported.
+            let spec = CollectionSpec::new("named-kb", 3)
+                .with_kind(VectorKind::Sparse)
+                .with_vector_name("default");
             let result = store.ensure_collection(&spec).await;
             assert!(matches!(result, Err(VectorError::Unsupported(_))));
         });

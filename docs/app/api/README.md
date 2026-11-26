@@ -16,6 +16,7 @@
 | [07-llm-template-builder.md](./07-llm-template-builder.md) | llm / template 模块与跨域 builder 总览：LLM/Profile/Provider/脚本/工具、模板库、类型状态机构造器 |
 | [08-wf-server-http-layer.md](./08-wf-server-http-layer.md) | wf-server：路由结构、契约端点清单、信封/SSE/WS/中间件/配置 |
 | [09-openapi-doc-generation.md](./09-openapi-doc-generation.md) | wf-server OpenAPI：注解→聚合→类型注册→快照→测试；离线 codegen（`tools/openapi-codegen`）；新增端点清单 |
+| [10-rag-domain.md](./10-rag-domain.md) | RAG 域：运行时装配、wf-api 检索/source/能力服务、工具与节点注入、HTTP 响应契约与错误语义 |
 
 ## 核心结论
 

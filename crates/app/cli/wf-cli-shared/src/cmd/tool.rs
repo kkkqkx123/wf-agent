@@ -63,6 +63,9 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
                 .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =
                 wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            if id.starts_with("rag_") {
+                crate::rag_render::render_hits(cli.output, &data)?;
+            }
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-execute", data).with_entity(id.clone()),

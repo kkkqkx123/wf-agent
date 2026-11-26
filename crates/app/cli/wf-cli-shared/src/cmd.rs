@@ -9,7 +9,7 @@
 //! - checkpoint: `checkpoint` (records / files / agent loops), `approval`
 //!   (change approvals over the file-checkpoint approval API)
 //! - observation: `analysis` (plus the shared data builders reused by the
-//!   `execution` convenience arms), `audit`, `query`, `search`
+//!   `execution` convenience arms), `audit`, `query`, `rag`, `search`
 //! - system: `event`, `metrics`, `diagnostics`
 //!
 //! Every handler resolves a [`ClientHandle`](crate::connection::ClientHandle)
@@ -34,6 +34,7 @@ pub mod message;
 pub mod metrics;
 pub mod plugin;
 pub mod query;
+pub mod rag;
 pub mod remote;
 pub mod render;
 pub mod script;

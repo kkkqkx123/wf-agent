@@ -959,5 +959,6 @@
 	"domain.workflowGraphTab.selectedNode": "Selected node",
 	"domain.workflowGraphTab.showRecentRuns": "Show recent runs",
 	"domain.workflowUnsaved.description": "The edit canvas has unsaved draft changes. Leaving discards the canvas edits.",
-	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave"
+	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave",
+	"domain.toolCall.citations": "Retrieved passages"
 }

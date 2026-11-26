@@ -959,5 +959,6 @@
 	"domain.workflowGraphTab.selectedNode": "已选节点",
 	"domain.workflowGraphTab.showRecentRuns": "显示最近运行",
 	"domain.workflowUnsaved.description": "编辑画布存在未保存的草稿更改。离开将丢弃画布编辑。",
-	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开"
+	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开",
+	"domain.toolCall.citations": "检索到的片段"
 }

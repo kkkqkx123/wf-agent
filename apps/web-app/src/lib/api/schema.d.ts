@@ -6824,6 +6824,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_rag_sources"];
+        put?: never;
+        post: operations["handle_rag_ingest_source"];
+        delete: operations["handle_rag_delete_source"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/sources/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_rag_reindex_source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/stats": {
         parameters: {
             query?: never;
@@ -11560,6 +11592,42 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_RagCollectionStatsView: {
+            data?: {
+                collection: string;
+                /** Format: int64 */
+                keyword_point_count?: number | null;
+                namespace: string;
+                /** Format: int64 */
+                point_count: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_RagIngestResultView: {
+            data?: {
+                action: components["schemas"]["RagSyncActionView"];
+                chunks: number;
+                content_hash: string;
+                documents: number;
+                metadata: {
+                    [key: string]: string;
+                };
+                points: number;
+                revision: components["schemas"]["RagSourceRevisionView"];
+                skipped: number;
+                source: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_RagNoHitDiagnosisView: {
+            data?: {
+                likely_causes: string[];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_ReachabilityDoc: {
             /** @description Reachability analysis result (sets rendered as sorted arrays). */
             data?: {
@@ -12143,6 +12211,28 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_Vec_RagPreviewHitView: {
+            data?: {
+                chunk_id: string;
+                excerpt: string;
+                /** Format: float */
+                score: number;
+                source: string;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_RagSourceStatusEntry: {
+            data?: {
+                /** Format: int64 */
+                keyword_point_count?: number | null;
+                /** Format: int64 */
+                point_count: number;
+                state: components["schemas"]["RagSourceStateView"];
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Vec_StateFileLinkDoc: {
             data?: {
                 /** @description State checkpoint id that was queried. */
@@ -12256,7 +12346,6 @@ export interface components {
         };
         ApprovalCheckBody: {
             execution_id: string;
-            options: Record<string, never>;
             request: Record<string, never>;
         };
         ApprovalRequestBody: {
@@ -14134,6 +14223,90 @@ export interface components {
             sort_descending?: boolean | null;
             sort_field?: string | null;
         };
+        RagCollectionStatsView: {
+            collection: string;
+            /** Format: int64 */
+            keyword_point_count?: number | null;
+            namespace: string;
+            /** Format: int64 */
+            point_count: number;
+        };
+        RagIngestResultView: {
+            action: components["schemas"]["RagSyncActionView"];
+            chunks: number;
+            content_hash: string;
+            documents: number;
+            metadata: {
+                [key: string]: string;
+            };
+            points: number;
+            revision: components["schemas"]["RagSourceRevisionView"];
+            skipped: number;
+            source: string;
+        };
+        RagNoHitDiagnosisView: {
+            likely_causes: string[];
+        };
+        RagPreviewHitView: {
+            chunk_id: string;
+            excerpt: string;
+            /** Format: float */
+            score: number;
+            source: string;
+        };
+        RagSourceDelete: {
+            collection: string;
+            namespace: string;
+            source: string;
+        };
+        RagSourceRevisionView: {
+            content_hash: string;
+            etag?: string | null;
+            fetched_at?: string | null;
+            last_modified?: string | null;
+        };
+        /** @enum {string} */
+        RagSourceStateStatusView: "active" | "failed";
+        RagSourceStateView: {
+            chunks: number;
+            collection: string;
+            content_hash: string;
+            converter?: string | null;
+            documents: number;
+            encoder?: string | null;
+            encoder_fingerprint?: string | null;
+            encoder_schema?: string | null;
+            error?: string | null;
+            etag?: string | null;
+            fetched_at?: string | null;
+            kind: string;
+            last_modified?: string | null;
+            namespace: string;
+            points: number;
+            source: string;
+            status: components["schemas"]["RagSourceStateStatusView"];
+            uri: string;
+            vector_kind: string;
+        };
+        RagSourceStatusEntry: {
+            /** Format: int64 */
+            keyword_point_count?: number | null;
+            /** Format: int64 */
+            point_count: number;
+            state: components["schemas"]["RagSourceStateView"];
+        };
+        RagSourceWrite: {
+            collection: string;
+            converter?: string | null;
+            force?: boolean;
+            kind: string;
+            namespace: string;
+            options?: unknown;
+            source: string;
+            uri: string;
+        };
+        /** @enum {string} */
+        RagSyncActionView: "insert" | "update" | "skip";
         /** @description Reachability analysis result (sets rendered as sorted arrays). */
         ReachabilityDoc: {
             dead_end_nodes: string[];
@@ -50093,7 +50266,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_RagNoHitDiagnosisView"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -50165,7 +50338,280 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_RagPreviewHitView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_sources: {
+        parameters: {
+            query: {
+                /** @example kb */
+                collection: string;
+                /** @example kb */
+                namespace: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_RagSourceStatusEntry"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_ingest_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagSourceWrite"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_RagIngestResultView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_delete_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagSourceDelete"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_u64"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_reindex_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagSourceWrite"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_RagIngestResultView"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -50234,7 +50680,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_RagCollectionStatsView"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

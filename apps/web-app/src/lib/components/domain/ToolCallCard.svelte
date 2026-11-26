@@ -14,6 +14,7 @@
 	import { approveApproval, rejectApproval } from '#lib/services/checkpoints';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatDuration } from '#lib/utils/format';
+	import { parseRagCitations } from '#lib/utils/toolcalls';
 	import { cn } from '#lib/ui/cn';
 	import { resolveToolOutputBudgets } from '#lib/config/tool-output';
 	import {
@@ -74,6 +75,7 @@
 		success: !failed,
 		display,
 	});
+	const citations = $derived(entry.name.startsWith('rag_') ? parseRagCitations(entry.output) : []);
 	const hiddenBody = $derived(hidesBody(entry.name, previewInput));
 	const preview = $derived(previewFor(entry.name, previewInput, budgets));
 	const previewLines = $derived(preview.text.split('\n'));
@@ -280,6 +282,38 @@
 				<p class="text-micro tabular-nums text-muted-foreground">
 					{t('domain.toolCall.exitCode', { code: entry.exitCode })}
 				</p>
+			{/if}
+			{#if citations.length > 0}
+				<div>
+					<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
+						{t('domain.toolCall.citations')}
+					</p>
+					<ul class="space-y-1">
+						{#each citations.slice(0, 5) as citation}
+							<li class="rounded-md bg-muted px-2 py-1.5 text-micro">
+								<div class="flex items-center justify-between gap-2 font-mono">
+									<span class="truncate text-foreground">{citation.chunkId || citation.source}</span
+									>
+									{#if citation.score !== null}
+										<span class="tabular-nums text-muted-foreground">
+											{citation.score.toFixed(3)}
+										</span>
+									{/if}
+								</div>
+								{#if citation.content}
+									<p class="mt-0.5 line-clamp-2 break-words text-foreground">
+										{citation.content}
+									</p>
+								{/if}
+								{#if citation.source && citation.chunkId}
+									<p class="mt-0.5 truncate font-mono text-muted-foreground">
+										{citation.source}
+									</p>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</div>
 			{/if}
 			<div>
 				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">

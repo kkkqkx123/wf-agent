@@ -908,6 +908,18 @@ impl WfClient {
     {
         self.delete(path).await
     }
+
+    /// JSON escape hatch for DELETE endpoints whose request carries a body,
+    /// such as RAG source removal.
+    pub async fn delete_json_with_body<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
+    where
+        B: Serialize + ?Sized,
+        T: DeserializeOwned,
+    {
+        let body = serde_json::to_value(body)
+            .map_err(|e| ClientError::Invalid(format!("request encode: {e}")))?;
+        self.send(reqwest::Method::DELETE, path, Some(&body)).await
+    }
 }
 
 /// Unwrap a progenitor envelope by round-tripping through JSON so every

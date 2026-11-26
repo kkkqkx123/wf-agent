@@ -59,6 +59,12 @@ export const NAV_GROUPS: NavGroup[] = [
 				description: message('config.navigation.templatesDescription'),
 			},
 			{
+				href: '/rag',
+				label: message('config.navigation.rag'),
+				icon: 'layers',
+				description: message('config.navigation.ragDescription'),
+			},
+			{
 				href: '/resources',
 				label: message('config.navigation.resources'),
 				icon: 'cpu',

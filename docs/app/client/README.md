@@ -17,6 +17,7 @@
 |------|------|
 | [01-web-client-sync.md](./01-web-client-sync.md) | Web 类型客户端：独立工具包、类型产物、运行时封装、预览替换、流式手写层 |
 | [02-rust-client-sync.md](./02-rust-client-sync.md) | Rust 生成客户端：构建期生成、规范降级、手写包装、错误映射、流式端点表 |
+| [03-rag-clients.md](./03-rag-clients.md) | RAG 客户端接入：领域服务封装、预览固件、带 body 的 DELETE、契约同步边界 |
 
 ## 对照
 

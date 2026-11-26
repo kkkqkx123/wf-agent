@@ -194,9 +194,10 @@ impl Default for RagCapabilitiesConfig {
 }
 
 impl RagCapabilitiesConfig {
-    /// Whether any enhanced tool should be wired by the host.
+    /// Whether the host should attach the retrieval service. Read-only
+    /// search is part of the main switch; enhanced tools keep their own.
     pub fn any_enabled(&self) -> bool {
-        self.enabled && (self.ingest.enabled || self.eval.enabled)
+        self.enabled
     }
 
     /// Validates numeric bounds before the config reaches a pipeline.
@@ -238,6 +239,17 @@ mod tests {
         assert!(!config.enabled);
         assert!(!config.any_enabled());
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn read_only_retrieval_can_be_enabled_alone() {
+        let config = RagCapabilitiesConfig {
+            enabled: true,
+            ..RagCapabilitiesConfig::default()
+        };
+        assert!(config.any_enabled());
+        assert!(!config.ingest.enabled);
+        assert!(!config.eval.enabled);
     }
 
     #[test]

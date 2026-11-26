@@ -145,7 +145,7 @@ export const client: AnyClient = {
 	async DELETE(path: string, opts?: any): Promise<any> {
 		await delay(30);
 		const query = queryOf(opts?.params);
-		const data = router.dispatch('DELETE', substitutePath(path, opts?.params), query, undefined);
+		const data = router.dispatch('DELETE', substitutePath(path, opts?.params), query, opts?.body);
 		return toPreviewResult('DELETE', path, data);
 	},
 

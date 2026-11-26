@@ -24,6 +24,7 @@ import { registerFs } from './routes/fs';
 import { registerStarters } from './routes/starters';
 import { registerSystem } from './routes/system';
 import { registerPreferences } from './routes/preferences';
+import { registerRag } from './routes/rag';
 
 export function registerAllRoutes(router: MockRouter): void {
 	// Definition routes come first: their literal paths (`/workflows/drafts`,
@@ -44,4 +45,5 @@ export function registerAllRoutes(router: MockRouter): void {
 	registerStarters(router);
 	registerSystem(router);
 	registerPreferences(router);
+	registerRag(router);
 }

@@ -34546,7 +34546,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_RagNoHitDiagnosisView"
                 }
               }
             }
@@ -34642,7 +34642,253 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_RagPreviewHitView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rag/sources": {
+      "get": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_sources",
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "kb"
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "kb"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_RagSourceStatusEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_ingest_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RagSourceWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RagIngestResultView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_delete_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RagSourceDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_u64"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rag/sources/reindex": {
+      "post": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_reindex_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RagSourceWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RagIngestResultView"
                 }
               }
             }
@@ -34712,7 +34958,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_RagCollectionStatsView"
                 }
               }
             }
@@ -57019,6 +57265,165 @@
           }
         }
       },
+      "ApiEnvelope_RagCollectionStatsView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "collection",
+              "namespace",
+              "point_count"
+            ],
+            "properties": {
+              "collection": {
+                "type": "string"
+              },
+              "keyword_point_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "point_count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_RagIngestResultView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "source",
+              "action",
+              "documents",
+              "chunks",
+              "points",
+              "skipped",
+              "content_hash",
+              "revision",
+              "metadata"
+            ],
+            "properties": {
+              "action": {
+                "$ref": "#/components/schemas/RagSyncActionView"
+              },
+              "chunks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "content_hash": {
+                "type": "string"
+              },
+              "documents": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "points": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "revision": {
+                "$ref": "#/components/schemas/RagSourceRevisionView"
+              },
+              "skipped": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_RagNoHitDiagnosisView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "likely_causes"
+            ],
+            "properties": {
+              "likely_causes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_ReachabilityDoc": {
         "type": "object",
         "required": [
@@ -59328,6 +59733,103 @@
           }
         }
       },
+      "ApiEnvelope_Vec_RagPreviewHitView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "chunk_id",
+                "source",
+                "excerpt",
+                "score"
+              ],
+              "properties": {
+                "chunk_id": {
+                  "type": "string"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "source": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_RagSourceStatusEntry": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "state",
+                "point_count"
+              ],
+              "properties": {
+                "keyword_point_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "point_count": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "state": {
+                  "$ref": "#/components/schemas/RagSourceStateView"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Vec_StateFileLinkDoc": {
         "type": "object",
         "required": [
@@ -59755,15 +60257,11 @@
         "type": "object",
         "required": [
           "execution_id",
-          "request",
-          "options"
+          "request"
         ],
         "properties": {
           "execution_id": {
             "type": "string"
-          },
-          "options": {
-            "type": "object"
           },
           "request": {
             "type": "object"
@@ -65208,6 +65706,353 @@
             ]
           }
         }
+      },
+      "RagCollectionStatsView": {
+        "type": "object",
+        "required": [
+          "collection",
+          "namespace",
+          "point_count"
+        ],
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "keyword_point_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "point_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RagIngestResultView": {
+        "type": "object",
+        "required": [
+          "source",
+          "action",
+          "documents",
+          "chunks",
+          "points",
+          "skipped",
+          "content_hash",
+          "revision",
+          "metadata"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RagSyncActionView"
+          },
+          "chunks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "points": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "revision": {
+            "$ref": "#/components/schemas/RagSourceRevisionView"
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "RagNoHitDiagnosisView": {
+        "type": "object",
+        "required": [
+          "likely_causes"
+        ],
+        "properties": {
+          "likely_causes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RagPreviewHitView": {
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "source",
+          "excerpt",
+          "score"
+        ],
+        "properties": {
+          "chunk_id": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "float"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "RagSourceDelete": {
+        "type": "object",
+        "required": [
+          "source",
+          "collection",
+          "namespace"
+        ],
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "RagSourceRevisionView": {
+        "type": "object",
+        "required": [
+          "content_hash"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "etag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fetched_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_modified": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RagSourceStateStatusView": {
+        "type": "string",
+        "enum": [
+          "active",
+          "failed"
+        ]
+      },
+      "RagSourceStateView": {
+        "type": "object",
+        "required": [
+          "collection",
+          "namespace",
+          "source",
+          "kind",
+          "uri",
+          "vector_kind",
+          "content_hash",
+          "documents",
+          "chunks",
+          "points",
+          "status"
+        ],
+        "properties": {
+          "chunks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "collection": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "converter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "documents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "encoder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoder_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoder_schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "etag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fetched_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_modified": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "points": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RagSourceStateStatusView"
+          },
+          "uri": {
+            "type": "string"
+          },
+          "vector_kind": {
+            "type": "string"
+          }
+        }
+      },
+      "RagSourceStatusEntry": {
+        "type": "object",
+        "required": [
+          "state",
+          "point_count"
+        ],
+        "properties": {
+          "keyword_point_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "point_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/RagSourceStateView"
+          }
+        }
+      },
+      "RagSourceWrite": {
+        "type": "object",
+        "required": [
+          "source",
+          "uri",
+          "kind",
+          "collection",
+          "namespace"
+        ],
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "converter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "force": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "options": {},
+          "source": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      },
+      "RagSyncActionView": {
+        "type": "string",
+        "enum": [
+          "insert",
+          "update",
+          "skip"
+        ]
       },
       "ReachabilityDoc": {
         "type": "object",

@@ -13,6 +13,7 @@ pub use crate::args_entity::{MessageSub, SkillSub, TaskSub, VariableSub};
 pub use crate::args_execution::ExecutionSub;
 pub use crate::args_llm::{LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmProxySub, LlmTemplateSub};
 pub use crate::args_observe::{AnalysisSub, AuditSub, EventSub, MetricsSub};
+pub use crate::args_rag::{RagSourceSub, RagSub};
 pub use crate::args_remote::RemoteSub;
 pub use crate::args_tooling::{ScriptSub, TemplateSub, TemplateVersionSub, ToolSub, TriggerSub};
 pub use crate::args_workflow::{WorkflowSub, WorkflowVersionSub};
@@ -503,6 +504,11 @@ pub enum Command {
         /// Limit total results.
         #[arg(long, value_name = "N")]
         limit: Option<usize>,
+    },
+    /// Knowledge-base retrieval and source management.
+    Rag {
+        #[command(subcommand)]
+        sub: RagSub,
     },
     /// Query execution records with filtering and pagination.
     Query {

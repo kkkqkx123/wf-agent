@@ -52,6 +52,42 @@ fn parses_run_model_and_repeatable_approve_prefixes() {
 }
 
 #[test]
+fn parses_rag_source_commands() {
+    let cli = parse(&[
+        "rag",
+        "sources",
+        "add",
+        "docs",
+        "https://example.com/docs",
+        "url",
+        "--collection",
+        "kb",
+        "--force",
+    ])
+    .unwrap();
+    let Some(Command::Rag {
+        sub: RagSub::Sources {
+            sub: RagSourceSub::Add { source, force, .. },
+        },
+    }) = cli.command
+    else {
+        panic!("expected rag sources add command");
+    };
+    assert_eq!(source, "docs");
+    assert!(force);
+
+    let cli = parse(&["rag", "preview", "how ownership works", "--top-k", "3"]).unwrap();
+    let Some(Command::Rag {
+        sub: RagSub::Preview { query, top_k, .. },
+    }) = cli.command
+    else {
+        panic!("expected rag preview command");
+    };
+    assert_eq!(query, "how ownership works");
+    assert_eq!(top_k, 3);
+}
+
+#[test]
 fn parses_interactive_flags() {
     let cli = parse(&["--tui"]).unwrap();
     assert!(cli.tui);

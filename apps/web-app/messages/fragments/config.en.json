@@ -67,5 +67,7 @@
 	"config.executionTabs.hierarchy": "Hierarchy",
 	"config.executionTabs.history": "History",
 	"config.executionTabs.checkpoints": "Checkpoints",
-	"config.commands.resume": "Open a stored session and continue it"
+	"config.commands.resume": "Open a stored session and continue it",
+	"config.navigation.rag": "Knowledge",
+	"config.navigation.ragDescription": "Indexed sources, retrieval preview and diagnostics"
 }

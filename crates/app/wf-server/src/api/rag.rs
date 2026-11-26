@@ -8,7 +8,8 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
@@ -82,6 +83,216 @@ fn default_excerpt() -> usize {
     200
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagCollectionStatsView {
+    pub collection: String,
+    pub namespace: String,
+    pub point_count: u64,
+    pub keyword_point_count: Option<u64>,
+}
+
+impl From<wf_api::rag::CollectionStats> for RagCollectionStatsView {
+    fn from(stats: wf_api::rag::CollectionStats) -> Self {
+        Self {
+            collection: stats.collection,
+            namespace: stats.namespace,
+            point_count: stats.point_count,
+            keyword_point_count: stats.keyword_point_count,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagPreviewHitView {
+    pub chunk_id: String,
+    pub source: String,
+    pub excerpt: String,
+    pub score: f32,
+}
+
+impl From<wf_api::rag::PreviewHit> for RagPreviewHitView {
+    fn from(hit: wf_api::rag::PreviewHit) -> Self {
+        Self {
+            chunk_id: hit.chunk_id,
+            source: hit.source,
+            excerpt: hit.excerpt,
+            score: hit.score,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagNoHitDiagnosisView {
+    pub likely_causes: Vec<String>,
+}
+
+impl From<wf_api::rag::NoHitDiagnosis> for RagNoHitDiagnosisView {
+    fn from(diagnosis: wf_api::rag::NoHitDiagnosis) -> Self {
+        Self {
+            likely_causes: diagnosis.likely_causes,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagSourceRevisionView {
+    pub content_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<String>,
+}
+
+impl From<source_contracts::SourceRevision> for RagSourceRevisionView {
+    fn from(revision: source_contracts::SourceRevision) -> Self {
+        Self {
+            content_hash: revision.content_hash,
+            etag: revision.etag,
+            last_modified: revision.last_modified,
+            fetched_at: revision.fetched_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RagSourceStateStatusView {
+    Active,
+    Failed,
+}
+
+impl From<wf_api::rag_source::RagSourceStatus> for RagSourceStateStatusView {
+    fn from(status: wf_api::rag_source::RagSourceStatus) -> Self {
+        match status {
+            wf_api::rag_source::RagSourceStatus::Active => Self::Active,
+            wf_api::rag_source::RagSourceStatus::Failed => Self::Failed,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagSourceStateView {
+    pub collection: String,
+    pub namespace: String,
+    pub source: String,
+    pub kind: String,
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub converter: Option<String>,
+    pub vector_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder_schema: Option<String>,
+    pub content_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<String>,
+    pub documents: usize,
+    pub chunks: usize,
+    pub points: usize,
+    pub status: RagSourceStateStatusView,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl From<wf_api::rag_source::RagSourceState> for RagSourceStateView {
+    fn from(state: wf_api::rag_source::RagSourceState) -> Self {
+        Self {
+            collection: state.collection,
+            namespace: state.namespace,
+            source: state.source,
+            kind: state.kind,
+            uri: state.uri,
+            converter: state.converter,
+            vector_kind: state.vector_kind,
+            encoder: state.encoder,
+            encoder_fingerprint: state.encoder_fingerprint,
+            encoder_schema: state.encoder_schema,
+            content_hash: state.content_hash,
+            etag: state.etag,
+            last_modified: state.last_modified,
+            fetched_at: state.fetched_at,
+            documents: state.documents,
+            chunks: state.chunks,
+            points: state.points,
+            status: state.status.into(),
+            error: state.error,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagSourceStatusEntry {
+    pub state: RagSourceStateView,
+    pub point_count: u64,
+    pub keyword_point_count: Option<u64>,
+}
+
+impl From<wf_api::rag_source::RagSourceStatusView> for RagSourceStatusEntry {
+    fn from(view: wf_api::rag_source::RagSourceStatusView) -> Self {
+        Self {
+            state: view.state.into(),
+            point_count: view.point_count,
+            keyword_point_count: view.keyword_point_count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RagSyncActionView {
+    Insert,
+    Update,
+    Skip,
+}
+
+impl From<wf_api::rag_source::RagSourceSyncAction> for RagSyncActionView {
+    fn from(action: wf_api::rag_source::RagSourceSyncAction) -> Self {
+        match action {
+            wf_api::rag_source::RagSourceSyncAction::Insert => Self::Insert,
+            wf_api::rag_source::RagSourceSyncAction::Update => Self::Update,
+            wf_api::rag_source::RagSourceSyncAction::Skip => Self::Skip,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub(crate) struct RagIngestResultView {
+    pub source: String,
+    pub action: RagSyncActionView,
+    pub documents: usize,
+    pub chunks: usize,
+    pub points: usize,
+    pub skipped: usize,
+    pub content_hash: String,
+    pub revision: RagSourceRevisionView,
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<wf_api::rag_source::RagSourceIngestResult> for RagIngestResultView {
+    fn from(result: wf_api::rag_source::RagSourceIngestResult) -> Self {
+        Self {
+            source: result.source,
+            action: result.action.into(),
+            documents: result.documents,
+            chunks: result.chunks,
+            points: result.points,
+            skipped: result.skipped,
+            content_hash: result.content_hash,
+            revision: result.revision.into(),
+            metadata: result.metadata,
+        }
+    }
+}
+
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/rag/stats", get(handle_rag_stats))
@@ -102,7 +313,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     tag = "rag",
     params(RagScope),
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<RagCollectionStatsView>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -124,7 +335,7 @@ pub(crate) async fn handle_rag_stats(
     )
     .await
     {
-        Ok(stats) => ok(stats).into_response(),
+        Ok(stats) => ok(RagCollectionStatsView::from(stats)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -135,7 +346,7 @@ pub(crate) async fn handle_rag_stats(
     tag = "rag",
     params(RagPreviewQuery),
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<Vec<RagPreviewHitView>>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -159,7 +370,11 @@ pub(crate) async fn handle_rag_preview(
     )
     .await
     {
-        Ok(hits) => ok(hits).into_response(),
+        Ok(hits) => ok(hits
+            .into_iter()
+            .map(RagPreviewHitView::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -170,7 +385,7 @@ pub(crate) async fn handle_rag_preview(
     tag = "rag",
     params(RagDiagnoseQuery),
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<RagNoHitDiagnosisView>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -205,7 +420,7 @@ pub(crate) async fn handle_rag_diagnose(
             }
         }
     }
-    ok(diagnosis).into_response()
+    ok(RagNoHitDiagnosisView::from(diagnosis)).into_response()
 }
 
 fn source_service_error() -> wf_api::infra::error::ApiError {
@@ -238,7 +453,7 @@ fn descriptor_from_body(body: RagSourceWrite) -> (source_contracts::SourceDescri
     tag = "rag",
     params(RagScope),
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<Vec<RagSourceStatusEntry>>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -254,7 +469,11 @@ pub(crate) async fn handle_rag_sources(
         .status(&scope.collection, &scope.namespace, None)
         .await
     {
-        Ok(views) => ok(views).into_response(),
+        Ok(views) => ok(views
+            .into_iter()
+            .map(RagSourceStatusEntry::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(err) => error_response(err),
     }
 }
@@ -265,7 +484,7 @@ pub(crate) async fn handle_rag_sources(
     tag = "rag",
     request_body = RagSourceWrite,
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<RagIngestResultView>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -279,7 +498,7 @@ pub(crate) async fn handle_rag_ingest_source(
     };
     let (descriptor, force) = descriptor_from_body(body);
     match service.ingest(descriptor, force).await {
-        Ok(result) => ok(result).into_response(),
+        Ok(result) => ok(RagIngestResultView::from(result)).into_response(),
         Err(err) => error_response(err),
     }
 }
@@ -290,7 +509,7 @@ pub(crate) async fn handle_rag_ingest_source(
     tag = "rag",
     request_body = RagSourceWrite,
     responses(
-        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<RagIngestResultView>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -304,7 +523,7 @@ pub(crate) async fn handle_rag_reindex_source(
     };
     let (descriptor, _) = descriptor_from_body(body);
     match service.reindex(descriptor).await {
-        Ok(result) => ok(result).into_response(),
+        Ok(result) => ok(RagIngestResultView::from(result)).into_response(),
         Err(err) => error_response(err),
     }
 }

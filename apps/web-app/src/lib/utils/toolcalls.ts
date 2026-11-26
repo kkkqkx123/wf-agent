@@ -1,6 +1,7 @@
 /** Display derivation for tool calls. Backend audit views carry name, arguments and result only, so kind, endpoint and exit code are derived here with a neutral fallback. */
 
 const KIND_BY_NAME: Array<{ match: RegExp; kind: string }> = [
+	{ match: /^rag_|knowledge|retriev/i, kind: 'knowledge' },
 	{ match: /approv/i, kind: 'approval' },
 	{ match: /mcp/i, kind: 'mcp' },
 	{ match: /shell|bash|cli|command|exec|terminal/i, kind: 'bash' },
@@ -10,7 +11,7 @@ const KIND_BY_NAME: Array<{ match: RegExp; kind: string }> = [
 		kind: 'network',
 	},
 	{ match: /memory|remember|recall/i, kind: 'memory' },
-	{ match: /knowledge|doc|retriev/i, kind: 'knowledge' },
+	{ match: /doc/i, kind: 'knowledge' },
 	{ match: /agent|sub.?agent|spawn/i, kind: 'agent' },
 	{ match: /ask|question|completion|interact/i, kind: 'interaction' },
 	{ match: /workflow|plan|graph/i, kind: 'workflow' },
@@ -77,6 +78,39 @@ export function parseToolEndpoint(input: string): string {
 		return pickString(params as Record<string, unknown>, ['endpoint', 'url', 'uri']);
 	}
 	return '';
+}
+
+export interface RagCitation {
+	chunkId: string;
+	source: string;
+	score: number | null;
+	content: string;
+}
+
+function citationText(record: Record<string, unknown>, keys: string[]): string {
+	for (const key of keys) {
+		const value = record[key];
+		if (typeof value === 'string' && value) return value;
+	}
+	return '';
+}
+
+/** Parse a retrieval tool result into the citation fields the UI displays. */
+export function parseRagCitations(output: string): RagCitation[] {
+	const parsed = parseJson(output);
+	if (!Array.isArray(parsed)) return [];
+	return parsed
+		.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+		.map((item) => {
+			const score = item.score;
+			return {
+				chunkId: citationText(item, ['chunk_id', 'chunkId']),
+				source: citationText(item, ['source', 'document_id', 'documentId']),
+				score: typeof score === 'number' && Number.isFinite(score) ? score : null,
+				content: citationText(item, ['content', 'excerpt']),
+			};
+		})
+		.filter((item) => item.chunkId || item.source || item.content);
 }
 
 /** Script exit code from tool results, including nested details. */

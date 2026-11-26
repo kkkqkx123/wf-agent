@@ -15,6 +15,7 @@ pub mod args_entity;
 pub mod args_execution;
 pub mod args_llm;
 pub mod args_observe;
+pub mod args_rag;
 pub mod args_remote;
 pub mod args_tooling;
 pub mod args_workflow;
@@ -28,6 +29,7 @@ pub mod mode;
 pub mod notify;
 pub mod output;
 pub mod paths;
+pub mod rag_render;
 pub mod recap;
 pub mod run;
 pub mod run_diag;
@@ -93,6 +95,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         }
         Some(Command::Search { query, limit }) => {
             return cmd::search::run(&cli, query, *limit).await;
+        }
+        Some(Command::Rag { sub }) => {
+            return cmd::rag::run(&cli, sub).await;
         }
         Some(Command::Query {
             status,

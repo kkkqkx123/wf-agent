@@ -34,3 +34,5 @@ elastic = ["dep:reqwest"]
 [dev-dependencies]
 tokio.workspace = true
 async-trait.workspace = true
+simvec = { path = "../../simvec" }
+vector-contracts = { path = "../vector-contracts", features = ["simvec"] }

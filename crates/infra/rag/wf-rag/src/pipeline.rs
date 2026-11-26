@@ -5,7 +5,7 @@
 //! query rewriting stays with the caller (workflow or agent), which passes
 //! ready-made variants to [`query_multi`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use keyword_contracts::{KeywordIndex, KeywordQuery, KeywordScope};
 use llm_embedding::provider::EmbeddingProvider;
@@ -24,6 +24,7 @@ use crate::document::{
 use crate::error::{RagError, Result};
 use crate::keyword_index::{keyword_chunks, keyword_documents};
 use crate::metrics::{rank_pairs, RetrievalMetrics};
+use crate::plugin::{NAMED_VECTOR_ENCODING_SCHEMA, VECTOR_ENCODING_SCHEMA};
 use crate::postprocess::window_content;
 use crate::rerank_adapter::{rerank_hits, RankedChunk};
 use crate::retriever::{
@@ -40,6 +41,8 @@ pub const VECTOR_KIND_KEY: &str = "vector_kind";
 pub const ENCODER_KEY: &str = "encoder";
 /// Payload key carrying the encoder schema of a stored vector.
 pub const ENCODER_SCHEMA_KEY: &str = "encoder_schema";
+/// Payload key carrying the named-space declaration used to write a point.
+pub const NAMED_SPACES_KEY: &str = "named_spaces";
 
 /// Ingest outcome counters.
 #[derive(Debug, Clone, Default)]
@@ -150,8 +153,27 @@ where
         return Ok(stats);
     }
     let texts: Vec<String> = pending.iter().map(|chunk| chunk.content.clone()).collect();
-    let mut encoded = Vec::with_capacity(texts.len());
-    if let Some(name) = config
+    let named_spaces = config.named_spaces.clone();
+    let mut named_encoded: Vec<BTreeMap<String, VectorData>> = Vec::with_capacity(texts.len());
+    let mut encoded: Vec<VectorData> = Vec::with_capacity(texts.len());
+    if let Some(spaces) = &named_spaces {
+        let name = config
+            .encoder
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| {
+                RagError::InvalidInput("encoder is required for named-vector ingest".to_string())
+            })?;
+        for text in &texts {
+            let output = crate::plugin::encode_named_with_registered(
+                name,
+                text,
+                serde_json::json!({}),
+                spaces,
+            )?;
+            named_encoded.push(output.spaces);
+        }
+    } else if let Some(name) = config
         .encoder
         .as_deref()
         .filter(|name| !name.trim().is_empty())
@@ -182,26 +204,43 @@ where
             encoded.extend(result.embeddings.into_iter().map(VectorData::Dense));
         }
     }
-    if encoded.is_empty() {
+    if named_spaces.is_none() && encoded.is_empty() {
         return Err(RagError::Embedding(
             "encoder returned no vectors".to_string(),
         ));
     }
-    let dimension = collection_dimension(&encoded, config)?;
-    for vector in &encoded {
-        vector.validate(config.vector_kind, dimension, config.multi_max_vectors)?;
-    }
-    let mut spec = CollectionSpec::new(collection, dimension).with_kind(config.vector_kind);
-    if let Some(max) = config.sparse_max_index {
-        spec = spec.with_sparse_max_index(max);
-    }
-    if let Some(max) = config.multi_max_vectors {
-        spec = spec.with_multi_max_vectors(max);
-    }
+    let spec = if let Some(spaces) = &named_spaces {
+        CollectionSpec::new(collection, 0).with_spaces(spaces.clone())
+    } else {
+        let dimension = collection_dimension(&encoded, config)?;
+        for vector in &encoded {
+            vector.validate(config.vector_kind, dimension, config.multi_max_vectors)?;
+        }
+        let mut spec = CollectionSpec::new(collection, dimension).with_kind(config.vector_kind);
+        if let Some(max) = config.sparse_max_index {
+            spec = spec.with_sparse_max_index(max);
+        }
+        if let Some(max) = config.multi_max_vectors {
+            spec = spec.with_multi_max_vectors(max);
+        }
+        spec
+    };
     store.ensure_collection(&spec).await?;
     let mut points = Vec::with_capacity(pending.len());
-    for (chunk, vector) in pending.iter().zip(encoded) {
-        points.push(point_for(chunk, &config.namespace, vector, config));
+    if let Some(spaces) = &named_spaces {
+        for (chunk, vectors) in pending.iter().zip(named_encoded) {
+            points.push(point_for_named(
+                chunk,
+                &config.namespace,
+                vectors,
+                spaces,
+                config,
+            ));
+        }
+    } else {
+        for (chunk, vector) in pending.iter().zip(encoded) {
+            points.push(point_for(chunk, &config.namespace, vector, config));
+        }
     }
     for batch in points.chunks(256) {
         store.upsert(collection, batch).await?;
@@ -519,6 +558,44 @@ fn apply_configured_shaping(
 /// the query text into the declared kinds. Unknown names, wrong schemas
 /// and malformed payloads fail before any storage call.
 fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig) -> Result<()> {
+    if let Some(spaces) = &config.named_spaces {
+        let name = config
+            .vector_encoding
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| {
+                RagError::InvalidInput(
+                    "vector_encoding is required for named-vector queries".to_string(),
+                )
+            })?;
+        let target = config.target_space.as_deref().ok_or_else(|| {
+            RagError::InvalidInput("target_space is required for named-vector queries".to_string())
+        })?;
+        if !spaces.contains_key(target) {
+            return Err(RagError::InvalidInput(format!(
+                "target space '{target}' is not declared"
+            )));
+        }
+        for extra in &config.additional_named_spaces {
+            if !spaces.contains_key(extra) {
+                return Err(RagError::InvalidInput(format!(
+                    "named query space '{extra}' is not declared"
+                )));
+            }
+        }
+        if !config.additional_kinds.is_empty() {
+            return Err(RagError::InvalidInput(
+                "named queries cannot be combined with additional kinds".to_string(),
+            ));
+        }
+        crate::plugin::encode_named_with_registered(
+            name,
+            query_text,
+            serde_json::json!({}),
+            spaces,
+        )?;
+        return Ok(());
+    }
     if let Some(name) = config
         .vector_encoding
         .as_deref()
@@ -554,6 +631,26 @@ fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig) -> Result
 
 /// Validates that ingest has an encoder whenever the collection kind is not dense.
 fn validate_ingest_encoding(config: &RagIndexConfig) -> Result<()> {
+    if let Some(spaces) = &config.named_spaces {
+        let name = config
+            .encoder
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| {
+                RagError::InvalidInput("encoder is required for named-vector ingest".to_string())
+            })?;
+        for (space_name, space) in spaces {
+            space.validate().map_err(|error| {
+                RagError::InvalidInput(format!("named space '{space_name}': {error}"))
+            })?;
+        }
+        if crate::plugin::find_vector_encoding(name).is_none() {
+            return Err(RagError::InvalidInput(format!(
+                "unknown vector encoding '{name}'"
+            )));
+        }
+        return Ok(());
+    }
     if config.vector_kind == VectorKind::Dense && config.encoder.is_none() {
         return Ok(());
     }
@@ -661,6 +758,11 @@ fn validate_fusion(config: &RagQueryConfig) -> Result<()> {
     if config.fusion.mode != crate::config::FusionMode::Weighted || config.weighted_comparable {
         return Ok(());
     }
+    if config.named_spaces.is_some() && !config.additional_named_spaces.is_empty() {
+        return Err(RagError::InvalidInput(
+            "weighted fusion across named spaces requires weighted_comparable".to_string(),
+        ));
+    }
     let kinds = std::iter::once(config.vector_kind)
         .chain(config.additional_kinds.iter().map(|extra| extra.kind));
     let mut first: Option<VectorKind> = None;
@@ -707,7 +809,7 @@ where
         config,
     )
     .await?;
-    let lists = 1 + config.additional_kinds.len();
+    let lists = searched.lists;
     let requested = candidate_limit(config) * lists;
     let returned = searched.fused_len;
     let advised = apply_configured_shaping(searched.hits, query_text, config)?;
@@ -723,6 +825,11 @@ where
         encoder: config.vector_encoding.clone(),
         candidate_lists: lists,
         fusion_mode: config.fusion.mode.as_name().to_string(),
+        target_space: config.target_space.clone(),
+        encoding_schema: config
+            .named_spaces
+            .as_ref()
+            .map(|_| NAMED_VECTOR_ENCODING_SCHEMA.to_string()),
     };
     Ok((hits, metrics))
 }
@@ -967,14 +1074,47 @@ fn point_for(
         payload.insert(ENCODER_KEY.to_string(), serde_json::json!(name));
         payload.insert(
             ENCODER_SCHEMA_KEY.to_string(),
-            serde_json::json!(crate::plugin::VECTOR_ENCODING_SCHEMA),
+            serde_json::json!(VECTOR_ENCODING_SCHEMA),
         );
     }
     VectorPoint {
         id: chunk.id.clone(),
         vector,
+        named: None,
         payload,
     }
+}
+
+/// Builds a named-layout point with the same metadata shape as a single-space
+/// point. Encoding schema and space declarations travel in the payload so a
+/// stored point can be attributed to the encoder that produced it.
+fn point_for_named(
+    chunk: &RagChunk,
+    namespace: &str,
+    vectors: BTreeMap<String, VectorData>,
+    spaces: &BTreeMap<String, vector_contracts::VectorSpaceSpec>,
+    config: &RagIndexConfig,
+) -> VectorPoint {
+    let mut point = point_for(chunk, namespace, VectorData::Dense(Vec::new()), config);
+    point.named = Some(vectors);
+    point.payload.insert(
+        NAMED_SPACES_KEY.to_string(),
+        serde_json::json!(spaces.keys().collect::<Vec<_>>()),
+    );
+    if let Some(name) = config
+        .encoder
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    {
+        point.payload.insert(
+            ENCODER_SCHEMA_KEY.to_string(),
+            serde_json::json!(NAMED_VECTOR_ENCODING_SCHEMA),
+        );
+        point
+            .payload
+            .insert(ENCODER_KEY.to_string(), serde_json::json!(name));
+    }
+    point
 }
 
 /// Stores numeric-looking metadata as numbers so range conditions apply
@@ -1033,6 +1173,8 @@ struct SearchedHits {
     hits: Vec<RetrievedChunk>,
     /// Fused hits before `top_k` truncation.
     fused_len: usize,
+    /// Number of candidate lists entering fusion.
+    lists: usize,
 }
 
 async fn search_variants<S, E>(
@@ -1056,6 +1198,7 @@ where
         return Ok(SearchedHits {
             hits: Vec::new(),
             fused_len: 0,
+            lists: 0,
         });
     }
     let mut lists = Vec::with_capacity(variants.len());
@@ -1064,6 +1207,47 @@ where
             return Err(RagError::InvalidInput(
                 "query variants must not be empty".to_string(),
             ));
+        }
+        if let Some(spaces) = &config.named_spaces {
+            let name = config
+                .vector_encoding
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())
+                .ok_or_else(|| {
+                    RagError::InvalidInput(
+                        "vector_encoding is required for named-vector queries".to_string(),
+                    )
+                })?;
+            let encoded = crate::plugin::encode_named_with_registered(
+                name,
+                variant,
+                serde_json::json!({}),
+                spaces,
+            )?;
+            let target = config.target_space.as_deref().ok_or_else(|| {
+                RagError::InvalidInput(
+                    "target_space is required for named-vector queries".to_string(),
+                )
+            })?;
+            let targets = std::iter::once(target)
+                .chain(config.additional_named_spaces.iter().map(String::as_str));
+            for space in targets {
+                let data = encoded.spaces.get(space).ok_or_else(|| {
+                    RagError::InvalidInput(format!("encoded space '{space}' is missing"))
+                })?;
+                let request = VectorQuery::with_named(space, data.clone(), candidate_limit(config))
+                    .with_filter(query_filter(namespace, config));
+                let request = match config.score_threshold {
+                    Some(threshold) => request.with_score_threshold(threshold),
+                    None => request,
+                };
+                let mut hits = Vec::new();
+                for point in store.search(collection, &request).await? {
+                    hits.push(chunk_from_hit(&point)?);
+                }
+                lists.push(hits);
+            }
+            continue;
         }
         let vector = query_vector(
             variant,
@@ -1114,6 +1298,7 @@ where
         }
         lists.push(hits);
     }
+    let list_count = lists.len();
     let fused = if lists.len() == 1 {
         lists.into_iter().next().unwrap_or_default()
     } else {
@@ -1123,6 +1308,7 @@ where
     Ok(SearchedHits {
         hits: fused.into_iter().take(config.top_k).collect(),
         fused_len,
+        lists: list_count,
     })
 }
 
@@ -1801,5 +1987,115 @@ mod tests {
             vector_contracts::VectorData::Sparse { .. }
         ));
         crate::plugin::clear_vector_encodings();
+    }
+
+    struct PipelineNamedEncoding;
+
+    impl wf_plugin_sdk::PluginVectorEncoding for PipelineNamedEncoding {
+        fn name(&self) -> String {
+            "test-pipeline-named".to_string()
+        }
+
+        fn encode(
+            &self,
+            text: String,
+            _options: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            let term = if text.contains("rust") { 1 } else { 2 };
+            Ok(serde_json::json!({
+                "schema": "named-vector-encoding/v1",
+                "encoders": {"title": "dense", "terms": "sparse"},
+                "vectors": {
+                    "title": [1.0, 0.0],
+                    "terms": {"indices": [term], "values": [1.0]},
+                },
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn named_encoding_ingests_and_fuses_space_lists() {
+        let _guard = crate::plugin::test_registry_guard().await;
+        crate::plugin::clear_vector_encodings();
+        crate::plugin::register_vector_encoding(
+            "test-pipeline-named",
+            std::sync::Arc::new(PipelineNamedEncoding),
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "wf-rag-named-pipeline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        let store = vector_contracts::SimvecVectorStore::open(&dir).expect("store");
+        let embedder = UnitEmbedder { dimension: 2 };
+        let spaces = BTreeMap::from([
+            (
+                "title".to_string(),
+                vector_contracts::VectorSpaceSpec::new(
+                    VectorKind::Dense,
+                    2,
+                    vector_contracts::DistanceMetric::Cosine,
+                ),
+            ),
+            (
+                "terms".to_string(),
+                vector_contracts::VectorSpaceSpec::new(
+                    VectorKind::Sparse,
+                    8,
+                    vector_contracts::DistanceMetric::Dot,
+                ),
+            ),
+        ]);
+        let index =
+            RagIndexConfig::new("kb").with_named_spaces(spaces.clone(), "test-pipeline-named");
+        ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "named-kb",
+            &[
+                doc("d1", "rust.md", "rust ownership"),
+                doc("d2", "go.md", "go routines"),
+            ],
+            &index,
+        )
+        .await
+        .expect("named ingest");
+        let query_config = RagQueryConfig {
+            named_spaces: Some(spaces),
+            target_space: Some("title".to_string()),
+            additional_named_spaces: vec!["terms".to_string()],
+            vector_encoding: Some("test-pipeline-named".to_string()),
+            top_k: 5,
+            ..RagQueryConfig::default()
+        };
+        let (hits, metrics) =
+            query_with_metrics(&store, &embedder, "named-kb", "kb", "rust", &query_config)
+                .await
+                .expect("named query");
+        assert!(!hits.is_empty());
+        assert_eq!(metrics.target_space.as_deref(), Some("title"));
+        assert_eq!(
+            metrics.encoding_schema.as_deref(),
+            Some(NAMED_VECTOR_ENCODING_SCHEMA)
+        );
+        assert_eq!(metrics.candidate_lists, 2);
+        let weighted = RagQueryConfig {
+            fusion: crate::config::FusionConfig {
+                mode: crate::config::FusionMode::Weighted,
+                ..crate::config::FusionConfig::default()
+            },
+            ..query_config
+        };
+        assert!(
+            query(&store, &embedder, "named-kb", "kb", "rust", &weighted)
+                .await
+                .is_err()
+        );
+        crate::plugin::clear_vector_encodings();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

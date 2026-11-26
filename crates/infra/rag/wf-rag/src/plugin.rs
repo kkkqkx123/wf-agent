@@ -21,10 +21,10 @@
 //! Only the native backend dispatches retrieval extensions; Lua/Wasm hosts
 //! expose no retrieval channel.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use vector_contracts::{VectorData, VectorKind};
+use vector_contracts::{validate_named_data, VectorData, VectorKind, VectorSpaceSpec};
 use wf_plugin_sdk::{
     PluginChunkSplitter, PluginEvalJudge, PluginMetadataExtractor, PluginPostprocessor,
     PluginRetrievalAdvisor, PluginRouteSelector, PluginTextAnalyzer, PluginVectorEncoding,
@@ -40,8 +40,23 @@ pub const ROUTE_SELECTOR_PROTOCOL_VERSION: u32 = 1;
 pub const POSTPROCESSOR_PROTOCOL_VERSION: u32 = 1;
 /// Protocol version sent with every eval judge input.
 pub const EVAL_JUDGE_PROTOCOL_VERSION: u32 = 1;
-/// Schema every vector encoder output must declare.
+/// Schema every single-space vector encoder output must declare.
 pub const VECTOR_ENCODING_SCHEMA: &str = "vector-encoding/v1";
+/// Schema of an encoder returning one vector per named space.
+pub const NAMED_VECTOR_ENCODING_SCHEMA: &str = "named-vector-encoding/v1";
+
+/// Typed output of a named-space vector encoder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NamedEncodedVector {
+    /// Validated vector for each declared named space.
+    pub spaces: BTreeMap<String, VectorData>,
+    /// Encoder name declared for each space by the plugin output.
+    pub encoders: BTreeMap<String, String>,
+    /// Schema declared by the plugin output.
+    pub schema: String,
+    /// Registered encoder that produced the payload.
+    pub encoder: String,
+}
 
 /// Typed vector encoding produced by a registered encoder.
 #[derive(Debug, Clone, PartialEq)]
@@ -303,6 +318,106 @@ pub fn encode_with_registered(
     Ok(EncodedVector {
         kind: expected,
         data,
+        schema: schema.to_string(),
+        encoder: name.to_string(),
+    })
+}
+
+/// Encodes text through a named-space encoder and validates the whole
+/// mapping against the collection declaration.
+///
+/// The plugin output declares the named schema, one `vector` per space and
+/// the encoder used for each space. A missing or extra space fails before
+/// any point reaches storage.
+pub fn encode_named_with_registered(
+    name: &str,
+    text: &str,
+    options: serde_json::Value,
+    expected: &BTreeMap<String, VectorSpaceSpec>,
+) -> crate::error::Result<NamedEncodedVector> {
+    let Some(encoding) = find_vector_encoding(name) else {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "named vector encoding '{name}' is not registered"
+        )));
+    };
+    if expected.is_empty() {
+        return Err(crate::error::RagError::InvalidInput(
+            "named vector encoding requires at least one declared space".to_string(),
+        ));
+    }
+    let output = encoding
+        .encode(text.to_string(), options)
+        .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
+    let object = output.as_object().ok_or_else(|| {
+        crate::error::RagError::InvalidInput(format!(
+            "named vector encoding '{name}' must return a JSON object"
+        ))
+    })?;
+    let schema = object
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            crate::error::RagError::InvalidInput(format!(
+                "named vector encoding '{name}' must declare a schema"
+            ))
+        })?;
+    if schema != NAMED_VECTOR_ENCODING_SCHEMA {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "named vector encoding '{name}' uses schema '{schema}', expected '{NAMED_VECTOR_ENCODING_SCHEMA}'"
+        )));
+    }
+    let vectors = object
+        .get("vectors")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            crate::error::RagError::InvalidInput(format!(
+                "named vector encoding '{name}' must carry a vectors map"
+            ))
+        })?;
+    let declared_encoders = object
+        .get("encoders")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            crate::error::RagError::InvalidInput(format!(
+                "named vector encoding '{name}' must declare an encoders map"
+            ))
+        })?;
+    if vectors.len() != expected.len() || declared_encoders.len() != expected.len() {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "named vector encoding '{name}' must cover exactly {} spaces",
+            expected.len()
+        )));
+    }
+    let mut spaces = BTreeMap::new();
+    let mut encoders = BTreeMap::new();
+    for (space_name, space) in expected {
+        let value = vectors.get(space_name).ok_or_else(|| {
+            crate::error::RagError::InvalidInput(format!(
+                "named vector encoding '{name}' is missing space '{space_name}'"
+            ))
+        })?;
+        let data: VectorData = serde_json::from_value(value.clone()).map_err(|error| {
+            crate::error::RagError::InvalidInput(format!(
+                "named vector encoding '{name}' space '{space_name}' is invalid: {error}"
+            ))
+        })?;
+        let encoder = declared_encoders
+            .get(space_name)
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                crate::error::RagError::InvalidInput(format!(
+                    "named vector encoding '{name}' has no encoder for '{space_name}'"
+                ))
+            })?;
+        validate_named_data(space_name, &data, space)
+            .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
+        spaces.insert(space_name.clone(), data);
+        encoders.insert(space_name.clone(), encoder.to_string());
+    }
+    Ok(NamedEncodedVector {
+        spaces,
+        encoders,
         schema: schema.to_string(),
         encoder: name.to_string(),
     })
@@ -1273,5 +1388,68 @@ mod tests {
         clear_route_selectors();
         clear_postprocessors();
         clear_eval_judges();
+    }
+
+    struct NamedEncoding;
+
+    impl PluginVectorEncoding for NamedEncoding {
+        fn name(&self) -> String {
+            "test-named-encoding".to_string()
+        }
+
+        fn encode(
+            &self,
+            _text: String,
+            _options: serde_json::Value,
+        ) -> PluginResult<serde_json::Value> {
+            Ok(serde_json::json!({
+                "schema": "named-vector-encoding/v1",
+                "encoders": {"title": "dense-encoder", "terms": "sparse-encoder"},
+                "vectors": {
+                    "title": [1.0, 0.0],
+                    "terms": {"indices": [2], "values": [0.5]},
+                },
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn named_encoding_validates_every_declared_space() {
+        let _guard = test_registry_guard().await;
+        clear_vector_encodings();
+        register_vector_encoding("named", Arc::new(NamedEncoding));
+        let spaces = BTreeMap::from([
+            (
+                "title".to_string(),
+                VectorSpaceSpec::new(
+                    VectorKind::Dense,
+                    2,
+                    vector_contracts::DistanceMetric::Cosine,
+                ),
+            ),
+            (
+                "terms".to_string(),
+                VectorSpaceSpec::new(VectorKind::Sparse, 8, vector_contracts::DistanceMetric::Dot),
+            ),
+        ]);
+        let encoded = encode_named_with_registered("named", "text", serde_json::json!({}), &spaces)
+            .expect("named encoding passes");
+        assert_eq!(encoded.spaces.len(), 2);
+        assert_eq!(encoded.encoders["terms"], "sparse-encoder");
+        assert_eq!(encoded.schema, NAMED_VECTOR_ENCODING_SCHEMA);
+
+        let too_small = BTreeMap::from([(
+            "title".to_string(),
+            VectorSpaceSpec::new(
+                VectorKind::Dense,
+                3,
+                vector_contracts::DistanceMetric::Cosine,
+            ),
+        )]);
+        assert!(
+            encode_named_with_registered("named", "text", serde_json::json!({}), &too_small)
+                .is_err()
+        );
+        clear_vector_encodings();
     }
 }

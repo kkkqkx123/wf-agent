@@ -29,6 +29,10 @@ pub struct RetrievalMetrics {
     pub candidate_lists: usize,
     /// Fusion strategy applied to the candidate lists.
     pub fusion_mode: String,
+    /// Named space targeted by the primary query, when applicable.
+    pub target_space: Option<String>,
+    /// Named encoding schema used by the query, when applicable.
+    pub encoding_schema: Option<String>,
 }
 
 impl RetrievalMetrics {
@@ -60,6 +64,14 @@ impl RetrievalMetrics {
                 self.candidate_lists.to_string(),
             ),
             ("fusion_mode".to_string(), self.fusion_mode.clone()),
+            (
+                "target_space".to_string(),
+                self.target_space.clone().unwrap_or_default(),
+            ),
+            (
+                "encoding_schema".to_string(),
+                self.encoding_schema.clone().unwrap_or_default(),
+            ),
         ])
     }
 

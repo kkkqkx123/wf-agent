@@ -6,7 +6,7 @@
 //! example the contracts-level upsert-overwrite of a whole source) is
 //! composed from engine primitives here, never by forking engine code.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -16,7 +16,8 @@ use crate::error::{Result, VectorError};
 use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
 use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 use crate::types::{
-    ScoredPoint, VectorData, VectorKind, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY,
+    DistanceMetric, ScoredPoint, VectorData, VectorKind, VectorPoint, VectorSpaceSpec,
+    NAMESPACE_KEY, PID_KEY, SOURCE_KEY,
 };
 
 /// Embedded local vector backend powered by simvec.
@@ -129,6 +130,81 @@ impl SimvecVectorStore {
             simvec::VectorKind::Dense => VectorKind::Dense,
             simvec::VectorKind::Sparse => VectorKind::Sparse,
             simvec::VectorKind::Multi => VectorKind::Multi,
+        }
+    }
+
+    fn map_engine_space(&self, space: simvec::VectorSpaceConfig) -> Result<VectorSpaceSpec> {
+        let distance = match space.distance {
+            simvec::DistanceMetric::Cosine => DistanceMetric::Cosine,
+            simvec::DistanceMetric::Dot => DistanceMetric::Dot,
+            simvec::DistanceMetric::Euclid => DistanceMetric::Euclid,
+            simvec::DistanceMetric::Manhattan => {
+                return Err(VectorError::unsupported(
+                    self.backend_name(),
+                    "named manhattan spaces",
+                ))
+            }
+        };
+        Ok(VectorSpaceSpec {
+            kind: Self::map_engine_kind(space.kind),
+            vector_size: space.vector_size,
+            distance,
+        })
+    }
+
+    fn map_space(space: &VectorSpaceSpec) -> simvec::VectorSpaceConfig {
+        simvec::VectorSpaceConfig {
+            kind: Self::map_kind(space.kind),
+            vector_size: space.vector_size,
+            distance: Self::map_distance(space.distance),
+        }
+    }
+
+    fn named_spaces(
+        &self,
+        config: &simvec::CollectionConfig,
+    ) -> Result<Option<BTreeMap<String, VectorSpaceSpec>>> {
+        match &config.vectors {
+            simvec::VectorsConfig::Named(spaces) => spaces
+                .iter()
+                .map(|(name, space)| Ok((name.clone(), self.map_engine_space(space.clone())?)))
+                .collect::<Result<BTreeMap<_, _>>>()
+                .map(Some),
+            simvec::VectorsConfig::Single => Ok(None),
+        }
+    }
+
+    /// Converts an engine point, preserving named-space payloads.
+    fn map_engine_point(point: simvec::VectorPoint, id_hint: &str) -> VectorPoint {
+        let resolved = point
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.get(PID_KEY))
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| id_hint.to_string());
+        if !point.named.is_empty() {
+            let named = point
+                .named
+                .into_iter()
+                .map(|(name, data)| (name, Self::map_engine_data(data)))
+                .collect();
+            return VectorPoint {
+                id: resolved,
+                vector: VectorData::Dense(Vec::new()),
+                named: Some(named),
+                payload: point.payload.unwrap_or_default(),
+            };
+        }
+        let vector = match point.data {
+            Some(data) => Self::map_engine_data(data),
+            None => VectorData::Dense(point.vector),
+        };
+        VectorPoint {
+            id: resolved,
+            vector,
+            named: None,
+            payload: point.payload.unwrap_or_default(),
         }
     }
 
@@ -493,11 +569,53 @@ impl VectorStorage for SimvecVectorStore {
             .collect()
     }
 
+    fn supports_named_spaces(&self) -> bool {
+        self.engine.supports_named_spaces()
+    }
+
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
         if spec.name.is_empty() {
             return Err(VectorError::InvalidInput(
                 "collection name must not be empty".to_string(),
             ));
+        }
+        if let Some(spaces) = &spec.spaces {
+            spec.validate()?;
+            if !self.supports_named_spaces() {
+                return Err(VectorError::unsupported(
+                    self.backend_name(),
+                    "named vector spaces",
+                ));
+            }
+            if !self.engine.collection_exists(&spec.name) {
+                let mapped = spaces
+                    .iter()
+                    .map(|(name, space)| (name.clone(), Self::map_space(space)))
+                    .collect();
+                let config = simvec::CollectionConfig::with_named(mapped);
+                self.engine
+                    .create_collection(&spec.name, &config)
+                    .map_err(map_engine_error)?;
+                return Ok(true);
+            }
+            let existing = self
+                .engine
+                .collection_config(&spec.name)
+                .map_err(map_engine_error)?
+                .ok_or_else(|| VectorError::CollectionMissing(spec.name.clone()))?;
+            let existing = self.named_spaces(&existing)?.ok_or_else(|| {
+                VectorError::InvalidInput(format!(
+                    "collection '{}' is not a named-layout collection",
+                    spec.name
+                ))
+            })?;
+            if &existing != spaces {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses different named spaces, recreate it",
+                    spec.name
+                )));
+            }
+            return Ok(false);
         }
         if spec.dimension == 0 {
             return Err(VectorError::InvalidInput(
@@ -689,6 +807,36 @@ impl VectorStorage for SimvecVectorStore {
             .collection_config(collection)
             .map_err(map_engine_error)?
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        if let Some(spaces) = self.named_spaces(&config)? {
+            let mut mapped = Vec::with_capacity(points.len());
+            for point in points {
+                point.validate_named(&spaces)?;
+                let named = point
+                    .named
+                    .as_ref()
+                    .ok_or_else(|| {
+                        VectorError::InvalidInput(
+                            "named points must carry named vectors".to_string(),
+                        )
+                    })?
+                    .iter()
+                    .map(|(name, data)| Ok((name.clone(), Self::map_vector_data(data)?)))
+                    .collect::<Result<BTreeMap<_, _>>>()?;
+                let mut payload = point.payload.clone();
+                payload.insert(PID_KEY.to_string(), serde_json::json!(point.id));
+                mapped.push(simvec::VectorPoint {
+                    id: Self::point_id(&point.id),
+                    vector: Vec::new(),
+                    data: None,
+                    named,
+                    payload: Some(payload),
+                });
+            }
+            self.engine
+                .upsert_batch(collection, &mapped)
+                .map_err(map_engine_error)?;
+            return Ok(());
+        }
         let dimension = config.vector_size;
         let max_vectors = config.multi_config.map(|c| c.max_vectors_per_point);
         let mut mapped = Vec::with_capacity(points.len());
@@ -751,6 +899,30 @@ impl VectorStorage for SimvecVectorStore {
             .collection_config(collection)
             .map_err(map_engine_error)?
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        if let Some(spaces) = self.named_spaces(&config)? {
+            query.validate_named(&spaces)?;
+            let target = query.target_space.as_deref().ok_or_else(|| {
+                VectorError::InvalidInput("named query has no target".to_string())
+            })?;
+            let data = query.named_vector.as_ref().ok_or_else(|| {
+                VectorError::InvalidInput("named query has no vector".to_string())
+            })?;
+            let mut request =
+                simvec::SearchQuery::with_named(target, Self::map_vector_data(data)?, query.limit);
+            if let Some(threshold) = query.score_threshold {
+                request = request.with_score_threshold(threshold);
+            }
+            if let Some(filter) = &query.filter {
+                if let Some(mapped) = Self::map_filter(filter)? {
+                    request = request.with_filter(mapped);
+                }
+            }
+            let hits = self
+                .engine
+                .search(collection, &request)
+                .map_err(map_engine_error)?;
+            return Ok(shape(hits));
+        }
         let kind = Self::map_engine_kind(config.kind);
         if query.vector.kind() != kind {
             return Err(VectorError::InvalidInput(format!(
@@ -835,22 +1007,7 @@ impl VectorStorage for SimvecVectorStore {
                 .get(collection, &Self::point_id(id))
                 .map_err(map_engine_error)?;
             if let Some(point) = stored {
-                let resolved = point
-                    .payload
-                    .as_ref()
-                    .and_then(|payload| payload.get(PID_KEY))
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| id.clone());
-                let vector = match point.data {
-                    Some(data) => Self::map_engine_data(data),
-                    None => VectorData::Dense(point.vector),
-                };
-                found.push(VectorPoint {
-                    id: resolved,
-                    vector,
-                    payload: point.payload.unwrap_or_default(),
-                });
+                found.push(Self::map_engine_point(point, id));
             }
         }
         Ok(found)
@@ -947,21 +1104,8 @@ impl VectorStorage for SimvecVectorStore {
         };
         let mut converted = Vec::with_capacity(points.len());
         for point in points {
-            let payload = point.payload.clone().unwrap_or_default();
-            let resolved = payload
-                .get(PID_KEY)
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| Self::id_string(&point.id));
-            let vector = match point.data {
-                Some(data) => Self::map_engine_data(data),
-                None => VectorData::Dense(point.vector.clone()),
-            };
-            converted.push(VectorPoint {
-                id: resolved,
-                vector,
-                payload,
-            });
+            let id_hint = Self::id_string(&point.id);
+            converted.push(Self::map_engine_point(point, &id_hint));
         }
         let next_offset = next.as_ref().map(Self::id_string);
         let next_offset = if converted.len() < limit {
@@ -1099,6 +1243,7 @@ mod tests {
                 VectorPoint {
                     id: id.to_string(),
                     vector: VectorData::Sparse { indices, values },
+                    named: None,
                     payload: HashMap::from([(PID_KEY.to_string(), serde_json::json!(id))]),
                 }
             };
@@ -1130,6 +1275,7 @@ mod tests {
             let multi_point = |id: &str, vectors: Vec<Vec<f32>>| VectorPoint {
                 id: id.to_string(),
                 vector: VectorData::Multi(vectors),
+                named: None,
                 payload: HashMap::from([(PID_KEY.to_string(), serde_json::json!(id))]),
             };
             store
@@ -1180,6 +1326,7 @@ mod tests {
             let point = VectorPoint {
                 id: "a".to_string(),
                 vector: VectorData::sparse(vec![1, 4], vec![0.5, 1.0]),
+                named: None,
                 payload: HashMap::new(),
             };
             store.upsert("bounded", &[point]).await.expect("upsert");
@@ -1200,6 +1347,7 @@ mod tests {
         VectorPoint {
             id: id.to_string(),
             vector: vec![1.0, 0.0, 0.0].into(),
+            named: None,
             payload: HashMap::from([
                 (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
                 (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
@@ -1389,16 +1537,19 @@ mod tests {
                 VectorPoint {
                     id: "a".to_string(),
                     vector: vec![1.0, 0.0].into(),
+                    named: None,
                     payload: HashMap::new(),
                 },
                 VectorPoint {
                     id: "b".to_string(),
                     vector: vec![0.8, 0.6].into(),
+                    named: None,
                     payload: HashMap::new(),
                 },
                 VectorPoint {
                     id: "c".to_string(),
                     vector: vec![0.0, 1.0].into(),
+                    named: None,
                     payload: HashMap::new(),
                 },
             ];
@@ -1418,6 +1569,7 @@ mod tests {
         VectorPoint {
             id: id.to_string(),
             vector: vec![1.0, 0.0, 0.0].into(),
+            named: None,
             payload: HashMap::from([
                 (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
                 ("lang".to_string(), serde_json::json!(lang)),
@@ -1566,6 +1718,7 @@ mod tests {
                     .map(|point| VectorPoint {
                         id: point.id.clone(),
                         vector: vec![1.0, 0.0].into(),
+                        named: None,
                         payload: point.payload.clone(),
                     })
                     .collect::<Vec<_>>(),
@@ -1621,6 +1774,122 @@ mod tests {
                 .await;
             assert!(matches!(missing, Err(VectorError::InvalidInput(_))));
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn named_collection_round_trips_through_contracts() {
+        let dir = std::env::temp_dir().join(format!(
+            "vector-contracts-simvec-named-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        let store = SimvecVectorStore::open(&dir).expect("open store");
+        assert!(store.supports_named_spaces());
+        let spaces = BTreeMap::from([
+            (
+                "title".to_string(),
+                VectorSpaceSpec::new(
+                    VectorKind::Dense,
+                    2,
+                    crate::types::DistanceMetric::Cosine,
+                ),
+            ),
+            (
+                "terms".to_string(),
+                VectorSpaceSpec::new(
+                    VectorKind::Sparse,
+                    8,
+                    crate::types::DistanceMetric::Dot,
+                ),
+            ),
+        ]);
+        let spec = CollectionSpec::new("named", 0).with_spaces(spaces.clone());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            assert!(store.ensure_collection(&spec).await.expect("create"));
+            assert!(!store.ensure_collection(&spec).await.expect("reopen"));
+            let point = VectorPoint::with_named(
+                "p1",
+                "title",
+                VectorData::dense(vec![1.0, 0.0]),
+            )
+            .with_named_vector("terms", VectorData::sparse(vec![2], vec![1.5]))
+            .with_field(NAMESPACE_KEY, serde_json::json!("kb"))
+            .with_field(SOURCE_KEY, serde_json::json!("doc.md"));
+            store.upsert("named", &[point.clone()]).await.expect("upsert");
+
+            let dense = VectorQuery::with_named(
+                "title",
+                VectorData::dense(vec![1.0, 0.0]),
+                5,
+            )
+            .with_filter(SearchFilter::new().with_namespace("kb"));
+            let hits = store.search("named", &dense).await.expect("dense search");
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].id, "p1");
+            let sparse = VectorQuery::with_named(
+                "terms",
+                VectorData::sparse(vec![2], vec![1.0]),
+                5,
+            );
+            let hits = store.search("named", &sparse).await.expect("sparse search");
+            assert_eq!(hits[0].id, "p1");
+
+            let fetched = store
+                .fetch("named", &["p1".to_string()])
+                .await
+                .expect("fetch");
+            assert_eq!(fetched[0].named, point.named);
+            let page = store
+                .scroll("named", &ScrollQuery::new(10))
+                .await
+                .expect("scroll");
+            assert_eq!(page.points[0].named, point.named);
+            assert_eq!(store.count("named", None).await.expect("count"), 1);
+
+            let partial = VectorPoint::with_named(
+                "p2",
+                "title",
+                VectorData::dense(vec![0.0, 1.0]),
+            );
+            assert!(store.upsert("named", &[partial]).await.is_err());
+            assert!(store
+                .search("named", &dense.clone().with_exact(true))
+                .await
+                .is_err());
+            assert!(store
+                .search(
+                    "named",
+                    &VectorQuery::with_named(
+                        "missing",
+                        VectorData::dense(vec![1.0, 0.0]),
+                        5,
+                    )
+                )
+                .await
+                .is_err());
+            assert_eq!(
+                store
+                    .delete_by_id("named", &["p1".to_string()])
+                    .await
+                    .expect("delete"),
+                1
+            );
+        });
+        drop(store);
+        let reopened = SimvecVectorStore::open(&dir).expect("reopen");
+        runtime.block_on(async {
+            assert_eq!(reopened.count("named", None).await.expect("count"), 0);
+            let spec = CollectionSpec::new("named", 0).with_spaces(spaces);
+            assert!(!reopened.ensure_collection(&spec).await.expect("ensure"));
+        });
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

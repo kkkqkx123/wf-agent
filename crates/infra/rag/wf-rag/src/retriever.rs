@@ -489,6 +489,7 @@ mod tests {
         VectorPoint {
             id: id.to_string(),
             vector: vec![0.0; 2].into(),
+            named: None,
             payload: HashMap::from([
                 ("content".to_string(), serde_json::json!(content)),
                 ("chunk_id".to_string(), serde_json::json!(id)),

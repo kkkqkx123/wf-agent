@@ -1,8 +1,10 @@
 //! Serializable ingest and query configuration.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use vector_contracts::VectorKind;
+use vector_contracts::{VectorKind, VectorSpaceSpec};
 
 use crate::chunker::ChunkerConfig;
 use crate::cleaner::CleanerConfig;
@@ -61,6 +63,9 @@ pub struct RagIndexConfig {
     /// Per-point sub-vector bound for multi collections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_max_vectors: Option<usize>,
+    /// Named vector spaces written by the configured named encoder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named_spaces: Option<BTreeMap<String, VectorSpaceSpec>>,
 }
 
 /// Named chunking behavior. A preset only selects separators and
@@ -125,7 +130,23 @@ impl RagIndexConfig {
             encoder: None,
             sparse_max_index: None,
             multi_max_vectors: None,
+            named_spaces: None,
         }
+    }
+
+    /// Builds an ingest config for a named-layout collection.
+    ///
+    /// `encoder` must emit the named encoding schema with one vector per
+    /// declared space.
+    pub fn with_named_spaces(
+        mut self,
+        spaces: BTreeMap<String, VectorSpaceSpec>,
+        encoder: impl Into<String>,
+    ) -> Self {
+        self.named_spaces = Some(spaces);
+        self.encoder = Some(encoder.into());
+        self.vector_kind = VectorKind::Dense;
+        self
     }
 
     /// Builds an ingest config for one retrieval kind.
@@ -224,6 +245,15 @@ pub struct RagQueryConfig {
     /// Additional kind-specific collections recalled and fused with the primary one.
     #[serde(default)]
     pub additional_kinds: Vec<KindQueryConfig>,
+    /// Named-space declarations used by the named encoder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named_spaces: Option<BTreeMap<String, VectorSpaceSpec>>,
+    /// Named space queried on the primary collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_space: Option<String>,
+    /// Additional named spaces recalled from the same collection and fused.
+    #[serde(default)]
+    pub additional_named_spaces: Vec<String>,
     /// Plugin postprocessor shaping fused hits after the retrieval advisor;
     /// unset keeps advisor order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -323,6 +353,9 @@ impl Default for RagQueryConfig {
             multi_budget: None,
             weighted_comparable: false,
             additional_kinds: Vec::new(),
+            named_spaces: None,
+            target_space: None,
+            additional_named_spaces: Vec::new(),
             postprocessor: None,
             conditions: Vec::new(),
         }
@@ -342,6 +375,7 @@ pub fn vector_encoding_fingerprint(index: &RagIndexConfig) -> Option<String> {
         "kind": index.vector_kind,
         "sparse_max_index": index.sparse_max_index,
         "multi_max_vectors": index.multi_max_vectors,
+        "named_spaces": index.named_spaces,
     });
     Some(crate::sync::content_hash(&value.to_string()))
 }
@@ -401,5 +435,34 @@ mod tests {
             vector_encoding_fingerprint(&changed).expect("changed")
         );
         assert!(vector_encoding_fingerprint(&RagIndexConfig::new("kb")).is_none());
+    }
+
+    #[test]
+    fn named_encoding_fingerprint_tracks_every_space_parameter() {
+        let spaces = BTreeMap::from([(
+            "title".to_string(),
+            VectorSpaceSpec::new(
+                VectorKind::Dense,
+                8,
+                serde_json::from_value(serde_json::json!("cosine")).expect("distance"),
+            ),
+        )]);
+        let first = RagIndexConfig::new("kb").with_named_spaces(spaces, "named-encoder");
+        let fingerprint = vector_encoding_fingerprint(&first).expect("fingerprint");
+        let changed = RagIndexConfig::new("kb").with_named_spaces(
+            BTreeMap::from([(
+                "title".to_string(),
+                VectorSpaceSpec::new(
+                    VectorKind::Dense,
+                    16,
+                    serde_json::from_value(serde_json::json!("cosine")).expect("distance"),
+                ),
+            )]),
+            "named-encoder",
+        );
+        assert_ne!(
+            fingerprint,
+            vector_encoding_fingerprint(&changed).expect("changed")
+        );
     }
 }

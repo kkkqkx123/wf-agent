@@ -200,6 +200,13 @@ impl VectorStorage for InMemoryVectorStore {
                 "collection name must not be empty".to_string(),
             ));
         }
+        if spec.spaces.is_some() {
+            spec.validate()?;
+            return Err(VectorError::unsupported(
+                self.backend_name(),
+                "named vector spaces",
+            ));
+        }
         if spec.dimension == 0 && spec.kind != VectorKind::Sparse {
             return Err(VectorError::InvalidInput(
                 "collection dimension must be positive".to_string(),
@@ -398,6 +405,7 @@ impl VectorStorage for InMemoryVectorStore {
                 data.points.get(id).map(|stored| VectorPoint {
                     id: id.clone(),
                     vector: stored.vector.clone(),
+                    named: None,
                     payload: stored.payload.clone(),
                 })
             })
@@ -482,6 +490,7 @@ impl VectorStorage for InMemoryVectorStore {
                 data.points.get(id).map(|stored| VectorPoint {
                     id: id.clone(),
                     vector: stored.vector.clone(),
+                    named: None,
                     payload: stored.payload.clone(),
                 })
             })

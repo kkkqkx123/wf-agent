@@ -7,7 +7,7 @@
 //! filtering; the filter helpers in [`crate::filter`] implement the matching
 //! semantics both backends agree on.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -164,6 +164,48 @@ impl QuantizationSearchParams {
     pub fn with_oversampling(mut self, oversampling: f64) -> Self {
         self.oversampling = Some(oversampling);
         self
+    }
+}
+
+/// One named vector space declared by a named-layout collection.
+///
+/// A space has its own retrieval kind, dimension and distance. Only dense
+/// and sparse spaces are supported; multi vectors remain a single-space
+/// collection kind.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct VectorSpaceSpec {
+    /// Retrieval kind stored in this space.
+    pub kind: VectorKind,
+    /// Dense dimension, or the vocabulary bound of a sparse space.
+    pub vector_size: usize,
+    /// Distance metric used when scoring this space.
+    pub distance: DistanceMetric,
+}
+
+impl VectorSpaceSpec {
+    /// Builds one named space declaration.
+    pub fn new(kind: VectorKind, vector_size: usize, distance: DistanceMetric) -> Self {
+        Self {
+            kind,
+            vector_size,
+            distance,
+        }
+    }
+
+    /// Validates the space declaration without backend involvement.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        if self.kind == VectorKind::Multi {
+            return Err(crate::error::VectorError::InvalidInput(
+                "named vector spaces must not use the multi kind".to_string(),
+            ));
+        }
+        if self.vector_size == 0 {
+            return Err(crate::error::VectorError::InvalidInput(
+                "named vector space dimension must be positive".to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -401,7 +443,11 @@ pub struct VectorPoint {
     /// Caller-assigned stable id; upserts with the same id overwrite.
     pub id: String,
     /// Vector payload; must match the collection kind and dimension.
+    /// Named points leave this empty and populate `named` instead.
     pub vector: VectorData,
+    /// Named-space payload of a named-layout collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named: Option<BTreeMap<String, VectorData>>,
     /// JSON metadata, conventionally holding `namespace` and `source`.
     #[serde(default)]
     pub payload: HashMap<String, serde_json::Value>,
@@ -413,6 +459,7 @@ impl VectorPoint {
         Self {
             id: id.into(),
             vector: VectorData::Dense(vector),
+            named: None,
             payload: HashMap::new(),
         }
     }
@@ -422,6 +469,7 @@ impl VectorPoint {
         Self {
             id: id.into(),
             vector,
+            named: None,
             payload: HashMap::new(),
         }
     }
@@ -438,6 +486,27 @@ impl VectorPoint {
         self
     }
 
+    /// Builds a point carrying one named-space vector.
+    ///
+    /// The single-space `vector` field stays empty for named points; use
+    /// [`Self::with_named_vector`] to add the remaining declared spaces.
+    pub fn with_named(id: impl Into<String>, space: impl Into<String>, data: VectorData) -> Self {
+        Self {
+            id: id.into(),
+            vector: VectorData::Dense(Vec::new()),
+            named: Some(BTreeMap::from([(space.into(), data)])),
+            payload: HashMap::new(),
+        }
+    }
+
+    /// Attaches one vector to a named point, replacing the prior value.
+    pub fn with_named_vector(mut self, space: impl Into<String>, data: VectorData) -> Self {
+        self.named
+            .get_or_insert_with(BTreeMap::new)
+            .insert(space.into(), data);
+        self
+    }
+
     /// Validates id and dense dimension/finiteness without touching a backend.
     pub fn validate(&self, expected_dim: usize) -> crate::error::Result<()> {
         if self.id.is_empty() {
@@ -447,6 +516,95 @@ impl VectorPoint {
         }
         self.vector.validate(VectorKind::Dense, expected_dim, None)
     }
+
+    /// Validates a named point against the collection space declaration.
+    ///
+    /// A named point must carry every declared space and no single-space
+    /// payload. Sparse indices must stay below the declared vocabulary bound.
+    pub fn validate_named(
+        &self,
+        spaces: &BTreeMap<String, VectorSpaceSpec>,
+    ) -> crate::error::Result<()> {
+        if self.id.is_empty() {
+            return Err(crate::error::VectorError::InvalidInput(
+                "point id must not be empty".to_string(),
+            ));
+        }
+        if !Self::is_unset_vector(&self.vector) {
+            return Err(crate::error::VectorError::InvalidInput(
+                "named points must not carry a single-space vector".to_string(),
+            ));
+        }
+        let Some(named) = &self.named else {
+            return Err(crate::error::VectorError::InvalidInput(
+                "named points must carry named vectors".to_string(),
+            ));
+        };
+        if named.len() != spaces.len() {
+            return Err(crate::error::VectorError::InvalidInput(format!(
+                "named point carries {} spaces but the collection declares {}",
+                named.len(),
+                spaces.len()
+            )));
+        }
+        for (name, space) in spaces {
+            let Some(data) = named.get(name) else {
+                return Err(crate::error::VectorError::InvalidInput(format!(
+                    "named point is missing space '{name}'"
+                )));
+            };
+            validate_named_data(name, data, space)?;
+        }
+        Ok(())
+    }
+
+    fn is_unset_vector(data: &VectorData) -> bool {
+        matches!(data, VectorData::Dense(vector) if vector.is_empty())
+    }
+}
+
+/// Validates one named-space payload against its declaration.
+pub fn validate_named_data(
+    name: &str,
+    data: &VectorData,
+    space: &VectorSpaceSpec,
+) -> crate::error::Result<()> {
+    space.validate()?;
+    if data.kind() != space.kind {
+        return Err(crate::error::VectorError::InvalidInput(format!(
+            "space '{name}' expects {} vectors, got {}",
+            space.kind.as_name(),
+            data.kind().as_name()
+        )));
+    }
+    data.validate_shape()?;
+    match data {
+        VectorData::Dense(vector) => {
+            if vector.len() != space.vector_size {
+                return Err(crate::error::VectorError::DimensionMismatch {
+                    expected: space.vector_size,
+                    actual: vector.len(),
+                });
+            }
+        }
+        VectorData::Sparse { indices, .. } => {
+            if indices
+                .last()
+                .is_some_and(|last| *last as usize >= space.vector_size)
+            {
+                return Err(crate::error::VectorError::InvalidInput(format!(
+                    "space '{name}' sparse index exceeds vocabulary bound {}",
+                    space.vector_size
+                )));
+            }
+        }
+        VectorData::Multi(_) => {
+            return Err(crate::error::VectorError::InvalidInput(format!(
+                "space '{name}' must not use the multi kind"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// One query hit: the point id, its score and its payload.
@@ -577,5 +735,35 @@ mod tests {
         );
         assert!(payload_text(&serde_json::json!([1])).is_none());
         assert!(payload_text(&serde_json::Value::Null).is_none());
+    }
+
+    #[test]
+    fn named_point_requires_the_complete_declared_space_set() {
+        let spaces = BTreeMap::from([
+            (
+                "title".to_string(),
+                VectorSpaceSpec::new(VectorKind::Dense, 2, DistanceMetric::Cosine),
+            ),
+            (
+                "terms".to_string(),
+                VectorSpaceSpec::new(VectorKind::Sparse, 8, DistanceMetric::Dot),
+            ),
+        ]);
+        let point = VectorPoint::with_named("p1", "title", VectorData::dense(vec![1.0, 0.0]))
+            .with_named_vector("terms", VectorData::sparse(vec![2], vec![1.0]));
+        assert!(point.validate_named(&spaces).is_ok());
+
+        let partial = VectorPoint::with_named("p1", "title", VectorData::dense(vec![1.0, 0.0]));
+        assert!(partial.validate_named(&spaces).is_err());
+
+        let wrong_kind =
+            VectorPoint::with_named("p1", "title", VectorData::sparse(vec![1], vec![1.0]))
+                .with_named_vector("terms", VectorData::sparse(vec![2], vec![1.0]));
+        assert!(wrong_kind.validate_named(&spaces).is_err());
+
+        let out_of_bound =
+            VectorPoint::with_named("p1", "title", VectorData::dense(vec![1.0, 0.0]))
+                .with_named_vector("terms", VectorData::sparse(vec![8], vec![1.0]));
+        assert!(out_of_bound.validate_named(&spaces).is_err());
     }
 }

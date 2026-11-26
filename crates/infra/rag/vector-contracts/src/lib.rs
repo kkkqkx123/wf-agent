@@ -35,6 +35,7 @@ pub use qdrant::{QdrantConfig, QdrantVectorStore};
 pub use simvec_adapter::SimvecVectorStore;
 pub use store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 pub use types::{
-    payload_text, CompressionRatio, DistanceMetric, HnswConfig, QuantizationConfig,
-    QuantizationSearchParams, ScoredPoint, VectorData, VectorKind, VectorPoint,
+    payload_text, validate_named_data, CompressionRatio, DistanceMetric, HnswConfig,
+    QuantizationConfig, QuantizationSearchParams, ScoredPoint, VectorData, VectorKind, VectorPoint,
+    VectorSpaceSpec,
 };

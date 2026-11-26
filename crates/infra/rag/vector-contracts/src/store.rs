@@ -10,13 +10,13 @@
 
 use async_trait::async_trait;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use crate::error::Result;
+use crate::error::{Result, VectorError};
 use crate::filter::SearchFilter;
 use crate::types::{
     DistanceMetric, HnswConfig, QuantizationConfig, QuantizationSearchParams, ScoredPoint,
-    VectorData, VectorKind, VectorPoint,
+    VectorData, VectorKind, VectorPoint, VectorSpaceSpec,
 };
 
 /// Collection creation parameters.
@@ -44,8 +44,12 @@ pub struct CollectionSpec {
     pub multi_max_vectors: Option<usize>,
     /// Optional vector slot name used by backends that require named vectors
     /// (for example Qdrant sparse and named vectors). Unset keeps the backend
-    /// default unnamed slot.
+    /// default unnamed slot. This is a single slot and cannot accompany
+    /// `spaces`.
     pub vector_name: Option<String>,
+    /// Named-layout space declarations. When set, the collection carries one
+    /// vector per space and single-space fields above are not interpreted.
+    pub spaces: Option<BTreeMap<String, VectorSpaceSpec>>,
 }
 
 impl CollectionSpec {
@@ -62,7 +66,83 @@ impl CollectionSpec {
             sparse_max_index: None,
             multi_max_vectors: None,
             vector_name: None,
+            spaces: None,
         }
+    }
+
+    /// Declares a named-layout collection.
+    ///
+    /// Single-space fields are cleared so they cannot leak into the named
+    /// layout. Every space must carry a positive dimension and a supported
+    /// kind.
+    pub fn with_spaces(mut self, spaces: BTreeMap<String, VectorSpaceSpec>) -> Self {
+        self.dimension = 0;
+        self.distance = DistanceMetric::Cosine;
+        self.quantization = None;
+        self.hnsw = None;
+        self.sparse_max_index = None;
+        self.multi_max_vectors = None;
+        self.vector_name = None;
+        self.kind = VectorKind::Dense;
+        self.spaces = Some(spaces);
+        self
+    }
+
+    /// Adds one space to a named-layout declaration.
+    pub fn with_space(mut self, name: impl Into<String>, space: VectorSpaceSpec) -> Self {
+        self.spaces
+            .get_or_insert_with(BTreeMap::new)
+            .insert(name.into(), space);
+        self.spaces = self.spaces.filter(|spaces| !spaces.is_empty());
+        self
+    }
+
+    /// Validates a named declaration and its single-space field boundaries.
+    pub fn validate(&self) -> Result<()> {
+        let Some(spaces) = &self.spaces else {
+            return Ok(());
+        };
+        if spaces.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "named collection must declare at least one space".to_string(),
+            ));
+        }
+        for (name, space) in spaces {
+            if name.is_empty() {
+                return Err(VectorError::InvalidInput(
+                    "named vector space names must not be empty".to_string(),
+                ));
+            }
+            space.validate().map_err(|error| {
+                VectorError::InvalidInput(format!("named space '{name}': {error}"))
+            })?;
+        }
+        if self.vector_name.is_some() {
+            return Err(VectorError::InvalidInput(
+                "vector_name cannot be combined with named spaces".to_string(),
+            ));
+        }
+        if self.quantization.is_some() || self.hnsw.is_some() {
+            return Err(VectorError::InvalidInput(
+                "named collections do not support quantization or hnsw tuning".to_string(),
+            ));
+        }
+        if self.sparse_max_index.is_some() || self.multi_max_vectors.is_some() {
+            return Err(VectorError::InvalidInput(
+                "named collections do not accept single-space kind limits".to_string(),
+            ));
+        }
+        if self.kind != VectorKind::Dense || self.dimension != 0 {
+            return Err(VectorError::InvalidInput(
+                "named collections keep the single-space kind fields unset".to_string(),
+            ));
+        }
+        if self.distance != DistanceMetric::Cosine {
+            return Err(VectorError::InvalidInput(
+                "named collections declare distance per space, not globally".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Declares the retrieval kind of the collection.
@@ -139,6 +219,10 @@ pub struct VectorQuery {
     pub hnsw_ef: Option<u64>,
     /// Optional quantized-scan controls; unset keeps backend defaults.
     pub quantization: Option<QuantizationSearchParams>,
+    /// Target space of a named-layout query.
+    pub target_space: Option<String>,
+    /// Query vector carried by `target_space`.
+    pub named_vector: Option<VectorData>,
 }
 
 impl VectorQuery {
@@ -157,7 +241,58 @@ impl VectorQuery {
             exact: None,
             hnsw_ef: None,
             quantization: None,
+            target_space: None,
+            named_vector: None,
         }
+    }
+
+    /// Builds a query targeting one declared named space.
+    pub fn with_named(space: impl Into<String>, data: VectorData, limit: usize) -> Self {
+        Self {
+            vector: VectorData::Dense(Vec::new()),
+            limit: limit.max(1),
+            score_threshold: None,
+            filter: None,
+            exact: None,
+            hnsw_ef: None,
+            quantization: None,
+            target_space: Some(space.into()),
+            named_vector: Some(data),
+        }
+    }
+
+    /// Validates a named query against the collection space declaration.
+    ///
+    /// A named query targets exactly one declared space and rejects all
+    /// dense-only recall controls.
+    pub fn validate_named(&self, spaces: &BTreeMap<String, VectorSpaceSpec>) -> Result<()> {
+        if !matches!(self.vector, VectorData::Dense(ref values) if values.is_empty()) {
+            return Err(VectorError::InvalidInput(
+                "named queries must not carry a single-space vector".to_string(),
+            ));
+        }
+        let Some(target) = &self.target_space else {
+            return Err(VectorError::InvalidInput(
+                "named queries must declare a target space".to_string(),
+            ));
+        };
+        let Some(data) = &self.named_vector else {
+            return Err(VectorError::InvalidInput(
+                "named queries must carry a named vector".to_string(),
+            ));
+        };
+        if self.exact.is_some() || self.hnsw_ef.is_some() || self.quantization.is_some() {
+            return Err(VectorError::InvalidInput(
+                "exact, hnsw_ef and quantization controls do not apply to named queries"
+                    .to_string(),
+            ));
+        }
+        let Some(space) = spaces.get(target) else {
+            return Err(VectorError::InvalidInput(format!(
+                "unknown named vector space '{target}'"
+            )));
+        };
+        validate_named_query_data(target, data, space)
     }
 
     /// Drops hits below the threshold.
@@ -206,6 +341,45 @@ pub struct ScrollQuery {
     pub offset: Option<String>,
 }
 
+fn validate_named_query_data(name: &str, data: &VectorData, space: &VectorSpaceSpec) -> Result<()> {
+    space.validate()?;
+    if data.kind() != space.kind {
+        return Err(VectorError::InvalidInput(format!(
+            "space '{name}' expects {} vectors, got {}",
+            space.kind.as_name(),
+            data.kind().as_name()
+        )));
+    }
+    data.validate_shape()?;
+    match data {
+        VectorData::Dense(values) => {
+            if values.len() != space.vector_size {
+                return Err(VectorError::DimensionMismatch {
+                    expected: space.vector_size,
+                    actual: values.len(),
+                });
+            }
+        }
+        VectorData::Sparse { indices, .. } => {
+            if indices
+                .last()
+                .is_some_and(|last| *last as usize >= space.vector_size)
+            {
+                return Err(VectorError::InvalidInput(format!(
+                    "space '{name}' sparse index exceeds vocabulary bound {}",
+                    space.vector_size
+                )));
+            }
+        }
+        VectorData::Multi(_) => {
+            return Err(VectorError::InvalidInput(format!(
+                "space '{name}' must not use the multi kind"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl ScrollQuery {
     /// Builds a listing query returning at most `limit` points per page.
     pub fn new(limit: usize) -> Self {
@@ -252,6 +426,13 @@ pub trait VectorStorage: Send + Sync {
     /// list a kind must reject it with `VectorError::Unsupported`.
     fn supported_kinds(&self) -> Vec<VectorKind> {
         vec![VectorKind::Dense]
+    }
+
+    /// Whether this backend can store a named-layout collection. Layout is
+    /// independent of [`Self::supported_kinds`]; hosts must gate named
+    /// collections on this capability before creating one.
+    fn supports_named_spaces(&self) -> bool {
+        false
     }
 
     /// Ensures the collection exists with the given dimension and metric.
@@ -321,4 +502,93 @@ pub trait VectorStorage: Send + Sync {
     /// other keys untouched. Missing collections and missing points fail;
     /// the reserved `pid` mapping key is kept.
     async fn delete_payload_keys(&self, collection: &str, id: &str, keys: &[String]) -> Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::InMemoryVectorStore;
+    use crate::types::DistanceMetric;
+
+    fn spaces() -> BTreeMap<String, VectorSpaceSpec> {
+        BTreeMap::from([
+            (
+                "title".to_string(),
+                VectorSpaceSpec::new(VectorKind::Dense, 3, DistanceMetric::Cosine),
+            ),
+            (
+                "terms".to_string(),
+                VectorSpaceSpec::new(VectorKind::Sparse, 16, DistanceMetric::Dot),
+            ),
+        ])
+    }
+
+    #[test]
+    fn named_collection_spec_rejects_mixed_single_space_fields() {
+        let valid = CollectionSpec::new("named", 8).with_spaces(spaces());
+        assert!(valid.validate().is_ok());
+
+        assert!(CollectionSpec::new("named", 8)
+            .with_spaces(BTreeMap::new())
+            .validate()
+            .is_err());
+        assert!(CollectionSpec::new("named", 8)
+            .with_space(
+                "",
+                VectorSpaceSpec::new(VectorKind::Dense, 3, DistanceMetric::Cosine)
+            )
+            .validate()
+            .is_err());
+        assert!(CollectionSpec::new("named", 8)
+            .with_spaces(BTreeMap::from([(
+                "multi".to_string(),
+                VectorSpaceSpec::new(VectorKind::Multi, 3, DistanceMetric::Cosine),
+            )]))
+            .validate()
+            .is_err());
+        assert!(CollectionSpec::new("named", 8)
+            .with_spaces(spaces())
+            .with_quantization(QuantizationConfig::binary())
+            .validate()
+            .is_err());
+        assert!(CollectionSpec::new("named", 8)
+            .with_spaces(spaces())
+            .with_hnsw(HnswConfig::new().with_m(8))
+            .validate()
+            .is_err());
+        assert!(CollectionSpec::new("named", 8)
+            .with_spaces(spaces())
+            .with_vector_name("title")
+            .validate()
+            .is_err());
+    }
+
+    #[test]
+    fn named_query_rejects_unknown_space_and_dense_controls() {
+        let spaces = spaces();
+        let query = VectorQuery::with_named("title", VectorData::dense(vec![1.0, 0.0, 0.0]), 5);
+        assert!(query.validate_named(&spaces).is_ok());
+        assert!(
+            VectorQuery::with_named("missing", VectorData::dense(vec![1.0, 0.0, 0.0]), 5)
+                .validate_named(&spaces)
+                .is_err()
+        );
+        assert!(
+            VectorQuery::with_named("terms", VectorData::dense(vec![1.0]), 5)
+                .validate_named(&spaces)
+                .is_err()
+        );
+        assert!(
+            VectorQuery::with_named("title", VectorData::dense(vec![1.0, 0.0, 0.0]), 5)
+                .with_exact(true)
+                .validate_named(&spaces)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn memory_backend_declares_no_named_layout_support() {
+        let store = InMemoryVectorStore::new();
+        assert!(!store.supports_named_spaces());
+    }
 }

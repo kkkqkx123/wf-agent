@@ -13,7 +13,7 @@
 
 | 目录 | 样例用途，复制目标 |
 |---|---|
-| `infrastructure/` | 运行时九域模板，落到显式管理目录、`{settings_dir}/infrastructure/` 或项目 `.wf/infrastructure/` |
+| `infrastructure/` | 运行时九域模板，落到显式管理目录、`{settings_dir}/infrastructure/` 或项目 `.wf/infrastructure/`；另含 `rag-*.example.*` 草图样例（RAG 目前无文件域，仅作字段参考） |
 | `server/` | 传输、中间件与后端注册表五文件模板，落到 `{settings_dir}/server/` 或项目 `.wf/server/` |
 | `mcp/` | 全局 MCP 设置，落到显式用户设置目录或项目 `.wf/mcp.json` |
 | `skills/` | 全局技能设置，落到显式用户设置目录或项目 `.wf/skills.json` |

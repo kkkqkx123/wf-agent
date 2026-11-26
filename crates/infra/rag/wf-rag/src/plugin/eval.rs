@@ -23,12 +23,25 @@ pub fn unregister_eval_judge(name: &str) {
     }
 }
 
-/// Finds a registered eval judge by name.
+/// Finds an eval judge by name, including built-in judges.
+///
+/// Built-in names (`builtin:`) resolve without any plugin and take precedence
+/// only when no plugin registered the exact name explicitly.
 pub fn find_eval_judge(name: &str) -> Option<Arc<dyn PluginEvalJudge>> {
-    eval_judge_registry()
+    let trimmed = name.trim();
+    if let Some(judge) = eval_judge_registry()
         .lock()
         .ok()
-        .and_then(|guard| guard.get(name.trim()).cloned())
+        .and_then(|guard| guard.get(trimmed).cloned())
+    {
+        return Some(judge);
+    }
+    match trimmed {
+        crate::builtin_judge::BUILTIN_HEURISTIC_JUDGE => {
+            Some(Arc::new(crate::builtin_judge::HeuristicJudge))
+        }
+        _ => None,
+    }
 }
 
 /// Clears eval judges; tests use it to isolate cases.

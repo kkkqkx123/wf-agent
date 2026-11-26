@@ -1,0 +1,20 @@
+# RAG Synthesis Configuration (sample, never loaded as-is)
+#
+# Schema:    wf_rag::SynthesisConfig
+# Processor: host-side (wf-api / wf-runtime); no wf-config domain for RAG.
+# Remove `.example` to use as a starting point.
+
+# Answer assembly strategy:
+#   single_pass - one model call over all passages (default)
+#   refine      - one model call per passage, refining the running draft
+#   compact     - refine, compressing the draft once the budget is exceeded
+mode = "single_pass"
+
+excerpt_chars = 500                    # per-passage excerpt budget for prompts
+context_budget_chars = 4000            # running-text budget triggering compaction
+max_passages = 8                       # maximum passages feeding the model
+no_hit_hint = "No relevant passages were found."
+
+# Plugin eval judge scoring the answer after synthesis; unset skips scoring.
+# Name must already be registered by a host plugin.
+# eval_judge = "my-judge"               # PluginEvalJudge

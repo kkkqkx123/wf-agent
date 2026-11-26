@@ -318,8 +318,20 @@ impl Runtime {
         );
         let rag_settings = wf_api::RagCapabilitySettings::from_config(&config.rag);
         let embedder = if config.embedding.enabled {
+            // Resolve `profile_ref` against the llm domain before opening the
+            // provider. Explicit inline fields win; the profile only fills what
+            // is unset, so existing configurations are unaffected.
+            let profile = config
+                .embedding
+                .profile_ref
+                .as_deref()
+                .and_then(|id| config.llm.profiles.iter().find(|p| p.id == id));
+            let resolved = config
+                .embedding
+                .resolve_with_profile(profile)
+                .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
             Some(
-                wf_api::rag::open_embedding_provider(&config.embedding)
+                wf_api::rag::open_embedding_provider(&resolved)
                     .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?,
             )
         } else {

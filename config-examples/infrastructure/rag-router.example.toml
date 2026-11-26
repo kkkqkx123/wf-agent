@@ -1,0 +1,38 @@
+# RAG Router Configuration (sample, never loaded as-is)
+#
+# Schema:    wf_rag::RouterConfig
+# Processor: host-side (wf-api / wf-runtime); no wf-config domain for RAG.
+# Remove `.example` to use as a starting point.
+
+# `targets` are all known scopes and also the no-rule-match fallback.
+[[targets]]
+name = "kb"
+collection = "kb"
+namespace = "kb"
+weight = 1.0
+
+[[targets]]
+name = "code"
+collection = "kb-code"
+namespace = "code"
+weight = 1.0
+
+# Keyword rules checked in order; first matching rule wins.
+[[rules]]
+query_contains = ["error", "panic", "stack trace"]
+targets = ["code"]
+
+[[rules]]
+query_contains = ["how to", "guide"]
+targets = ["kb", "code"]
+
+# Plugin route selector choosing scopes before keyword rules; unset keeps
+# rule resolution. Name must already be registered by a host plugin.
+# route_selector = "my-route-selector"   # PluginRouteSelector
+
+# Fusion of per-scope hit lists.
+[fusion]
+mode = "rrf"                           # rrf | concat | weighted
+rrf_k = 60
+dense_weight = 0.7                     # used when mode = "weighted"
+other_weight = 0.3

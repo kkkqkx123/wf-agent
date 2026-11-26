@@ -21,9 +21,11 @@
 //! choices stay host-owned. Only the native backend dispatches retrieval
 //! extensions; Lua/Wasm hosts expose no retrieval channel.
 
+pub mod builtin_judge;
 pub mod chunker;
 pub mod citation;
 pub mod cleaner;
+pub mod codec;
 pub mod config;
 pub mod converter;
 pub mod document;
@@ -31,6 +33,7 @@ pub mod document;
 pub mod elastic_index;
 pub mod error;
 pub mod eval;
+pub mod flow;
 pub mod keyword_index;
 pub mod llm;
 pub mod metrics;
@@ -52,6 +55,7 @@ pub mod transform;
 
 use keyword_contracts::{KeywordFormat, KeywordIndex};
 
+pub use builtin_judge::{HeuristicJudge, BUILTIN_HEURISTIC_JUDGE};
 pub use chunker::{count_tokens, ChunkerConfig, RecursiveChunker};
 pub use citation::{
     build_citations, build_citations_with_style, check_answer_citations, check_completeness,
@@ -59,6 +63,10 @@ pub use citation::{
     CitationCompleteness, CitationIssues, CitationStyle, NoHitContext,
 };
 pub use cleaner::{clean_text, CleanerConfig};
+pub use codec::{
+    find_embedding_codec, find_rerank_codec, register_embedding_codec, register_rerank_codec,
+    EmbeddingCodec, PluginEmbeddingCodecAdapter, PluginRerankCodecAdapter, RerankCodec,
+};
 pub use config::{
     vector_encoding_fingerprint, ChunkPreset, DuplicatePolicy, FusionConfig, FusionMode,
     KindQueryConfig, RagIndexConfig, RagQueryConfig, RerankOptions,
@@ -73,6 +81,9 @@ pub use elastic_index::ElasticKeywordIndex;
 pub use error::{RagError, Result};
 pub use eval::{
     run_eval_cases, score_case, summarize, EvalCase, EvalOutcome, EvalRun, EvalSummary,
+};
+pub use flow::{
+    answer_with_hyde, answer_with_sub_questions, answer_with_variants, Flow, RerankPass,
 };
 pub use keyword_index::{keyword_chunks, keyword_documents};
 pub use llm::CompletionLlm;

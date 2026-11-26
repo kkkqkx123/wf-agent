@@ -1,0 +1,56 @@
+# RAG Query Configuration (sample, never loaded as-is)
+#
+# Schema:    wf_rag::RagQueryConfig (+ FusionConfig, RerankOptions)
+# Processor: host-side (wf-api / wf-runtime); no wf-config domain for RAG.
+#
+# Remove `.example` to use as a starting point for host code that builds
+# RagQueryConfig. Every selector name must already be registered by a plugin.
+
+top_k = 8                              # maximum hits returned
+score_threshold = 0.15                 # optional lower bound; remove to disable
+window_radius = 1                      # sentence-window radius around each hit
+auto_merge = false                     # promote stored parent sections
+keyword_candidates = 20                # keyword hits blended with dense (0 disables)
+keyword_weight = 0.3
+context_reorder = false                # strongest hits at both ends of context
+context_budget_chars = 6000            # drop weakest hits beyond this budget
+
+# --- plugin selectors (registered names only) ---
+# retrieval_advisor = "my-advisor"     # PluginRetrievalAdvisor, after fusion
+# postprocessor = "my-postprocessor"   # PluginPostprocessor, after advisor
+
+# --- fusion (multi-list / hybrid) ---
+[fusion]
+mode = "rrf"                           # rrf | concat | weighted
+rrf_k = 60
+dense_weight = 0.7                     # used when mode = "weighted"
+other_weight = 0.3
+
+# --- rerank (remove this whole block to disable) ---
+[rerank]
+top_n = 5
+truncate_chars = 500
+
+# --- dense baseline ends here. Below are opt-in retrieval kinds. ---
+#
+# Sparse recall fused with dense: set vector_kind and encoder, add an
+# additional_kinds entry for the sparse collection.
+# vector_kind = "sparse"
+# vector_encoding = "my-sparse-encoder"
+# sparse_candidates = 40
+# weighted_comparable = true
+#
+# [[additional_kinds]]
+# collection = "kb-sparse"
+# kind = "sparse"
+# encoder = "my-sparse-encoder"
+#
+# Named-space retrieval on the primary collection:
+# vector_encoding = "my-named-encoder"
+# target_space = "title"
+# additional_named_spaces = ["body"]
+#
+# [named_spaces.title]
+# kind = "dense"
+# vector_size = 768
+# distance = "cosine"

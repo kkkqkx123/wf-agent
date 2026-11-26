@@ -1,0 +1,50 @@
+# RAG Ingest / Index Configuration (sample, never loaded as-is)
+#
+# Schema:    wf_rag::RagIndexConfig
+# Processor: host-side (wf-api / wf-runtime); there is no wf-config file domain
+#            for RAG yet, so this file is a field reference rather than a
+#            drop-in infrastructure file. Remove `.example` to use as a base.
+#
+# Copy target: host code that builds RagIndexConfig (e.g. wf-api RAG service).
+
+namespace = "kb"                       # payload namespace written to every point
+embedding_batch_size = 32              # texts per embedding provider call
+duplicate_policy = "skip"              # skip | overwrite | fail
+hierarchical = false                   # store parent sections alongside leaf chunks
+
+[chunking]
+preset = "markdown"                    # default | markdown | sentence | code | table
+target_chars = 800                     # soft leaf-chunk length
+overlap_chars = 100                    # must be smaller than target_chars
+# token_budget = 512                   # optional whitespace-token budget
+
+[cleaning]
+trim = true
+collapse_whitespace = true
+remove_empty_lines = true
+# dedup_consecutive_lines = false
+# min_line_len = 0                       # 0 disables
+
+# --- plugin selectors (names must already be registered by a host plugin) ---
+# metadata_extractor = "my-metadata"   # PluginMetadataExtractor; unset keeps caller metadata
+# chunk_splitter = "my-splitter"       # PluginChunkSplitter; conflicts with hierarchical = true
+
+# --- vector kinds (dense is the baseline using the embedding provider) ---
+# Dense is the default (encoder omitted). Below are opt-in alternatives:
+#
+# Sparse: encoder must emit the sparse encoding schema; sparse_max_index bounds vocabulary.
+# vector_kind = "sparse"
+# encoder = "my-sparse-encoder"
+# sparse_max_index = 100000
+#
+# Multi-vector: encoder emits several vectors per point; multi_max_vectors bounds them.
+# vector_kind = "multi"
+# encoder = "my-multi-encoder"
+# multi_max_vectors = 8
+#
+# Named spaces: one vector per declared space; encoder emits named-vector-encoding/v1.
+# [named_spaces.title]
+# kind = "dense"
+# vector_size = 768
+# distance = "cosine"
+# encoder = "my-named-encoder"             # root-level encoder, not inside named_spaces

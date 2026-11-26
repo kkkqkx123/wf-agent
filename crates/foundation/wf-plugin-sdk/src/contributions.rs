@@ -530,6 +530,41 @@ pub trait PluginLlmCodec: Send + Sync {
     }
 }
 
+// ── embedding / rerank codecs ────────────────────────────────────────
+// These mirror the low-level LLM codec contract for the two model ports the
+// RAG subsystem uses. A plugin contributes only the wire protocol: how to
+// describe the HTTP request and how to decode the response body. The host
+// always builds and sends the actual request, keeps the credentials, applies
+// retries/timeouts and translates the decoded JSON into its own types. This
+// is the same ownership split as `PluginLlmCodec`: plugins never own a model
+// call or an API key.
+
+/// Describes an embedding protocol. `config` is the host embedding
+/// configuration passed as JSON (model, dimensions, endpoint hints). The
+/// returned request description is materialized by the host.
+pub trait PluginEmbeddingCodec: Send + Sync {
+    /// Describe the HTTP request for a batch of texts.
+    fn build_request(&self, texts: Value, config: Value) -> PluginResult<CodecHttpRequest>;
+    /// Parse a response body into the host embedding shape: an object with a
+    /// `vectors` array of float arrays and an optional `usage` object.
+    fn parse_response(&self, body: &str) -> PluginResult<Value>;
+}
+
+/// Describes a rerank protocol. Both inputs are passed as JSON so Lua tables
+/// and native dispatch buffers share one shape.
+pub trait PluginRerankCodec: Send + Sync {
+    /// Describe the HTTP request for a query and candidate documents.
+    fn build_request(
+        &self,
+        query: String,
+        documents: Value,
+        config: Value,
+    ) -> PluginResult<CodecHttpRequest>;
+    /// Parse a response body into the host rerank shape: a `scores` array of
+    /// numbers aligned with the submitted documents.
+    fn parse_response(&self, body: &str) -> PluginResult<Value>;
+}
+
 #[async_trait]
 pub trait PluginEventHandler: Send + Sync {
     async fn handle(&self, event: PluginEventData) -> PluginResult<()>;

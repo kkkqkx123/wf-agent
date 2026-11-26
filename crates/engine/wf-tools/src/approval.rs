@@ -356,6 +356,38 @@ impl ToolApprovalCoordinator {
         }
     }
 
+    /// Recheck an approval response that changed the tool arguments.
+    ///
+    /// A human decision applies to the parameters it was shown. Changed
+    /// parameters must still satisfy the same automatic policy; anything
+    /// that would ask or deny again is rejected instead of starting a second
+    /// interaction for arguments the responder never saw.
+    pub fn recheck_edited_parameters(
+        &self,
+        request: &ToolApprovalRequestData,
+        mcp_tool: Option<&Tool>,
+        mcp_registry: Option<&crate::mcp::connection::McpServerRegistry>,
+        edited_parameters: Option<&serde_json::Value>,
+    ) -> Result<(), String> {
+        let Some(edited) = edited_parameters else {
+            return Ok(());
+        };
+        if edited == &request.parameters {
+            return Ok(());
+        }
+        let mut candidate = request.clone();
+        candidate.parameters = edited.clone();
+        match self.check_approval(&candidate, mcp_tool, mcp_registry) {
+            ApprovalDecision::Approve => Ok(()),
+            ApprovalDecision::Deny(reason) => {
+                Err(format!("edited parameters rejected by policy: {reason}"))
+            }
+            ApprovalDecision::Ask => Err(
+                "edited parameters require a new approval request".to_string(),
+            ),
+        }
+    }
+
     pub fn record_response(
         &self,
         batch: &mut ToolBatch,

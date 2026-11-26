@@ -5,7 +5,8 @@
 //! the batch context, an arguments preview and the key hints, and maps a
 //! keymap action (y/a/d/n/c) onto an [`ApprovalAnswer`]. "Allow all" /
 //! "deny" are session-scoped remembers — the session event loop consults
-//! [`ApprovalRemembered`] to auto-answer later requests for the same tool.
+//! [`ApprovalRemembered`] to auto-answer later requests with the same call
+//! fingerprint (tool, risk level and target paths).
 //! The request shape is the wire `ToolApprovalRequestData` shared with the
 //! server; answers post to the interaction respond endpoint.
 
@@ -19,33 +20,85 @@ use tui_core::keymap::KeyAction;
 /// (generous: an approval view is allowed to sit while the user thinks).
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Session-scoped approval memory: tools the user allowed / denied "for
-/// the whole session" (a / n keys). Later requests for a remembered tool
-/// are answered without interrupting the user again.
+/// Session-scoped approval memory: call fingerprints the user allowed /
+/// denied "for the whole session" (a / n keys). A fingerprint includes the
+/// tool name, risk level and normalized target paths, so allowing one file
+/// never remembers an unrelated path for the same tool.
 #[derive(Debug, Clone, Default)]
 pub struct ApprovalRemembered {
     allowed: Vec<String>,
     denied: Vec<String>,
 }
 
+const PATH_PARAMETER_KEYS: &[&str] = &[
+    "path",
+    "file_path",
+    "file",
+    "filename",
+    "cwd",
+    "working_dir",
+    "workdir",
+    "directory",
+    "uri",
+];
+
+fn push_path(values: &mut Vec<String>, raw: &str) {
+    let normalized = wf_types::config::file_scope::normalize_scope_path(&raw.replace('\\', "/"));
+    if !values.contains(&normalized) {
+        values.push(normalized);
+    }
+}
+
+/// Fingerprint of the approval-relevant parts of a request.
+pub fn approval_fingerprint(request: &ToolApprovalRequestData) -> String {
+    let mut values = Vec::new();
+    for key in PATH_PARAMETER_KEYS {
+        if let Some(raw) = request.parameters.get(*key).and_then(|v| v.as_str()) {
+            push_path(&mut values, raw);
+        }
+    }
+    if let Some(nested) = request.parameters.get("arguments").and_then(|v| v.as_object()) {
+        for key in PATH_PARAMETER_KEYS {
+            if let Some(raw) = nested.get(*key).and_then(|v| v.as_str()) {
+                push_path(&mut values, raw);
+            }
+        }
+    }
+    if let Some(command) = request.parameters.get("command").and_then(|v| v.as_str()) {
+        values.push(format!("command:{command}"));
+    }
+    if values.is_empty() {
+        values.push(request.parameters.to_string());
+    }
+    values.sort();
+    values.dedup();
+    format!(
+        "{}|{}|{}",
+        request.tool_name,
+        request.risk_level.as_deref().unwrap_or("unspecified"),
+        values.join("|")
+    )
+}
+
 impl ApprovalRemembered {
-    /// Record a session decision for a tool (a tool is never both allowed
-    /// and denied).
-    pub fn remember(&mut self, tool_name: &str, approved: bool) {
-        self.allowed.retain(|t| t != tool_name);
-        self.denied.retain(|t| t != tool_name);
+    /// Record a session decision for one call fingerprint.
+    pub fn remember(&mut self, request: &ToolApprovalRequestData, approved: bool) {
+        let key = approval_fingerprint(request);
+        self.allowed.retain(|item| item != &key);
+        self.denied.retain(|item| item != &key);
         if approved {
-            self.allowed.push(tool_name.to_string());
+            self.allowed.push(key);
         } else {
-            self.denied.push(tool_name.to_string());
+            self.denied.push(key);
         }
     }
 
-    /// The remembered decision for a tool, if any.
-    pub fn decision_for(&self, tool_name: &str) -> Option<bool> {
-        if self.allowed.iter().any(|t| t == tool_name) {
+    /// The remembered decision for this call, if any.
+    pub fn decision_for(&self, request: &ToolApprovalRequestData) -> Option<bool> {
+        let key = approval_fingerprint(request);
+        if self.allowed.iter().any(|item| item == &key) {
             Some(true)
-        } else if self.denied.iter().any(|t| t == tool_name) {
+        } else if self.denied.iter().any(|item| item == &key) {
             Some(false)
         } else {
             None
@@ -372,7 +425,7 @@ mod tests {
             tool_call_id: "call-1".to_string(),
             tool_name: tool.to_string(),
             tool_description: None,
-            parameters: json!({ "command": "rm -rf /tmp/x" }),
+            parameters: json!({ "path": "/workspace/a.txt", "content": "one" }),
             risk_level: None,
             resolved_domains: None,
             pending_queue: None,
@@ -408,16 +461,22 @@ mod tests {
     }
 
     #[test]
-    fn remembered_decisions_are_session_scoped() {
+    fn remembered_decisions_are_path_scoped() {
         let mut mem = ApprovalRemembered::default();
-        assert_eq!(mem.decision_for("bash"), None);
-        mem.remember("bash", true);
-        assert_eq!(mem.decision_for("bash"), Some(true));
-        // A later deny overrides the earlier allow.
-        mem.remember("bash", false);
-        assert_eq!(mem.decision_for("bash"), Some(false));
+        let first = request("write_file");
+        assert_eq!(mem.decision_for(&first), None);
+        mem.remember(&first, true);
+        assert_eq!(mem.decision_for(&first), Some(true));
+
+        let mut other = request("write_file");
+        other.parameters = json!({ "path": "/workspace/b.txt", "content": "two" });
+        assert_eq!(mem.decision_for(&other), None);
+
+        // A later deny on the same fingerprint overrides the earlier allow.
+        mem.remember(&first, false);
+        assert_eq!(mem.decision_for(&first), Some(false));
         mem.clear();
-        assert_eq!(mem.decision_for("bash"), None);
+        assert_eq!(mem.decision_for(&first), None);
     }
 
     #[test]
@@ -435,7 +494,9 @@ mod tests {
 
     #[test]
     fn arguments_preview_truncates_to_width() {
-        let view = ApprovalView::new(request("execute_command"));
+        let mut command_request = request("execute_command");
+        command_request.parameters = json!({ "command": "rm -rf /tmp/x" });
+        let view = ApprovalView::new(command_request);
         let short = view.arguments_preview(8);
         assert!(short.chars().count() <= 8, "{short}");
         let full = view.arguments_preview(200);

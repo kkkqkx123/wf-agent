@@ -62,10 +62,13 @@ pub fn granted(
     if paths.is_empty() || paths.iter().any(|path| is_permanently_denied(path)) {
         return false;
     }
+    let now = wf_common::now();
     paths.iter().all(|path| {
         let normalized = normalize_file_path(path);
         grants.iter().any(|grant| {
-            operation_matches(grant, operation) && matches_pattern(&grant.pattern, &normalized)
+            !grant.is_expired(now)
+                && operation_matches(grant, operation)
+                && matches_pattern(&grant.pattern, &normalized)
         })
     })
 }
@@ -73,9 +76,11 @@ pub fn granted(
 /// Preset grants that may write outside checkpoint tracking. Used by config
 /// resolution to admit untracked prefixes into the execution scope.
 pub fn untracked_write_prefixes(grants: Option<&[PathGrant]>) -> Vec<String> {
+    let now = wf_common::now();
     grants
         .unwrap_or_default()
         .iter()
+        .filter(|grant| !grant.is_expired(now))
         .filter(|grant| !grant.checkpointed && grant.operation.allows_write())
         .map(|grant| grant.pattern.clone())
         .collect()
@@ -93,6 +98,7 @@ mod tests {
             preset: None,
             checkpointed: true,
             ttl_secs: None,
+            issued_at_ms: None,
             disclosure: wf_types::tool::path_grant::PathDisclosure::Paths,
         }
     }
@@ -114,6 +120,18 @@ mod tests {
             Some(&grants),
             &["/repo/secrets/key.pem".to_string()],
             &FileOperationType::Read
+        ));
+    }
+
+    #[test]
+    fn expired_grant_is_not_applied() {
+        let mut expired = grant("/repo");
+        expired.ttl_secs = Some(1);
+        expired.issued_at_ms = Some(0);
+        assert!(!granted(
+            Some(&[expired]),
+            &["/repo/a.txt".to_string()],
+            &FileOperationType::Write
         ));
     }
 

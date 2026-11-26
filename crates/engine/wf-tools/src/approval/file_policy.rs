@@ -36,14 +36,21 @@ pub fn check_file_permission(
 }
 
 pub(super) fn normalize_file_path(path: &str) -> String {
-    let trimmed = path.replace('\\', "/").trim().to_string();
+    let trimmed = path.replace('\\', "/");
+    let trimmed = trimmed.trim();
+    if trimmed.is_empty()
+        || trimmed.contains('\0')
+        || trimmed.len() > wf_types::config::file_scope::MAX_SCOPE_PATH_LEN
+    {
+        return String::new();
+    }
     if let Some(stripped) = trimmed.strip_prefix("file://") {
         if stripped.starts_with('/') {
-            return stripped.to_string();
+            return wf_types::config::file_scope::normalize_scope_path(stripped);
         }
-        return format!("/{stripped}");
+        return wf_types::config::file_scope::normalize_scope_path(&format!("/{stripped}"));
     }
-    trimmed
+    wf_types::config::file_scope::normalize_scope_path(trimmed)
 }
 
 fn push_normalized(paths: &mut Vec<String>, raw: &str) {

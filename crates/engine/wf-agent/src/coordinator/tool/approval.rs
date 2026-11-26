@@ -105,7 +105,7 @@ impl ToolApprovalGate {
             })
             .collect();
         let decisions = coordinator.evaluate_with_mcp_context(&requests, &contexts);
-        let batch = ToolApprovalCoordinator::batch_from_decisions(requests, &decisions);
+        let batch = ToolApprovalCoordinator::batch_from_decisions(requests.clone(), &decisions);
 
         // Policy denials are final: they must never be escalated into a
         // human approval request, so drop them from the pending set before
@@ -174,8 +174,16 @@ impl ToolApprovalGate {
                     let _guard = entity.timeout_manager().pause_handle();
                     let result = handler.request_approval(&request).await;
                     if result.approved {
-                        ApprovalOutcome::Execute {
-                            edited_parameters: result.edited_parameters,
+                        match coordinator.recheck_edited_parameters(
+                            &requests[*idx],
+                            contexts[*idx].tool,
+                            contexts[*idx].mcp_registry,
+                            result.edited_parameters.as_ref(),
+                        ) {
+                            Ok(()) => ApprovalOutcome::Execute {
+                                edited_parameters: result.edited_parameters,
+                            },
+                            Err(reason) => ApprovalOutcome::Rejected { reason },
                         }
                     } else {
                         ApprovalOutcome::Rejected {

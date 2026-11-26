@@ -631,6 +631,20 @@ fn test_shell_command_sensitive_read_routes_to_approval() {
 }
 
 #[test]
+fn test_dot_segments_are_normalized_before_permission_check() {
+    use super::file_policy::{check_file_permission, extract_file_paths};
+    let params = json!({ "path": "/workspace/app/../app/.env" });
+    let paths = extract_file_paths(&params);
+    assert!(paths.contains(&"/workspace/app/.env".to_string()));
+    let rules = FilePermissionSettings::default_rules();
+    assert!(!check_file_permission(
+        "/workspace/app/.env",
+        &FileOperationType::Write,
+        &rules
+    ));
+}
+
+#[test]
 fn test_nested_arguments_paths_are_extracted() {
     use super::file_policy::extract_file_paths;
     let params = json!({
@@ -662,6 +676,7 @@ fn test_path_grant_allows_environment_config_write() {
             preset: Some("user_config".to_string()),
             checkpointed: false,
             ttl_secs: None,
+            issued_at_ms: None,
             disclosure: wf_types::tool::path_grant::PathDisclosure::Paths,
         }]),
         ..ToolApprovalOptions::empty()
@@ -685,6 +700,7 @@ fn test_path_grant_cannot_override_key_material() {
             preset: None,
             checkpointed: true,
             ttl_secs: None,
+            issued_at_ms: None,
             disclosure: wf_types::tool::path_grant::PathDisclosure::Paths,
         }]),
         ..ToolApprovalOptions::balanced_defaults()
@@ -696,6 +712,21 @@ fn test_path_grant_cannot_override_key_material() {
         coordinator.check_approval(&request, None, None),
         ApprovalDecision::Ask
     );
+}
+
+#[test]
+fn test_edited_parameters_are_rechecked() {
+    let coordinator = ToolApprovalCoordinator::with_defaults();
+    let mut request = make_request("edit-check", "read_file", Some("read_only"));
+    request.parameters = json!({ "path": "/repo/README.md" });
+
+    assert!(coordinator
+        .recheck_edited_parameters(&request, None, None, None)
+        .is_ok());
+    let edited = json!({ "path": "/repo/.env" });
+    assert!(coordinator
+        .recheck_edited_parameters(&request, None, None, Some(&edited))
+        .is_err());
 }
 
 #[test]

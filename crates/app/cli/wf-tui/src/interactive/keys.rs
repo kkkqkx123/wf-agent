@@ -326,8 +326,7 @@ impl InteractiveController {
         }
         if let Some(remembered) = choice.remembered() {
             if let Some(view) = self.footer.approval.take() {
-                self.remembered
-                    .remember(&view.request().tool_name, remembered);
+                self.remembered.remember(view.request(), remembered);
             }
         }
         self.footer.present(FooterView::Prompt);

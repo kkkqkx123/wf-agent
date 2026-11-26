@@ -230,13 +230,45 @@ pub(crate) async fn handle_batch_respond(
             )
             .await
         } else {
-            wf_api::entity::user_interaction::respond_interaction(
+            let interaction =
+                match wf_api::entity::user_interaction::get_interaction(&state.ctx.storage, id)
+                    .await
+                {
+                    Ok(interaction) => interaction,
+                    Err(e) => {
+                        results.push(BatchItemResult {
+                            id: id.clone(),
+                            ok: false,
+                            error: Some(e.to_string()),
+                        });
+                        continue;
+                    }
+                };
+            match wf_api::entity::user_interaction::respond_interaction(
                 &state.ctx.storage,
                 id,
                 body.response_data.clone(),
                 body.result_data.clone(),
             )
             .await
+            {
+                Ok(()) => {
+                    wf_api::workflow::approval::publish_tool_approval_responded(
+                        &state.ctx.event_bus,
+                        &interaction,
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    wf_api::workflow::approval::publish_tool_approval_failed(
+                        &state.ctx.event_bus,
+                        &interaction.execution_id,
+                        id,
+                        &e.to_string(),
+                    );
+                    Err(e)
+                }
+            }
         };
         match outcome {
             Ok(()) => results.push(BatchItemResult {

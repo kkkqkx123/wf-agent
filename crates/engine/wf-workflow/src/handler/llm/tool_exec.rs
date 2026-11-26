@@ -341,7 +341,18 @@ pub async fn execute_tool_call(
                             let result = handler.request_approval(&request).await;
                             crate::execution_budgets::end_approval_wait(&ctx.variables);
                             match result.approved {
-                                true => Ok(result.edited_parameters),
+                                true => {
+                                    if let Err(reason) = coordinator.recheck_edited_parameters(
+                                        &request_data,
+                                        mcp_context.tool,
+                                        mcp_context.mcp_registry,
+                                        result.edited_parameters.as_ref(),
+                                    ) {
+                                        Err(reason)
+                                    } else {
+                                        Ok(result.edited_parameters)
+                                    }
+                                }
                                 false => Err(result.rejection_reason.unwrap_or_else(|| {
                                     "Rejected by user".to_string()
                                 })),

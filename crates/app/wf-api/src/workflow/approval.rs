@@ -150,7 +150,29 @@ pub async fn check_and_request_approval(
         ApprovalDecision::Ask => {
             let (interaction_id, response) =
                 request_user_approval(ctx, execution_id, request).await?;
-            let approved = response.approved;
+            let recheck_error = if response.approved {
+                engine
+                    .recheck_edited_parameters(
+                        request,
+                        mcp_context.tool,
+                        mcp_context.mcp_registry,
+                        response.edited_parameters.as_ref(),
+                    )
+                    .err()
+            } else {
+                None
+            };
+            let approved = response.approved && recheck_error.is_none();
+            let rejection_reason = match recheck_error {
+                Some(reason) => Some(reason),
+                None if approved => response.rejection_reason,
+                None => Some(
+                    response
+                        .rejection_reason
+                        .unwrap_or_else(|| "Rejected by user".to_string()),
+                ),
+            };
+            let edited_parameters = approved.then_some(response.edited_parameters).flatten();
             Ok(ApprovalResult {
                 status: if approved {
                     ApprovalStatus::Approved
@@ -160,10 +182,10 @@ pub async fn check_and_request_approval(
                 tool_call_id: request.tool_call_id.clone(),
                 tool_name: request.tool_name.clone(),
                 approved,
-                edited_parameters: response.edited_parameters,
+                edited_parameters,
                 user_instruction: response.user_instruction,
                 annotation: response.annotation,
-                rejection_reason: response.rejection_reason,
+                rejection_reason,
                 interaction_id: Some(interaction_id),
             })
         }
@@ -253,19 +275,92 @@ pub(crate) async fn request_user_approval_in(
 
     let wait = rx.await;
     match wait {
-        Ok(response_value) => {
-            let response: ToolApprovalResponseData = serde_json::from_value(response_value)
-                .map_err(|e| {
-                    ApiError::execution(format!(
-                        "approval response for interaction {interaction_id} is malformed: {e}"
-                    ))
-                })?;
-            Ok((interaction_id, response))
+        Ok(response_value) => match serde_json::from_value(response_value) {
+            Ok(response) => Ok((interaction_id, response)),
+            Err(e) => {
+                let reason = format!(
+                    "approval response for interaction {interaction_id} is malformed: {e}"
+                );
+                publish_tool_approval_failed(
+                    &flow.event_bus,
+                    execution_id,
+                    &interaction_id,
+                    &reason,
+                );
+                Err(ApiError::execution(reason))
+            }
+        },
+        Err(_) => {
+            let reason = format!("approval wait for interaction {interaction_id} was cancelled");
+            publish_tool_approval_failed(
+                &flow.event_bus,
+                execution_id,
+                &interaction_id,
+                &reason,
+            );
+            Err(ApiError::execution(reason))
         }
-        Err(_) => Err(ApiError::execution(format!(
-            "approval wait for interaction {interaction_id} was cancelled"
-        ))),
     }
+}
+
+/// Publish the response half of a tool approval on the shared event bus.
+/// Only identifiers travel in the event; the response payload stays in the
+/// persisted interaction record.
+pub fn publish_tool_approval_responded(
+    event_bus: &wf_core::EventBus,
+    interaction: &UserInteractionStorageMetadata,
+) {
+    if interaction.interaction_type != "tool_approval" {
+        return;
+    }
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert(
+        "interaction_id".into(),
+        serde_json::json!(interaction.id.as_str()),
+    );
+    metadata.insert(
+        "execution_id".into(),
+        serde_json::json!(interaction.execution_id.as_str()),
+    );
+    for key in ["tool_call_id", "tool_name"] {
+        if let Some(value) = interaction.request_data.get(key).and_then(Value::as_str) {
+            metadata.insert(key.into(), serde_json::json!(value));
+        }
+    }
+    let event = BaseEvent {
+        id: wf_types::Id::new(),
+        r#type: EventType::ToolApprovalResponded,
+        timestamp: wf_common::now(),
+        workflow_id: None,
+        execution_id: Some(interaction.execution_id.to_string()),
+        agent_loop_id: None,
+        event_name: None,
+        metadata: Some(metadata),
+    };
+    let _ = event_bus.publish(event);
+}
+
+/// Publish a failed tool approval wait. The reason is diagnostic text only.
+pub fn publish_tool_approval_failed(
+    event_bus: &wf_core::EventBus,
+    execution_id: &str,
+    interaction_id: &str,
+    reason: &str,
+) {
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("interaction_id".into(), serde_json::json!(interaction_id));
+    metadata.insert("reason".into(), serde_json::json!(reason));
+    let event = BaseEvent {
+        id: wf_types::Id::new(),
+        r#type: EventType::ToolApprovalFailed,
+        timestamp: wf_common::now(),
+        workflow_id: None,
+        execution_id: Some(execution_id.to_string()),
+        agent_loop_id: None,
+        event_name: None,
+        metadata: Some(metadata),
+    };
+    let _ = event_bus.publish(event);
 }
 
 /// Request approval and execute the tool when approved, composed with the

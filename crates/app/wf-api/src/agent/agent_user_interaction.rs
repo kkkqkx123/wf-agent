@@ -69,7 +69,9 @@ pub async fn respond(
             "interaction {interaction_id} does not belong to agent loop {agent_loop_id}"
         )));
     }
-    respond_interaction(&ctx.storage, interaction_id, response_data, result_data).await
+    respond_interaction(&ctx.storage, interaction_id, response_data, result_data).await?;
+    crate::workflow::approval::publish_tool_approval_responded(&ctx.event_bus, &interaction);
+    Ok(())
 }
 
 /// Interaction history of a config (agent loop), newest first.

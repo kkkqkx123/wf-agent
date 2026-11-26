@@ -19,7 +19,7 @@ use utoipa::{IntoParams, ToSchema};
 use wf_api::ToolApprovalRequestData;
 use wf_api::UserInteractionListOptions;
 use wf_api::UserInteractionStorageMetadata;
-use wf_api::{ToolApprovalOptions, ToolExecutionOptions};
+use wf_api::ToolExecutionOptions;
 
 use crate::envelope::{err, error_response, ok, InvalidParams};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
@@ -96,8 +96,6 @@ pub(crate) struct ApprovalCheckBody {
     execution_id: String,
     #[schema(value_type = Object)]
     request: ToolApprovalRequestData,
-    #[schema(value_type = Object)]
-    options: Option<ToolApprovalOptions>,
 }
 
 #[utoipa::path(
@@ -115,10 +113,8 @@ pub(crate) async fn handle_check_approval(
     // Policy-first, mirroring the engine gates: auto-approved and denied
     // calls resolve without a handler; only an `Ask` decision needs a human
     // and fails fast when nobody can answer.
-    let options = body
-        .options
-        .clone()
-        .unwrap_or_else(wf_api::ToolApprovalOptions::balanced_defaults);
+    let options =
+        wf_api::workflow::tool_approval_handler::host_approval_options(&state.ctx);
     let tool_snapshot = state
         .ctx
         .tool_registry
@@ -131,7 +127,7 @@ pub(crate) async fn handle_check_approval(
         tool: tool_snapshot.as_ref(),
         mcp_registry,
     };
-    let decision = wf_api::ToolApprovalCoordinator::new(options)
+    let decision = wf_api::ToolApprovalCoordinator::new(options.clone())
         .evaluate_with_mcp_context(
             std::slice::from_ref(&body.request),
             std::slice::from_ref(&mcp_context),
@@ -149,7 +145,7 @@ pub(crate) async fn handle_check_approval(
         &state.ctx,
         &body.execution_id,
         &body.request,
-        body.options,
+        Some(options),
     )
     .await
     {
@@ -165,8 +161,6 @@ pub(crate) struct ExecuteToolBody {
     parameters: Value,
     #[schema(value_type = Object)]
     options: Option<ToolExecutionOptions>,
-    #[schema(value_type = Object)]
-    approval_options: Option<ToolApprovalOptions>,
 }
 
 #[utoipa::path(
@@ -203,17 +197,15 @@ pub(crate) async fn handle_execute_tool(
         tool_index: None,
         total_tools: None,
     };
-    let policy_options = body
-        .approval_options
-        .clone()
-        .unwrap_or_else(wf_api::ToolApprovalOptions::balanced_defaults);
+    let policy_options =
+        wf_api::workflow::tool_approval_handler::host_approval_options(&state.ctx);
     let mcp_manager = state.ctx.tool_registry.mcp_manager();
     let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
     let mcp_context = wf_api::McpToolContext {
         tool: tool_snapshot.as_ref(),
         mcp_registry,
     };
-    let decision = wf_api::ToolApprovalCoordinator::new(policy_options)
+    let decision = wf_api::ToolApprovalCoordinator::new(policy_options.clone())
         .evaluate_with_mcp_context(
             std::slice::from_ref(&policy_request),
             std::slice::from_ref(&mcp_context),
@@ -233,7 +225,7 @@ pub(crate) async fn handle_execute_tool(
         &body.tool_id,
         &body.parameters,
         body.options,
-        body.approval_options,
+        Some(policy_options),
     )
     .await
     {
@@ -432,6 +424,15 @@ pub(crate) async fn handle_respond_interaction(
     Path(path): Path<IdPath>,
     Json(body): Json<RespondBody>,
 ) -> impl IntoResponse {
+    let interaction = match wf_api::entity::user_interaction::get_interaction(
+        &state.ctx.storage,
+        &path.id,
+    )
+    .await
+    {
+        Ok(interaction) => interaction,
+        Err(e) => return error_response(e),
+    };
     match wf_api::entity::user_interaction::respond_interaction(
         &state.ctx.storage,
         &path.id,
@@ -440,8 +441,22 @@ pub(crate) async fn handle_respond_interaction(
     )
     .await
     {
-        Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Ok(()) => {
+            wf_api::workflow::approval::publish_tool_approval_responded(
+                &state.ctx.event_bus,
+                &interaction,
+            );
+            ok(()).into_response()
+        }
+        Err(e) => {
+            wf_api::workflow::approval::publish_tool_approval_failed(
+                &state.ctx.event_bus,
+                &interaction.execution_id,
+                &path.id,
+                &e.to_string(),
+            );
+            error_response(e)
+        }
     }
 }
 

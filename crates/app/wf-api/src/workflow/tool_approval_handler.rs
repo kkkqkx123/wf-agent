@@ -99,7 +99,16 @@ pub fn host_tool_approval(ctx: &ApiContext, execution_id: &str) -> Option<HostTo
         return None;
     }
     Some(HostToolApproval {
-        options: config.resolved_options(),
+        options: host_approval_options(ctx),
         handler: Arc::new(InteractionApprovalHandler::new(ctx, execution_id)),
     })
+}
+
+/// Effective approval policy for host-owned tool calls. Remote callers never
+/// supply policy objects; the host configuration is the only policy source.
+pub fn host_approval_options(ctx: &ApiContext) -> ToolApprovalOptions {
+    ctx.tool_approval
+        .as_ref()
+        .map(|config| config.resolved_options())
+        .unwrap_or_else(ToolApprovalOptions::balanced_defaults)
 }

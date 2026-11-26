@@ -83,8 +83,35 @@ pub struct PathGrant {
     pub checkpointed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ttl_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issued_at_ms: Option<i64>,
     #[serde(default)]
     pub disclosure: PathDisclosure,
+}
+
+/// Wall-clock timestamp used to stamp and expire path grants.
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+impl PathGrant {
+    /// Whether the grant has outlived its declared duration at `now`.
+    pub fn is_expired(&self, now: i64) -> bool {
+        match (self.ttl_secs, self.issued_at_ms) {
+            (Some(ttl), Some(issued)) => now >= issued.saturating_add((ttl as i64).saturating_mul(1000)),
+            _ => false,
+        }
+    }
+
+    fn stamped(mut self) -> Self {
+        if self.issued_at_ms.is_none() {
+            self.issued_at_ms = Some(now_ms());
+        }
+        self
+    }
 }
 
 /// Durable authorization state for one session or execution. It is the sole
@@ -103,6 +130,7 @@ pub struct AuthorizationState {
 
 impl AuthorizationState {
     pub fn from_grants(grants: Vec<PathGrant>) -> Self {
+        let grants = grants.into_iter().map(PathGrant::stamped).collect::<Vec<_>>();
         let applied_presets = grants.iter().filter_map(|grant| grant.preset.clone()).fold(
             Vec::new(),
             |mut names, name| {
@@ -120,10 +148,21 @@ impl AuthorizationState {
     }
 
     /// Grants that may be shown to the model with concrete paths.
+    /// Grants still valid at the current wall-clock time.
+    pub fn active_grants(&self) -> Vec<&PathGrant> {
+        let now = now_ms();
+        self.grants
+            .iter()
+            .filter(|grant| !grant.is_expired(now))
+            .collect()
+    }
+
     pub fn disclosed_prefixes(&self) -> Vec<String> {
+        let now = now_ms();
         let mut paths: Vec<String> = self
             .grants
             .iter()
+            .filter(|grant| !grant.is_expired(now))
             .filter(|grant| grant.disclosure == PathDisclosure::Paths)
             .map(|grant| grant.pattern.clone())
             .collect();
@@ -134,9 +173,11 @@ impl AuthorizationState {
 
     /// Preset names that may be announced without exposing their paths.
     pub fn disclosed_categories(&self) -> Vec<String> {
+        let now = now_ms();
         let mut labels: Vec<String> = self
             .grants
             .iter()
+            .filter(|grant| !grant.is_expired(now))
             .filter(|grant| grant.disclosure == PathDisclosure::Category)
             .filter_map(|grant| grant.preset.clone())
             .chain(self.category_labels.iter().cloned())
@@ -150,7 +191,8 @@ impl AuthorizationState {
     pub fn apply_preset(&mut self, name: &str, grants: Vec<PathGrant>) {
         self.grants
             .retain(|grant| grant.preset.as_deref() != Some(name));
-        self.grants.extend(grants);
+        self.grants
+            .extend(grants.into_iter().map(PathGrant::stamped));
         if !self.applied_presets.iter().any(|item| item == name) {
             self.applied_presets.push(name.to_string());
         }
@@ -202,6 +244,7 @@ pub fn expand_path_grants(
                     preset: Some(name.clone()),
                     checkpointed: preset.checkpointed,
                     ttl_secs: preset.ttl_secs,
+                    issued_at_ms: Some(now_ms()),
                     disclosure: preset.disclosure,
                 });
             }
@@ -214,6 +257,7 @@ pub fn expand_path_grants(
                 preset: Some(name.clone()),
                 checkpointed: false,
                 ttl_secs: Some(3600),
+                issued_at_ms: Some(now_ms()),
                 disclosure: PathDisclosure::Paths,
             });
         }
@@ -266,6 +310,7 @@ mod persistence_tests {
             preset: Some("user_config".to_string()),
             checkpointed: false,
             ttl_secs: Some(60),
+            issued_at_ms: None,
             disclosure: PathDisclosure::Category,
         }]);
         let json = serde_json::to_string(&state).expect("serialize authorization");

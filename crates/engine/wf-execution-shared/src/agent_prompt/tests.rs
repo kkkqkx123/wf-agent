@@ -359,6 +359,7 @@ fn authorization_note_honors_disclosure() {
         preset: Some("user_config".to_string()),
         checkpointed: false,
         ttl_secs: None,
+        issued_at_ms: None,
         disclosure,
     };
 

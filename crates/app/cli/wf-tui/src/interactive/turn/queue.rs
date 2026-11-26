@@ -214,7 +214,7 @@ impl InteractiveController {
                     interaction_id,
                     request,
                 } => {
-                    if let Some(decision) = self.remembered.decision_for(&request.tool_name) {
+                    if let Some(decision) = self.remembered.decision_for(&request) {
                         let answer = if decision {
                             crate::approval_overlay::ApprovalAnswer::approved()
                         } else {

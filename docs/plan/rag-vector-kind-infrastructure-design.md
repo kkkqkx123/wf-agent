@@ -1,11 +1,11 @@
 # RAG 向量种类扩展：向量侧基础设施设计
 
-> 本文是 `docs/plan/long-term/rag-vector-kind-extension-design.md` 的落地前置设计，只覆盖**向量侧**（`vector-contracts` 及其三个后端）的基础设施改造。按当前决定，先忽略立项门槛，提前实现所需基础设施，为后续把稀疏/多向量/具名向量作为可选功能接入做准备；本轮不写任何消费分支，也不触发 `wf-rag` 的编码器与融合改造。数据源装配见 `docs/plan/rag-data-source-abstraction-design.md`，门槛与长期参考见 `docs/plan/long-term/sparse-writes.md`。
+> 本文是 `docs/plan/long-term/rag-vector-kind-extension-design.md` 的落地前置设计，只覆盖**向量侧**（`vector-contracts` 及其三个后端）的基础设施改造。契约与后端能力已按本文落地；simvec 子仓库随后在 `a24e71b` 与 `e33b146` 原生实现了稀疏/多向量与具名空间，因此 simvec 的能力结论与执行矩阵已更新。消费分支现在位于 `wf-rag`，不属于本文范围。数据源装配见 `docs/plan/rag-data-source-abstraction-design.md`，门槛与长期参考见 `docs/plan/long-term/sparse-writes.md`。
 
 ## 0. 结论速览
 
 * 向量侧要落地的不是"稀疏/多向量检索功能"，而是**能表达这些向量种类的契约形状 + 后端能力声明 + 不支持时的显式错误**。功能是否启用由上层后续决定，本轮只保证契约与后端"准备好的时候能安全接上"。
-* 三个后端能力差异极大：**Qdrant 原生支持稀疏、多向量、具名向量**（仅用现有 REST 栈即可认领）；**simvec 只支持单稠密向量**，属于显式不支持；**内存后端**作为契约参考实现，先补稀疏倒排与多向量 MaxSim 的可选分支。
+* 三个后端各有明确能力：**Qdrant 原生支持稀疏、多向量、具名向量**；**simvec 通过 `KindStore` 原生支持稀疏与多向量**，通过 `NamedStore` 支持具名空间，但具名形状暂未进入向量契约；**内存后端**作为契约参考实现，提供稀疏倒排与多向量 MaxSim。
 * Qdrant 侧无需引入 `qdrant_client` crate，也无需 gRPC：在现有 `reqwest` + 手写 JSON 的薄客户端上扩展建集合、写点、查询三处 body 即可。官方文档确认的字段形状见第 5 节。
 * 现有三处"单稠密向量"假设必须同时改：`VectorPoint.vector`、`VectorQuery.vector`、`CollectionSpec.dimension`；再补 trait 的能力方法与 `VectorError` 的 `Unsupported` 变体。改造方式与 `lib.rs` 已声明的 "additive via optional fields" 一致，保持默认稠密行为完全不变。
 * 未认领能力的后端必须返回明确的 `Unsupported` 错误，不允许用空结果或错误排序伪装支持。
@@ -16,7 +16,7 @@
 
 * 收紧 `vector-contracts` 的向量数据形状，使其能表达稠密、稀疏、多向量三类载荷，并预留具名向量的寻址结构。
 * 在 `VectorStorage` 上增加能力查询，让宿主在建集合前能判断某后端是否支持某种类。
-* 让三个后端按真实能力认领或拒绝：内存后端实现参考语义，Qdrant 认领其原生能力，simvec 显式拒绝。
+* 让三个后端按真实能力认领或拒绝：内存后端实现参考语义，Qdrant 认领其原生能力，simvec 认领稀疏与多向量并把能力查询委托给引擎。
 * 扩展 Qdrant 薄客户端的 REST/JSON 构造，使其具备写入和查询稀疏/多向量/具名向量的能力（即便本轮上层还不调用）。
 
 ### 1.2 本轮不做什么
@@ -24,6 +24,8 @@
 * 不改 `wf-rag` 的 pipeline 查询分派、`vector-encoding` 插件桥接、编码器端口、source 指纹与 reindex、融合与 Weighted 归一化约束。这些属于后续"可选功能"阶段。
 * 不为任何种类写消费分支、默认开关或自动降级；缺省路径与今天完全一致。
 * 不改变集合的对外行为：现有以 `CollectionSpec::new(name, dim)` 建立的稠密集合必须零改动通过。
+
+上述“不做”是本文作为基础设施前置设计的边界；编码器、查询分派、指纹与融合已按长期设计文档在 `wf-rag` 与 `wf-api` 落地，不再属于本文变更范围。
 
 ### 1.3 能力边界为何必须先做
 
@@ -41,7 +43,7 @@
 | `store.rs` 的 `VectorQuery` | `vector: Vec<f32>`，查询为单个稠密向量 |
 | `store.rs` 的 `CollectionSpec` | `dimension: usize` 全局唯一维度，无种类字段 |
 | `memory.rs` | `StoredPoint.vector: Vec<f32>`，精确扫描按单一向量打分 |
-| `simvec_adapter.rs` | 映射到 `simvec::VectorPoint::new(id, Vec<f32>)` |
+| `simvec_adapter.rs` | 稠密走原有 `LocalVectorEngine`；稀疏与多向量映射到 `simvec::VectorPoint::with_data` 与 `simvec::SearchQuery::with_data`，由 `KindStore` 执行 |
 | `qdrant.rs` | 建集合只写 `vectors: {size, distance}`，写点只写 `"vector": point.vector` |
 
 `VectorStorage` trait 目前 13 个方法，没有任何能力探测方法；`VectorError` 也没有 `Unsupported` 变体，"做不到"目前被塞进 `InvalidInput`/`Backend`。`lib.rs` 的 crate 文档已把 sparse/multi vectors、named vectors、prefetch fusion 列为推迟项，并约定用可选字段加性扩展。
@@ -57,23 +59,24 @@ Qdrant 服务端已原生支持全部三种能力，且当前后端使用的 RES
 
 因此 Qdrant 侧属于 `sparse-writes.md` 门槛中"某后端原生支持，使执行矩阵缺口只剩适配层"的情形，是本次基础设施最适合真正认领的后端。
 
-### 2.3 simvec：显式不支持
+### 2.3 simvec：原生稀疏/多向量与具名空间
 
-simvec 是纯 dense、单向量、单度量、单索引的本地引擎，作为 git submodule 固定在该仓 `crates/infra/simvec`（提交 `b64542fd…`）。全代码库（含 C API 与 5 个语言绑定、文档）都没有 sparse/multi-vector/ColBERT MaxSim/named vector 的实现或占位入口：
+simvec 子仓库当前 HEAD 为 `e33b146`，包含两个关键提交：`a24e71b` 加入 `kind_store::KindStore`，`e33b146` 加入 `named_store::NamedStore`。引擎侧事实如下：
 
-* `VectorPoint` 只有一个 `vector: Vec<f32>`，`CollectionConfig.vector_size` 全局唯一。
-* 距离内核签名统一为 `(&[f32], &[f32])`，无稀疏表示、无双指针求交、无 MaxSim。
-* 存储 `vectors.bin` 是 `dim*slots*4` 定长行；HNSW/IVF 都绑定单一 `dim`+`metric`。
-* 引擎 API 与 C 头文件都没有能力探测方法。
+* `CollectionConfig` 带 `kind`、`sparse_config`、`multi_config` 与 `vectors: VectorsConfig::Named`；`validate_kind()` 校验种类参数组合。
+* `VectorPoint` / `SearchQuery` 除稠密 `vector` 外，还带 `data: Option<VectorData>` 与具名空间的 `named` / `target` + `named_vector`。
+* `VectorEngine::supported_kinds()` 返回 `Dense`、`Sparse`、`Multi`；具名布局通过 `VectorsConfig::Named` 表达，不是第四种 `VectorKind`。
+* 稀疏走倒排候选与加权点积；多向量走精确 MaxSim；具名集合按空间名倒排或全扫描。三者都禁用 ANN 与量化，并通过 WAL 持久化、重开时回放恢复。
+* `LocalVectorEngine` 按集合元数据把操作路由到稠密 `CollectionStore`、`KindStore` 或 `NamedStore`，调用方无需选择存储实现。
 
-要原生支持属于跨类型/内核/存储/索引/API/绑定六层的中大型改造，且会牵动 submodule 版本。本轮不做；simvec 适配器对非稠密种类一律返回显式 `Unsupported`，不做"展开成稠密"的近似伪装。
+适配层只做形状映射、参数校验、错误映射与分页/读取保真，不复制引擎的打分逻辑；不改变 C API 与语言绑定。
 
 ### 2.4 能力矩阵
 
 | 后端 | 稠密 | 稀疏 | 多向量 | 具名向量 | 本轮认领 |
 | --- | --- | --- | --- | --- | --- |
 | memory | 支持 | 参考实现（可开关） | 参考实现（可开关） | 后续 | 稠密 + 稀疏/多向量参考语义 |
-| simvec | 支持 | 不支持 | 不支持 | 不支持 | 仅稠密，其余显式 `Unsupported` |
+| simvec | 支持 | 原生支持（精确扫描） | 原生支持（精确 MaxSim） | 引擎支持，契约未接入 | 认领稀疏与多向量；具名暂不启用 |
 | Qdrant | 支持 | 原生支持 | 原生支持 | 原生支持 | 全部四种（REST 适配） |
 
 ## 3. 契约层改动设计（`vector-contracts`）
@@ -129,11 +132,13 @@ simvec 是纯 dense、单向量、单度量、单索引的本地引擎，作为 
 * 具名向量本轮不认领，返回 `Unsupported`。
 * 量化/HNSW 对稀疏与多向量不生效，仅做参数校验。
 
-### 4.2 simvec 适配器：显式不支持
+### 4.2 simvec 适配器：薄层认领
 
 * 稠密路径完全保持现状，映射函数不改。
-* `supported_kinds` 只返回 `Dense`；`ensure_collection`/`upsert`/`search` 遇到非稠密种类返回 `Unsupported("simvec …")`。
-* 不改 submodule、不改 C API 与绑定。这样把 simvec 的大改造推迟到确有需求且有基准证据时，本轮零成本。
+* `supported_kinds` 委托 `LocalVectorEngine`，由引擎声明实际支持的种类。
+* 稀疏与多向量通过 `CollectionConfig::with_sparse/with_multi` 建集合；点载荷与查询载荷映射到 `VectorData` 的对应变体。
+* 适配层拒绝跨种类查询参数、校验种类与维度上限，并把引擎错误映射为契约错误；`scroll` 必须保留非稠密向量形状。
+* 具名集合暂不认领；契约尚未提供具名空间描述，不为假想需求提前扩形状。不改 C API 与绑定。
 
 ### 4.3 Qdrant 后端：按能力认领
 
@@ -186,16 +191,16 @@ simvec 是纯 dense、单向量、单度量、单索引的本地引擎，作为 
 ## 6. 测试与验证
 
 * **契约对齐测试**：三种形状各自的合法性用例（稠密维度、稀疏索引递增/等长/有限、多向量维度与上限）；种类不匹配的建集合/写入/查询必须返回明确错误；跨种类参数（稠密量化用于稀疏）被拒绝。
-* **能力矩阵测试**：`supported_kinds` 与三后端 `ensure_collection` 的拒绝行为一致；simvec 对非稠密种类返回 `Unsupported` 且文案含后端名与种类。
+* **能力矩阵测试**：`supported_kinds` 与三后端 `ensure_collection` 的拒绝行为一致；simvec 按引擎能力返回种类，稀疏/多向量形状错误与跨种类参数返回明确错误。
 * **默认兼容测试**：现有全部以 `CollectionSpec::new(name, dim)` 建立的稠密集合、写点、查询、过滤、分页、删除、计数测试零改动通过。
 * **Qdrant REST body 测试**：为稀疏/多向量/具名向量各加 body 构造单测，断言 `sparse_vectors`、`multivector_config`、`using`、`prefetch`、`fusion` 等字段形状；沿用现有 `search_body_carries_optional_recall_params` 的风格，用 mock server 断言请求体，不依赖真实 Qdrant。
-* **跨后端一致性**：稀疏/多向量的过滤、分页、删除、计数、分数顺序在内存与 Qdrant 之间对齐；近似计数仍按现有契约说明处理，不用于精确一致性断言。
+* **跨后端一致性**：稀疏/多向量的过滤、分页、删除、计数、分数顺序在内存、simvec 与 Qdrant 之间对齐；近似计数仍按现有契约说明处理，不用于精确一致性断言。
 
 ## 7. 实施顺序
 
 1. 收紧契约形状：`VectorKind`/`VectorData`、`CollectionSpec`、`VectorQuery` 改为可选字段 + 默认值，保证稠密路径零改动。
 2. 收敛共享校验函数，新增 `VectorError::Unsupported` 与 `VectorStorage` 能力方法。
-3. 三个后端接入能力方法：simvec 仅稠密；内存补稀疏/多向量参考语义；Qdrant 声明全部能力。
+3. 三个后端接入能力方法：simvec 委托引擎认领稀疏与多向量；内存补稀疏/多向量参考语义；Qdrant 声明全部能力。
 4. 扩展 Qdrant 薄客户端三处 body 构造与版本门禁，加 REST body 单测。
 5. 跑通默认兼容与契约对齐测试，确认稠密行为与改前一致。
 
@@ -203,6 +208,7 @@ simvec 是纯 dense、单向量、单度量、单索引的本地引擎，作为 
 
 * 不改 `wf-rag` 的 pipeline 分派、编码器端口、`vector-encoding` 插件桥接、source 指纹、reindex、融合与 Weighted 归一化。
 * 不打开任何种类的默认开关，不为假想需求写消费分支；本轮只交付"能安全接上"的基础设施。
-* 不改 simvec submodule、C API 与语言绑定；simvec 只做显式拒绝。
+* 不改 simvec submodule、C API 与语言绑定；适配层不复制引擎实现。
+* 具名向量暂不进入 `vector-contracts`，只在 simvec 引擎内部可用。
 * 不引入 `qdrant_client` crate 或 gRPC 传输；Qdrant 侧继续走共享 `reqwest` 栈。
 * 不做排序、recommend、discover、分组、快照、分片、别名、gRPC，以及旧向量格式兼容或自动迁移。

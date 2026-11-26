@@ -10,9 +10,10 @@
 //! [`llm`]. Concrete backends and providers are injected by the host, so
 //! this crate stays free of backend and model choices.
 //!
-//! Plugin contributions stay advisory: text analyzers replace segmentation,
-//! retrieval advisors reorder fused hits, vector encodings validate without
-//! changing dense writes, snapshot policies declare without executing.
+//! Plugin contributions stay advisory except vector encodings: text
+//! analyzers replace segmentation, retrieval advisors reorder fused hits,
+//! vector encodings produce typed payloads for writes and queries, and
+//! snapshot policies declare without executing.
 //! Metadata extractors, chunk splitters, route selectors, postprocessors
 //! and eval judges follow the same advisory pattern; pipelines consume them
 //! through explicit config names while eval judges stay host-called.
@@ -59,8 +60,8 @@ pub use citation::{
 };
 pub use cleaner::{clean_text, CleanerConfig};
 pub use config::{
-    ChunkPreset, DuplicatePolicy, FusionConfig, FusionMode, RagIndexConfig, RagQueryConfig,
-    RerankOptions,
+    vector_encoding_fingerprint, ChunkPreset, DuplicatePolicy, FusionConfig, FusionMode,
+    KindQueryConfig, RagIndexConfig, RagQueryConfig, RerankOptions,
 };
 pub use converter::{
     converter_for, ConvertedDocument, ConverterRegistry, DocumentConverter, JsonConverter,
@@ -79,7 +80,7 @@ pub use metrics::{rank_pairs, RetrievalMetrics};
 pub use pipeline::{
     delete_by_ids, delete_source, ingest_documents, query, query_hybrid, query_multi,
     query_with_metrics, query_with_rerank, query_with_rerank_metrics, IngestStats,
-    RerankInvocation,
+    RerankInvocation, ENCODER_KEY, ENCODER_SCHEMA_KEY, VECTOR_KIND_KEY,
 };
 pub use plugin::{
     apply_registered_advisor, apply_registered_postprocessor, apply_registered_selector,
@@ -94,9 +95,9 @@ pub use plugin::{
     register_vector_encoding, split_with_registered, unregister_chunk_splitter,
     unregister_eval_judge, unregister_metadata_extractor, unregister_plugin_analyzer,
     unregister_postprocessor, unregister_retrieval_advisor, unregister_route_selector,
-    unregister_snapshot_policy, unregister_vector_encoding, JudgeScore, SplitPiece,
+    unregister_snapshot_policy, unregister_vector_encoding, EncodedVector, JudgeScore, SplitPiece,
     EVAL_JUDGE_PROTOCOL_VERSION, POSTPROCESSOR_PROTOCOL_VERSION,
-    RETRIEVAL_ADVISOR_PROTOCOL_VERSION, ROUTE_SELECTOR_PROTOCOL_VERSION,
+    RETRIEVAL_ADVISOR_PROTOCOL_VERSION, ROUTE_SELECTOR_PROTOCOL_VERSION, VECTOR_ENCODING_SCHEMA,
 };
 pub use postprocess::{reorder_for_context, trim_to_budget, window_content};
 pub use rerank_adapter::{rerank_hits, RankedChunk};

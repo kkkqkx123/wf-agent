@@ -21,6 +21,14 @@ pub struct RetrievalMetrics {
     pub rerank_displacement: f64,
     /// Whether reranking ran for this query.
     pub reranked: bool,
+    /// Retrieval kind of the primary collection.
+    pub vector_kind: String,
+    /// Encoder used on the query path, when configured.
+    pub encoder: Option<String>,
+    /// Number of candidate lists entering fusion.
+    pub candidate_lists: usize,
+    /// Fusion strategy applied to the candidate lists.
+    pub fusion_mode: String,
 }
 
 impl RetrievalMetrics {
@@ -42,6 +50,16 @@ impl RetrievalMetrics {
                 "rerank_displacement".to_string(),
                 format!("{:.3}", self.rerank_displacement),
             ),
+            ("vector_kind".to_string(), self.vector_kind.clone()),
+            (
+                "encoder".to_string(),
+                self.encoder.clone().unwrap_or_default(),
+            ),
+            (
+                "candidate_lists".to_string(),
+                self.candidate_lists.to_string(),
+            ),
+            ("fusion_mode".to_string(), self.fusion_mode.clone()),
         ])
     }
 

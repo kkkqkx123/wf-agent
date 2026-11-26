@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use keyword_contracts::{KeywordIndex, KeywordQuery, KeywordScope};
 use llm_embedding::provider::EmbeddingProvider;
 use llm_rerank::{RerankProvider, RerankRuntimeConfig};
-use vector_contracts::{CollectionSpec, SearchFilter, VectorPoint, VectorQuery, VectorStorage};
+use vector_contracts::{
+    CollectionSpec, SearchFilter, VectorData, VectorKind, VectorPoint, VectorQuery, VectorStorage,
+};
 
 use crate::chunker::RecursiveChunker;
 use crate::cleaner::clean_text;
@@ -31,6 +33,13 @@ use crate::sync as sync_support;
 
 /// Candidate multiplier used when RAG-side conditions are rechecked on keyword hits.
 const KEYWORD_CANDIDATE_OVERFETCH: usize = 4;
+
+/// Payload key carrying the retrieval kind of a stored point.
+pub const VECTOR_KIND_KEY: &str = "vector_kind";
+/// Payload key carrying the encoder that produced a stored vector.
+pub const ENCODER_KEY: &str = "encoder";
+/// Payload key carrying the encoder schema of a stored vector.
+pub const ENCODER_SCHEMA_KEY: &str = "encoder_schema";
 
 /// Ingest outcome counters.
 #[derive(Debug, Clone, Default)]
@@ -75,6 +84,7 @@ where
         ));
     }
     validate_plugin_chunking(config)?;
+    validate_ingest_encoding(config)?;
     let chunker = RecursiveChunker::new(config.chunker_config())?;
     let mut stats = IngestStats::default();
     let mut pending: Vec<RagChunk> = Vec::new();
@@ -140,40 +150,58 @@ where
         return Ok(stats);
     }
     let texts: Vec<String> = pending.iter().map(|chunk| chunk.content.clone()).collect();
-    let mut vectors = Vec::with_capacity(texts.len());
-    for batch in texts.chunks(config.embedding_batch_size.max(1)) {
-        let owned: Vec<String> = batch.to_vec();
-        let result = embedder
-            .embed(&owned)
-            .await
-            .map_err(|err| RagError::Embedding(err.to_string()))?;
-        if result.embeddings.len() != owned.len() {
-            return Err(RagError::Embedding(format!(
-                "provider returned {} vectors for {} texts",
-                result.embeddings.len(),
-                owned.len()
-            )));
+    let mut encoded = Vec::with_capacity(texts.len());
+    if let Some(name) = config
+        .encoder
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    {
+        for text in &texts {
+            let output = crate::plugin::encode_with_registered(
+                name,
+                text,
+                serde_json::json!({}),
+                config.vector_kind,
+            )?;
+            encoded.push(output.data);
         }
-        vectors.extend(result.embeddings);
+    } else {
+        for batch in texts.chunks(config.embedding_batch_size.max(1)) {
+            let owned: Vec<String> = batch.to_vec();
+            let result = embedder
+                .embed(&owned)
+                .await
+                .map_err(|err| RagError::Embedding(err.to_string()))?;
+            if result.embeddings.len() != owned.len() {
+                return Err(RagError::Embedding(format!(
+                    "provider returned {} vectors for {} texts",
+                    result.embeddings.len(),
+                    owned.len()
+                )));
+            }
+            encoded.extend(result.embeddings.into_iter().map(VectorData::Dense));
+        }
     }
-    let dimension = vectors.first().map(|vector| vector.len()).unwrap_or(0);
-    if dimension == 0 {
+    if encoded.is_empty() {
         return Err(RagError::Embedding(
-            "provider returned empty vectors".to_string(),
+            "encoder returned no vectors".to_string(),
         ));
     }
-    store
-        .ensure_collection(&CollectionSpec::new(collection, dimension))
-        .await?;
+    let dimension = collection_dimension(&encoded, config)?;
+    for vector in &encoded {
+        vector.validate(config.vector_kind, dimension, config.multi_max_vectors)?;
+    }
+    let mut spec = CollectionSpec::new(collection, dimension).with_kind(config.vector_kind);
+    if let Some(max) = config.sparse_max_index {
+        spec = spec.with_sparse_max_index(max);
+    }
+    if let Some(max) = config.multi_max_vectors {
+        spec = spec.with_multi_max_vectors(max);
+    }
+    store.ensure_collection(&spec).await?;
     let mut points = Vec::with_capacity(pending.len());
-    for (chunk, vector) in pending.iter().zip(vectors) {
-        if vector.len() != dimension {
-            return Err(RagError::Embedding(format!(
-                "provider returned inconsistent dimensions ({dimension} vs {})",
-                vector.len()
-            )));
-        }
-        points.push(point_for(chunk, &config.namespace, vector));
+    for (chunk, vector) in pending.iter().zip(encoded) {
+        points.push(point_for(chunk, &config.namespace, vector, config));
     }
     for batch in points.chunks(256) {
         store.upsert(collection, batch).await?;
@@ -205,6 +233,7 @@ where
 {
     let owned = query_text.to_string();
     validate_vector_encoding(&owned, config)?;
+    validate_fusion(config)?;
     validate_shaping_names(config)?;
     let searched = search_variants(
         store,
@@ -240,6 +269,7 @@ where
     for variant in query_texts {
         validate_vector_encoding(variant, config)?;
     }
+    validate_fusion(config)?;
     validate_shaping_names(config)?;
     let searched =
         search_variants(store, embedder, collection, namespace, query_texts, config).await?;
@@ -274,6 +304,7 @@ where
     }
     let owned = query_text.to_string();
     validate_vector_encoding(&owned, config)?;
+    validate_fusion(config)?;
     validate_shaping_names(config)?;
     let searched = search_variants(
         store,
@@ -484,18 +515,166 @@ fn apply_configured_shaping(
     )
 }
 
-/// Validates the configured plugin vector encoding against the query text.
-/// The storage contract stays dense-only; passing validation never
-/// changes written vectors. Unknown names and non-object outputs fail.
+/// Validates that the configured encoders are registered and can encode
+/// the query text into the declared kinds. Unknown names, wrong schemas
+/// and malformed payloads fail before any storage call.
 fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig) -> Result<()> {
-    let Some(name) = config
+    if let Some(name) = config
         .vector_encoding
         .as_deref()
         .filter(|name| !name.trim().is_empty())
-    else {
+    {
+        crate::plugin::encode_with_registered(
+            name,
+            query_text,
+            serde_json::json!({}),
+            config.vector_kind,
+        )?;
+    } else if config.vector_kind != VectorKind::Dense {
+        return Err(RagError::InvalidInput(format!(
+            "vector_encoding is required for {} queries",
+            config.vector_kind.as_name()
+        )));
+    }
+    for extra in &config.additional_kinds {
+        if extra.collection.trim().is_empty() {
+            return Err(RagError::InvalidInput(
+                "additional vector collection must not be empty".to_string(),
+            ));
+        }
+        crate::plugin::encode_with_registered(
+            &extra.encoder,
+            query_text,
+            serde_json::json!({}),
+            extra.kind,
+        )?;
+    }
+    Ok(())
+}
+
+/// Validates that ingest has an encoder whenever the collection kind is not dense.
+fn validate_ingest_encoding(config: &RagIndexConfig) -> Result<()> {
+    if config.vector_kind == VectorKind::Dense && config.encoder.is_none() {
         return Ok(());
+    }
+    let Some(name) = config
+        .encoder
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Err(RagError::InvalidInput(format!(
+            "encoder is required for {} ingest",
+            config.vector_kind.as_name()
+        )));
     };
-    crate::plugin::encode_with_registered(name, query_text, serde_json::json!({}))?;
+    if crate::plugin::find_vector_encoding(name).is_none() {
+        return Err(RagError::InvalidInput(format!(
+            "unknown vector encoding '{name}'"
+        )));
+    }
+    if config.vector_kind != VectorKind::Dense && config.vector_kind != VectorKind::Multi {
+        if config.sparse_max_index == Some(0) {
+            return Err(RagError::InvalidInput(
+                "sparse_max_index must be positive".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Derives the collection dimension from encoded vectors.
+fn collection_dimension(vectors: &[VectorData], config: &RagIndexConfig) -> Result<usize> {
+    match config.vector_kind {
+        VectorKind::Dense => Ok(vectors
+            .first()
+            .and_then(|data| data.as_dense().ok())
+            .map(<[f32]>::len)
+            .filter(|len| *len > 0)
+            .ok_or_else(|| RagError::Embedding("dense vector must not be empty".to_string()))?),
+        VectorKind::Multi => Ok(match vectors.first() {
+            Some(VectorData::Multi(sub_vectors)) => sub_vectors
+                .first()
+                .map(Vec::len)
+                .filter(|len| *len > 0)
+                .ok_or_else(|| {
+                    RagError::InvalidInput("multi vector must not be empty".to_string())
+                })?,
+            _ => {
+                return Err(RagError::InvalidInput(
+                    "multi vector payload required".to_string(),
+                ))
+            }
+        }),
+        VectorKind::Sparse => {
+            let largest = vectors
+                .iter()
+                .filter_map(|data| match data {
+                    VectorData::Sparse { indices, .. } => indices.last().copied(),
+                    _ => None,
+                })
+                .max()
+                .unwrap_or(0) as usize;
+            let bound = config
+                .sparse_max_index
+                .map(|max| max as usize)
+                .unwrap_or(largest);
+            if largest > bound {
+                return Err(RagError::InvalidInput(format!(
+                    "sparse index {largest} exceeds configured bound {bound}"
+                )));
+            }
+            Ok(bound + 1)
+        }
+    }
+}
+
+/// Encodes one query variant into the requested kind.
+async fn query_vector<E>(
+    text: &str,
+    embedder: &E,
+    encoder: Option<&str>,
+    kind: VectorKind,
+) -> Result<VectorData>
+where
+    E: EmbeddingProvider + ?Sized,
+{
+    if let Some(name) = encoder.filter(|name| !name.trim().is_empty()) {
+        let encoded =
+            crate::plugin::encode_with_registered(name, text, serde_json::json!({}), kind)?;
+        return Ok(encoded.data);
+    }
+    if kind != VectorKind::Dense {
+        return Err(RagError::InvalidInput(format!(
+            "encoder is required for {} queries",
+            kind.as_name()
+        )));
+    }
+    let vector = embedder
+        .embed_one(text)
+        .await
+        .map_err(|err| RagError::Embedding(err.to_string()))?;
+    Ok(VectorData::Dense(vector))
+}
+
+/// Rejects weighted fusion across incomparable kinds unless explicitly allowed.
+fn validate_fusion(config: &RagQueryConfig) -> Result<()> {
+    if config.fusion.mode != crate::config::FusionMode::Weighted || config.weighted_comparable {
+        return Ok(());
+    }
+    let kinds = std::iter::once(config.vector_kind)
+        .chain(config.additional_kinds.iter().map(|extra| extra.kind));
+    let mut first: Option<VectorKind> = None;
+    for kind in kinds {
+        match first {
+            None => first = Some(kind),
+            Some(current) if current != kind => {
+                return Err(RagError::InvalidInput(
+                    "weighted fusion across vector kinds requires weighted_comparable".to_string(),
+                ))
+            }
+            Some(_) => {}
+        }
+    }
     Ok(())
 }
 
@@ -517,6 +696,7 @@ where
     let started = std::time::Instant::now();
     let owned = query_text.to_string();
     validate_vector_encoding(&owned, config)?;
+    validate_fusion(config)?;
     validate_shaping_names(config)?;
     let searched = search_variants(
         store,
@@ -527,7 +707,8 @@ where
         config,
     )
     .await?;
-    let requested = candidate_limit(config);
+    let lists = 1 + config.additional_kinds.len();
+    let requested = candidate_limit(config) * lists;
     let returned = searched.fused_len;
     let advised = apply_configured_shaping(searched.hits, query_text, config)?;
     let hits = postprocess(store, collection, advised, config).await?;
@@ -538,6 +719,10 @@ where
         hits_kept: hits.len(),
         rerank_displacement: 0.0,
         reranked: false,
+        vector_kind: config.vector_kind.as_name().to_string(),
+        encoder: config.vector_encoding.clone(),
+        candidate_lists: lists,
+        fusion_mode: config.fusion.mode.as_name().to_string(),
     };
     Ok((hits, metrics))
 }
@@ -731,7 +916,12 @@ async fn source_indexed<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     Ok(true)
 }
 
-fn point_for(chunk: &RagChunk, namespace: &str, vector: Vec<f32>) -> VectorPoint {
+fn point_for(
+    chunk: &RagChunk,
+    namespace: &str,
+    vector: VectorData,
+    config: &RagIndexConfig,
+) -> VectorPoint {
     let mut payload: HashMap<String, serde_json::Value> = chunk
         .metadata
         .iter()
@@ -765,9 +955,24 @@ fn point_for(chunk: &RagChunk, namespace: &str, vector: Vec<f32>) -> VectorPoint
     if let Some(parent) = &chunk.parent_id {
         payload.insert(PARENT_ID_KEY.to_string(), serde_json::json!(parent));
     }
+    payload.insert(
+        VECTOR_KIND_KEY.to_string(),
+        serde_json::json!(config.vector_kind.as_name()),
+    );
+    if let Some(name) = config
+        .encoder
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    {
+        payload.insert(ENCODER_KEY.to_string(), serde_json::json!(name));
+        payload.insert(
+            ENCODER_SCHEMA_KEY.to_string(),
+            serde_json::json!(crate::plugin::VECTOR_ENCODING_SCHEMA),
+        );
+    }
     VectorPoint {
         id: chunk.id.clone(),
-        vector: vector.into(),
+        vector,
         payload,
     }
 }
@@ -822,7 +1027,7 @@ fn candidate_limit(config: &RagQueryConfig) -> usize {
     }
 }
 
-/// Dense search outcome before post-processing.
+/// Kind-shaped search outcome before post-processing.
 struct SearchedHits {
     /// Fused hits truncated to `top_k`.
     hits: Vec<RetrievedChunk>,
@@ -860,12 +1065,24 @@ where
                 "query variants must not be empty".to_string(),
             ));
         }
-        let vector = embedder
-            .embed_one(variant)
-            .await
-            .map_err(|err| RagError::Embedding(err.to_string()))?;
-        let request = VectorQuery::new(vector, candidate_limit(config))
-            .with_filter(query_filter(namespace, config));
+        let vector = query_vector(
+            variant,
+            embedder,
+            config.vector_encoding.as_deref(),
+            config.vector_kind,
+        )
+        .await?;
+        let limit = match config.vector_kind {
+            VectorKind::Sparse => config
+                .sparse_candidates
+                .unwrap_or_else(|| candidate_limit(config)),
+            VectorKind::Multi => config
+                .multi_budget
+                .unwrap_or_else(|| candidate_limit(config)),
+            VectorKind::Dense => candidate_limit(config),
+        };
+        let request =
+            VectorQuery::with_data(vector, limit).with_filter(query_filter(namespace, config));
         let request = match config.score_threshold {
             Some(threshold) => request.with_score_threshold(threshold),
             None => request,
@@ -873,6 +1090,27 @@ where
         let mut hits = Vec::new();
         for point in store.search(collection, &request).await? {
             hits.push(chunk_from_hit(&point)?);
+        }
+        for extra in &config.additional_kinds {
+            let data = query_vector(variant, embedder, Some(&extra.encoder), extra.kind).await?;
+            let extra_limit = match extra.kind {
+                VectorKind::Sparse => config
+                    .sparse_candidates
+                    .unwrap_or_else(|| candidate_limit(config)),
+                VectorKind::Multi => config
+                    .multi_budget
+                    .unwrap_or_else(|| candidate_limit(config)),
+                VectorKind::Dense => candidate_limit(config),
+            };
+            let extra_request = VectorQuery::with_data(data, extra_limit)
+                .with_filter(query_filter(namespace, config));
+            let extra_request = match config.score_threshold {
+                Some(threshold) => extra_request.with_score_threshold(threshold),
+                None => extra_request,
+            };
+            for point in store.search(&extra.collection, &extra_request).await? {
+                hits.push(chunk_from_hit(&point)?);
+            }
         }
         lists.push(hits);
     }
@@ -1495,6 +1733,73 @@ mod tests {
             .await
             .expect_err("unknown encoding must fail");
         assert!(err.to_string().contains("missing-encoding"));
+        crate::plugin::clear_vector_encodings();
+    }
+
+    struct SparseEncoding;
+
+    impl wf_plugin_sdk::PluginVectorEncoding for SparseEncoding {
+        fn name(&self) -> String {
+            "test-sparse-encoding".to_string()
+        }
+
+        fn encode(
+            &self,
+            text: String,
+            _options: serde_json::Value,
+        ) -> wf_plugin_sdk::PluginResult<serde_json::Value> {
+            let index = if text.contains("rust") { 1 } else { 2 };
+            Ok(serde_json::json!({
+                "schema": "vector-encoding/v1",
+                "kind": "sparse",
+                "vector": {"indices": [index], "values": [1.0]},
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn sparse_encoding_ingests_and_queries() {
+        let _guard = crate::plugin::test_registry_guard().await;
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_vector_encodings();
+        crate::plugin::register_vector_encoding(
+            "test-sparse-encoding",
+            std::sync::Arc::new(SparseEncoding),
+        );
+        let index = RagIndexConfig::new("kb").with_kind(VectorKind::Sparse, "test-sparse-encoding");
+        ingest_documents(
+            &store,
+            None::<&SqliteKeywordIndex>,
+            &embedder,
+            "kb",
+            &[
+                doc("d1", "rust.md", "rust ownership"),
+                doc("d2", "go.md", "go routines"),
+            ],
+            &index,
+        )
+        .await
+        .expect("sparse ingest");
+        let config = RagQueryConfig {
+            vector_kind: VectorKind::Sparse,
+            vector_encoding: Some("test-sparse-encoding".to_string()),
+            sparse_candidates: Some(5),
+            ..RagQueryConfig::default()
+        };
+        let hits = query(&store, &embedder, "kb", "kb", "rust", &config)
+            .await
+            .expect("sparse query");
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].source, "rust.md");
+        let page = store
+            .scroll("kb", &vector_contracts::ScrollQuery::new(10))
+            .await
+            .expect("scroll");
+        assert!(matches!(
+            page.points[0].vector,
+            vector_contracts::VectorData::Sparse { .. }
+        ));
         crate::plugin::clear_vector_encodings();
     }
 }

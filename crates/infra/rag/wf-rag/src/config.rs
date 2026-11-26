@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use vector_contracts::VectorKind;
+
 use crate::chunker::ChunkerConfig;
 use crate::cleaner::CleanerConfig;
 
@@ -46,6 +48,19 @@ pub struct RagIndexConfig {
     /// unset keeps built-in chunking. Conflicts with `hierarchical`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chunk_splitter: Option<String>,
+    /// Retrieval kind of the collection; dense keeps the embedding path.
+    #[serde(default)]
+    pub vector_kind: VectorKind,
+    /// Vector encoder used for writes. Required for sparse and multi kinds;
+    /// unset on dense keeps the embedding provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder: Option<String>,
+    /// Sparse vocabulary bound; unset derives the bound from encoded data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparse_max_index: Option<u32>,
+    /// Per-point sub-vector bound for multi collections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_max_vectors: Option<usize>,
 }
 
 /// Named chunking behavior. A preset only selects separators and
@@ -106,7 +121,18 @@ impl RagIndexConfig {
             cleaning: CleanerConfig::default(),
             metadata_extractor: None,
             chunk_splitter: None,
+            vector_kind: VectorKind::Dense,
+            encoder: None,
+            sparse_max_index: None,
+            multi_max_vectors: None,
         }
+    }
+
+    /// Builds an ingest config for one retrieval kind.
+    pub fn with_kind(mut self, kind: VectorKind, encoder: impl Into<String>) -> Self {
+        self.vector_kind = kind;
+        self.encoder = Some(encoder.into());
+        self
     }
 
     /// Converts to the runtime chunker config, applying the named preset
@@ -124,6 +150,18 @@ impl RagIndexConfig {
         config.token_budget = self.chunking.token_budget;
         config
     }
+}
+
+/// One additional collection queried with its own kind and encoder.
+/// Its hits enter the same fusion as the primary collection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KindQueryConfig {
+    /// Collection to query.
+    pub collection: String,
+    /// Retrieval kind of that collection.
+    pub kind: VectorKind,
+    /// Registered encoder used to encode the query text.
+    pub encoder: String,
 }
 
 /// Query-side parameters.
@@ -168,10 +206,24 @@ pub struct RagQueryConfig {
     /// Plugin retrieval advisor applied after fusion; unset keeps built-in order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval_advisor: Option<String>,
-    /// Plugin vector encoding validated on the query path; unset skips validation.
-    /// The storage contract stays dense-only: validation never changes writes.
+    /// Registered encoder used on the query path; unset embeds dense queries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vector_encoding: Option<String>,
+    /// Retrieval kind of the primary collection; dense keeps the embedding path.
+    #[serde(default)]
+    pub vector_kind: VectorKind,
+    /// Candidate count for sparse recall; unset uses the normal candidate limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparse_candidates: Option<usize>,
+    /// Candidate count for multi-vector recall; unset uses the normal limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_budget: Option<usize>,
+    /// Allows weighted fusion across candidate lists of different kinds.
+    #[serde(default)]
+    pub weighted_comparable: bool,
+    /// Additional kind-specific collections recalled and fused with the primary one.
+    #[serde(default)]
+    pub additional_kinds: Vec<KindQueryConfig>,
     /// Plugin postprocessor shaping fused hits after the retrieval advisor;
     /// unset keeps advisor order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -189,6 +241,17 @@ pub enum FusionMode {
     Concat,
     /// Score-weighted blend preserving each list's normalized scores.
     Weighted,
+}
+
+impl FusionMode {
+    /// Stable name used in retrieval metrics.
+    pub fn as_name(self) -> &'static str {
+        match self {
+            Self::Rrf => "rrf",
+            Self::Concat => "concat",
+            Self::Weighted => "weighted",
+        }
+    }
 }
 
 /// Fusion parameters shared by multi-query and hybrid retrieval.
@@ -255,10 +318,32 @@ impl Default for RagQueryConfig {
             context_budget_chars: None,
             retrieval_advisor: None,
             vector_encoding: None,
+            vector_kind: VectorKind::Dense,
+            sparse_candidates: None,
+            multi_budget: None,
+            weighted_comparable: false,
+            additional_kinds: Vec::new(),
             postprocessor: None,
             conditions: Vec::new(),
         }
     }
+}
+
+/// Stable fingerprint of the configured vector encoding.
+/// Changing the kind, encoder or shape parameters invalidates stored vectors
+/// and requires an explicit reindex.
+pub fn vector_encoding_fingerprint(index: &RagIndexConfig) -> Option<String> {
+    let encoder = index.encoder.as_deref()?.trim();
+    if encoder.is_empty() {
+        return None;
+    }
+    let value = serde_json::json!({
+        "encoder": encoder,
+        "kind": index.vector_kind,
+        "sparse_max_index": index.sparse_max_index,
+        "multi_max_vectors": index.multi_max_vectors,
+    });
+    Some(crate::sync::content_hash(&value.to_string()))
 }
 
 /// Rerank options for queries.
@@ -297,5 +382,24 @@ mod tests {
             .separators
             .iter()
             .any(|separator| separator == "}\n"));
+    }
+
+    #[test]
+    fn encoding_fingerprint_tracks_kind_and_parameters() {
+        let first = RagIndexConfig::new("kb").with_kind(VectorKind::Sparse, "sparse-encoder");
+        let fingerprint = vector_encoding_fingerprint(&first).expect("fingerprint");
+        assert_eq!(
+            fingerprint,
+            vector_encoding_fingerprint(&first).expect("stable")
+        );
+        let changed = RagIndexConfig {
+            sparse_max_index: Some(100),
+            ..first
+        };
+        assert_ne!(
+            fingerprint,
+            vector_encoding_fingerprint(&changed).expect("changed")
+        );
+        assert!(vector_encoding_fingerprint(&RagIndexConfig::new("kb")).is_none());
     }
 }

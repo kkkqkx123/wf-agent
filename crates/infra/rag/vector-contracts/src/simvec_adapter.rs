@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use simvec::VectorEngine;
 
 use crate::error::{Result, VectorError};
 use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
@@ -134,18 +135,19 @@ impl SimvecVectorStore {
     /// Builds the engine config for a non-dense collection spec.
     fn kind_collection_config(&self, spec: &CollectionSpec) -> Result<simvec::CollectionConfig> {
         let config = match spec.kind {
-            VectorKind::Sparse => simvec::CollectionConfig::with_sparse(
-                spec.dimension,
-                Self::map_distance(spec.distance),
-                simvec::SparseConfig {
-                    // Indices are bounded by the declared dimension unless the
-                    // spec carries an explicit (larger) vocabulary bound.
-                    vocab_size: spec
-                        .sparse_max_index
-                        .map(|max| max as usize + 1)
-                        .unwrap_or(spec.dimension),
-                },
-            ),
+            VectorKind::Sparse => {
+                // The engine stores the vocabulary bound as `vector_size` and
+                // checks sparse indices against it during writes and queries.
+                let vocab_size = spec
+                    .sparse_max_index
+                    .map(|max| max as usize + 1)
+                    .unwrap_or(spec.dimension);
+                simvec::CollectionConfig::with_sparse(
+                    vocab_size,
+                    Self::map_distance(spec.distance),
+                    simvec::SparseConfig { vocab_size },
+                )
+            }
             VectorKind::Multi => simvec::CollectionConfig::with_multi(
                 spec.dimension,
                 Self::map_distance(spec.distance),
@@ -454,7 +456,17 @@ impl SimvecVectorStore {
 }
 
 fn map_engine_error(err: simvec::VectorSearchError) -> VectorError {
-    VectorError::Backend(err.to_string())
+    match err {
+        simvec::VectorSearchError::CollectionNotFound(name) => VectorError::CollectionMissing(name),
+        simvec::VectorSearchError::InvalidConfig(message) => VectorError::InvalidInput(message),
+        simvec::VectorSearchError::InvalidVectorDimension { expected, actual } => {
+            VectorError::DimensionMismatch { expected, actual }
+        }
+        simvec::VectorSearchError::NonFiniteElement(index) => {
+            VectorError::InvalidInput(format!("non-finite vector element at index {index}"))
+        }
+        other => VectorError::Backend(other.to_string()),
+    }
 }
 
 fn map_point_error(err: simvec::VectorSearchError, collection: &str, id: &str) -> VectorError {
@@ -474,7 +486,11 @@ impl VectorStorage for SimvecVectorStore {
     }
 
     fn supported_kinds(&self) -> Vec<VectorKind> {
-        vec![VectorKind::Dense, VectorKind::Sparse, VectorKind::Multi]
+        self.engine
+            .supported_kinds()
+            .into_iter()
+            .map(Self::map_engine_kind)
+            .collect()
     }
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool> {
@@ -519,11 +535,43 @@ impl VectorStorage for SimvecVectorStore {
                     spec.name, existing.kind, spec.kind
                 )));
             }
-            if existing.vector_size != spec.dimension {
-                return Err(VectorError::DimensionMismatch {
-                    expected: existing.vector_size,
-                    actual: spec.dimension,
-                });
+            match spec.kind {
+                VectorKind::Sparse => {
+                    let vocab = existing
+                        .sparse_config
+                        .map(|config| config.vocab_size)
+                        .unwrap_or(existing.vector_size);
+                    let requested = spec
+                        .sparse_max_index
+                        .map(|max| max as usize + 1)
+                        .unwrap_or(spec.dimension);
+                    if vocab != requested {
+                        return Err(VectorError::DimensionMismatch {
+                            expected: vocab,
+                            actual: requested,
+                        });
+                    }
+                }
+                VectorKind::Multi => {
+                    if existing.vector_size != spec.dimension {
+                        return Err(VectorError::DimensionMismatch {
+                            expected: existing.vector_size,
+                            actual: spec.dimension,
+                        });
+                    }
+                    let limit = existing
+                        .multi_config
+                        .map(|config| config.max_vectors_per_point)
+                        .unwrap_or(16);
+                    let requested = spec.multi_max_vectors.unwrap_or(16);
+                    if limit != requested {
+                        return Err(VectorError::InvalidInput(format!(
+                            "collection '{}' allows {} sub-vectors per point, requested {}",
+                            spec.name, limit, requested
+                        )));
+                    }
+                }
+                VectorKind::Dense => unreachable!("dense configs use the dense path"),
             }
             if existing.distance != Self::map_distance(spec.distance) {
                 return Err(VectorError::InvalidInput(format!(
@@ -698,6 +746,33 @@ impl VectorStorage for SimvecVectorStore {
                 })
                 .collect()
         };
+        let config = self
+            .engine
+            .collection_config(collection)
+            .map_err(map_engine_error)?
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        let kind = Self::map_engine_kind(config.kind);
+        if query.vector.kind() != kind {
+            return Err(VectorError::InvalidInput(format!(
+                "collection '{collection}' expects {} vectors, got {}",
+                kind.as_name(),
+                query.vector.kind().as_name()
+            )));
+        }
+        query.vector.validate(
+            kind,
+            config.vector_size,
+            config
+                .multi_config
+                .map(|config| config.max_vectors_per_point),
+        )?;
+        if kind != VectorKind::Dense
+            && (query.exact.is_some() || query.hnsw_ef.is_some() || query.quantization.is_some())
+        {
+            return Err(VectorError::InvalidInput(
+                "dense recall controls only apply to dense collections".to_string(),
+            ));
+        }
         let request = match &query.vector {
             VectorData::Dense(dense) => {
                 Self::validate_search_params(query)?;
@@ -729,16 +804,8 @@ impl VectorStorage for SimvecVectorStore {
                 request
             }
             other => {
-                if query.hnsw_ef.is_some() || query.quantization.is_some() {
-                    return Err(VectorError::InvalidInput(
-                        "hnsw_ef and quantization controls only apply to dense collections"
-                            .to_string(),
-                    ));
-                }
-                let mut request = simvec::SearchQuery::with_data(
-                    Self::map_vector_data(other)?,
-                    query.limit,
-                );
+                let mut request =
+                    simvec::SearchQuery::with_data(Self::map_vector_data(other)?, query.limit);
                 if let Some(threshold) = query.score_threshold {
                     request = request.with_score_threshold(threshold);
                 }
@@ -886,9 +953,13 @@ impl VectorStorage for SimvecVectorStore {
                 .and_then(|value| value.as_str())
                 .map(str::to_string)
                 .unwrap_or_else(|| Self::id_string(&point.id));
+            let vector = match point.data {
+                Some(data) => Self::map_engine_data(data),
+                None => VectorData::Dense(point.vector.clone()),
+            };
             converted.push(VectorPoint {
                 id: resolved,
-                vector: VectorData::Dense(point.vector.clone()),
+                vector,
                 payload,
             });
         }
@@ -1028,10 +1099,7 @@ mod tests {
                 VectorPoint {
                     id: id.to_string(),
                     vector: VectorData::Sparse { indices, values },
-                    payload: HashMap::from([(
-                        PID_KEY.to_string(),
-                        serde_json::json!(id),
-                    )]),
+                    payload: HashMap::from([(PID_KEY.to_string(), serde_json::json!(id))]),
                 }
             };
             store
@@ -1044,10 +1112,7 @@ mod tests {
                 )
                 .await
                 .expect("upsert");
-            let query = VectorQuery::with_data(
-                VectorData::sparse(vec![1, 3], vec![1.0, 1.0]),
-                2,
-            );
+            let query = VectorQuery::with_data(VectorData::sparse(vec![1, 3], vec![1.0, 1.0]), 2);
             let hits = store.search("sparse-kb", &query).await.expect("search");
             assert_eq!(hits[0].id, "strong");
             assert!((hits[0].score - 3.0).abs() < 1e-5);
@@ -1088,6 +1153,46 @@ mod tests {
                 .with_vector_name("default");
             let result = store.ensure_collection(&spec).await;
             assert!(matches!(result, Err(VectorError::Unsupported(_))));
+        });
+    }
+
+    #[test]
+    fn sparse_collection_keeps_bounds_and_payload_shape() {
+        let dir = std::env::temp_dir().join(format!(
+            "vector-contracts-simvec-bounds-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        let store = SimvecVectorStore::open(&dir).expect("open store");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let spec = CollectionSpec::new("bounded", 2)
+                .with_kind(VectorKind::Sparse)
+                .with_sparse_max_index(31);
+            assert!(store.ensure_collection(&spec).await.expect("create"));
+            assert!(!store.ensure_collection(&spec).await.expect("reopen"));
+            let point = VectorPoint {
+                id: "a".to_string(),
+                vector: VectorData::sparse(vec![1, 4], vec![0.5, 1.0]),
+                payload: HashMap::new(),
+            };
+            store.upsert("bounded", &[point]).await.expect("upsert");
+            let page = store
+                .scroll("bounded", &ScrollQuery::new(10))
+                .await
+                .expect("scroll");
+            assert!(matches!(page.points[0].vector, VectorData::Sparse { .. }));
+            let wrong = VectorQuery::new(vec![1.0, 0.0], 1);
+            assert!(matches!(
+                store.search("bounded", &wrong).await,
+                Err(VectorError::InvalidInput(_))
+            ));
         });
     }
 

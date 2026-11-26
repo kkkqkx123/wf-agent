@@ -4,8 +4,9 @@
 //! entries without the pipeline depending on the plugin engine. Every
 //! suggestion is validated and any failure falls back to the built-in path.
 //!
-//! The storage contract stays dense-only: vector encodings are validated
-//! for shape but never change written vectors. Snapshot policies are
+//! Vector encodings are typed: plugins emit a named schema with a vector
+//! kind and a shape-valid payload, which the ingest and query paths use for
+//! real writes and searches. Snapshot policies are
 //! reservation-only declarations; execution stays host-owned and no
 //! pipeline reads them. Vector and keyword backend selection, embedding,
 //! rerank, chunking, fusion and rewrite choices stay host-owned.
@@ -23,6 +24,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use vector_contracts::{VectorData, VectorKind};
 use wf_plugin_sdk::{
     PluginChunkSplitter, PluginEvalJudge, PluginMetadataExtractor, PluginPostprocessor,
     PluginRetrievalAdvisor, PluginRouteSelector, PluginTextAnalyzer, PluginVectorEncoding,
@@ -38,6 +40,21 @@ pub const ROUTE_SELECTOR_PROTOCOL_VERSION: u32 = 1;
 pub const POSTPROCESSOR_PROTOCOL_VERSION: u32 = 1;
 /// Protocol version sent with every eval judge input.
 pub const EVAL_JUDGE_PROTOCOL_VERSION: u32 = 1;
+/// Schema every vector encoder output must declare.
+pub const VECTOR_ENCODING_SCHEMA: &str = "vector-encoding/v1";
+
+/// Typed vector encoding produced by a registered encoder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EncodedVector {
+    /// Kind declared by the encoder and expected by the caller.
+    pub kind: VectorKind,
+    /// Shape-validated vector payload.
+    pub data: VectorData,
+    /// Schema declared by the encoder output.
+    pub schema: String,
+    /// Name of the encoder that produced the payload.
+    pub encoder: String,
+}
 
 fn advisor_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginRetrievalAdvisor>>> {
     static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginRetrievalAdvisor>>>> =
@@ -129,10 +146,8 @@ pub fn clear_retrieval_advisors() {
     }
 }
 
-/// Registers a sparse or multi-vector encoder under `name`.
-///
-/// Reservation only: the storage contract stays dense-only, so the
-/// pipeline only validates named encodings without changing writes.
+/// Registers a dense, sparse or multi-vector encoder under `name`.
+/// The pipeline uses registered encoders for both writes and queries.
 pub fn register_vector_encoding(name: &str, encoding: Arc<dyn PluginVectorEncoding>) {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -206,14 +221,15 @@ pub fn is_valid_snapshot_policy(policy: &serde_json::Value) -> bool {
     policy.is_object()
 }
 
-/// Encodes text through the named vector encoder and validates the shape.
-/// The storage contract stays dense-only; this validates the plugin output
-/// so future sparse writes fail loudly instead of storing opaque JSON.
+/// Encodes text through the named vector encoder into the declared kind.
+/// Unknown names, wrong schemas, wrong kinds and malformed payloads fail
+/// before anything reaches storage.
 pub fn encode_with_registered(
     name: &str,
     text: &str,
     options: serde_json::Value,
-) -> crate::error::Result<serde_json::Value> {
+    expected: VectorKind,
+) -> crate::error::Result<EncodedVector> {
     let Some(encoding) = find_vector_encoding(name) else {
         return Err(crate::error::RagError::InvalidInput(format!(
             "unknown vector encoding '{name}'"
@@ -222,12 +238,74 @@ pub fn encode_with_registered(
     let output = encoding
         .encode(text.to_string(), options)
         .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
-    if !output.is_object() {
-        return Err(crate::error::RagError::InvalidInput(format!(
+    let object = output.as_object().ok_or_else(|| {
+        crate::error::RagError::InvalidInput(format!(
             "vector encoding '{name}' must return a JSON object"
+        ))
+    })?;
+    let schema = object
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            crate::error::RagError::InvalidInput(format!(
+                "vector encoding '{name}' must declare a schema"
+            ))
+        })?;
+    if schema != VECTOR_ENCODING_SCHEMA {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "vector encoding '{name}' uses schema '{schema}', expected '{VECTOR_ENCODING_SCHEMA}'"
         )));
     }
-    Ok(output)
+    let declared = object
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            crate::error::RagError::InvalidInput(format!(
+                "vector encoding '{name}' must declare a kind"
+            ))
+        })?;
+    let declared = match declared {
+        "dense" => VectorKind::Dense,
+        "sparse" => VectorKind::Sparse,
+        "multi" => VectorKind::Multi,
+        other => {
+            return Err(crate::error::RagError::InvalidInput(format!(
+                "vector encoding '{name}' declares unknown kind '{other}'"
+            )))
+        }
+    };
+    if declared != expected {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "vector encoding '{name}' declares {}, expected {}",
+            declared.as_name(),
+            expected.as_name()
+        )));
+    }
+    let payload = object.get("vector").ok_or_else(|| {
+        crate::error::RagError::InvalidInput(format!(
+            "vector encoding '{name}' must carry a vector payload"
+        ))
+    })?;
+    let data: VectorData = serde_json::from_value(payload.clone()).map_err(|error| {
+        crate::error::RagError::InvalidInput(format!(
+            "vector encoding '{name}' payload is invalid: {error}"
+        ))
+    })?;
+    if data.kind() != expected {
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "vector encoding '{name}' payload is {}, expected {}",
+            data.kind().as_name(),
+            expected.as_name()
+        )));
+    }
+    data.validate_shape()
+        .map_err(|error| crate::error::RagError::InvalidInput(error.to_string()))?;
+    Ok(EncodedVector {
+        kind: expected,
+        data,
+        schema: schema.to_string(),
+        encoder: name.to_string(),
+    })
 }
 
 /// Applies one retrieval advisor to ranked hits, validating the suggestion.
@@ -864,7 +942,11 @@ mod tests {
             _text: String,
             _options: serde_json::Value,
         ) -> PluginResult<serde_json::Value> {
-            Ok(serde_json::json!({"sparse": {"indices": [1], "values": [0.5]}}))
+            Ok(serde_json::json!({
+                "schema": "vector-encoding/v1",
+                "kind": "sparse",
+                "vector": {"indices": [1], "values": [0.5]},
+            }))
         }
     }
 
@@ -971,11 +1053,23 @@ mod tests {
         assert!(find_retrieval_advisor("rev").is_none());
 
         register_vector_encoding("enc", Arc::new(ObjectEncoding));
-        assert!(encode_with_registered("enc", "text", serde_json::json!({}))
-            .expect("object encoding passes")
-            .is_object());
+        let encoded = encode_with_registered(
+            "enc",
+            "text",
+            serde_json::json!({}),
+            vector_contracts::VectorKind::Sparse,
+        )
+        .expect("object encoding passes");
+        assert_eq!(encoded.kind, vector_contracts::VectorKind::Sparse);
+        assert_eq!(encoded.schema, VECTOR_ENCODING_SCHEMA);
         register_vector_encoding("arr", Arc::new(ArrayEncoding));
-        assert!(encode_with_registered("arr", "text", serde_json::json!({})).is_err());
+        assert!(encode_with_registered(
+            "arr",
+            "text",
+            serde_json::json!({}),
+            vector_contracts::VectorKind::Sparse,
+        )
+        .is_err());
         unregister_vector_encoding("enc");
         unregister_vector_encoding("arr");
 

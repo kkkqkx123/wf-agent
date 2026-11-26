@@ -272,31 +272,18 @@ impl VectorData {
         }
     }
 
-    /// Validates the payload against a collection kind and dimension.
+    /// Validates shape and numeric content without collection parameters.
     ///
-    /// Dense must match `expected_dim`; sparse indices must be non-negative,
-    /// strictly increasing and paired with finite weights; multi must hold a
-    /// non-empty sequence of equal-dimension finite vectors.
-    pub fn validate(
-        &self,
-        kind: VectorKind,
-        expected_dim: usize,
-        max_vectors: Option<usize>,
-    ) -> crate::error::Result<()> {
-        if self.kind() != kind {
-            return Err(crate::error::VectorError::InvalidInput(format!(
-                "collection expects {} vectors, got {}",
-                kind.as_name(),
-                self.kind().as_name()
-            )));
-        }
+    /// Sparse indices must be non-negative, strictly increasing and paired
+    /// with finite weights; dense and multi elements must be finite. This is
+    /// the check used by encoders before a collection is created or opened.
+    pub fn validate_shape(&self) -> crate::error::Result<()> {
         match self {
             VectorData::Dense(vector) => {
-                if vector.len() != expected_dim {
-                    return Err(crate::error::VectorError::DimensionMismatch {
-                        expected: expected_dim,
-                        actual: vector.len(),
-                    });
+                if vector.is_empty() {
+                    return Err(crate::error::VectorError::InvalidInput(
+                        "dense vector must not be empty".to_string(),
+                    ));
                 }
                 if vector.iter().any(|v| !v.is_finite()) {
                     return Err(crate::error::VectorError::InvalidInput(
@@ -327,6 +314,52 @@ impl VectorData {
                         "multi vector needs at least one sub-vector".to_string(),
                     ));
                 }
+                for vector in vectors {
+                    if vector.is_empty() {
+                        return Err(crate::error::VectorError::InvalidInput(
+                            "multi sub-vector must not be empty".to_string(),
+                        ));
+                    }
+                    if vector.iter().any(|v| !v.is_finite()) {
+                        return Err(crate::error::VectorError::InvalidInput(
+                            "multi vector contains non-finite elements".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates the payload against a collection kind and dimension.
+    ///
+    /// Dense must match `expected_dim`; multi sub-vectors must share that
+    /// dimension; sparse payloads use their own vocabulary bound instead.
+    pub fn validate(
+        &self,
+        kind: VectorKind,
+        expected_dim: usize,
+        max_vectors: Option<usize>,
+    ) -> crate::error::Result<()> {
+        if self.kind() != kind {
+            return Err(crate::error::VectorError::InvalidInput(format!(
+                "collection expects {} vectors, got {}",
+                kind.as_name(),
+                self.kind().as_name()
+            )));
+        }
+        self.validate_shape()?;
+        match self {
+            VectorData::Dense(vector) => {
+                if vector.len() != expected_dim {
+                    return Err(crate::error::VectorError::DimensionMismatch {
+                        expected: expected_dim,
+                        actual: vector.len(),
+                    });
+                }
+            }
+            VectorData::Sparse { .. } => {}
+            VectorData::Multi(vectors) => {
                 if let Some(max) = max_vectors {
                     if vectors.len() > max {
                         return Err(crate::error::VectorError::InvalidInput(format!(
@@ -342,11 +375,6 @@ impl VectorData {
                             expected: expected_dim,
                             actual: vector.len(),
                         });
-                    }
-                    if vector.iter().any(|v| !v.is_finite()) {
-                        return Err(crate::error::VectorError::InvalidInput(
-                            "multi vector contains non-finite elements".to_string(),
-                        ));
                     }
                 }
             }
@@ -522,6 +550,17 @@ mod tests {
             .is_err());
         assert!(VectorData::dense(vec![1.0, 2.0])
             .validate(VectorKind::Sparse, 0, None)
+            .is_err());
+    }
+
+    #[test]
+    fn shape_validation_ignores_collection_dimensions() {
+        assert!(VectorData::sparse(vec![1, 4], vec![0.5, 1.0])
+            .validate_shape()
+            .is_ok());
+        assert!(VectorData::dense(Vec::new()).validate_shape().is_err());
+        assert!(VectorData::multi(vec![vec![1.0], Vec::new()])
+            .validate_shape()
             .is_err());
     }
 

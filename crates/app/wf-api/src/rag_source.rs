@@ -29,6 +29,10 @@ pub enum RagSourceStatus {
     Failed,
 }
 
+fn default_vector_kind() -> String {
+    "dense".to_string()
+}
+
 /// Persisted state of one source in one collection and namespace.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RagSourceState {
@@ -39,6 +43,14 @@ pub struct RagSourceState {
     pub uri: String,
     #[serde(default)]
     pub converter: Option<String>,
+    #[serde(default = "default_vector_kind")]
+    pub vector_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder_schema: Option<String>,
     #[serde(default)]
     pub content_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,6 +85,10 @@ impl RagSourceState {
             kind: descriptor.kind.clone(),
             uri: descriptor.uri.clone(),
             converter: descriptor.converter.clone(),
+            vector_kind: default_vector_kind(),
+            encoder: None,
+            encoder_fingerprint: None,
+            encoder_schema: None,
             content_hash,
             etag: revision.etag,
             last_modified: revision.last_modified,
@@ -434,6 +450,10 @@ impl RagSourceService {
         if revision.fetched_at.is_none() {
             revision.fetched_at = Some(Utc::now().to_rfc3339());
         }
+        let mut index = self.index_defaults.clone();
+        index.namespace = descriptor.namespace.clone();
+        index.duplicate_policy = wf_rag::DuplicatePolicy::Skip;
+        let fingerprint = wf_rag::vector_encoding_fingerprint(&index);
         let known = self
             .states
             .get(
@@ -442,6 +462,14 @@ impl RagSourceService {
                 &descriptor.source,
             )
             .await?;
+        if let Some(previous) = &known {
+            if !force && previous.encoder_fingerprint.as_deref() != fingerprint.as_deref() {
+                return Err(ApiError::Validation(format!(
+                    "vector encoding of '{}' changed; explicit reindex is required",
+                    descriptor.source
+                )));
+            }
+        }
         let action = if force || known.is_none() {
             RagSourceSyncAction::Insert
         } else if revision_unchanged(known.as_ref().expect("known state"), &revision) {
@@ -451,6 +479,13 @@ impl RagSourceService {
         };
         let mut state =
             RagSourceState::from_descriptor(&descriptor, content_hash.clone(), revision.clone());
+        state.vector_kind = index.vector_kind.as_name().to_string();
+        state.encoder = index.encoder.clone();
+        state.encoder_fingerprint = fingerprint.clone();
+        state.encoder_schema = index
+            .encoder
+            .as_deref()
+            .map(|_| wf_rag::VECTOR_ENCODING_SCHEMA.to_string());
         if action == RagSourceSyncAction::Skip {
             if let Some(previous) = known {
                 state.documents = previous.documents;
@@ -511,17 +546,10 @@ impl RagSourceService {
                 source_metadata = metadata.clone();
             }
             rag_documents.push(
-                wf_rag::RagDocument::new(
-                    document.id,
-                    converted.content,
-                    descriptor.source.clone(),
-                )
-                .with_metadata_map(metadata),
+                wf_rag::RagDocument::new(document.id, converted.content, descriptor.source.clone())
+                    .with_metadata_map(metadata),
             );
         }
-        let mut index = self.index_defaults.clone();
-        index.namespace = descriptor.namespace.clone();
-        index.duplicate_policy = wf_rag::DuplicatePolicy::Skip;
         let stats = match wf_rag::pipeline::ingest_documents(
             self.handles.store.as_ref(),
             self.handles.keyword.as_deref(),

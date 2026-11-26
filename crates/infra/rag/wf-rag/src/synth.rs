@@ -539,6 +539,7 @@ mod tests {
 
     #[tokio::test]
     async fn configured_judge_scores_answer_without_changing_it() {
+        let _guard = crate::plugin::test_registry_guard().await;
         crate::plugin::clear_eval_judges();
         crate::plugin::register_eval_judge("cited", std::sync::Arc::new(CitedJudge));
         let config = SynthesisConfig {
@@ -564,6 +565,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_judge_name_fails_synthesis() {
+        let _guard = crate::plugin::test_registry_guard().await;
         crate::plugin::clear_eval_judges();
         let config = SynthesisConfig {
             eval_judge: Some("missing-judge".to_string()),
@@ -586,6 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn judge_failure_keeps_unscored_answer() {
+        let _guard = crate::plugin::test_registry_guard().await;
         crate::plugin::clear_eval_judges();
         crate::plugin::register_eval_judge("oob", std::sync::Arc::new(OutOfRangeJudge));
         let config = SynthesisConfig {

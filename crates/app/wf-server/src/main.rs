@@ -364,6 +364,8 @@ mod tests {
 
     #[test]
     fn build_runtime_config_applies_cli_overrides() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::set_var("WF_USER_GIT_ENABLED", "enabled");
         let mut input = args();
         input.config = Some(PathBuf::from("/tmp/wf-project"));
         input.settings_dir = Some(PathBuf::from("/tmp/wf-settings"));
@@ -383,5 +385,6 @@ mod tests {
             Some(wf_config::processor::infrastructure::RuntimeEnvironment::Production)
         ));
         assert!(source.overrides.storage.is_some());
+        std::env::remove_var("WF_USER_GIT_ENABLED");
     }
 }

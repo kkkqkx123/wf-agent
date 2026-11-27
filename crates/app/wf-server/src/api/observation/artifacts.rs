@@ -199,3 +199,24 @@ pub(crate) async fn handle_query_artifacts(
         Err(e) => crate::envelope::error_response(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_kind_parser_accepts_every_wire_name() {
+        for (raw, expected) in [
+            ("workflow_input", ArtifactKind::WorkflowInput),
+            ("workflow_output", ArtifactKind::WorkflowOutput),
+            ("node_result", ArtifactKind::NodeResult),
+            ("variable", ArtifactKind::Variable),
+            ("iteration_response", ArtifactKind::IterationResponse),
+            ("tool_result", ArtifactKind::ToolResult),
+        ] {
+            assert_eq!(parse_kind(Some(raw)).expect("known kind"), Some(expected));
+        }
+        assert!(parse_kind(None).expect("absent kind").is_none());
+        assert!(parse_kind(Some("nope")).is_err());
+    }
+}

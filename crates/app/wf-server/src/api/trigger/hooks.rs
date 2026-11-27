@@ -234,3 +234,74 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     }
     diff == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::header::{HeaderName, HeaderValue};
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                HeaderName::from_bytes(name.as_bytes()).expect("valid header name"),
+                HeaderValue::from_str(value).expect("valid header value"),
+            );
+        }
+        map
+    }
+
+    #[test]
+    fn hook_auth_accepts_configured_token_from_either_header() {
+        let auth = WebhookAuth::Token {
+            token: "s3cret".to_string(),
+        };
+        assert!(check_auth(&WebhookAuth::None, &HeaderMap::new()));
+        assert!(check_auth(&auth, &headers(&[("x-hook-token", "s3cret")])));
+        assert!(check_auth(
+            &auth,
+            &headers(&[("authorization", "Bearer s3cret")])
+        ));
+        assert!(check_auth(
+            &auth,
+            &headers(&[
+                ("authorization", "Bearer wrong"),
+                ("x-hook-token", "s3cret"),
+            ])
+        ));
+    }
+
+    #[test]
+    fn hook_auth_rejects_missing_wrong_and_malformed_tokens() {
+        let auth = WebhookAuth::Token {
+            token: "s3cret".to_string(),
+        };
+        assert!(!check_auth(&auth, &HeaderMap::new()));
+        assert!(!check_auth(&auth, &headers(&[("x-hook-token", "wrong")])));
+        assert!(!check_auth(&auth, &headers(&[("authorization", "s3cret")])));
+        assert!(!check_auth(
+            &auth,
+            &headers(&[("authorization", "Basic s3cret")])
+        ));
+        assert!(!constant_time_eq("short", "s3cret"));
+        assert!(!constant_time_eq("s3creT", "s3cret"));
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn fold_body_honours_the_mapping_and_non_object_inputs() {
+        let body = serde_json::json!({
+            "keep": 1,
+            "drop": 2,
+            "nested": {"a": true}
+        });
+        let selected = fold_body(&body, Some(&["keep".to_string(), "missing".to_string()]));
+        assert_eq!(selected, serde_json::json!({"keep": 1}));
+
+        let whole = fold_body(&body, None);
+        assert_eq!(whole, body);
+
+        let scalar = fold_body(&serde_json::json!("text"), Some(&[]));
+        assert_eq!(scalar, serde_json::json!({}));
+    }
+}

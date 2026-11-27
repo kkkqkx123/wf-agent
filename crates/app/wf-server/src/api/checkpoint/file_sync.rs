@@ -242,3 +242,65 @@ pub(crate) async fn handle_sync_config(State(state): State<ApiState>) -> impl In
         Err(err) => error_response(err),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::config::file_checkpoint::BaselineMode;
+
+    fn body(value: serde_json::Value) -> RebaseRequest {
+        serde_json::from_value(value).expect("rebase request")
+    }
+
+    #[test]
+    fn rebase_requires_confirmation_and_a_known_mode() {
+        let missing = body(serde_json::json!({"confirm": false}));
+        assert!(rebase_baseline_config(&missing).is_err());
+
+        let invalid = body(serde_json::json!({
+            "confirm": true,
+            "mode": "mirror"
+        }));
+        assert!(rebase_baseline_config(&invalid).is_err());
+
+        let accepted = body(serde_json::json!({
+            "confirm": true,
+            "mode": "borrow"
+        }));
+        assert_eq!(
+            rebase_baseline_config(&accepted)
+                .expect("valid config")
+                .mode,
+            BaselineMode::Borrow
+        );
+    }
+
+    #[test]
+    fn rebase_preserves_explicit_baseline_selectors() {
+        let request = body(serde_json::json!({
+            "confirm": true,
+            "mode": "copy",
+            "branch": "main",
+            "commit_prefix": "abc123",
+            "behind": 2,
+            "tag": "v1"
+        }));
+        let config = rebase_baseline_config(&request).expect("valid config");
+        assert_eq!(config.mode, BaselineMode::Copy);
+        assert_eq!(config.branch.as_deref(), Some("main"));
+        assert_eq!(config.commit_prefix.as_deref(), Some("abc123"));
+        assert_eq!(config.behind, Some(2));
+        assert_eq!(config.tag.as_deref(), Some("v1"));
+        assert!(config.failure_behavior.is_none());
+    }
+
+    #[test]
+    fn export_request_defaults_leave_overwrite_unconfirmed() {
+        let request: ExportRequest =
+            serde_json::from_value(serde_json::json!({"confirm_overwrite": false}))
+                .expect("export request requires only confirm");
+        assert!(!request.confirm_overwrite);
+        assert!(request.auto_commit.is_none());
+        assert!(request.message.is_none());
+    }
+}

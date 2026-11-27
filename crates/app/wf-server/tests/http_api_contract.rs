@@ -143,3 +143,196 @@ async fn backend_management_is_disabled_without_a_manager() {
     assert_eq!(body["success"], false);
     assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE");
 }
+
+#[tokio::test]
+async fn entity_tasks_round_trip_and_filter() {
+    let app = app();
+    let task = json!({
+        "id": "contract-task",
+        "task_type": "review",
+        "status": "pending",
+        "created_at": 1000,
+        "updated_at": 1000
+    });
+    let (status, body) = call(&app, "POST", "/api/v1/tasks", Some(task.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], true);
+    assert_eq!(body["data"], "contract-task");
+
+    let (status, body) = call(&app, "GET", "/api/v1/tasks/contract-task", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["task_type"], "review");
+
+    let (status, body) = call(&app, "GET", "/api/v1/tasks?status=pending", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["items"].as_array().expect("items").len(), 1);
+
+    let (status, _) = call(&app, "DELETE", "/api/v1/tasks/contract-task", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(&app, "GET", "/api/v1/tasks/contract-task", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn workflow_node_config_and_layout_round_trip() {
+    let app = app();
+    let workflow = json!({
+        "id": "wf-canvas",
+        "name": "Canvas workflow",
+        "version": "1.0.0",
+        "nodes": [
+            {"id": "start", "node_type": "START", "name": "start"},
+            {
+                "id": "n1",
+                "node_type": "acme.step",
+                "name": "inserted",
+                "config": {"template_id": "nt-script"}
+            },
+            {"id": "end", "node_type": "END", "name": "end"}
+        ],
+        "edges": [
+            {"id": "e1", "source_node_id": "start", "target_node_id": "n1", "type": "DEFAULT"},
+            {"id": "e2", "source_node_id": "n1", "target_node_id": "end", "type": "DEFAULT"}
+        ],
+        "created_at": 1000,
+        "updated_at": 1000
+    });
+    let (status, body) = call(&app, "POST", "/api/v1/workflows", Some(workflow.clone())).await;
+    assert_eq!(status, StatusCode::OK, "create body: {body}");
+    assert_eq!(body["success"], true);
+
+    let (status, body) = call(&app, "POST", "/api/v1/workflows/validate", Some(workflow)).await;
+    assert_eq!(status, StatusCode::OK, "validation body: {body}");
+    assert_eq!(body["success"], true);
+
+    let layout = json!({"positions": {"n1": {"x": 12, "y": 34}}});
+    let (status, body) = call(
+        &app,
+        "PUT",
+        "/api/v1/workflows/wf-canvas/layout",
+        Some(layout),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["positions"]["n1"]["x"], 12);
+
+    let (status, body) = call(&app, "GET", "/api/v1/workflows/wf-canvas/layout", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["positions"]["n1"]["y"], 34);
+
+    let (status, body) = call(&app, "GET", "/api/v1/workflows/wf-canvas", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let nodes = body["data"]["nodes"].as_array().expect("stored nodes");
+    let inserted = nodes
+        .iter()
+        .find(|node| node["id"] == "n1")
+        .expect("inserted node");
+    assert_eq!(inserted["config"]["template_id"], "nt-script");
+
+    let (status, _) = call(&app, "DELETE", "/api/v1/workflows/wf-canvas/layout", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(&app, "GET", "/api/v1/workflows/missing/layout", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["success"], false);
+}
+
+#[tokio::test]
+async fn workflow_lock_conflict_keeps_the_first_owner() {
+    let app = app();
+    let alice = json!({"owner_id": "alice", "owner_name": "Alice"});
+    let bob = json!({"owner_id": "bob", "owner_name": "Bob"});
+    let bob_id = json!({"owner_id": "bob"});
+    let alice_id = json!({"owner_id": "alice"});
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/wf-lock/lock/acquire",
+        Some(alice),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["owner_id"], "alice");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/wf-lock/lock/acquire",
+        Some(bob),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["owner_id"], "alice");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/wf-lock/lock/heartbeat",
+        Some(bob_id.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["owner_id"], "alice");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/wf-lock/lock/release",
+        Some(bob_id),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["owner_id"], "alice");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/wf-lock/lock/release",
+        Some(alice_id),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["data"].is_null());
+}
+
+#[tokio::test]
+async fn node_template_draft_lifecycle_reaches_a_formal_template() {
+    let app = app();
+    let draft = json!({
+        "id": "nt-draft",
+        "name": "Draft",
+        "node_type": "SCRIPT",
+        "created_at": 1000,
+        "updated_at": 1000
+    });
+    let (status, body) = call(&app, "POST", "/api/v1/templates/node/drafts", Some(draft)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"], "nt-draft");
+
+    let (status, body) = call(&app, "GET", "/api/v1/templates/node/drafts/nt-draft", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["name"], "Draft");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/templates/node/drafts/nt-draft/promote",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = call(&app, "GET", "/api/v1/templates/node/nt-draft", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["id"], "nt-draft");
+
+    let (status, _) = call(
+        &app,
+        "DELETE",
+        "/api/v1/templates/node/drafts/nt-draft",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}

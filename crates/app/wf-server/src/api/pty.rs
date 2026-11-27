@@ -521,3 +521,192 @@ fn authenticate_connection(
         Some(_) => Ok(()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use axum::http::header::{HeaderName, HeaderValue};
+    use wf_api::ApiContext;
+    use wf_resource::registry::ResourceRegistries;
+    use wf_storage::context::StorageContext;
+
+    use crate::api::ticket::{issue, TicketScope};
+    use crate::directory::{DirectoryConfig, DirectoryContext};
+    use crate::middleware::{CorsConfig, ServerMiddlewareConfig};
+
+    fn request(uri: &str, headers: &[(&str, &str)]) -> Request<Body> {
+        let mut request = Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request");
+        for (name, value) in headers {
+            request.headers_mut().insert(
+                HeaderName::from_bytes(name.as_bytes()).expect("header name"),
+                HeaderValue::from_str(value).expect("header value"),
+            );
+        }
+        request
+    }
+
+    #[tokio::test]
+    async fn handshake_ticket_is_scope_bound_and_single_use() {
+        let ctx = Arc::new(ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(ResourceRegistries::new()),
+        ));
+        let state = ApiState {
+            ctx,
+            config: Arc::new(ServerMiddlewareConfig::default()),
+            dirs: Arc::new(DirectoryContext::new(DirectoryConfig::default())),
+            locks: crate::api::workflow::locks::DefinitionLocks::default(),
+            stream: Arc::new(crate::detached::StreamRuntime::default()),
+            #[cfg(feature = "backends")]
+            backends: None,
+        };
+        let origin = [("origin", "http://localhost:5173")];
+
+        let ticket = issue(TicketScope::Pty {
+            id: "pty-1".to_string(),
+        });
+        assert!(authorize_pty_handshake(
+            &state,
+            "pty-1",
+            Some(&ticket),
+            &request("/api/v1/pty/pty-1/connect", &origin)
+        )
+        .is_ok());
+        assert_eq!(
+            authorize_pty_handshake(
+                &state,
+                "pty-1",
+                Some(&ticket),
+                &request("/api/v1/pty/pty-1/connect", &origin)
+            )
+            .expect_err("ticket is consumed"),
+            (4003, "invalid PTY connect ticket".to_string())
+        );
+
+        let foreign = issue(TicketScope::Pty {
+            id: "pty-2".to_string(),
+        });
+        assert!(authorize_pty_handshake(
+            &state,
+            "pty-1",
+            Some(&foreign),
+            &request("/api/v1/pty/pty-1/connect", &origin)
+        )
+        .is_err());
+
+        let rejected = CorsConfig {
+            allowed_origins: vec!["https://allowed.example".to_string()],
+            ..CorsConfig::default()
+        };
+        let strict = ApiState {
+            config: Arc::new(ServerMiddlewareConfig {
+                cors: rejected,
+                ..ServerMiddlewareConfig::default()
+            }),
+            ..state
+        };
+        let ticket = issue(TicketScope::Pty {
+            id: "pty-1".to_string(),
+        });
+        assert!(authorize_pty_handshake(
+            &strict,
+            "pty-1",
+            Some(&ticket),
+            &request(
+                "/api/v1/pty/pty-1/connect",
+                &[("origin", "https://evil.example")]
+            )
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fallback_auth_honours_key_header_query_switch_and_origin() {
+        let cors = CorsConfig {
+            allowed_origins: vec!["https://allowed.example".to_string()],
+            ..CorsConfig::default()
+        };
+        let auth = AuthConfig {
+            enabled: true,
+            api_keys: vec!["test-key".to_string()],
+            header_name: "x-api-key".to_string(),
+            allow_query_param: false,
+            query_param_name: "api_key".to_string(),
+            ..AuthConfig::default()
+        };
+        assert!(authenticate_connection(
+            &AuthConfig::default(),
+            &cors,
+            &request("/api/v1/pty/pty-1/connect", &[])
+        )
+        .is_ok());
+        assert!(
+            authenticate_connection(&auth, &cors, &request("/api/v1/pty/pty-1/connect", &[]))
+                .is_err()
+        );
+        assert!(authenticate_connection(
+            &auth,
+            &cors,
+            &request("/api/v1/pty/pty-1/connect", &[("x-api-key", "test-key")])
+        )
+        .is_ok());
+        assert!(authenticate_connection(
+            &auth,
+            &cors,
+            &request("/api/v1/pty/pty-1/connect?api_key=test-key", &[])
+        )
+        .is_err());
+
+        let with_query = AuthConfig {
+            allow_query_param: true,
+            ..auth.clone()
+        };
+        assert!(authenticate_connection(
+            &with_query,
+            &cors,
+            &request("/api/v1/pty/pty-1/connect?api_key=test-key", &[])
+        )
+        .is_ok());
+        assert!(authenticate_connection(
+            &with_query,
+            &cors,
+            &request(
+                "/api/v1/pty/pty-1/connect",
+                &[
+                    ("x-api-key", "test-key"),
+                    ("origin", "https://evil.example"),
+                ]
+            )
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn wire_enums_round_trip_to_api_types() {
+        for value in [
+            PtyTitleSource::Default,
+            PtyTitleSource::Auto,
+            PtyTitleSource::Manual,
+        ] {
+            let api: wf_api::pty::PtyTitleSource = value.into();
+            assert_eq!(PtyTitleSource::from(api), value);
+        }
+        for (api, expected) in [
+            (
+                wf_api::pty::PtySessionStatus::Running,
+                PtySessionStatus::Running,
+            ),
+            (
+                wf_api::pty::PtySessionStatus::Exited,
+                PtySessionStatus::Exited,
+            ),
+        ] {
+            assert_eq!(PtySessionStatus::from(api), expected);
+        }
+    }
+}

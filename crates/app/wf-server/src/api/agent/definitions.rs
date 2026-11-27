@@ -487,3 +487,52 @@ pub(crate) async fn handle_validate_agent_template(
         Err(e) => error_response(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn query(value: serde_json::Value) -> RegistryListQuery {
+        serde_json::from_value(value).expect("registry query")
+    }
+
+    #[test]
+    fn registry_pagination_ignores_offset_without_a_limit() {
+        let items = vec![1, 2, 3, 4];
+        assert_eq!(page_registry(items.clone(), None, Some(2)), items);
+        assert_eq!(page_registry(items.clone(), Some(2), Some(1)), vec![2, 3]);
+        assert_eq!(
+            page_registry(items.clone(), Some(2), Some(9)),
+            Vec::<i32>::new()
+        );
+        assert_eq!(page_registry(items, Some(0), None), Vec::<i32>::new());
+    }
+
+    #[test]
+    fn registry_query_delegates_filter_attributes() {
+        let filter = query(serde_json::json!({
+            "name": " coder ",
+            "category": "dev",
+            "tags": "rust,agent",
+            "author": "team"
+        }));
+        assert!(filter.matches(
+            "Coder Agent",
+            Some("dev"),
+            Some(&["agent".to_string()]),
+            Some("team")
+        ));
+        assert!(!filter.matches(
+            "Coder Agent",
+            Some("other"),
+            Some(&["agent".to_string()]),
+            Some("team")
+        ));
+        assert!(!filter.matches(
+            "Writer",
+            Some("dev"),
+            Some(&["agent".to_string()]),
+            Some("team")
+        ));
+    }
+}

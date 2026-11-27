@@ -726,3 +726,72 @@ pub(crate) async fn handle_checkpoints_by_time_range(
         Err(e) => error_response(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_api::checkpoint::record::{
+        CheckpointChainAnalysisView, CheckpointTimeRangeView, CheckpointTransitionView,
+    };
+
+    fn checkpoint(index: usize) -> wf_types::Checkpoint {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("cp-{index}"),
+            "entity_type": "workflow",
+            "entity_id": "exec-1",
+            "checkpoint_type": "FULL",
+            "timestamp": index,
+            "status": "active"
+        }))
+        .expect("checkpoint record")
+    }
+
+    fn chain(count: usize) -> CheckpointChainAnalysisView {
+        let checkpoints = (0..count).map(checkpoint).collect::<Vec<_>>();
+        let transitions = checkpoints
+            .iter()
+            .zip(checkpoints.iter().skip(1))
+            .map(|(from, to)| CheckpointTransitionView {
+                from_checkpoint_id: from.id.to_string(),
+                to_checkpoint_id: to.id.to_string(),
+                elapsed: 1,
+                r#type: "FULL".to_string(),
+                trigger_description: None,
+            })
+            .collect::<Vec<_>>();
+        CheckpointChainAnalysisView {
+            execution_id: "exec-1".to_string(),
+            checkpoints,
+            transitions,
+            total_elapsed: count as i64,
+            checkpoint_count: count,
+            time_range: CheckpointTimeRangeView { start: 1, end: 2 },
+            total_count: count,
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn chain_cap_keeps_the_boundary_without_truncation() {
+        let view = cap_chain(chain(MAX_CHAIN_ENTRIES));
+        assert!(!view.truncated);
+        assert_eq!(view.total, MAX_CHAIN_ENTRIES);
+        assert_eq!(view.checkpoint_count, MAX_CHAIN_ENTRIES);
+        assert_eq!(view.checkpoints.len(), MAX_CHAIN_ENTRIES);
+        assert_eq!(view.transitions.len(), MAX_CHAIN_ENTRIES - 1);
+    }
+
+    #[test]
+    fn chain_cap_marks_truncation_and_preserves_totals() {
+        let view = cap_chain(chain(MAX_CHAIN_ENTRIES + 1));
+        assert!(view.truncated);
+        assert_eq!(view.total, MAX_CHAIN_ENTRIES + 1);
+        assert_eq!(view.checkpoint_count, MAX_CHAIN_ENTRIES);
+        assert_eq!(view.checkpoints.len(), MAX_CHAIN_ENTRIES);
+        assert_eq!(view.transitions.len(), MAX_CHAIN_ENTRIES);
+        assert_eq!(view.time_range.start, 1);
+        assert_eq!(view.time_range.end, 2);
+        assert_eq!(view.total_elapsed, (MAX_CHAIN_ENTRIES + 1) as i64);
+        assert_eq!(view.execution_id, "exec-1");
+    }
+}

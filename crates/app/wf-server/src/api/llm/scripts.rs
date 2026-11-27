@@ -321,3 +321,41 @@ pub(crate) async fn handle_disable_script(
         Err(e) => error_response(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn script_body_maps_defaults_and_unit_bearing_fields() {
+        let minimal: ScriptExecuteBody = serde_json::from_value(serde_json::json!({
+            "name": "cleanup",
+            "code": "print(1)"
+        }))
+        .expect("script body");
+        let params = minimal.into_params();
+        assert_eq!(params.name, "cleanup");
+        assert_eq!(params.code.as_deref(), Some("print(1)"));
+        assert!(params.args.is_empty());
+        assert!(params.timeout_ms.is_none());
+        assert!(params.max_output_bytes.is_none());
+
+        let full: ScriptExecuteBody = serde_json::from_value(serde_json::json!({
+            "name": "fetch",
+            "template": "http",
+            "args": {"url": "https://example.test"},
+            "working_directory": "/tmp/work",
+            "timeout_ms": 1500,
+            "max_output_bytes": 4096,
+            "output_spill_dir": "/tmp/spill"
+        }))
+        .expect("script body with options");
+        let params = full.into_params();
+        assert_eq!(params.template.as_deref(), Some("http"));
+        assert_eq!(params.args["url"].as_str(), Some("https://example.test"));
+        assert_eq!(params.timeout_ms, Some(1500));
+        assert_eq!(params.max_output_bytes, Some(4096));
+        assert_eq!(params.working_directory.as_deref(), Some("/tmp/work"));
+        assert_eq!(params.output_spill_dir.as_deref(), Some("/tmp/spill"));
+    }
+}

@@ -216,3 +216,77 @@ pub(crate) async fn handle_lifecycle(
 ) -> impl IntoResponse {
     ok(wf_api::definition::draft::lifecycle_of(&state.ctx, KIND, &path.id).await).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::body::Body as AxBody;
+    use axum::http::{Request, StatusCode};
+    use axum::response::Response;
+    use tower::ServiceExt;
+    use wf_api::ApiContext;
+
+    fn app() -> axum::Router {
+        let ctx = Arc::new(ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        ));
+        crate::router::api_router(ctx)
+    }
+
+    async fn post(body: serde_json::Value) -> Response {
+        app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/templates/node/validate")
+                    .header("content-type", "application/json")
+                    .body(AxBody::from(body.to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("router response")
+    }
+
+    async fn json_body(response: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        serde_json::from_slice(&bytes).expect("json response")
+    }
+
+    #[tokio::test]
+    async fn node_template_validation_dry_run_reports_issues() {
+        let invalid = post(serde_json::json!({
+            "id": "nt-invalid",
+            "name": "",
+            "node_type": "SCRIPT",
+            "created_at": 1000,
+            "updated_at": 1000
+        }))
+        .await;
+        assert_eq!(invalid.status(), StatusCode::OK);
+        let body = json_body(invalid).await;
+        assert_eq!(body["success"], true);
+        let issues = body["data"].as_array().expect("validation issues");
+        assert!(!issues.is_empty());
+        assert_eq!(issues[0]["field"], "template");
+
+        let valid = post(serde_json::json!({
+            "id": "nt-valid",
+            "name": "Valid",
+            "node_type": "SCRIPT",
+            "created_at": 1000,
+            "updated_at": 1000
+        }))
+        .await;
+        assert_eq!(valid.status(), StatusCode::OK);
+        let body = json_body(valid).await;
+        assert_eq!(body["success"], true);
+        assert!(body["data"].as_array().expect("issues").is_empty());
+
+        let malformed = post(serde_json::json!({"id": "nt-incomplete"})).await;
+        assert_eq!(malformed.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}

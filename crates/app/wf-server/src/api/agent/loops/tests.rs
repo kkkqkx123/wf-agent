@@ -233,3 +233,36 @@ async fn loop_registry_summaries_and_stats_are_reachable() {
     let invalid = send(ctx.clone(), "/api/v1/agent-loops/summaries?status=nope").await;
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn run_body_checks_directory_file_scope_and_images() {
+    let state = test_state();
+    let base = serde_json::json!({
+        "agent_id": MAIN_AGENT_ID,
+        "model": "mock",
+        "message": "hi"
+    });
+
+    let no_scope =
+        serde_json::from_value::<RunAgentLoopBody>(base.clone()).expect("run body without scope");
+    assert!(params_from_body(&state, &None, no_scope).await.is_err());
+
+    let mut escaped = base.clone();
+    escaped["file_scope"] = serde_json::json!({
+        "read_prefixes": ["/outside-wf-scope"]
+    });
+    let escaped = serde_json::from_value::<RunAgentLoopBody>(escaped).expect("escaped scope body");
+    assert!(params_from_body(&state, &test_scope(), escaped)
+        .await
+        .is_err());
+
+    let mut bad_image = base;
+    bad_image["images"] = serde_json::json!([{
+        "data": "abcd",
+        "media_type": "image/bmp"
+    }]);
+    let bad_image = serde_json::from_value::<RunAgentLoopBody>(bad_image).expect("image body");
+    assert!(params_from_body(&state, &test_scope(), bad_image)
+        .await
+        .is_err());
+}

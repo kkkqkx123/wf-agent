@@ -299,3 +299,125 @@ impl Drop for SubscriberGuard {
         self.registry.remove_subscriber(&self.id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use axum::http::header::{HeaderName, HeaderValue};
+    use wf_api::ApiContext;
+    use wf_resource::registry::ResourceRegistries;
+    use wf_storage::context::StorageContext;
+    use wf_types::events::{BaseEvent, EventType};
+    use wf_types::Id;
+
+    use crate::detached::DetachedRunRegistry;
+    use crate::directory::{DirectoryConfig, DirectoryContext};
+    use crate::middleware::ServerMiddlewareConfig;
+
+    fn event(event_type: EventType) -> BaseEvent {
+        BaseEvent {
+            id: Id::from("event-1".to_string()),
+            r#type: event_type,
+            timestamp: 77,
+            event_name: None,
+            workflow_id: None,
+            execution_id: Some(Id::from("exec-1".to_string())),
+            agent_loop_id: None,
+            metadata: None,
+        }
+    }
+
+    fn test_state(header_name: &str) -> ApiState {
+        let config = ServerMiddlewareConfig {
+            auth: crate::middleware::AuthConfig {
+                header_name: header_name.to_string(),
+                ..crate::middleware::AuthConfig::default()
+            },
+            ..ServerMiddlewareConfig::default()
+        };
+        ApiState {
+            ctx: Arc::new(ApiContext::new(
+                StorageContext::new_memory(),
+                Arc::new(ResourceRegistries::new()),
+            )),
+            config: Arc::new(config),
+            dirs: Arc::new(DirectoryContext::new(DirectoryConfig::default())),
+            locks: crate::api::workflow::locks::DefinitionLocks::default(),
+            stream: Arc::new(StreamRuntime::default()),
+            #[cfg(feature = "backends")]
+            backends: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn principal_uses_the_configured_api_key_header() {
+        let state = test_state("x-test-key");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_bytes(b"x-test-key").expect("header name"),
+            HeaderValue::from_static("secret"),
+        );
+        assert_eq!(
+            principal_for(&state, &headers),
+            principal_from_api_key(Some("secret"))
+        );
+        assert_eq!(
+            principal_for(&state, &HeaderMap::new()),
+            principal_from_api_key(None)
+        );
+
+        let mut wrong = HeaderMap::new();
+        wrong.insert(
+            HeaderName::from_bytes(b"x-api-key").expect("header name"),
+            HeaderValue::from_static("secret"),
+        );
+        assert_eq!(principal_for(&state, &wrong), principal_from_api_key(None));
+    }
+
+    #[test]
+    fn event_frame_uses_an_sse_data_frame() {
+        let bytes = event_frame(event(EventType::AgentCompleted)).expect("frame");
+        let text = String::from_utf8(bytes.to_vec()).expect("utf8 frame");
+        assert!(text.starts_with("data: {"), "frame: {text}");
+        assert!(text.ends_with("\n\n"), "frame: {text}");
+        let payload: serde_json::Value =
+            serde_json::from_str(text.trim_start_matches("data: ").trim()).expect("json payload");
+        assert_eq!(payload["type"], "AGENT_COMPLETED");
+        assert_eq!(payload["id"], "event-1");
+    }
+
+    #[test]
+    fn terminal_events_cover_every_engine_completion_state() {
+        for event_type in [
+            EventType::WorkflowExecutionCompleted,
+            EventType::WorkflowExecutionFailed,
+            EventType::WorkflowExecutionCancelled,
+            EventType::AgentCompleted,
+            EventType::AgentFailed,
+            EventType::AgentCancelled,
+        ] {
+            assert!(is_terminal(&event(event_type.clone())), "{event_type:?}");
+        }
+        assert!(!is_terminal(&event(EventType::WorkflowExecutionStarted)));
+    }
+
+    #[test]
+    fn subscriber_guard_releases_the_registry_slot_on_drop() {
+        let registry = DetachedRunRegistry::new(2, 60);
+        registry
+            .admit("exec-1", "principal", false)
+            .expect("admit run");
+        registry.add_subscriber("exec-1");
+        assert_eq!(registry.get("exec-1").expect("run").subscribers, 1);
+        {
+            let _guard = SubscriberGuard {
+                registry: registry.clone(),
+                id: "exec-1".to_string(),
+            };
+            assert_eq!(registry.get("exec-1").expect("run").subscribers, 1);
+        }
+        assert_eq!(registry.get("exec-1").expect("run").subscribers, 0);
+    }
+}

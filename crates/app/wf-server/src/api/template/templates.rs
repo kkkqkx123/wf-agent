@@ -628,6 +628,7 @@ mod tests {
     use std::sync::Arc;
     use tower::ServiceExt;
     use wf_api::ApiContext;
+    use wf_resource::registry::register_item_skip;
 
     fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
@@ -641,6 +642,13 @@ mod tests {
             .oneshot(Request::builder().uri(uri).body(AxBody::empty()).unwrap())
             .await
             .unwrap()
+    }
+
+    async fn json_body(response: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        serde_json::from_slice(&bytes).expect("json response")
     }
 
     #[tokio::test]
@@ -697,5 +705,88 @@ mod tests {
             let response = send(ctx.clone(), uri).await;
             assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
         }
+    }
+
+    #[tokio::test]
+    async fn node_template_list_merges_registry_sources_and_pages() {
+        let ctx = make_ctx();
+        let plugin: wf_types::workflow::node_template::NodeTemplate =
+            serde_json::from_value(serde_json::json!({
+                "id": "nt-plugin",
+                "name": "Plugin Step",
+                "description": "plugin-owned",
+                "node_type": "acme.step",
+                "default_config": null
+            }))
+            .expect("plugin template");
+        register_item_skip(
+            &ctx.registries.node_templates,
+            "nt-plugin".to_string(),
+            plugin,
+        );
+        let shared: wf_types::workflow::node_template::NodeTemplate =
+            serde_json::from_value(serde_json::json!({
+                "id": "nt-shared",
+                "name": "Registry Name",
+                "description": "",
+                "node_type": "SCRIPT",
+                "default_config": null
+            }))
+            .expect("shared template");
+        register_item_skip(
+            &ctx.registries.node_templates,
+            "nt-shared".to_string(),
+            shared,
+        );
+        let stored: wf_api::NodeTemplateStorageMetadata =
+            serde_json::from_value(serde_json::json!({
+                "id": "nt-shared",
+                "name": "Stored Name",
+                "node_type": "SCRIPT",
+                "description": "stored",
+                "created_at": 1000,
+                "updated_at": 1000
+            }))
+            .expect("stored template");
+        wf_api::template::node_template::save_node_template(&ctx, &stored)
+            .await
+            .expect("save node template");
+
+        let response = send(ctx.clone(), "/api/v1/templates/node?limit=10").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["success"], true);
+        let items = body["data"]["items"]
+            .as_array()
+            .expect("node template items");
+        assert_eq!(items.len(), 2, "stored row must win over the registry row");
+        assert_eq!(body["data"]["has_more"], false);
+        let names = items
+            .iter()
+            .map(|item| item["name"].as_str().expect("name"))
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"Plugin Step"));
+        assert!(names.contains(&"Stored Name"));
+        assert!(!names.contains(&"Registry Name"));
+
+        let response = send(ctx.clone(), "/api/v1/templates/node?limit=1").await;
+        let body = json_body(response).await;
+        assert_eq!(body["data"]["items"].as_array().expect("page").len(), 1);
+        assert_eq!(body["data"]["has_more"], true);
+
+        let response = send(ctx.clone(), "/api/v1/templates/node?q=PLUGIN").await;
+        let body = json_body(response).await;
+        let items = body["data"]["items"].as_array().expect("filtered items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "nt-plugin");
+        assert_eq!(items[0]["node_type"], "acme.step");
+
+        let response = send(ctx, "/api/v1/templates/node?node_type=SCRIPT").await;
+        let body = json_body(response).await;
+        let items = body["data"]["items"]
+            .as_array()
+            .expect("type-filtered items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "nt-shared");
     }
 }

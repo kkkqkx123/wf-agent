@@ -491,3 +491,52 @@ pub(crate) async fn handle_unified_rerun(
         Err(e) => crate::envelope::error_response(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execution_filter_parses_enums_and_keeps_passthrough_fields() {
+        let filter = parse_filter(
+            Some("RUNNING"),
+            Some("agent"),
+            Some("wf-1".to_string()),
+            Some(10),
+            Some(20),
+            Some("/work".to_string()),
+        )
+        .expect("valid filter");
+        assert_eq!(filter.status, Some(wf_types::ExecutionStatus::Running));
+        assert_eq!(
+            filter.execution_type,
+            Some(wf_types::execution::ExecutionType::Agent)
+        );
+        assert_eq!(filter.definition_id.as_deref(), Some("wf-1"));
+        assert_eq!(filter.started_from, Some(10));
+        assert_eq!(filter.started_to, Some(20));
+        assert_eq!(filter.directory.as_deref(), Some("/work"));
+
+        let empty = parse_filter(None, None, None, None, None, None).expect("empty filter");
+        assert!(empty.status.is_none());
+        assert!(empty.execution_type.is_none());
+    }
+
+    #[test]
+    fn execution_filter_rejects_unknown_enum_values() {
+        assert!(parse_filter(Some("nope"), None, None, None, None, None).is_err());
+        assert!(parse_filter(None, Some("nope"), None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn domain_maps_to_wire_execution_type() {
+        assert_eq!(
+            execution_type_of(wf_api::ExecutionDomain::Workflow),
+            wf_types::execution::ExecutionType::Workflow
+        );
+        assert_eq!(
+            execution_type_of(wf_api::ExecutionDomain::AgentLoop),
+            wf_types::execution::ExecutionType::Agent
+        );
+    }
+}

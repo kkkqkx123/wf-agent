@@ -204,3 +204,24 @@ pub(crate) async fn handle_query_logs(
         Err(e) => crate::envelope::error_response(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_type_list_splits_trims_and_rejects_unknown_values() {
+        let parsed = parse_event_types(Some(" WORKFLOW_EXECUTION_STARTED, ,AGENT_COMPLETED "))
+            .expect("valid event types")
+            .expect("explicit list");
+        assert_eq!(
+            parsed,
+            vec![
+                wf_types::events::EventType::WorkflowExecutionStarted,
+                wf_types::events::EventType::AgentCompleted,
+            ]
+        );
+        assert!(parse_event_types(None).expect("absent list").is_none());
+        assert!(parse_event_types(Some("NOT_AN_EVENT")).is_err());
+    }
+}

@@ -866,3 +866,69 @@ fn parse_upsert_body(body: &serde_json::Value) -> Result<(String, BackendEntry),
         serde_json::from_value(entry_value).map_err(|e| format!("invalid backend entry: {e}"))?;
     Ok((name, entry))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upsert_body_accepts_flat_and_nested_entry_shapes() {
+        let flat = serde_json::json!({
+            "name": " alpha ",
+            "host": "alpha.example",
+            "username": "deploy"
+        });
+        let (name, entry) = parse_upsert_body(&flat).expect("flat body");
+        assert_eq!(name, "alpha");
+        assert_eq!(entry.host, "alpha.example");
+        assert_eq!(entry.username, "deploy");
+
+        let nested = serde_json::json!({
+            "name": "beta",
+            "entry": {
+                "host": "beta.example",
+                "username": "deploy",
+                "port": 22
+            }
+        });
+        let (name, entry) = parse_upsert_body(&nested).expect("nested body");
+        assert_eq!(name, "beta");
+        assert_eq!(entry.effective_server_port(), 3000);
+        assert_eq!(entry.effective_local_port(4100), 4100);
+    }
+
+    #[test]
+    fn upsert_body_rejects_missing_name_and_bad_entry() {
+        let no_name = serde_json::json!({
+            "host": "alpha.example",
+            "username": "deploy"
+        });
+        assert!(parse_upsert_body(&no_name)
+            .expect_err("name required")
+            .contains("name"));
+
+        let blank_name = serde_json::json!({
+            "name": "   ",
+            "host": "alpha.example",
+            "username": "deploy"
+        });
+        assert!(parse_upsert_body(&blank_name).is_err());
+
+        let missing_host = serde_json::json!({
+            "name": "alpha",
+            "username": "deploy"
+        });
+        assert!(parse_upsert_body(&missing_host)
+            .expect_err("host required")
+            .contains("entry"));
+    }
+
+    #[test]
+    fn disabled_backend_surface_has_503_envelope() {
+        let response = disabled();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+}

@@ -147,3 +147,51 @@ pub(crate) struct CodePath {
 pub(crate) struct CodeQuery {
     pub(crate) code: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camel_case_path_params_match_route_placeholders() {
+        let path: IdNodePath = serde_json::from_value(serde_json::json!({
+            "id": "wf-1",
+            "nodeId": "node-1"
+        }))
+        .expect("camelCase node path");
+        assert_eq!(path.id, "wf-1");
+        assert_eq!(path.node_id, "node-1");
+
+        let path: IdErrorPath = serde_json::from_value(serde_json::json!({
+            "id": "exec-1",
+            "errorId": "error-1"
+        }))
+        .expect("camelCase error path");
+        assert_eq!(path.error_id, "error-1");
+    }
+
+    #[test]
+    fn snake_case_path_params_match_route_placeholders() {
+        let path: IdSnakeNodePath = serde_json::from_value(serde_json::json!({
+            "id": "loop-1",
+            "node_id": "node-1"
+        }))
+        .expect("snake_case node path");
+        assert_eq!(path.node_id, "node-1");
+
+        let path: IdInjectionPath = serde_json::from_value(serde_json::json!({
+            "id": "exec-1",
+            "injection_id": "inject-1"
+        }))
+        .expect("injection path");
+        assert_eq!(path.injection_id, "inject-1");
+    }
+
+    #[test]
+    fn missing_path_param_is_rejected() {
+        let result = serde_json::from_value::<IdVersionPath>(serde_json::json!({
+            "id": "wf-1"
+        }));
+        assert!(result.is_err(), "version placeholder must be present");
+    }
+}

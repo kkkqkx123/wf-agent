@@ -452,3 +452,69 @@ pub(crate) async fn handle_fs_upload(
         Err(err) => error_response(err.into()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::directory::DirectoryScope;
+
+    #[test]
+    fn query_path_defaults_to_empty_string() {
+        assert_eq!(query_path(&None), "");
+        assert_eq!(query_path(&Some("src/lib.rs".to_string())), "src/lib.rs");
+    }
+
+    #[test]
+    fn check_owned_accepts_scoped_paths_and_rejects_escapes() {
+        let temp = tempfile::tempdir().expect("temp workspace");
+        let scope = DirectoryScope {
+            directory: temp.path().to_path_buf(),
+            project: temp.path().to_path_buf(),
+            project_id: "project-1".to_string(),
+            trusted: true,
+        };
+
+        assert!(check_owned(&Some(scope.clone()), "src/lib.rs").is_none());
+        assert!(check_owned(&Some(scope.clone()), "../outside.txt").is_some());
+
+        let outside = temp
+            .path()
+            .parent()
+            .expect("parent directory")
+            .join("outside.txt");
+        assert!(check_owned(&Some(scope), &outside.to_string_lossy()).is_some());
+        assert!(
+            check_owned(&None, "src/lib.rs").is_none(),
+            "handlers without a workspace scope own no path"
+        );
+    }
+
+    #[test]
+    fn view_helpers_keep_wire_field_names() {
+        let entry = wf_api::fs::FsEntry {
+            name: "lib.rs".to_string(),
+            path: "src/lib.rs".to_string(),
+            is_dir: false,
+            size: 12,
+            modified_ms: Some(99),
+        };
+        let value = serde_json::to_value(entry_view(entry)).expect("entry json");
+        assert_eq!(value["name"], "lib.rs");
+        assert_eq!(value["path"], "src/lib.rs");
+        assert_eq!(value["size"], 12);
+        assert_eq!(value["modified_ms"], 99);
+
+        let stat = wf_api::fs::FsStat {
+            path: "src/lib.rs".to_string(),
+            is_dir: false,
+            size: 12,
+            modified_ms: Some(99),
+            is_binary: Some(false),
+            hash: Some("abc".to_string()),
+        };
+        let value = serde_json::to_value(stat_view(stat)).expect("stat json");
+        assert_eq!(value["modified_ms"], 99);
+        assert_eq!(value["is_binary"], false);
+        assert_eq!(value["hash"], "abc");
+    }
+}

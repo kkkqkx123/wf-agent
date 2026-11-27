@@ -897,3 +897,93 @@ fn frame_of(event: &BaseEvent) -> (&'static str, String) {
     let payload = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
     (name, payload)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use wf_types::Id;
+
+    fn event(event_type: EventType, metadata: Value) -> BaseEvent {
+        BaseEvent {
+            id: Id::from("event-1".to_string()),
+            r#type: event_type,
+            timestamp: 10,
+            event_name: None,
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            metadata: Some(
+                metadata
+                    .as_object()
+                    .expect("object metadata")
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<HashMap<_, _>>(),
+            ),
+        }
+    }
+
+    #[test]
+    fn surgery_preserves_version_condition() {
+        let request = surgery("session-1", Some(7));
+        assert_eq!(request.session_id, "session-1");
+        assert_eq!(request.if_version, Some(7));
+
+        let request = surgery("session-2", None);
+        assert_eq!(request.session_id, "session-2");
+        assert_eq!(request.if_version, None);
+    }
+
+    #[test]
+    fn stream_frames_distinguish_cancellation_reason_and_chunk_kind() {
+        let cancelled = event(
+            EventType::ConversationTurnFailed,
+            json!({"reason": "cancelled", "turnId": "turn-1"}),
+        );
+        let (name, payload) = frame_of(&cancelled);
+        assert_eq!(name, "turn.cancelled");
+        assert_eq!(
+            serde_json::from_str::<Value>(&payload).expect("payload"),
+            json!({"reason": "cancelled", "turnId": "turn-1"})
+        );
+
+        let failed = event(
+            EventType::ConversationTurnFailed,
+            json!({"reason": "model-error"}),
+        );
+        assert_eq!(frame_of(&failed).0, "turn.failed");
+
+        let reasoning = event(
+            EventType::LlmStreamChunk,
+            json!({"kind": "reasoning", "text": "thinking"}),
+        );
+        let (name, payload) = frame_of(&reasoning);
+        assert_eq!(name, "turn.reasoning");
+        assert!(payload.contains("thinking"));
+
+        let delta = event(EventType::LlmStreamChunk, json!({"text": "answer"}));
+        assert_eq!(frame_of(&delta).0, "turn.delta");
+    }
+
+    #[test]
+    fn step_frames_distinguish_progress_completion_and_stop() {
+        let progress = event(
+            EventType::ConversationStepCompleted,
+            json!({"reason": "step"}),
+        );
+        assert_eq!(frame_of(&progress).0, "step.progress");
+
+        let completed = event(
+            EventType::ConversationStepCompleted,
+            json!({"reason": "completed"}),
+        );
+        assert_eq!(frame_of(&completed).0, "step.completed");
+
+        let stopped = event(
+            EventType::ConversationStepCompleted,
+            json!({"reason": "interrupted"}),
+        );
+        assert_eq!(frame_of(&stopped).0, "step.stopped");
+    }
+}

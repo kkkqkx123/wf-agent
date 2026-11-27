@@ -21,7 +21,7 @@
 //! for routing. The per-directory entry cache only memoizes validated
 //! scopes; it never invents them.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -496,13 +496,30 @@ impl DirectoryContext {
 /// Whether a target path stays inside the request scope. Canonicalizes
 /// best-effort so equivalent spellings compare equal; unresolvable paths
 /// fall back to lexical prefix comparison and fail closed.
+/// Collapse `.` and `..` components for paths that do not exist yet. Canonicalization
+/// resolves symlinks but fails on write targets, so the lexical form is the only
+/// safe fallback for ownership checks.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
 pub(crate) fn ensure_path_owned(
     scope: &DirectoryScope,
     target: &Path,
 ) -> Result<(), DirectoryError> {
-    let anchor =
-        std::fs::canonicalize(&scope.directory).unwrap_or_else(|_| scope.directory.clone());
-    let owned = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    let anchor = std::fs::canonicalize(&scope.directory)
+        .unwrap_or_else(|_| normalize_path(&scope.directory));
+    let owned = std::fs::canonicalize(target).unwrap_or_else(|_| normalize_path(target));
     if owned == anchor || owned.starts_with(&anchor) {
         return Ok(());
     }
@@ -1138,5 +1155,18 @@ mod tests {
         assert!(matches!(api, wf_api::ApiError::NotFound { .. }));
         let api: wf_api::ApiError = DirectoryError::Forbidden("/elsewhere".to_string()).into();
         assert!(matches!(api, wf_api::ApiError::Validation(_)));
+    }
+
+    #[test]
+    fn ownership_check_normalizes_unwritten_paths() {
+        let temp = tempfile::tempdir().expect("temp workspace");
+        let scope = DirectoryScope {
+            directory: temp.path().to_path_buf(),
+            project: temp.path().to_path_buf(),
+            project_id: "project-1".to_string(),
+            trusted: true,
+        };
+        assert!(ensure_path_owned(&scope, &temp.path().join("src/lib.rs")).is_ok());
+        assert!(ensure_path_owned(&scope, &temp.path().join("../outside.txt")).is_err());
     }
 }

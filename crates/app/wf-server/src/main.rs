@@ -296,3 +296,92 @@ async fn run(args: Args, worker_threads: Option<usize>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn args() -> Args {
+        Args {
+            addr: None,
+            config: None,
+            settings_dir: None,
+            static_dir: None,
+            directory: None,
+            storage: None,
+            log_level: None,
+            log_format: None,
+            worker_threads: None,
+        }
+    }
+
+    #[test]
+    fn log_parsers_accept_canonical_values_and_reject_typos() {
+        assert_eq!(
+            parse_log_level("warning").expect("warning alias"),
+            LogLevel::Warn
+        );
+        assert_eq!(
+            parse_log_format("JSON").expect("case-insensitive format"),
+            LogFormat::Json
+        );
+        assert!(parse_log_level("verbose").is_err());
+        assert!(parse_log_format("yaml").is_err());
+    }
+
+    #[test]
+    fn env_usize_accepts_only_decimal_values() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let name = "WF_SERVER_TEST_ENV_USIZE";
+        std::env::set_var(name, "12");
+        assert_eq!(env_usize(name), Some(12));
+        std::env::set_var(name, "twelve");
+        assert_eq!(env_usize(name), None);
+        std::env::remove_var(name);
+        assert_eq!(env_usize(name), None);
+    }
+
+    #[test]
+    fn workspace_kill_switch_recognizes_disabled_values() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        for raw in ["false", "0", "NO"] {
+            std::env::set_var("WF_USER_GIT_ENABLED", raw);
+            let (config, _) = build_runtime_config(&args());
+            assert_eq!(
+                config.user_git.expect("user git config").enabled,
+                false,
+                "{raw} must disable workspace routes"
+            );
+        }
+        std::env::set_var("WF_USER_GIT_ENABLED", "enabled");
+        let (config, _) = build_runtime_config(&args());
+        assert!(config.user_git.expect("user git config").enabled);
+        std::env::remove_var("WF_USER_GIT_ENABLED");
+    }
+
+    #[test]
+    fn build_runtime_config_applies_cli_overrides() {
+        let mut input = args();
+        input.config = Some(PathBuf::from("/tmp/wf-project"));
+        input.settings_dir = Some(PathBuf::from("/tmp/wf-settings"));
+        input.storage = Some("memory".to_string());
+        input.log_level = Some(LogLevel::parse("debug").expect("debug level"));
+        input.log_format = Some(LogFormat::parse("json").expect("json format"));
+
+        let (config, source) = build_runtime_config(&input);
+
+        assert_eq!(config.log_config.level, Some(LogLevel::Debug));
+        assert_eq!(config.log_config.format, Some(LogFormat::Json));
+        assert!(config.user_git.expect("user git config").enabled);
+        assert_eq!(source.project_root, Some(PathBuf::from("/tmp/wf-project")));
+        assert_eq!(source.settings_dir, Some(PathBuf::from("/tmp/wf-settings")));
+        assert!(matches!(
+            source.runtime_env,
+            Some(wf_config::processor::infrastructure::RuntimeEnvironment::Production)
+        ));
+        assert!(source.overrides.storage.is_some());
+    }
+}

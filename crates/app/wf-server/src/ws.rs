@@ -239,7 +239,8 @@ pub(crate) fn decode_sse_since(raw: &str) -> Option<i64> {
 }
 
 fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
-    if let Some(id) = message["executionId"].as_str() {
+    let non_empty = |field: &str| message[field].as_str().filter(|id| !id.trim().is_empty());
+    if let Some(id) = non_empty("executionId") {
         return Some(SubscriptionTarget {
             key: format!("exec:{id}"),
             options: EventSubscriptionOptions::for_execution(id),
@@ -248,7 +249,7 @@ fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
             event_type: "execution_event",
         });
     }
-    if let Some(id) = message["agentLoopId"].as_str() {
+    if let Some(id) = non_empty("agentLoopId") {
         return Some(SubscriptionTarget {
             key: format!("loop:{id}"),
             options: EventSubscriptionOptions {
@@ -260,7 +261,7 @@ fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
             event_type: "agent_loop_event",
         });
     }
-    if let Some(id) = message["workflowId"].as_str() {
+    if let Some(id) = non_empty("workflowId") {
         return Some(SubscriptionTarget {
             key: format!("flow:{id}"),
             options: EventSubscriptionOptions {
@@ -920,5 +921,105 @@ mod tests {
         }
         handle.shutdown().await;
         crate::api::system::server::reset_server_stopping_for_test();
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    use wf_types::events::{BaseEvent, EventType};
+    use wf_types::Id;
+
+    #[test]
+    fn subscription_target_prefers_explicit_dimensions() {
+        let target = subscription_target(&serde_json::json!({
+            "type": "subscribe",
+            "executionId": "exec-1",
+            "agentLoopId": "loop-1"
+        }))
+        .expect("execution target");
+        assert_eq!(target.key, "exec:exec-1");
+        assert_eq!(target.id_field, "executionId");
+        assert_eq!(target.event_type, "execution_event");
+        assert_eq!(target.options.execution_id.as_deref(), Some("exec-1"));
+
+        let target = subscription_target(&serde_json::json!({
+            "workflowId": "wf-1"
+        }))
+        .expect("workflow target");
+        assert_eq!(target.key, "flow:wf-1");
+        assert_eq!(target.options.workflow_id.as_deref(), Some("wf-1"));
+    }
+
+    #[test]
+    fn subscription_target_supports_notifications_and_checkpoint_filters() {
+        let notifications = subscription_target(&serde_json::json!({
+            "notifications": true
+        }))
+        .expect("notification target");
+        assert_eq!(notifications.key, "notifications");
+        let types = notifications
+            .options
+            .event_types
+            .expect("notification types");
+        assert!(types.contains(&EventType::ToolApprovalRequested));
+        assert!(types.contains(&EventType::Error));
+
+        let checkpoint = subscription_target(&serde_json::json!({
+            "checkpoint": true,
+            "filePath": "src/lib.rs",
+            "snapshotId": "commit-1"
+        }))
+        .expect("checkpoint target");
+        assert_eq!(checkpoint.key, "checkpoint:src/lib.rs:commit-1");
+        assert!(checkpoint.options.checkpoint_only);
+        assert_eq!(checkpoint.options.file_path.as_deref(), Some("src/lib.rs"));
+        assert_eq!(checkpoint.options.snapshot_id.as_deref(), Some("commit-1"));
+    }
+
+    #[test]
+    fn unsupported_subscription_has_no_target() {
+        assert!(subscription_target(&serde_json::json!({"type": "subscribe"})).is_none());
+        assert!(
+            subscription_target(&serde_json::json!({"executionId": ""})).is_none(),
+            "empty identifiers must not subscribe to everything"
+        );
+    }
+
+    #[test]
+    fn reconnect_cursor_round_trips_and_rejects_garbage() {
+        let token = encode_since(1_234);
+        assert_eq!(decode_since(&token), Some(1_234));
+        assert_eq!(decode_sse_since(&token), Some(1_234));
+        assert_eq!(decode_sse_since("999"), Some(999));
+        assert_eq!(decode_since("not-hex"), None);
+    }
+
+    #[test]
+    fn event_frame_carries_identity_event_type_and_cursor() {
+        let event = BaseEvent {
+            id: Id::from("event-1".to_string()),
+            r#type: EventType::CheckpointCreated,
+            timestamp: 77,
+            event_name: None,
+            workflow_id: None,
+            execution_id: Some(Id::from("exec-1".to_string())),
+            agent_loop_id: None,
+            metadata: Some(HashMap::from([(
+                "path".to_string(),
+                Value::String("a.txt".to_string()),
+            )])),
+        };
+        let frame = event_frame(&event, "executionId", "exec-1", "execution_event");
+        let payload: Value = serde_json::from_str(&frame).expect("frame json");
+        assert_eq!(payload["type"], "execution_event");
+        assert_eq!(payload["executionId"], "exec-1");
+        assert_eq!(payload["eventType"], "CHECKPOINT_CREATED");
+        assert_eq!(payload["data"]["path"], "a.txt");
+        assert_eq!(payload["timestamp"], 77);
+        assert_eq!(
+            decode_since(payload["cursor"].as_str().expect("cursor")),
+            Some(77)
+        );
     }
 }

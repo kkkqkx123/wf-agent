@@ -64,9 +64,13 @@ fn lock() -> std::sync::MutexGuard<'static, TicketStore> {
 /// Drop expired tickets and, if the store is still full, evict the
 /// earliest-expiring entry so minting never blocks behind a full map.
 fn prune(store: &mut TicketStore) {
+    prune_with_capacity(store, TICKET_CAPACITY);
+}
+
+fn prune_with_capacity(store: &mut TicketStore, capacity: usize) {
     let now = Instant::now();
     store.tickets.retain(|_, record| record.expires_at > now);
-    while store.tickets.len() >= TICKET_CAPACITY {
+    while store.tickets.len() >= capacity {
         let victim = store
             .tickets
             .iter()
@@ -200,5 +204,82 @@ mod tests {
         assert!(!is_pty_connect_path("/api/v1/pty/pty-1"));
         assert!(!is_pty_connect_path("/api/v1/pty/connect"));
         assert!(!is_pty_connect_path("/api/v1/other/pty-1/connect"));
+    }
+
+    #[test]
+    fn ticket_minting_requires_marker_and_allowed_origin() {
+        assert!(!ticket_request_authorized(
+            &HeaderMap::new(),
+            &CorsConfig::default()
+        ));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            TICKET_HEADER,
+            axum::http::HeaderValue::from_static(TICKET_HEADER_VALUE),
+        );
+        assert!(ticket_request_authorized(&headers, &CorsConfig::default()));
+
+        headers.insert(
+            axum::http::header::ORIGIN,
+            axum::http::HeaderValue::from_static("https://app.example"),
+        );
+        let configured = CorsConfig {
+            allowed_origins: vec!["https://app.example".to_string()],
+            ..CorsConfig::default()
+        };
+        assert!(ticket_request_authorized(&headers, &configured));
+
+        headers.insert(
+            axum::http::header::ORIGIN,
+            axum::http::HeaderValue::from_static("https://evil.example"),
+        );
+        assert!(!ticket_request_authorized(&headers, &configured));
+    }
+
+    #[test]
+    fn auth_exemption_covers_only_stream_handshakes() {
+        let exempt = |raw: &str| is_auth_exempt_request(&raw.parse::<Uri>().expect("uri"));
+        assert!(exempt("/api/v1/events/stream?ticket=t-1"));
+        assert!(exempt("/api/v1/pty/pty-1/connect?ticket=t-1"));
+        assert!(exempt("/api/v1/server/connect?code=c-1"));
+        assert!(!exempt("/api/v1/events/stream"));
+        assert!(!exempt("/api/v1/workflows?ticket=t-1"));
+    }
+
+    #[test]
+    fn prune_drops_expired_then_earliest_live_entry() {
+        let now = Instant::now();
+        let mut store = TicketStore::default();
+        store.tickets.insert(
+            "expired".to_string(),
+            TicketRecord {
+                scope: TicketScope::Events,
+                expires_at: now - Duration::from_secs(1),
+            },
+        );
+        store.tickets.insert(
+            "soon".to_string(),
+            TicketRecord {
+                scope: TicketScope::Events,
+                expires_at: now + Duration::from_secs(1),
+            },
+        );
+        store.tickets.insert(
+            "later".to_string(),
+            TicketRecord {
+                scope: TicketScope::Events,
+                expires_at: now + Duration::from_secs(5),
+            },
+        );
+
+        prune_with_capacity(&mut store, 3);
+        assert!(!store.tickets.contains_key("expired"));
+        assert!(store.tickets.contains_key("soon"));
+        assert!(store.tickets.contains_key("later"));
+
+        prune_with_capacity(&mut store, 2);
+        assert!(!store.tickets.contains_key("soon"));
+        assert!(store.tickets.contains_key("later"));
     }
 }

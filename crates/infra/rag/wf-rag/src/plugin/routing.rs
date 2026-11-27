@@ -1,42 +1,24 @@
 use super::*;
 
-fn selector_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginRouteSelector>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginRouteSelector>>>> =
-        OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// Registers a route selector under `name`, replacing any prior entry.
+/// Delegates to the shared global registry; new code holds an explicit instance.
 pub fn register_route_selector(name: &str, selector: Arc<dyn PluginRouteSelector>) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
-    }
-    if let Ok(mut guard) = selector_registry().lock() {
-        guard.insert(trimmed.to_string(), selector);
-    }
+    super::RetrievalExtensions::global().register_route_selector(name, selector);
 }
 
 /// Removes a route selector.
 pub fn unregister_route_selector(name: &str) {
-    if let Ok(mut guard) = selector_registry().lock() {
-        guard.remove(name.trim());
-    }
+    super::RetrievalExtensions::global().unregister_route_selector(name);
 }
 
 /// Finds a registered route selector by name.
 pub fn find_route_selector(name: &str) -> Option<Arc<dyn PluginRouteSelector>> {
-    selector_registry()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(name.trim()).cloned())
+    super::RetrievalExtensions::global().find_route_selector(name)
 }
 
 /// Clears route selectors; tests use it to isolate cases.
 pub fn clear_route_selectors() {
-    if let Ok(mut guard) = selector_registry().lock() {
-        guard.clear();
-    }
+    super::RetrievalExtensions::global().clear_route_selectors();
 }
 
 /// Runs one route selector and returns the trimmed non-empty target

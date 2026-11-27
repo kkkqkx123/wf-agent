@@ -330,20 +330,20 @@ async fn hybrid_query_blends_keyword_signal() {
 }
 
 #[tokio::test]
-async fn unknown_advisor_name_fails() {
+async fn unknown_shaping_name_fails() {
     let _guard = crate::plugin::test_registry_guard().await;
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_retrieval_advisors();
+    crate::plugin::clear_postprocessors();
     let config = RagQueryConfig {
-        retrieval_advisor: Some("missing-advisor".to_string()),
+        postprocessor: Some("missing-shape".to_string()),
         ..RagQueryConfig::default()
     };
     let err = query(&store, &embedder, "kb", "kb", "ownership", &config)
         .await
-        .expect_err("unknown advisor must fail");
-    assert!(err.to_string().contains("missing-advisor"));
-    crate::plugin::clear_retrieval_advisors();
+        .expect_err("unknown shaping must fail");
+    assert!(err.to_string().contains("missing-shape"));
+    crate::plugin::clear_postprocessors();
 }
 
 #[tokio::test]

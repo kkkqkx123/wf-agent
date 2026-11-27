@@ -1,4 +1,4 @@
-use super::retrieval::apply_advisor_output;
+use super::retrieval::apply_shaping_output;
 use super::*;
 use wf_plugin_sdk::PluginResult;
 
@@ -26,10 +26,10 @@ impl PluginTextAnalyzer for FailingAnalyzer {
     }
 }
 
-struct ReverseAdvisor;
+struct ReverseShaping;
 
-impl PluginRetrievalAdvisor for ReverseAdvisor {
-    fn advise(&self, input: serde_json::Value) -> PluginResult<serde_json::Value> {
+impl PluginPostprocessor for ReverseShaping {
+    fn process(&self, input: serde_json::Value) -> PluginResult<serde_json::Value> {
         let ids: Vec<String> = input
             .get("hits")
             .and_then(|hits| hits.as_array())
@@ -49,10 +49,10 @@ impl PluginRetrievalAdvisor for ReverseAdvisor {
     }
 }
 
-struct FailingAdvisor;
+struct FailingShaping;
 
-impl PluginRetrievalAdvisor for FailingAdvisor {
-    fn advise(&self, _input: serde_json::Value) -> PluginResult<serde_json::Value> {
+impl PluginPostprocessor for FailingShaping {
+    fn process(&self, _input: serde_json::Value) -> PluginResult<serde_json::Value> {
         Err(wf_plugin_sdk::PluginError::Internal("boom".to_string()))
     }
 }
@@ -140,44 +140,51 @@ async fn failing_analyzer_matches_nothing() {
 }
 
 #[test]
-fn advisor_reorders_and_validates() {
+fn shaping_reorders_and_validates() {
+    register_postprocessor("rev-shape", Arc::new(ReverseShaping));
+    register_postprocessor("fail-shape", Arc::new(FailingShaping));
     let hits = vec![hit("a", 0.9), hit("b", 0.8)];
-    let reordered = apply_retrieval_advisor(&ReverseAdvisor, "q", hits);
+    let reordered =
+        apply_registered_postprocessor("q", hits, Some("rev-shape")).expect("shaping applies");
     assert_eq!(reordered[0].chunk_id, "b");
-    let kept = apply_retrieval_advisor(&FailingAdvisor, "q", vec![hit("a", 0.9)]);
+    let kept =
+        apply_registered_postprocessor("q", vec![hit("a", 0.9)], Some("fail-shape"))
+            .expect("failure keeps input");
     assert_eq!(kept[0].chunk_id, "a");
-    let empty: Vec<RetrievedChunk> = apply_retrieval_advisor(&ReverseAdvisor, "q", Vec::new());
+    let empty = apply_registered_postprocessor("q", Vec::new(), Some("rev-shape"))
+        .expect("empty stays empty");
     assert!(empty.is_empty());
+    unregister_postprocessor("rev-shape");
+    unregister_postprocessor("fail-shape");
 }
 
 #[test]
-fn unknown_advisor_ids_are_ignored() {
+fn unknown_shaping_ids_are_ignored() {
     let hits = vec![hit("a", 0.9), hit("b", 0.8)];
     let output = serde_json::json!({"order": ["missing", "b"], "scores": {"b": 1.5}});
-    let fused = apply_advisor_output(hits, &output);
+    let fused = apply_shaping_output(hits, &output);
     assert_eq!(fused[0].chunk_id, "b");
     assert!((fused[0].score - 1.5).abs() < f32::EPSILON);
     assert_eq!(fused[1].chunk_id, "a");
     let empty_order = serde_json::json!({"order": []});
-    let kept = apply_advisor_output(vec![hit("a", 0.9)], &empty_order);
+    let kept = apply_shaping_output(vec![hit("a", 0.9)], &empty_order);
     assert_eq!(kept[0].chunk_id, "a");
 }
 
 #[tokio::test]
 async fn registered_tables_roundtrip() {
     let _guard = test_registry_guard().await;
-    clear_retrieval_advisors();
+    clear_postprocessors();
     clear_vector_encodings();
-    clear_snapshot_policies();
-    register_retrieval_advisor("rev", Arc::new(ReverseAdvisor));
-    assert!(find_retrieval_advisor("rev").is_some());
-    let hits = apply_registered_advisor("q", vec![hit("a", 0.9), hit("b", 0.8)], Some("rev"))
-        .expect("known advisor applies");
+    register_postprocessor("rev", Arc::new(ReverseShaping));
+    assert!(find_postprocessor("rev").is_some());
+    let hits = apply_registered_postprocessor("q", vec![hit("a", 0.9), hit("b", 0.8)], Some("rev"))
+        .expect("known shaping applies");
     assert_eq!(hits[0].chunk_id, "b");
-    let missing = apply_registered_advisor("q", vec![hit("a", 0.9)], Some("missing-advisor"));
+    let missing = apply_registered_postprocessor("q", vec![hit("a", 0.9)], Some("missing-shape"));
     assert!(missing.is_err());
-    unregister_retrieval_advisor("rev");
-    assert!(find_retrieval_advisor("rev").is_none());
+    unregister_postprocessor("rev");
+    assert!(find_postprocessor("rev").is_none());
 
     register_vector_encoding("enc", Arc::new(ObjectEncoding));
     let encoded = encode_with_registered(
@@ -200,15 +207,8 @@ async fn registered_tables_roundtrip() {
     unregister_vector_encoding("enc");
     unregister_vector_encoding("arr");
 
-    register_snapshot_policy("snap", Arc::new(serde_json::json!({"expect": 1})));
-    let stored = find_snapshot_policy("snap").expect("snapshot stored");
-    assert!(is_valid_snapshot_policy(&stored));
-    assert!(!is_valid_snapshot_policy(&serde_json::json!([1])));
-    unregister_snapshot_policy("snap");
-    assert!(find_snapshot_policy("snap").is_none());
-    clear_retrieval_advisors();
+    clear_postprocessors();
     clear_vector_encodings();
-    clear_snapshot_policies();
 }
 
 struct ObjectExtractor;

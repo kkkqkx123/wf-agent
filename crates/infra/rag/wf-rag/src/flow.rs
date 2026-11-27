@@ -40,6 +40,38 @@ pub struct Flow<'a, E: ?Sized, L: ?Sized> {
     pub synth_config: &'a SynthesisConfig,
 }
 
+/// Unified question-answering handle over one flow invocation.
+///
+/// Bundles retrieval, optional rerank and synthesis so agents and workflows
+/// call one method instead of wiring rewrite, retrieval and synthesis by
+/// hand. The free flow helpers stay as the default implementation.
+pub struct StandardQa<'a, S: ?Sized, E: ?Sized, L: ?Sized> {
+    /// Vector backend owned by the host.
+    pub store: &'a S,
+    /// Shared flow invocation carrying embedder, model and configs.
+    pub flow: Flow<'a, E, L>,
+}
+
+impl<'a, S, E, L> StandardQa<'a, S, E, L>
+where
+    S: vector_contracts::VectorStorage + ?Sized,
+    E: llm_embedding::provider::EmbeddingProvider + ?Sized,
+    L: CompletionLlm + ?Sized,
+{
+    /// Rewrites the question, retrieves every variant, then synthesizes.
+    pub async fn answer<R>(
+        &self,
+        rewriter: &dyn QueryRewriter,
+        query_text: &str,
+        rerank: Option<&RerankPass<'_, R>>,
+    ) -> Result<SynthesizedAnswer>
+    where
+        R: llm_rerank::provider::RerankProvider + ?Sized,
+    {
+        answer_with_variants(self.store, &self.flow, rewriter, query_text, rerank).await
+    }
+}
+
 /// Optional rerank pass applied before synthesis.
 ///
 /// `None` keeps the fused order. `Some` reranks with the supplied provider

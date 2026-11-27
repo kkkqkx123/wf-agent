@@ -6,15 +6,13 @@
 //!
 //! Vector encodings are typed: plugins emit a named schema with a vector
 //! kind and a shape-valid payload, which the ingest and query paths use for
-//! real writes and searches. Snapshot policies are
-//! reservation-only declarations; execution stays host-owned and no
-//! pipeline reads them. Vector and keyword backend selection, embedding,
+//! real writes and searches. Vector and keyword backend selection, embedding,
 //! rerank, chunking, fusion and rewrite choices stay host-owned.
 //!
 //! Retrieval extensions are advisory: metadata extractors suggest ingest
 //! metadata, chunk splitters suggest content pieces, route selectors choose
-//! retrieval scopes, postprocessors reshape fused hits and eval judges score
-//! answers. Pipelines consume them through explicit config names
+//! retrieval scopes, post-fusion shaping reshapes fused hits and eval judges
+//! score answers. Pipelines consume them through explicit config names
 //! (`metadata_extractor`, `chunk_splitter`, `route_selector`,
 //! `postprocessor`); unset names keep built-in behavior. Eval judges stay
 //! host-called through the judge helper since retrieval has no answer text.
@@ -27,7 +25,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use vector_contracts::{validate_named_data, VectorData, VectorKind, VectorSpaceSpec};
 use wf_plugin_sdk::{
     PluginChunkSplitter, PluginEvalJudge, PluginMetadataExtractor, PluginPostprocessor,
-    PluginRetrievalAdvisor, PluginRouteSelector, PluginTextAnalyzer, PluginVectorEncoding,
+    PluginRouteSelector, PluginTextAnalyzer, PluginVectorEncoding,
 };
 
 use crate::retriever::RetrievedChunk;
@@ -38,7 +36,6 @@ mod eval;
 mod ingest;
 mod retrieval;
 mod routing;
-mod snapshot;
 
 pub use analyzer::{register_plugin_analyzer, unregister_plugin_analyzer};
 pub use encoding::{
@@ -55,23 +52,14 @@ pub use ingest::{
     split_with_registered, unregister_chunk_splitter, unregister_metadata_extractor, SplitPiece,
 };
 pub use retrieval::{
-    apply_registered_advisor, apply_registered_postprocessor, apply_retrieval_advisor,
-    clear_postprocessors, clear_retrieval_advisors, find_postprocessor, find_retrieval_advisor,
-    register_postprocessor, register_retrieval_advisor, unregister_postprocessor,
-    unregister_retrieval_advisor,
+    apply_registered_postprocessor, clear_postprocessors, find_postprocessor,
+    register_postprocessor, unregister_postprocessor,
 };
 pub(crate) use routing::poll_route_selector;
 pub use routing::{
     apply_registered_selector, clear_route_selectors, find_route_selector, register_route_selector,
     unregister_route_selector,
 };
-pub use snapshot::{
-    clear_snapshot_policies, find_snapshot_policy, is_valid_snapshot_policy,
-    register_snapshot_policy, unregister_snapshot_policy,
-};
-
-/// Protocol version sent with every retrieval advisor input.
-pub const RETRIEVAL_ADVISOR_PROTOCOL_VERSION: u32 = 1;
 /// Protocol version sent with every route selector input.
 pub const ROUTE_SELECTOR_PROTOCOL_VERSION: u32 = 1;
 /// Protocol version sent with every postprocessor input.
@@ -107,6 +95,244 @@ pub struct EncodedVector {
     pub schema: String,
     /// Name of the encoder that produced the payload.
     pub encoder: String,
+}
+
+/// Host-owned registry for retrieval extensions.
+///
+/// Hosts hold one instance per configuration scope and pass it into pipelines
+/// instead of relying on process-wide state. The free functions in this module
+/// delegate to a shared global instance so existing call sites keep working
+/// while new code threads an explicit instance through.
+#[derive(Default)]
+pub struct RetrievalExtensions {
+    vector_encodings: Mutex<HashMap<String, Arc<dyn PluginVectorEncoding>>>,
+    metadata_extractors: Mutex<HashMap<String, Arc<dyn PluginMetadataExtractor>>>,
+    chunk_splitters: Mutex<HashMap<String, Arc<dyn PluginChunkSplitter>>>,
+    route_selectors: Mutex<HashMap<String, Arc<dyn PluginRouteSelector>>>,
+    postprocessors: Mutex<HashMap<String, Arc<dyn PluginPostprocessor>>>,
+    eval_judges: Mutex<HashMap<String, Arc<dyn PluginEvalJudge>>>,
+}
+
+impl RetrievalExtensions {
+    /// Empty registry with no extensions registered.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Shared global registry backing the free functions.
+    pub fn global() -> &'static Self {
+        static GLOBAL: OnceLock<RetrievalExtensions> = OnceLock::new();
+        GLOBAL.get_or_init(RetrievalExtensions::new)
+    }
+
+    /// Registers a vector encoding, replacing any prior entry.
+    pub fn register_vector_encoding(&self, name: &str, encoding: Arc<dyn PluginVectorEncoding>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.vector_encodings.lock() {
+            guard.insert(trimmed.to_string(), encoding);
+        }
+    }
+
+    /// Removes a vector encoding.
+    pub fn unregister_vector_encoding(&self, name: &str) {
+        if let Ok(mut guard) = self.vector_encodings.lock() {
+            guard.remove(name.trim());
+        }
+    }
+
+    /// Finds a vector encoding by name.
+    pub fn find_vector_encoding(&self, name: &str) -> Option<Arc<dyn PluginVectorEncoding>> {
+        self.vector_encodings
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(name.trim()).cloned())
+    }
+
+    /// Clears vector encodings.
+    pub fn clear_vector_encodings(&self) {
+        if let Ok(mut guard) = self.vector_encodings.lock() {
+            guard.clear();
+        }
+    }
+
+    /// Registers a metadata extractor, replacing any prior entry.
+    pub fn register_metadata_extractor(&self, name: &str, extractor: Arc<dyn PluginMetadataExtractor>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.metadata_extractors.lock() {
+            guard.insert(trimmed.to_string(), extractor);
+        }
+    }
+
+    /// Removes a metadata extractor.
+    pub fn unregister_metadata_extractor(&self, name: &str) {
+        if let Ok(mut guard) = self.metadata_extractors.lock() {
+            guard.remove(name.trim());
+        }
+    }
+
+    /// Finds a metadata extractor by name.
+    pub fn find_metadata_extractor(&self, name: &str) -> Option<Arc<dyn PluginMetadataExtractor>> {
+        self.metadata_extractors
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(name.trim()).cloned())
+    }
+
+    /// Clears metadata extractors.
+    pub fn clear_metadata_extractors(&self) {
+        if let Ok(mut guard) = self.metadata_extractors.lock() {
+            guard.clear();
+        }
+    }
+
+    /// Registers a chunk splitter, replacing any prior entry.
+    pub fn register_chunk_splitter(&self, name: &str, splitter: Arc<dyn PluginChunkSplitter>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.chunk_splitters.lock() {
+            guard.insert(trimmed.to_string(), splitter);
+        }
+    }
+
+    /// Removes a chunk splitter.
+    pub fn unregister_chunk_splitter(&self, name: &str) {
+        if let Ok(mut guard) = self.chunk_splitters.lock() {
+            guard.remove(name.trim());
+        }
+    }
+
+    /// Finds a chunk splitter by name.
+    pub fn find_chunk_splitter(&self, name: &str) -> Option<Arc<dyn PluginChunkSplitter>> {
+        self.chunk_splitters
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(name.trim()).cloned())
+    }
+
+    /// Clears chunk splitters.
+    pub fn clear_chunk_splitters(&self) {
+        if let Ok(mut guard) = self.chunk_splitters.lock() {
+            guard.clear();
+        }
+    }
+
+    /// Registers a route selector, replacing any prior entry.
+    pub fn register_route_selector(&self, name: &str, selector: Arc<dyn PluginRouteSelector>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.route_selectors.lock() {
+            guard.insert(trimmed.to_string(), selector);
+        }
+    }
+
+    /// Removes a route selector.
+    pub fn unregister_route_selector(&self, name: &str) {
+        if let Ok(mut guard) = self.route_selectors.lock() {
+            guard.remove(name.trim());
+        }
+    }
+
+    /// Finds a route selector by name.
+    pub fn find_route_selector(&self, name: &str) -> Option<Arc<dyn PluginRouteSelector>> {
+        self.route_selectors
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(name.trim()).cloned())
+    }
+
+    /// Clears route selectors.
+    pub fn clear_route_selectors(&self) {
+        if let Ok(mut guard) = self.route_selectors.lock() {
+            guard.clear();
+        }
+    }
+
+    /// Registers a post-fusion shaping step, replacing any prior entry.
+    pub fn register_postprocessor(&self, name: &str, postprocessor: Arc<dyn PluginPostprocessor>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.postprocessors.lock() {
+            guard.insert(trimmed.to_string(), postprocessor);
+        }
+    }
+
+    /// Removes a post-fusion shaping step.
+    pub fn unregister_postprocessor(&self, name: &str) {
+        if let Ok(mut guard) = self.postprocessors.lock() {
+            guard.remove(name.trim());
+        }
+    }
+
+    /// Finds a post-fusion shaping step by name.
+    pub fn find_postprocessor(&self, name: &str) -> Option<Arc<dyn PluginPostprocessor>> {
+        self.postprocessors
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(name.trim()).cloned())
+    }
+
+    /// Clears post-fusion shaping steps.
+    pub fn clear_postprocessors(&self) {
+        if let Ok(mut guard) = self.postprocessors.lock() {
+            guard.clear();
+        }
+    }
+
+    /// Registers an eval judge, replacing any prior entry.
+    pub fn register_eval_judge(&self, name: &str, judge: Arc<dyn PluginEvalJudge>) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.eval_judges.lock() {
+            guard.insert(trimmed.to_string(), judge);
+        }
+    }
+
+    /// Removes an eval judge.
+    pub fn unregister_eval_judge(&self, name: &str) {
+        if let Ok(mut guard) = self.eval_judges.lock() {
+            guard.remove(name.trim());
+        }
+    }
+
+    /// Finds an eval judge by name, including built-in judges.
+    pub fn find_eval_judge(&self, name: &str) -> Option<Arc<dyn PluginEvalJudge>> {
+        let trimmed = name.trim();
+        if let Some(judge) = self
+            .eval_judges
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(trimmed).cloned())
+        {
+            return Some(judge);
+        }
+        match trimmed {
+            crate::builtin_judge::BUILTIN_HEURISTIC_JUDGE => {
+                Some(Arc::new(crate::builtin_judge::HeuristicJudge))
+            }
+            _ => None,
+        }
+    }
+
+    /// Clears eval judges.
+    pub fn clear_eval_judges(&self) {
+        if let Ok(mut guard) = self.eval_judges.lock() {
+            guard.clear();
+        }
+    }
 }
 
 /// Serializes tests that mutate the process-wide plugin registries. A

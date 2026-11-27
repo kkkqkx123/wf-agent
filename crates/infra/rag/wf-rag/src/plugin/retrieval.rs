@@ -1,94 +1,6 @@
 use super::*;
 
-fn advisor_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginRetrievalAdvisor>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginRetrievalAdvisor>>>> =
-        OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Registers retrieval shaping advice under `name`, replacing any prior entry.
-pub fn register_retrieval_advisor(name: &str, advisor: Arc<dyn PluginRetrievalAdvisor>) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
-    }
-    if let Ok(mut guard) = advisor_registry().lock() {
-        guard.insert(trimmed.to_string(), advisor);
-    }
-}
-
-/// Removes retrieval shaping advice.
-pub fn unregister_retrieval_advisor(name: &str) {
-    if let Ok(mut guard) = advisor_registry().lock() {
-        guard.remove(name.trim());
-    }
-}
-
-/// Finds registered retrieval shaping advice by name.
-pub fn find_retrieval_advisor(name: &str) -> Option<Arc<dyn PluginRetrievalAdvisor>> {
-    advisor_registry()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(name.trim()).cloned())
-}
-
-/// Clears retrieval advisors; tests use it to isolate cases.
-pub fn clear_retrieval_advisors() {
-    if let Ok(mut guard) = advisor_registry().lock() {
-        guard.clear();
-    }
-}
-
-/// Applies one retrieval advisor to ranked hits, validating the suggestion.
-/// Unknown ids are ignored, missing ids keep their relative order, empty
-/// or failing suggestions defer to the input list.
-pub fn apply_retrieval_advisor(
-    advisor: &dyn PluginRetrievalAdvisor,
-    query: &str,
-    hits: Vec<RetrievedChunk>,
-) -> Vec<RetrievedChunk> {
-    if hits.is_empty() {
-        return hits;
-    }
-    let input = serde_json::json!({
-        "protocol_version": RETRIEVAL_ADVISOR_PROTOCOL_VERSION,
-        "query": query,
-        "hits": hits.iter().map(|hit| serde_json::json!({
-            "chunk_id": hit.chunk_id,
-            "score": hit.score,
-            "source": hit.source,
-            "ordinal": hit.ordinal,
-        })).collect::<Vec<_>>(),
-    });
-    let output = match advisor.advise(input) {
-        Ok(output) => output,
-        Err(error) => {
-            tracing::warn!(error = %error, "retrieval advisor failed; keeping built-in order");
-            return hits;
-        }
-    };
-    apply_advisor_output(hits, &output)
-}
-
-/// Applies the named registered advisor, failing on unknown names so
-/// configuration errors surface instead of silently keeping built-in order.
-pub fn apply_registered_advisor(
-    query: &str,
-    hits: Vec<RetrievedChunk>,
-    name: Option<&str>,
-) -> crate::error::Result<Vec<RetrievedChunk>> {
-    let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
-        return Ok(hits);
-    };
-    let Some(advisor) = find_retrieval_advisor(name) else {
-        return Err(crate::error::RagError::InvalidInput(format!(
-            "unknown retrieval advisor '{name}'"
-        )));
-    };
-    Ok(apply_retrieval_advisor(advisor.as_ref(), query, hits))
-}
-
-pub(crate) fn apply_advisor_output(
+pub(crate) fn apply_shaping_output(
     hits: Vec<RetrievedChunk>,
     output: &serde_json::Value,
 ) -> Vec<RetrievedChunk> {
@@ -151,46 +63,28 @@ pub(crate) fn apply_advisor_output(
     ordered
 }
 
-fn postprocessor_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginPostprocessor>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginPostprocessor>>>> =
-        OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Registers a postprocessor under `name`, replacing any prior entry.
+/// Registers a post-fusion shaping step under `name`, replacing any prior entry.
+/// Delegates to the shared global registry; new code holds an explicit instance.
 pub fn register_postprocessor(name: &str, postprocessor: Arc<dyn PluginPostprocessor>) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
-    }
-    if let Ok(mut guard) = postprocessor_registry().lock() {
-        guard.insert(trimmed.to_string(), postprocessor);
-    }
+    super::RetrievalExtensions::global().register_postprocessor(name, postprocessor);
 }
 
-/// Removes a postprocessor.
+/// Removes a post-fusion shaping step.
 pub fn unregister_postprocessor(name: &str) {
-    if let Ok(mut guard) = postprocessor_registry().lock() {
-        guard.remove(name.trim());
-    }
+    super::RetrievalExtensions::global().unregister_postprocessor(name);
 }
 
-/// Finds a registered postprocessor by name.
+/// Finds a registered post-fusion shaping step by name.
 pub fn find_postprocessor(name: &str) -> Option<Arc<dyn PluginPostprocessor>> {
-    postprocessor_registry()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(name.trim()).cloned())
+    super::RetrievalExtensions::global().find_postprocessor(name)
 }
 
-/// Clears postprocessors; tests use it to isolate cases.
+/// Clears post-fusion shaping steps; tests use it to isolate cases.
 pub fn clear_postprocessors() {
-    if let Ok(mut guard) = postprocessor_registry().lock() {
-        guard.clear();
-    }
+    super::RetrievalExtensions::global().clear_postprocessors();
 }
 
-/// Applies the named postprocessor to fused hits.
+/// Applies the named post-fusion shaping step to fused hits.
 /// Unknown names fail; failing or empty suggestions keep the input order.
 pub fn apply_registered_postprocessor(
     query: &str,
@@ -225,5 +119,5 @@ pub fn apply_registered_postprocessor(
             return Ok(hits);
         }
     };
-    Ok(apply_advisor_output(hits, &output))
+    Ok(apply_shaping_output(hits, &output))
 }

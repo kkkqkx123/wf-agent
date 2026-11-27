@@ -3404,8 +3404,14 @@ name = "keyword-contracts"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "jieba-rs",
+ "reqwest",
+ "rusqlite",
  "serde_json",
+ "tantivy",
  "thiserror 2.0.21",
+ "tokio",
+ "tracing",
  "vector-contracts",
  "wf-types",
 ]
@@ -8724,19 +8730,15 @@ name = "wf-rag"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "jieba-rs",
  "keyword-contracts",
  "llm-suite-embedding",
  "llm-suite-rerank",
  "once_cell",
- "reqwest",
- "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "simvec",
  "source-contracts",
- "tantivy",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

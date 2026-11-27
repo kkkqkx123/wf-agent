@@ -224,9 +224,6 @@ pub struct RagQueryConfig {
     /// Drop weakest hits beyond this content budget in chars (unset disables).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_budget_chars: Option<usize>,
-    /// Plugin retrieval advisor applied after fusion; unset keeps built-in order.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retrieval_advisor: Option<String>,
     /// Registered encoder used on the query path; unset embeds dense queries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vector_encoding: Option<String>,
@@ -254,8 +251,7 @@ pub struct RagQueryConfig {
     /// Additional named spaces recalled from the same collection and fused.
     #[serde(default)]
     pub additional_named_spaces: Vec<String>,
-    /// Plugin postprocessor shaping fused hits after the retrieval advisor;
-    /// unset keeps advisor order.
+    /// Plugin post-fusion shaping step; unset keeps fused order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postprocessor: Option<String>,
 }
@@ -346,7 +342,6 @@ impl Default for RagQueryConfig {
             keyword_weight: default_keyword_weight(),
             context_reorder: false,
             context_budget_chars: None,
-            retrieval_advisor: None,
             vector_encoding: None,
             vector_kind: VectorKind::Dense,
             sparse_candidates: None,

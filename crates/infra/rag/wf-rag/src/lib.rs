@@ -11,10 +11,9 @@
 //! this crate stays free of backend and model choices.
 //!
 //! Plugin contributions stay advisory except vector encodings: text
-//! analyzers replace segmentation, retrieval advisors reorder fused hits,
-//! vector encodings produce typed payloads for writes and queries, and
-//! snapshot policies declare without executing.
-//! Metadata extractors, chunk splitters, route selectors, postprocessors
+//! analyzers replace segmentation, vector encodings produce typed payloads
+//! for writes and queries, and post-fusion shaping reorders fused hits.
+//! Metadata extractors, chunk splitters, route selectors, post-fusion shaping
 //! and eval judges follow the same advisory pattern; pipelines consume them
 //! through explicit config names while eval judges stay host-called.
 //! Backend selection, embedding, rerank, chunking, fusion and rewrite
@@ -63,10 +62,7 @@ pub use citation::{
     CitationCompleteness, CitationIssues, CitationStyle, NoHitContext,
 };
 pub use cleaner::{clean_text, CleanerConfig};
-pub use codec::{
-    find_embedding_codec, find_rerank_codec, register_embedding_codec, register_rerank_codec,
-    EmbeddingCodec, PluginEmbeddingCodecAdapter, PluginRerankCodecAdapter, RerankCodec,
-};
+pub use codec::{EmbeddingCodec, PluginEmbeddingCodecAdapter, PluginRerankCodecAdapter, RerankCodec};
 pub use config::{
     vector_encoding_fingerprint, ChunkPreset, DuplicatePolicy, FusionConfig, FusionMode,
     KindQueryConfig, RagIndexConfig, RagQueryConfig, RerankOptions,
@@ -76,40 +72,40 @@ pub use converter::{
     MarkdownConverter, PathJsonConverter, PlainConverter,
 };
 pub use document::{RagChunk, RagDocument};
+pub use keyword_contracts::ElasticKeywordConfig;
 #[cfg(feature = "elastic")]
-pub use elastic_index::ElasticKeywordIndex;
+pub use keyword_contracts::ElasticKeywordIndex;
 pub use error::{RagError, Result};
 pub use eval::{
     run_eval_cases, score_case, summarize, EvalCase, EvalOutcome, EvalRun, EvalSummary,
 };
 pub use flow::{
     answer_with_hyde, answer_with_sub_questions, answer_with_variants, Flow, RerankPass,
+    StandardQa,
 };
 pub use keyword_index::{keyword_chunks, keyword_documents};
-pub use llm::CompletionLlm;
+pub use llm::{CompletionLlm, CompletionRequest};
 pub use metrics::{rank_pairs, RetrievalMetrics};
 pub use pipeline::{
     delete_by_ids, delete_source, ingest_documents, query, query_hybrid, query_multi,
     query_with_metrics, query_with_rerank, query_with_rerank_metrics, IngestStats,
-    RerankInvocation, ENCODER_KEY, ENCODER_SCHEMA_KEY, NAMED_SPACES_KEY, VECTOR_KIND_KEY,
+    RerankInvocation, StandardRetriever, ENCODER_KEY, ENCODER_SCHEMA_KEY, NAMED_SPACES_KEY,
+    VECTOR_KIND_KEY,
 };
 pub use plugin::{
-    apply_registered_advisor, apply_registered_postprocessor, apply_registered_selector,
-    apply_retrieval_advisor, clear_chunk_splitters, clear_eval_judges, clear_metadata_extractors,
-    clear_postprocessors, clear_retrieval_advisors, clear_route_selectors, clear_snapshot_policies,
-    clear_vector_encodings, encode_named_with_registered, encode_with_registered,
+    apply_registered_postprocessor, apply_registered_selector, clear_chunk_splitters,
+    clear_eval_judges, clear_metadata_extractors, clear_postprocessors, clear_route_selectors,
+    clear_vector_encodings, encode_named_with_registered, encode_with_registered, RetrievalExtensions,
     extract_with_registered, find_chunk_splitter, find_eval_judge, find_metadata_extractor,
-    find_postprocessor, find_retrieval_advisor, find_route_selector, find_snapshot_policy,
-    find_vector_encoding, is_valid_snapshot_policy, judge_with_registered, register_chunk_splitter,
-    register_eval_judge, register_metadata_extractor, register_plugin_analyzer,
-    register_postprocessor, register_retrieval_advisor, register_route_selector,
-    register_snapshot_policy, register_vector_encoding, split_with_registered,
-    unregister_chunk_splitter, unregister_eval_judge, unregister_metadata_extractor,
-    unregister_plugin_analyzer, unregister_postprocessor, unregister_retrieval_advisor,
-    unregister_route_selector, unregister_snapshot_policy, unregister_vector_encoding,
+    find_postprocessor, find_route_selector, find_vector_encoding, judge_with_registered,
+    register_chunk_splitter, register_eval_judge, register_metadata_extractor,
+    register_plugin_analyzer, register_postprocessor, register_route_selector,
+    register_vector_encoding, split_with_registered, unregister_chunk_splitter,
+    unregister_eval_judge, unregister_metadata_extractor, unregister_plugin_analyzer,
+    unregister_postprocessor, unregister_route_selector, unregister_vector_encoding,
     EncodedVector, JudgeScore, NamedEncodedVector, SplitPiece, EVAL_JUDGE_PROTOCOL_VERSION,
-    NAMED_VECTOR_ENCODING_SCHEMA, POSTPROCESSOR_PROTOCOL_VERSION,
-    RETRIEVAL_ADVISOR_PROTOCOL_VERSION, ROUTE_SELECTOR_PROTOCOL_VERSION, VECTOR_ENCODING_SCHEMA,
+    NAMED_VECTOR_ENCODING_SCHEMA, POSTPROCESSOR_PROTOCOL_VERSION, ROUTE_SELECTOR_PROTOCOL_VERSION,
+    VECTOR_ENCODING_SCHEMA,
 };
 pub use postprocess::{reorder_for_context, trim_to_budget, window_content};
 pub use rerank_adapter::{rerank_hits, RankedChunk};
@@ -123,7 +119,7 @@ pub use rewrite::{
     QueryRewriter,
 };
 pub use router::{query_routed, resolve_targets, RouteRule, RouteTarget, RouterConfig};
-pub use sqlite_index::SqliteKeywordIndex;
+pub use keyword_contracts::SqliteKeywordIndex;
 pub use sync::{
     content_hash, decisions_for_documents, hash_sources, pending_sources, plan_http_sync,
     plan_sync, remove_by_ids, remove_source, source_point_count, stale_sources, HttpSyncDecision,
@@ -134,7 +130,7 @@ pub use synth::{
     SynthesizedAnswer,
 };
 #[cfg(feature = "tantivy")]
-pub use tantivy_index::TantivyKeywordIndex;
+pub use keyword_contracts::TantivyKeywordIndex;
 pub use tokenizer::{
     clear_analyzers, ensure_analyzer_registered, find_analyzer, is_cjk, mixed_terms, pretokenize,
     register_analyzer, split_identifier, terms, unregister_analyzer, CustomAnalyzer, MixedToken,
@@ -145,56 +141,25 @@ pub use transform::{
     TransformInvocation,
 };
 
-/// Connection parameters of the remote Elasticsearch keyword backend.
-///
-/// Plain data shared by every crate: hosts build it without enabling the
-/// `elastic` feature, and the feature-gated backend consumes it. Keeping
-/// the config feature-free lets the open helpers below compile on every
-/// build and fail with a readable error when the backend is not compiled.
-#[derive(Debug, Clone)]
-pub struct ElasticKeywordConfig {
-    /// Base URL of the REST API, for example `http://127.0.0.1:9200`.
-    pub base_url: String,
-    /// Optional API key sent as an `ApiKey` authorization header.
-    pub api_key: Option<String>,
-    /// Index carrying every collection.
-    pub index: String,
-    /// Per-request deadline in seconds.
-    pub timeout_secs: u64,
-    /// Documents per bulk request.
-    pub batch_size: usize,
-    /// `true` counts through the exact `_count` API; `false` reads the
-    /// search total so huge collections trade accuracy for speed.
-    pub exact_count: bool,
-    /// Tokenizer selection; English preserves legacy behavior.
-    pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
-    /// Plugin analyzer name replacing built-in segmentation.
-    pub analyzer_name: Option<String>,
-    /// Behavior on an existing index with a different format stamp.
-    pub format_policy: wf_types::config::keyword::KeywordFormatPolicy,
-}
-
-impl ElasticKeywordConfig {
-    /// Builds a config with a ten-second deadline and the default index.
-    pub fn new(base_url: impl Into<String>) -> Self {
-        Self {
-            base_url: base_url.into(),
-            api_key: None,
-            index: "rag-keyword".to_string(),
-            timeout_secs: 10,
-            batch_size: 256,
-            exact_count: true,
-            tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
-            analyzer_name: None,
-            format_policy: wf_types::config::keyword::KeywordFormatPolicy::default(),
-        }
-    }
-}
+/// Thin forwarding to the contracts-side openers; hosts migrate to
+/// `keyword_contracts` directly. Config lives in contracts now.
 
 /// Opens an in-RAM tantivy keyword index. Fails with a readable error
 /// when the `tantivy` feature is not compiled.
 pub fn open_tantivy_ram_keyword() -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    open_tantivy_ram_keyword_with(wf_types::config::keyword::KeywordTokenizer::English, None)
+    #[cfg(feature = "tantivy")]
+    {
+        Ok(keyword_contracts::open_tantivy_ram_keyword_with(
+            wf_types::config::keyword::KeywordTokenizer::English,
+            None,
+        )?)
+    }
+    #[cfg(not(feature = "tantivy"))]
+    {
+        Err(RagError::keyword(
+            "tantivy backend is not compiled; enable wf-rag/tantivy",
+        ))
+    }
 }
 
 /// Opens an in-RAM tantivy index with an explicit tokenizer selection.
@@ -204,9 +169,7 @@ pub fn open_tantivy_ram_keyword_with(
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     #[cfg(feature = "tantivy")]
     {
-        let index =
-            tantivy_index::TantivyKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?;
-        Ok(std::sync::Arc::new(index))
+        Ok(keyword_contracts::open_tantivy_ram_keyword_with(tokenizer, analyzer_name)?)
     }
     #[cfg(not(feature = "tantivy"))]
     {
@@ -235,8 +198,7 @@ pub fn open_tantivy_dir_keyword_with(
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     #[cfg(feature = "tantivy")]
     {
-        let index = tantivy_index::TantivyKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
-        Ok(std::sync::Arc::new(index))
+        Ok(keyword_contracts::open_tantivy_dir_keyword_with(path, tokenizer, analyzer_name)?)
     }
     #[cfg(not(feature = "tantivy"))]
     {
@@ -252,8 +214,7 @@ pub fn open_sqlite_ram_keyword_with(
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?;
-    Ok(std::sync::Arc::new(index))
+    Ok(keyword_contracts::open_sqlite_ram_keyword_with(tokenizer, analyzer_name)?)
 }
 
 /// Opens a file SQLite keyword index with an explicit selection.
@@ -262,8 +223,7 @@ pub fn open_sqlite_file_keyword_with(
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
-    Ok(std::sync::Arc::new(index))
+    Ok(keyword_contracts::open_sqlite_file_keyword_with(path, tokenizer, analyzer_name)?)
 }
 
 /// Opens a file SQLite keyword index with an explicit format stamp,
@@ -272,8 +232,7 @@ pub fn open_sqlite_file_keyword_format(
     path: &str,
     format: KeywordFormat,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_with_format(path, format)?;
-    Ok(std::sync::Arc::new(index))
+    Ok(keyword_contracts::open_sqlite_file_keyword_format(path, format)?)
 }
 
 /// Opens a file tantivy keyword index with an explicit format stamp and
@@ -284,9 +243,7 @@ pub fn open_tantivy_dir_keyword_format(
     format: KeywordFormat,
     writer_heap_bytes: Option<usize>,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index =
-        tantivy_index::TantivyKeywordIndex::open_with_format(path, format, writer_heap_bytes)?;
-    Ok(std::sync::Arc::new(index))
+    Ok(keyword_contracts::open_tantivy_dir_keyword_format(path, format, writer_heap_bytes)?)
 }
 
 /// Feature-gated stub mirroring the tantivy opener for builds without it.
@@ -310,8 +267,7 @@ pub fn open_elastic_keyword(
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     #[cfg(feature = "elastic")]
     {
-        let index = elastic_index::ElasticKeywordIndex::new(config)?;
-        Ok(std::sync::Arc::new(index))
+        Ok(keyword_contracts::open_elastic_keyword(config)?)
     }
     #[cfg(not(feature = "elastic"))]
     {
@@ -329,7 +285,7 @@ pub fn open_elastic_keyword(
 pub async fn probe_elastic_keyword(config: &ElasticKeywordConfig) -> Result<String> {
     #[cfg(feature = "elastic")]
     {
-        let index = elastic_index::ElasticKeywordIndex::new(config)?;
+        let index = keyword_contracts::ElasticKeywordIndex::new(config)?;
         index.health_check().await?;
         index.version().await.map_err(Into::into)
     }

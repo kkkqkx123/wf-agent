@@ -7,14 +7,10 @@
 //! through [`PluginEmbeddingCodec`]/[`PluginRerankCodec`] and are adapted here;
 //! they never own a model call or an API key.
 //!
-//! The registries are an extension-point foundation. The default provider
-//! construction path stays host-owned and unchanged; a host opts into a named
-//! codec only when it resolves one from these registries.
+//! Hosts hold codec instances directly; no process-wide registry is kept.
+//! The default provider construction path stays host-owned and unchanged.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-use once_cell::sync::Lazy;
+use std::sync::Arc;
 use serde_json::Value;
 use wf_plugin_sdk::{CodecHttpRequest, PluginEmbeddingCodec, PluginRerankCodec};
 
@@ -184,42 +180,7 @@ impl RerankCodec for PluginRerankCodecAdapter {
     }
 }
 
-type EmbeddingCodecMap = HashMap<String, Arc<dyn EmbeddingCodec>>;
-type RerankCodecMap = HashMap<String, Arc<dyn RerankCodec>>;
 
-static EMBEDDING_CODECS: Lazy<Mutex<EmbeddingCodecMap>> = Lazy::new(|| Mutex::new(HashMap::new()));
-static RERANK_CODECS: Lazy<Mutex<RerankCodecMap>> = Lazy::new(|| Mutex::new(HashMap::new()));
-
-/// Registers an embedding codec under its [`EmbeddingCodec::name`].
-/// Re-registering a name replaces the previous codec.
-pub fn register_embedding_codec(codec: Arc<dyn EmbeddingCodec>) {
-    if let Ok(mut map) = EMBEDDING_CODECS.lock() {
-        map.insert(codec.name().to_string(), codec);
-    }
-}
-
-/// Looks up an embedding codec by name.
-pub fn find_embedding_codec(name: &str) -> Option<Arc<dyn EmbeddingCodec>> {
-    EMBEDDING_CODECS
-        .lock()
-        .ok()
-        .and_then(|map| map.get(name.trim()).cloned())
-}
-
-/// Registers a rerank codec under its [`RerankCodec::name`].
-pub fn register_rerank_codec(codec: Arc<dyn RerankCodec>) {
-    if let Ok(mut map) = RERANK_CODECS.lock() {
-        map.insert(codec.name().to_string(), codec);
-    }
-}
-
-/// Looks up a rerank codec by name.
-pub fn find_rerank_codec(name: &str) -> Option<Arc<dyn RerankCodec>> {
-    RERANK_CODECS
-        .lock()
-        .ok()
-        .and_then(|map| map.get(name.trim()).cloned())
-}
 
 #[cfg(test)]
 mod tests {
@@ -275,8 +236,7 @@ mod tests {
 
     #[test]
     fn embedding_codec_registry_round_trip() {
-        register_embedding_codec(Arc::new(EchoEmbeddingCodec));
-        let codec = find_embedding_codec("echo").expect("registered codec");
+        let codec = EchoEmbeddingCodec;
         assert_eq!(codec.name(), "echo");
         let request = codec
             .build_request(&["hello".to_string()], &serde_json::json!({}))
@@ -291,8 +251,7 @@ mod tests {
 
     #[test]
     fn rerank_codec_registry_round_trip() {
-        register_rerank_codec(Arc::new(EchoRerankCodec));
-        let codec = find_rerank_codec("echo-rank").expect("registered codec");
+        let codec = EchoRerankCodec;
         assert_eq!(codec.name(), "echo-rank");
         let request = codec
             .build_request(

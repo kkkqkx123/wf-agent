@@ -1,26 +1,14 @@
 use super::*;
 
-fn eval_judge_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginEvalJudge>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginEvalJudge>>>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// Registers an eval judge under `name`, replacing any prior entry.
+/// Delegates to the shared global registry; new code holds an explicit instance.
 pub fn register_eval_judge(name: &str, judge: Arc<dyn PluginEvalJudge>) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
-    }
-    if let Ok(mut guard) = eval_judge_registry().lock() {
-        guard.insert(trimmed.to_string(), judge);
-    }
+    super::RetrievalExtensions::global().register_eval_judge(name, judge);
 }
 
 /// Removes an eval judge.
 pub fn unregister_eval_judge(name: &str) {
-    if let Ok(mut guard) = eval_judge_registry().lock() {
-        guard.remove(name.trim());
-    }
+    super::RetrievalExtensions::global().unregister_eval_judge(name);
 }
 
 /// Finds an eval judge by name, including built-in judges.
@@ -28,27 +16,12 @@ pub fn unregister_eval_judge(name: &str) {
 /// Built-in names (`builtin:`) resolve without any plugin and take precedence
 /// only when no plugin registered the exact name explicitly.
 pub fn find_eval_judge(name: &str) -> Option<Arc<dyn PluginEvalJudge>> {
-    let trimmed = name.trim();
-    if let Some(judge) = eval_judge_registry()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(trimmed).cloned())
-    {
-        return Some(judge);
-    }
-    match trimmed {
-        crate::builtin_judge::BUILTIN_HEURISTIC_JUDGE => {
-            Some(Arc::new(crate::builtin_judge::HeuristicJudge))
-        }
-        _ => None,
-    }
+    super::RetrievalExtensions::global().find_eval_judge(name)
 }
 
 /// Clears eval judges; tests use it to isolate cases.
 pub fn clear_eval_judges() {
-    if let Ok(mut guard) = eval_judge_registry().lock() {
-        guard.clear();
-    }
+    super::RetrievalExtensions::global().clear_eval_judges();
 }
 
 /// One score from an eval judge.

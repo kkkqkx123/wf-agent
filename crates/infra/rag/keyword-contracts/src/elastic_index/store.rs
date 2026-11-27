@@ -44,6 +44,51 @@ impl KeywordIndex for ElasticKeywordIndex {
         "elastic"
     }
 
+    fn supported_tokenizers(&self) -> Vec<wf_types::config::keyword::KeywordTokenizer> {
+        vec![
+            wf_types::config::keyword::KeywordTokenizer::English,
+            wf_types::config::keyword::KeywordTokenizer::Mixed,
+        ]
+    }
+
+    fn supports_custom_analyzer(&self) -> bool {
+        true
+    }
+
+    async fn ensure_collection(&self, collection: &str) -> KeywordResult<bool> {
+        if collection.is_empty() {
+            return Err(KeywordError::invalid_input("collection must not be empty"));
+        }
+        self.ensure_index().await?;
+        Ok(false)
+    }
+
+    async fn delete_collection(&self, collection: &str) -> KeywordResult<()> {
+        if collection.is_empty() {
+            return Err(KeywordError::invalid_input("collection must not be empty"));
+        }
+        let index = self.index_name().to_string();
+        let response = self
+            .send(
+                self.client
+                    .post(self.url(&format!("/{index}/_delete_by_query?refresh=wait_for")))
+                    .json(&Self::count_body(collection, None)),
+            )
+            .await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if let Some(err) = Self::auth_error(status, &body) {
+                return Err(err);
+            }
+            return Err(Self::status_error("delete collection", status, &body));
+        }
+        Ok(())
+    }
+
     async fn upsert(&self, collection: &str, documents: &[KeywordDocument]) -> KeywordResult<()> {
         if collection.is_empty() {
             return Err(KeywordError::invalid_input("collection must not be empty"));

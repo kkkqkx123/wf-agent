@@ -124,25 +124,7 @@ async fn rebuild_sqlite(
 }
 
 fn count_file_sqlite(path: &str) -> Result<u64> {
-    if !std::path::Path::new(path).exists() {
-        return Ok(0);
-    }
-    let conn =
-        rusqlite::Connection::open(path).map_err(|err| RagError::keyword(err.to_string()))?;
-    let exists: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'keyword_fts'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|err| RagError::keyword(err.to_string()))?;
-    if exists == 0 {
-        return Ok(0);
-    }
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM keyword_fts", [], |row| row.get(0))
-        .map_err(|err| RagError::keyword(err.to_string()))?;
-    Ok(count.max(0) as u64)
+    keyword_contracts::sqlite_index::count_file(path).map_err(|err| RagError::keyword(err.to_string()))
 }
 
 async fn rebuild_tantivy(

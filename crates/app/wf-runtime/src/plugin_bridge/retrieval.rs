@@ -16,21 +16,6 @@ pub(crate) fn sync_retrieval(plugin_id: &str, manager: &ContributionManager) -> 
         wf_rag::plugin::register_plugin_analyzer(analyzer);
         tracing::debug!("  text-analyzer (rag-registered): {}", name);
     }
-    for (name, owner) in manager.all_retrieval_advisors() {
-        if owner != plugin_id {
-            continue;
-        }
-        let Some(advisor) = manager.get_retrieval_advisor(&name) else {
-            continue;
-        };
-        if wf_rag::plugin::find_retrieval_advisor(&name).is_some() {
-            return Err(PluginError::LoadFailed(format!(
-                "plugin '{plugin_id}' retrieval advisor '{name}' conflicts with an existing advisor"
-            )));
-        }
-        wf_rag::plugin::register_retrieval_advisor(&name, advisor);
-        tracing::debug!("  retrieval-advisor (rag-registered): {}", name);
-    }
     for (name, owner) in manager.all_vector_encodings() {
         if owner != plugin_id {
             continue;
@@ -45,21 +30,6 @@ pub(crate) fn sync_retrieval(plugin_id: &str, manager: &ContributionManager) -> 
         }
         wf_rag::plugin::register_vector_encoding(&name, encoding);
         tracing::debug!("  vector-encoding (rag-registered): {}", name);
-    }
-    for (name, owner) in manager.all_snapshot_policies() {
-        if owner != plugin_id {
-            continue;
-        }
-        let Some(policy) = manager.get_snapshot_policy(&name) else {
-            continue;
-        };
-        if !wf_rag::plugin::is_valid_snapshot_policy(&policy) {
-            return Err(PluginError::LoadFailed(format!(
-                "plugin '{plugin_id}' snapshot policy '{name}' must be a JSON object"
-            )));
-        }
-        wf_rag::plugin::register_snapshot_policy(&name, policy);
-        tracing::debug!("  snapshot-policy (rag-registered): {}", name);
     }
     for (name, owner) in manager.all_metadata_extractors() {
         if owner != plugin_id {
@@ -146,22 +116,10 @@ pub(crate) fn unsync_retrieval(plugin_id: &str, manager: &ContributionManager) {
             tracing::debug!("  text-analyzer (rag-removed): {}", name);
         }
     }
-    for (name, owner) in manager.all_retrieval_advisors() {
-        if owner == plugin_id {
-            wf_rag::plugin::unregister_retrieval_advisor(&name);
-            tracing::debug!("  retrieval-advisor (rag-removed): {}", name);
-        }
-    }
     for (name, owner) in manager.all_vector_encodings() {
         if owner == plugin_id {
             wf_rag::plugin::unregister_vector_encoding(&name);
             tracing::debug!("  vector-encoding (rag-removed): {}", name);
-        }
-    }
-    for (name, owner) in manager.all_snapshot_policies() {
-        if owner == plugin_id {
-            wf_rag::plugin::unregister_snapshot_policy(&name);
-            tracing::debug!("  snapshot-policy (rag-removed): {}", name);
         }
     }
     for (name, owner) in manager.all_metadata_extractors() {
@@ -217,14 +175,6 @@ mod tests {
 
         fn analyze(&self, text: String) -> wf_plugin::PluginResult<Vec<String>> {
             Ok(vec![text])
-        }
-    }
-
-    struct BridgeAdvisor;
-
-    impl wf_plugin::PluginRetrievalAdvisor for BridgeAdvisor {
-        fn advise(&self, input: Value) -> wf_plugin::PluginResult<Value> {
-            Ok(input)
         }
     }
 
@@ -308,15 +258,7 @@ mod tests {
             .unwrap();
         manager
             .as_registrar()
-            .register_retrieval_advisor("bridge-test-advisor", Arc::new(BridgeAdvisor))
-            .unwrap();
-        manager
-            .as_registrar()
             .register_vector_encoding("bridge-test-encoding", Arc::new(BridgeEncoding))
-            .unwrap();
-        manager
-            .as_registrar()
-            .register_snapshot_policy("bridge-test-snap", serde_json::json!({"expect": 1}))
             .unwrap();
         manager
             .as_registrar()
@@ -341,9 +283,7 @@ mod tests {
 
         bridge.sync_all("p9", &manager).await.unwrap();
         assert!(wf_rag::tokenizer::find_analyzer("bridge-test-analyzer").is_some());
-        assert!(wf_rag::plugin::find_retrieval_advisor("bridge-test-advisor").is_some());
         assert!(wf_rag::plugin::find_vector_encoding("bridge-test-encoding").is_some());
-        assert!(wf_rag::plugin::find_snapshot_policy("bridge-test-snap").is_some());
         assert!(wf_rag::plugin::find_metadata_extractor("bridge-test-extractor").is_some());
         assert!(wf_rag::plugin::find_chunk_splitter("bridge-test-splitter").is_some());
         assert!(wf_rag::plugin::find_route_selector("bridge-test-selector").is_some());
@@ -352,9 +292,7 @@ mod tests {
 
         bridge.unsync_all("p9", &manager).await.unwrap();
         assert!(wf_rag::tokenizer::find_analyzer("bridge-test-analyzer").is_none());
-        assert!(wf_rag::plugin::find_retrieval_advisor("bridge-test-advisor").is_none());
         assert!(wf_rag::plugin::find_vector_encoding("bridge-test-encoding").is_none());
-        assert!(wf_rag::plugin::find_snapshot_policy("bridge-test-snap").is_none());
         assert!(wf_rag::plugin::find_metadata_extractor("bridge-test-extractor").is_none());
         assert!(wf_rag::plugin::find_chunk_splitter("bridge-test-splitter").is_none());
         assert!(wf_rag::plugin::find_route_selector("bridge-test-selector").is_none());

@@ -9,7 +9,6 @@ keyword-contracts = { path = "../keyword-contracts" }
 source-contracts = { path = "../source-contracts" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-plugin-sdk = { path = "../../../foundation/wf-plugin-sdk" }
-jieba-rs = { workspace = true }
 once_cell = { workspace = true }
 llm-embedding = { package = "llm-suite-embedding", path = "../../llm-suite/crates/llm-suite-embedding" }
 llm-rerank = { package = "llm-suite-rerank", path = "../../llm-suite/crates/llm-suite-rerank" }
@@ -20,16 +19,12 @@ tokio.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 sha2.workspace = true
-rusqlite = { workspace = true }
-tantivy = { workspace = true, optional = true }
-reqwest = { workspace = true, optional = true }
-
 [features]
 default = []
 keyword-sqlite = []
 vector = []
-tantivy = ["dep:tantivy"]
-elastic = ["dep:reqwest"]
+tantivy = ["keyword-contracts/tantivy"]
+elastic = ["keyword-contracts/elastic"]
 
 [dev-dependencies]
 tokio.workspace = true

@@ -1,43 +1,26 @@
 use super::*;
 
-fn encoding_registry() -> &'static Mutex<HashMap<String, Arc<dyn PluginVectorEncoding>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<dyn PluginVectorEncoding>>>> =
-        OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// Registers a dense, sparse or multi-vector encoder under `name`.
 /// The pipeline uses registered encoders for both writes and queries.
+/// Delegates to the shared global registry; new code holds an explicit
+/// `RetrievalExtensions` instance instead.
 pub fn register_vector_encoding(name: &str, encoding: Arc<dyn PluginVectorEncoding>) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
-    }
-    if let Ok(mut guard) = encoding_registry().lock() {
-        guard.insert(trimmed.to_string(), encoding);
-    }
+    super::RetrievalExtensions::global().register_vector_encoding(name, encoding);
 }
 
 /// Removes a vector encoder.
 pub fn unregister_vector_encoding(name: &str) {
-    if let Ok(mut guard) = encoding_registry().lock() {
-        guard.remove(name.trim());
-    }
+    super::RetrievalExtensions::global().unregister_vector_encoding(name);
 }
 
 /// Finds a registered vector encoder by name.
 pub fn find_vector_encoding(name: &str) -> Option<Arc<dyn PluginVectorEncoding>> {
-    encoding_registry()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(name.trim()).cloned())
+    super::RetrievalExtensions::global().find_vector_encoding(name)
 }
 
 /// Clears vector encoders; tests use it to isolate cases.
 pub fn clear_vector_encodings() {
-    if let Ok(mut guard) = encoding_registry().lock() {
-        guard.clear();
-    }
+    super::RetrievalExtensions::global().clear_vector_encodings();
 }
 
 /// Encodes text through the named vector encoder into the declared kind.

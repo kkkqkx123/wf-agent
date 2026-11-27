@@ -107,28 +107,9 @@ pub(crate) fn split_with_plugin(document: &RagDocument, name: &str) -> Option<Ve
     Some(chunks)
 }
 
-/// Applies the configured plugin retrieval advisor after fusion.
-/// Unknown advisor names fail so configuration errors surface.
-pub(crate) fn validate_advisor_name(config: &RagQueryConfig) -> Result<()> {
-    let Some(name) = config
-        .retrieval_advisor
-        .as_deref()
-        .filter(|name| !name.trim().is_empty())
-    else {
-        return Ok(());
-    };
-    if crate::plugin::find_retrieval_advisor(name).is_none() {
-        return Err(RagError::InvalidInput(format!(
-            "unknown retrieval advisor '{name}'"
-        )));
-    }
-    Ok(())
-}
-
-/// Validates the configured post-fusion shaping names.
+/// Validates the configured post-fusion shaping name.
 /// Unknown postprocessor names fail so configuration errors surface.
 pub(crate) fn validate_shaping_names(config: &RagQueryConfig) -> Result<()> {
-    validate_advisor_name(config)?;
     let Some(name) = config
         .postprocessor
         .as_deref()
@@ -149,14 +130,9 @@ pub(crate) fn apply_configured_shaping(
     query_text: &str,
     config: &RagQueryConfig,
 ) -> Result<Vec<RetrievedChunk>> {
-    let advised = crate::plugin::apply_registered_advisor(
-        query_text,
-        hits,
-        config.retrieval_advisor.as_deref(),
-    )?;
     crate::plugin::apply_registered_postprocessor(
         query_text,
-        advised,
+        hits,
         config.postprocessor.as_deref(),
     )
 }

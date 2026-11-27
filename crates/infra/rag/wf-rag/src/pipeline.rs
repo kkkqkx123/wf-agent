@@ -69,5 +69,56 @@ pub use query::{
     query_with_rerank_metrics, RerankInvocation,
 };
 
+/// Unified retrieval handle over one collection and namespace.
+///
+/// Bundles store, embedder and query shaping so workflows and agents call
+/// one method instead of threading collection, namespace and config through
+/// every free function. Existing free functions stay as the default
+/// implementation backing this handle.
+pub struct StandardRetriever<'a, S: ?Sized, E: ?Sized> {
+    /// Vector backend owned by the host.
+    pub store: &'a S,
+    /// Embedding provider owned by the host.
+    pub embedder: &'a E,
+    /// Vector collection to query.
+    pub collection: &'a str,
+    /// Namespace scope inside the collection.
+    pub namespace: &'a str,
+    /// Query-side retrieval parameters.
+    pub config: &'a RagQueryConfig,
+}
+
+impl<'a, S, E> StandardRetriever<'a, S, E>
+where
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
+{
+    /// Runs the standard read path and returns fused hits.
+    pub async fn retrieve(&self, query_text: &str) -> Result<Vec<RetrievedChunk>> {
+        query(
+            self.store,
+            self.embedder,
+            self.collection,
+            self.namespace,
+            query_text,
+            self.config,
+        )
+        .await
+    }
+
+    /// Runs the standard read path with several variants fused once.
+    pub async fn retrieve_multi(&self, query_texts: &[String]) -> Result<Vec<RetrievedChunk>> {
+        query_multi(
+            self.store,
+            self.embedder,
+            self.collection,
+            self.namespace,
+            query_texts,
+            self.config,
+        )
+        .await
+    }
+}
+
 #[cfg(test)]
 mod test;

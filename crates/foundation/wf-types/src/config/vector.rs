@@ -137,7 +137,11 @@ impl RagEmbeddingConfig {
     ) -> Result<Self, String> {
         let mut resolved = self.clone();
         let Some(profile) = profile else {
-            if self.profile_ref.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+            if self
+                .profile_ref
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+            {
                 return Err(format!(
                     "rag embedding profile '{}' was not found in the llm domain",
                     self.profile_ref.as_deref().unwrap_or_default()

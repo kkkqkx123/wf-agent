@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
-use wf_rag::{score_case, summarize, EvalCase, RagDocument, RagIndexConfig, RagQueryConfig};
 use serde::Deserialize;
+use wf_rag::{score_case, summarize, EvalCase, RagDocument, RagIndexConfig, RagQueryConfig};
 
 #[derive(Debug, Deserialize)]
 struct EvalSet {

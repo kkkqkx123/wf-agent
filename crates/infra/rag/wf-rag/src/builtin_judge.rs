@@ -35,10 +35,8 @@ impl HeuristicJudge {
         if answer_terms.is_empty() {
             return 0.0;
         }
-        let context_terms: HashSet<String> = contexts
-            .iter()
-            .flat_map(|context| terms(context))
-            .collect();
+        let context_terms: HashSet<String> =
+            contexts.iter().flat_map(|context| terms(context)).collect();
         let grounded = answer_terms
             .iter()
             .filter(|term| context_terms.contains(*term))
@@ -53,10 +51,7 @@ impl PluginEvalJudge for HeuristicJudge {
             .get("answer")
             .and_then(Value::as_str)
             .ok_or_else(|| PluginError::Internal("heuristic judge: missing answer".to_string()))?;
-        let query = input
-            .get("query")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let query = input.get("query").and_then(Value::as_str).unwrap_or("");
         let contexts: Vec<String> = input
             .get("contexts")
             .and_then(Value::as_array)

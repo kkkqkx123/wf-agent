@@ -16,9 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 use serde_json::Value;
-use wf_plugin_sdk::{
-    CodecHttpRequest, PluginEmbeddingCodec, PluginRerankCodec,
-};
+use wf_plugin_sdk::{CodecHttpRequest, PluginEmbeddingCodec, PluginRerankCodec};
 
 use crate::error::{RagError, Result};
 
@@ -31,11 +29,7 @@ pub trait EmbeddingCodec: Send + Sync {
     /// Stable protocol name used for registry lookup and diagnostics.
     fn name(&self) -> &str;
     /// Describe the HTTP request for a batch of texts.
-    fn build_request(
-        &self,
-        texts: &[String],
-        config: &Value,
-    ) -> Result<CodecHttpRequest>;
+    fn build_request(&self, texts: &[String], config: &Value) -> Result<CodecHttpRequest>;
     /// Decode a response body into dense vectors.
     fn parse_response(&self, body: &str) -> Result<Vec<Vec<f32>>>;
 }
@@ -60,9 +54,12 @@ fn plugin_error(error: wf_plugin_sdk::PluginError) -> RagError {
 }
 
 fn encode_vectors(value: Value) -> Result<Vec<Vec<f32>>> {
-    let vectors = value.get("vectors").and_then(Value::as_array).ok_or_else(|| {
-        RagError::Embedding("embedding codec response misses a 'vectors' array".to_string())
-    })?;
+    let vectors = value
+        .get("vectors")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            RagError::Embedding("embedding codec response misses a 'vectors' array".to_string())
+        })?;
     vectors
         .iter()
         .map(|row| {
@@ -82,15 +79,17 @@ fn encode_vectors(value: Value) -> Result<Vec<Vec<f32>>> {
 }
 
 fn encode_scores(value: Value) -> Result<Vec<f64>> {
-    let scores = value.get("scores").and_then(Value::as_array).ok_or_else(|| {
-        RagError::Rerank("rerank codec response misses a 'scores' array".to_string())
-    })?;
+    let scores = value
+        .get("scores")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            RagError::Rerank("rerank codec response misses a 'scores' array".to_string())
+        })?;
     scores
         .iter()
         .map(|v| {
-            v.as_f64().ok_or_else(|| {
-                RagError::Rerank("rerank codec score is not a number".to_string())
-            })
+            v.as_f64()
+                .ok_or_else(|| RagError::Rerank("rerank codec score is not a number".to_string()))
         })
         .collect()
 }
@@ -124,11 +123,7 @@ impl EmbeddingCodec for PluginEmbeddingCodecAdapter {
         &self.name
     }
 
-    fn build_request(
-        &self,
-        texts: &[String],
-        config: &Value,
-    ) -> Result<CodecHttpRequest> {
+    fn build_request(&self, texts: &[String], config: &Value) -> Result<CodecHttpRequest> {
         let texts = serde_json::to_value(texts).map_err(|e| RagError::Embedding(e.to_string()))?;
         self.codec
             .build_request(texts, config.clone())
@@ -236,11 +231,7 @@ mod tests {
         fn name(&self) -> &str {
             "echo"
         }
-        fn build_request(
-            &self,
-            texts: &[String],
-            _config: &Value,
-        ) -> Result<CodecHttpRequest> {
+        fn build_request(&self, texts: &[String], _config: &Value) -> Result<CodecHttpRequest> {
             Ok(CodecHttpRequest {
                 method: "POST".to_string(),
                 url: "https://example.test/embeddings".to_string(),
@@ -304,10 +295,16 @@ mod tests {
         let codec = find_rerank_codec("echo-rank").expect("registered codec");
         assert_eq!(codec.name(), "echo-rank");
         let request = codec
-            .build_request("q", &["a".to_string(), "b".to_string()], &serde_json::json!({}))
+            .build_request(
+                "q",
+                &["a".to_string(), "b".to_string()],
+                &serde_json::json!({}),
+            )
             .expect("request");
         assert_eq!(request.method, "POST");
-        let scores = codec.parse_response(r#"{"scores":[0.9,0.1]}"#).expect("scores");
+        let scores = codec
+            .parse_response(r#"{"scores":[0.9,0.1]}"#)
+            .expect("scores");
         assert_eq!(scores, vec![0.9, 0.1]);
     }
 

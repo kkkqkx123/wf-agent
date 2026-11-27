@@ -19,7 +19,7 @@ use llm_rerank::provider::RerankRuntimeConfig;
 use crate::rerank_adapter::{rerank_hits, RankedChunk};
 use crate::retriever::RetrievedChunk;
 use crate::rewrite::{rewrite_with_fallback, QueryRewriter};
-use crate::synth::{synthesize, SynthesizedAnswer, SynthesisConfig};
+use crate::synth::{synthesize, SynthesisConfig, SynthesizedAnswer};
 
 /// Retrieval and synthesis ports plus shaping shared by all flow helpers.
 ///

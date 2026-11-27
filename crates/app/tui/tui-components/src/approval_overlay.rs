@@ -57,7 +57,11 @@ pub fn approval_fingerprint(request: &ToolApprovalRequestData) -> String {
             push_path(&mut values, raw);
         }
     }
-    if let Some(nested) = request.parameters.get("arguments").and_then(|v| v.as_object()) {
+    if let Some(nested) = request
+        .parameters
+        .get("arguments")
+        .and_then(|v| v.as_object())
+    {
         for key in PATH_PARAMETER_KEYS {
             if let Some(raw) = nested.get(*key).and_then(|v| v.as_str()) {
                 push_path(&mut values, raw);

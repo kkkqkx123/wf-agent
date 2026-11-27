@@ -382,9 +382,9 @@ impl ToolApprovalCoordinator {
             ApprovalDecision::Deny(reason) => {
                 Err(format!("edited parameters rejected by policy: {reason}"))
             }
-            ApprovalDecision::Ask => Err(
-                "edited parameters require a new approval request".to_string(),
-            ),
+            ApprovalDecision::Ask => {
+                Err("edited parameters require a new approval request".to_string())
+            }
         }
     }
 

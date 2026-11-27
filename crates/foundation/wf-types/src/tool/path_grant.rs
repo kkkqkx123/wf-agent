@@ -101,7 +101,9 @@ impl PathGrant {
     /// Whether the grant has outlived its declared duration at `now`.
     pub fn is_expired(&self, now: i64) -> bool {
         match (self.ttl_secs, self.issued_at_ms) {
-            (Some(ttl), Some(issued)) => now >= issued.saturating_add((ttl as i64).saturating_mul(1000)),
+            (Some(ttl), Some(issued)) => {
+                now >= issued.saturating_add((ttl as i64).saturating_mul(1000))
+            }
             _ => false,
         }
     }
@@ -130,7 +132,10 @@ pub struct AuthorizationState {
 
 impl AuthorizationState {
     pub fn from_grants(grants: Vec<PathGrant>) -> Self {
-        let grants = grants.into_iter().map(PathGrant::stamped).collect::<Vec<_>>();
+        let grants = grants
+            .into_iter()
+            .map(PathGrant::stamped)
+            .collect::<Vec<_>>();
         let applied_presets = grants.iter().filter_map(|grant| grant.preset.clone()).fold(
             Vec::new(),
             |mut names, name| {

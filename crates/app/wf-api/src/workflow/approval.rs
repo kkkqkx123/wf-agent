@@ -278,9 +278,8 @@ pub(crate) async fn request_user_approval_in(
         Ok(response_value) => match serde_json::from_value(response_value) {
             Ok(response) => Ok((interaction_id, response)),
             Err(e) => {
-                let reason = format!(
-                    "approval response for interaction {interaction_id} is malformed: {e}"
-                );
+                let reason =
+                    format!("approval response for interaction {interaction_id} is malformed: {e}");
                 publish_tool_approval_failed(
                     &flow.event_bus,
                     execution_id,
@@ -292,12 +291,7 @@ pub(crate) async fn request_user_approval_in(
         },
         Err(_) => {
             let reason = format!("approval wait for interaction {interaction_id} was cancelled");
-            publish_tool_approval_failed(
-                &flow.event_bus,
-                execution_id,
-                &interaction_id,
-                &reason,
-            );
+            publish_tool_approval_failed(&flow.event_bus, execution_id, &interaction_id, &reason);
             Err(ApiError::execution(reason))
         }
     }

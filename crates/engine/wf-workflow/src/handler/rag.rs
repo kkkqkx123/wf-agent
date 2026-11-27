@@ -139,6 +139,8 @@ pub struct RagNodeHandles {
     pub store: Arc<dyn vector_contracts::VectorStorage>,
     /// Keyword index shared with tools and API callers; `None` disables hybrid.
     pub keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
+    /// Retrieval extensions shared with tools and API callers.
+    pub extensions: Arc<wf_rag::RetrievalExtensions>,
     /// Embedding provider shared with tools and API callers.
     pub embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
     /// Default collection used when node config omits one.
@@ -165,6 +167,7 @@ impl RagNodeHandles {
         Self {
             store,
             keyword: None,
+            extensions: Arc::new(wf_rag::RetrievalExtensions::new()),
             embedder,
             default_collection: collection.into(),
             default_namespace: namespace.clone(),
@@ -183,6 +186,12 @@ impl RagNodeHandles {
     /// Attaches the keyword index enabling hybrid retrieval and dual writes.
     pub fn with_keyword(mut self, keyword: Arc<dyn keyword_contracts::KeywordIndex>) -> Self {
         self.keyword = Some(keyword);
+        self
+    }
+
+    /// Attaches the host-owned retrieval extension registry.
+    pub fn with_extensions(mut self, extensions: Arc<wf_rag::RetrievalExtensions>) -> Self {
+        self.extensions = extensions;
         self
     }
 
@@ -333,6 +342,7 @@ impl RagQueryHandler {
                 &namespace,
                 &variants,
                 &query_config,
+                &self.handles.extensions,
             )
             .await
             .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
@@ -350,6 +360,7 @@ impl RagQueryHandler {
                 &namespace,
                 &query_text,
                 &query_config,
+                &self.handles.extensions,
             )
             .await
             .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
@@ -361,6 +372,7 @@ impl RagQueryHandler {
                 &namespace,
                 &query_text,
                 &query_config,
+                &self.handles.extensions,
             )
             .await
             .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
@@ -585,6 +597,7 @@ impl RagIngestHandler {
             &collection,
             &documents,
             &index_config,
+            &self.handles.extensions,
         )
         .await
         .map_err(|err| WorkflowError::OperationError(format!("RAG ingest failed: {err}")))?;

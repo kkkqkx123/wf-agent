@@ -3,7 +3,11 @@ use super::*;
 /// Validates that the configured encoders are registered and can encode
 /// the query text into the declared kinds. Unknown names, wrong schemas
 /// and malformed payloads fail before any storage call.
-pub(crate) fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig) -> Result<()> {
+pub(crate) fn validate_vector_encoding(
+    query_text: &str,
+    config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Result<()> {
     if let Some(spaces) = &config.named_spaces {
         let name = config
             .vector_encoding
@@ -35,6 +39,8 @@ pub(crate) fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig
             ));
         }
         crate::plugin::encode_named_with_registered(
+            &extensions,
+            extensions,
             name,
             query_text,
             serde_json::json!({}),
@@ -48,6 +54,8 @@ pub(crate) fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig
         .filter(|name| !name.trim().is_empty())
     {
         crate::plugin::encode_with_registered(
+            &extensions,
+            extensions,
             name,
             query_text,
             serde_json::json!({}),
@@ -66,6 +74,8 @@ pub(crate) fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig
             ));
         }
         crate::plugin::encode_with_registered(
+            &extensions,
+            extensions,
             &extra.encoder,
             query_text,
             serde_json::json!({}),
@@ -76,7 +86,10 @@ pub(crate) fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig
 }
 
 /// Validates that ingest has an encoder whenever the collection kind is not dense.
-pub(crate) fn validate_ingest_encoding(config: &RagIndexConfig) -> Result<()> {
+pub(crate) fn validate_ingest_encoding(
+    config: &RagIndexConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Result<()> {
     if let Some(spaces) = &config.named_spaces {
         let name = config
             .encoder
@@ -90,7 +103,7 @@ pub(crate) fn validate_ingest_encoding(config: &RagIndexConfig) -> Result<()> {
                 RagError::InvalidInput(format!("named space '{space_name}': {error}"))
             })?;
         }
-        if crate::plugin::find_vector_encoding(name).is_none() {
+        if extensions.find_vector_encoding(name).is_none() {
             return Err(RagError::InvalidInput(format!(
                 "unknown vector encoding '{name}'"
             )));
@@ -110,7 +123,7 @@ pub(crate) fn validate_ingest_encoding(config: &RagIndexConfig) -> Result<()> {
             config.vector_kind.as_name()
         )));
     };
-    if crate::plugin::find_vector_encoding(name).is_none() {
+    if extensions.find_vector_encoding(name).is_none() {
         return Err(RagError::InvalidInput(format!(
             "unknown vector encoding '{name}'"
         )));
@@ -180,13 +193,20 @@ pub(crate) async fn query_vector<E>(
     embedder: &E,
     encoder: Option<&str>,
     kind: VectorKind,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<VectorData>
 where
     E: EmbeddingProvider + ?Sized,
 {
     if let Some(name) = encoder.filter(|name| !name.trim().is_empty()) {
-        let encoded =
-            crate::plugin::encode_with_registered(name, text, serde_json::json!({}), kind)?;
+        let encoded = crate::plugin::encode_with_registered(
+            &extensions,
+            extensions,
+            name,
+            text,
+            serde_json::json!({}),
+            kind,
+        )?;
         return Ok(encoded.data);
     }
     if kind != VectorKind::Dense {

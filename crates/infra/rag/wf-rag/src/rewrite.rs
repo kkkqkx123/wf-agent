@@ -86,6 +86,8 @@ pub struct CondenseRewriter<'a, L: ?Sized> {
     /// Recent turns, oldest first. Oldest turns drop first beyond the
     /// character budget.
     pub history: Vec<String>,
+    /// Prompt templates used for the rewrite call.
+    pub prompts: PromptTemplates,
 }
 
 #[async_trait]
@@ -101,10 +103,11 @@ impl<L: CompletionLlm + ?Sized> QueryRewriter for CondenseRewriter<'_, L> {
         if history.is_empty() {
             return Ok(vec![follow_up]);
         }
-        let prompt = format!(
-            "Rewrite the follow-up question into a standalone question using the conversation history. Output only the rewritten question.\n\nHistory:\n{history}\n\nFollow-up: {follow_up}"
+        let request = self.prompts.request(
+            &self.prompts.rewrite,
+            &[("history", &history), ("query", &follow_up)],
         );
-        match self.llm.complete(&prompt).await {
+        match self.llm.complete_request(&request).await {
             Ok(text) => {
                 let trimmed = text.trim().to_string();
                 Ok(vec![if trimmed.is_empty() {
@@ -270,6 +273,7 @@ mod tests {
         };
         let rewriter = CondenseRewriter {
             llm: &llm,
+            prompts: PromptTemplates::default(),
             history: Vec::new(),
         };
         assert_eq!(
@@ -283,6 +287,7 @@ mod tests {
     async fn condense_falls_back_on_failure() {
         let rewriter = CondenseRewriter {
             llm: &FailingLlm,
+            prompts: PromptTemplates::default(),
             history: vec!["User: what is ownership?".to_string()],
         };
         assert_eq!(

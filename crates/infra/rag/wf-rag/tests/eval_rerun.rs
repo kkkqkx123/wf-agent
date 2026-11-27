@@ -71,8 +71,9 @@ async fn eval_set_reruns_with_full_recall() {
     let set: EvalSet = serde_json::from_str(&raw).expect("eval set parses");
     assert!(!set.cases.is_empty());
 
+    let extensions = wf_rag::RetrievalExtensions::new();
     let store = vector_contracts::InMemoryVectorStore::new();
-    let keyword = wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword index");
+    let keyword = keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
     let documents: Vec<RagDocument> = set
         .documents
@@ -91,6 +92,7 @@ async fn eval_set_reruns_with_full_recall() {
         &set.collection,
         &documents,
         &RagIndexConfig::new(&set.namespace),
+        &extensions,
     )
     .await
     .expect("ingest");
@@ -104,6 +106,7 @@ async fn eval_set_reruns_with_full_recall() {
             &case.namespace,
             &case.query,
             &RagQueryConfig::default(),
+            &extensions,
         )
         .await
         .expect("query");

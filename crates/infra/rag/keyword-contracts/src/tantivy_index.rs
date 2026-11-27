@@ -8,11 +8,11 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use async_trait::async_trait;
 use crate::{
     KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery, KeywordScope,
     Result as KeywordResult,
 };
+use async_trait::async_trait;
 use tantivy::collector::{Count, TopDocs};
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, Occur, TermQuery};
@@ -155,6 +155,7 @@ pub struct TantivyKeywordIndex {
     fields: Fields,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    analyzers: std::sync::Arc<crate::tokenizer::AnalyzerRegistry>,
     /// Set when the index opened under the read-only degrade policy after
     /// a format mismatch; every write path fails with this flag set.
     readonly: std::sync::atomic::AtomicBool,
@@ -179,6 +180,7 @@ impl TantivyKeywordIndex {
             fields,
             tokenizer,
             analyzer_name,
+            analyzers: std::sync::Arc::new(crate::tokenizer::AnalyzerRegistry::new()),
             readonly: std::sync::atomic::AtomicBool::new(false),
         })
     }
@@ -196,6 +198,28 @@ impl TantivyKeywordIndex {
         let (schema, fields) = build_schema_with(tokenizer);
         let index = Index::create_in_ram(schema);
         Self::from_index(index, fields, tokenizer, analyzer_name, WRITER_HEAP_BYTES)
+    }
+
+    /// Attaches the host scope's analyzer registry.
+    pub fn with_analyzers(
+        mut self,
+        analyzers: std::sync::Arc<crate::tokenizer::AnalyzerRegistry>,
+    ) -> Self {
+        self.analyzers = analyzers;
+        self
+    }
+
+    fn check_analyzer(&self) -> KeywordResult<()> {
+        if let Some(name) = self
+            .analyzer_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
+            self.analyzers
+                .ensure(name)
+                .map_err(KeywordError::invalid_input)?;
+        }
+        Ok(())
     }
 
     /// Opens or creates a file database rooted at the directory.
@@ -341,8 +365,10 @@ fn content_query_with(
     question: &str,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<&str>,
+    analyzers: &crate::tokenizer::AnalyzerRegistry,
 ) -> Option<BooleanQuery> {
-    let mut terms: Vec<String> = crate::tokenizer::terms(question, tokenizer, analyzer_name);
+    let mut terms: Vec<String> =
+        crate::tokenizer::terms(question, tokenizer, analyzer_name, analyzers);
     terms.sort();
     terms.dedup();
     if terms.is_empty() {
@@ -394,7 +420,9 @@ impl KeywordIndex for TantivyKeywordIndex {
         self.ensure_writable()?;
         let scope = scope_query(&self.fields, collection, None);
         let mut writer = self.lock_writer()?;
-        writer.delete_query(Box::new(scope)).map_err(keyword_error)?;
+        writer
+            .delete_query(Box::new(scope))
+            .map_err(keyword_error)?;
         writer.commit().map_err(keyword_error)?;
         drop(writer);
         self.reload()?;
@@ -405,14 +433,7 @@ impl KeywordIndex for TantivyKeywordIndex {
         if collection.is_empty() {
             return Err(KeywordError::invalid_input("collection must not be empty"));
         }
-        if let Some(name) = self
-            .analyzer_name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-        {
-            crate::tokenizer::ensure_analyzer_registered(name)
-                .map_err(KeywordError::invalid_input)?;
-        }
+        self.check_analyzer()?;
         self.ensure_writable()?;
         for batch in documents.chunks(UPSERT_BATCH_SIZE.max(1)) {
             let mut writer = self.lock_writer()?;
@@ -455,19 +476,13 @@ impl KeywordIndex for TantivyKeywordIndex {
         if query.limit == 0 {
             return Ok(Vec::new());
         }
-        if let Some(name) = self
-            .analyzer_name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-        {
-            crate::tokenizer::ensure_analyzer_registered(name)
-                .map_err(KeywordError::invalid_input)?;
-        }
+        self.check_analyzer()?;
         let Some(content) = content_query_with(
             &self.fields,
             &query.text,
             self.tokenizer,
             self.analyzer_name.as_deref(),
+            &self.analyzers,
         ) else {
             return Ok(Vec::new());
         };

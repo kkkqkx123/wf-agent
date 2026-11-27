@@ -15,11 +15,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use crate::{
     KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery, KeywordScope,
     Result as KeywordResult,
 };
+use async_trait::async_trait;
 use serde_json::json;
 use vector_contracts::{diagnostic_body, ScoredPoint};
 
@@ -38,6 +38,7 @@ use crate::ElasticKeywordConfig;
 pub struct ElasticKeywordIndex {
     client: reqwest::Client,
     config: ElasticKeywordConfig,
+    analyzers: std::sync::Arc<crate::tokenizer::AnalyzerRegistry>,
 }
 
 impl ElasticKeywordIndex {
@@ -49,14 +50,6 @@ impl ElasticKeywordIndex {
                 "elastic base_url must not be empty".to_string(),
             ));
         }
-        if let Some(name) = config
-            .analyzer_name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-        {
-            crate::tokenizer::ensure_analyzer_registered(name)
-                .map_err(KeywordError::InvalidInput)?;
-        }
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs.max(1)))
             .build()
@@ -64,7 +57,32 @@ impl ElasticKeywordIndex {
         Ok(Self {
             client,
             config: config.clone(),
+            analyzers: std::sync::Arc::new(crate::tokenizer::AnalyzerRegistry::new()),
         })
+    }
+
+    /// Attaches the host scope's analyzer registry.
+    pub fn with_analyzers(
+        mut self,
+        analyzers: std::sync::Arc<crate::tokenizer::AnalyzerRegistry>,
+    ) -> Self {
+        self.analyzers = analyzers;
+        self
+    }
+
+    /// Fails at open time when the configured analyzer is unknown.
+    pub fn validate_analyzer(&self) -> KeywordResult<()> {
+        if let Some(name) = self
+            .config
+            .analyzer_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
+            self.analyzers
+                .ensure(name)
+                .map_err(KeywordError::invalid_input)?;
+        }
+        Ok(())
     }
 
     /// Effective config (used by diagnostics and tests).

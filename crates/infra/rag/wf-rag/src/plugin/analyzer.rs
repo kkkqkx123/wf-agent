@@ -1,7 +1,10 @@
 use super::*;
 
 /// Wraps a plugin analyzer as a tokenizer closure and registers it.
-pub fn register_plugin_analyzer(analyzer: Arc<dyn PluginTextAnalyzer>) {
+pub fn register_plugin_analyzer(
+    extensions: &RetrievalExtensions,
+    analyzer: Arc<dyn PluginTextAnalyzer>,
+) {
     let name = analyzer.name();
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() {
@@ -21,10 +24,10 @@ pub fn register_plugin_analyzer(analyzer: Arc<dyn PluginTextAnalyzer>) {
             }
         }
     });
-    crate::tokenizer::register_analyzer(&trimmed, closure);
+    extensions.analyzer_registry().register(&trimmed, closure);
 }
 
 /// Removes a previously bridged plugin analyzer.
-pub fn unregister_plugin_analyzer(name: &str) {
-    crate::tokenizer::unregister_analyzer(name);
+pub fn unregister_plugin_analyzer(extensions: &RetrievalExtensions, name: &str) {
+    extensions.analyzer_registry().unregister(name);
 }

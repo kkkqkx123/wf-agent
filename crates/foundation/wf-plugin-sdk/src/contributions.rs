@@ -530,41 +530,6 @@ pub trait PluginLlmCodec: Send + Sync {
     }
 }
 
-// ── embedding / rerank codecs ────────────────────────────────────────
-// These mirror the low-level LLM codec contract for the two model ports the
-// RAG subsystem uses. A plugin contributes only the wire protocol: how to
-// describe the HTTP request and how to decode the response body. The host
-// always builds and sends the actual request, keeps the credentials, applies
-// retries/timeouts and translates the decoded JSON into its own types. This
-// is the same ownership split as `PluginLlmCodec`: plugins never own a model
-// call or an API key.
-
-/// Describes an embedding protocol. `config` is the host embedding
-/// configuration passed as JSON (model, dimensions, endpoint hints). The
-/// returned request description is materialized by the host.
-pub trait PluginEmbeddingCodec: Send + Sync {
-    /// Describe the HTTP request for a batch of texts.
-    fn build_request(&self, texts: Value, config: Value) -> PluginResult<CodecHttpRequest>;
-    /// Parse a response body into the host embedding shape: an object with a
-    /// `vectors` array of float arrays and an optional `usage` object.
-    fn parse_response(&self, body: &str) -> PluginResult<Value>;
-}
-
-/// Describes a rerank protocol. Both inputs are passed as JSON so Lua tables
-/// and native dispatch buffers share one shape.
-pub trait PluginRerankCodec: Send + Sync {
-    /// Describe the HTTP request for a query and candidate documents.
-    fn build_request(
-        &self,
-        query: String,
-        documents: Value,
-        config: Value,
-    ) -> PluginResult<CodecHttpRequest>;
-    /// Parse a response body into the host rerank shape: a `scores` array of
-    /// numbers aligned with the submitted documents.
-    fn parse_response(&self, body: &str) -> PluginResult<Value>;
-}
-
 #[async_trait]
 pub trait PluginEventHandler: Send + Sync {
     async fn handle(&self, event: PluginEventData) -> PluginResult<()>;
@@ -765,20 +730,6 @@ pub trait PluginTextAnalyzer: Send + Sync {
     fn analyze(&self, text: String) -> PluginResult<Vec<String>>;
 }
 
-/// Plugin-contributed retrieval shaping advice for grouping,
-/// recommend, prefetch fusion and sorting inputs.
-///
-/// Pure shaping hook following the compaction advisor pattern: input
-/// carries a read-only snapshot of candidate lists as JSON, output
-/// carries the fused, grouped or reordered suggestion as JSON. Returning
-/// an empty suggestion defers to the built-in path. Every suggestion is
-/// validated by the engine, so unknown ids and out-of-range ranks never
-/// reach execution. Implementations must stay synchronous.
-pub trait PluginRetrievalAdvisor: Send + Sync {
-    /// Suggest fused, grouped or reordered hits for one retrieval.
-    fn advise(&self, input: Value) -> PluginResult<Value>;
-}
-
 /// Plugin-contributed vector encoding for sparse and
 /// multi-vector shapes.
 ///
@@ -821,7 +772,7 @@ pub trait PluginChunkSplitter: Send + Sync {
 
 /// Plugin-contributed route selection for semantic routing.
 ///
-/// Pure selection hook following the retrieval advisor pattern: input carries
+/// Pure selection hook: input carries
 /// a read-only snapshot of the query plus candidate target names, output
 /// carries the selected subset. Unknown names are skipped, an empty
 /// suggestion defers to the full candidate list. Implementations must stay
@@ -833,7 +784,7 @@ pub trait PluginRouteSelector: Send + Sync {
 
 /// Plugin-contributed postprocessing for diversity and filtering.
 ///
-/// Pure shaping hook following the retrieval advisor pattern: input carries
+/// Pure shaping hook: input carries
 /// a read-only snapshot of the query plus ranked candidates, output carries
 /// the reordered or filtered suggestion. Every suggestion is validated so
 /// unknown ids never reach execution. Implementations must stay synchronous

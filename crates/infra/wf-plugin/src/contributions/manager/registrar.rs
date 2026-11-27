@@ -277,22 +277,6 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(name.into(), plugin_id, analyzer);
         Ok(())
     }
-    fn register_retrieval_advisor(
-        &mut self,
-        name: &str,
-        advisor: Arc<dyn PluginRetrievalAdvisor>,
-    ) -> PluginResult<()> {
-        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        self.validate(&plugin_id, ContributionType::RetrievalAdvisor, name)?;
-        self.manager
-            .check_conflict(ContributionType::RetrievalAdvisor.as_str(), name, || {
-                self.manager.retrieval_advisor_registry.get_owner(name)
-            })?;
-        self.manager
-            .retrieval_advisor_registry
-            .register(name.into(), plugin_id, advisor);
-        Ok(())
-    }
     fn register_vector_encoding(
         &mut self,
         name: &str,
@@ -307,18 +291,6 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         self.manager
             .vector_encoding_registry
             .register(name.into(), plugin_id, encoding);
-        Ok(())
-    }
-    fn register_snapshot_policy(&mut self, name: &str, policy: Value) -> PluginResult<()> {
-        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        self.validate(&plugin_id, ContributionType::SnapshotPolicy, name)?;
-        self.manager
-            .check_conflict(ContributionType::SnapshotPolicy.as_str(), name, || {
-                self.manager.snapshot_policy_registry.get_owner(name)
-            })?;
-        self.manager
-            .snapshot_policy_registry
-            .register(name.into(), plugin_id, Arc::new(policy));
         Ok(())
     }
     fn register_metadata_extractor(

@@ -82,13 +82,6 @@ pub trait ContributionRegistrar {
         name: &str,
         analyzer: Arc<dyn PluginTextAnalyzer>,
     ) -> PluginResult<()>;
-    /// Reserve deferred retrieval shaping advice; `name` selects the
-    /// grouping, fusion or rerank policy. Stage 4 reservation only.
-    fn register_retrieval_advisor(
-        &mut self,
-        name: &str,
-        advisor: Arc<dyn PluginRetrievalAdvisor>,
-    ) -> PluginResult<()>;
     /// Reserve a deferred sparse or multi-vector encoder. Stage 5
     /// reservation only; the host owns storage and dimension checks.
     fn register_vector_encoding(
@@ -96,9 +89,6 @@ pub trait ContributionRegistrar {
         name: &str,
         encoding: Arc<dyn PluginVectorEncoding>,
     ) -> PluginResult<()>;
-    /// Declare deferred snapshot expectations as JSON. Stage 6 reservation
-    /// only; execution stays host-owned.
-    fn register_snapshot_policy(&mut self, name: &str, policy: Value) -> PluginResult<()>;
     /// Reserve deferred ingest metadata enrichment; `name` selects the
     /// extractor. Advisory only; the host merges suggestions without
     /// changing writes on failure.

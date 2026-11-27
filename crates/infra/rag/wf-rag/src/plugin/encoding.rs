@@ -1,38 +1,16 @@
 use super::*;
 
-/// Registers a dense, sparse or multi-vector encoder under `name`.
-/// The pipeline uses registered encoders for both writes and queries.
-/// Delegates to the shared global registry; new code holds an explicit
-/// `RetrievalExtensions` instance instead.
-pub fn register_vector_encoding(name: &str, encoding: Arc<dyn PluginVectorEncoding>) {
-    super::RetrievalExtensions::global().register_vector_encoding(name, encoding);
-}
-
-/// Removes a vector encoder.
-pub fn unregister_vector_encoding(name: &str) {
-    super::RetrievalExtensions::global().unregister_vector_encoding(name);
-}
-
-/// Finds a registered vector encoder by name.
-pub fn find_vector_encoding(name: &str) -> Option<Arc<dyn PluginVectorEncoding>> {
-    super::RetrievalExtensions::global().find_vector_encoding(name)
-}
-
-/// Clears vector encoders; tests use it to isolate cases.
-pub fn clear_vector_encodings() {
-    super::RetrievalExtensions::global().clear_vector_encodings();
-}
-
 /// Encodes text through the named vector encoder into the declared kind.
 /// Unknown names, wrong schemas, wrong kinds and malformed payloads fail
 /// before anything reaches storage.
 pub fn encode_with_registered(
+    extensions: &RetrievalExtensions,
     name: &str,
     text: &str,
     options: serde_json::Value,
     expected: VectorKind,
 ) -> crate::error::Result<EncodedVector> {
-    let Some(encoding) = find_vector_encoding(name) else {
+    let Some(encoding) = extensions.find_vector_encoding(name) else {
         return Err(crate::error::RagError::InvalidInput(format!(
             "unknown vector encoding '{name}'"
         )));
@@ -117,12 +95,13 @@ pub fn encode_with_registered(
 /// the encoder used for each space. A missing or extra space fails before
 /// any point reaches storage.
 pub fn encode_named_with_registered(
+    extensions: &RetrievalExtensions,
     name: &str,
     text: &str,
     options: serde_json::Value,
     expected: &BTreeMap<String, VectorSpaceSpec>,
 ) -> crate::error::Result<NamedEncodedVector> {
-    let Some(encoding) = find_vector_encoding(name) else {
+    let Some(encoding) = extensions.find_vector_encoding(name) else {
         return Err(crate::error::RagError::InvalidInput(format!(
             "named vector encoding '{name}' is not registered"
         )));

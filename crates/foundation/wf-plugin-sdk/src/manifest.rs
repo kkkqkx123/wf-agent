@@ -61,10 +61,6 @@ pub enum PluginPermission {
     /// codec round-trip). Subdivides the native backend surface.
     NativeCodec,
     Storage,
-    /// Contribute retrieval shaping advice (`retrieval-advisor`
-    /// contribution: grouping, recommend, fusion, sorting). The engine
-    /// validates every suggestion and falls back to the built-in path.
-    Retrieval,
     /// Shape context compression (`compaction-advisor` contribution:
     /// which ranges to summarize and which blocks to drop). The engine
     /// validates every suggestion and falls back to the built-in path.
@@ -76,9 +72,6 @@ pub enum PluginPermission {
     /// `vector-encoding` contributions: tokenizers, sparse and
     /// multi-vector encoders). Pure computation only, no network access.
     VectorEncoding,
-    /// Declare snapshot expectations (`snapshot-policy` contribution).
-    /// Execution stays host-owned; the plugin only declares policy.
-    SnapshotPolicy,
     /// Contribute declarative CLI surface (`cli-command`,
     /// `completion-provider`, `setting-field`, `tool-summary` and
     /// `markdown-transformer` contributions). Declarative only: the host

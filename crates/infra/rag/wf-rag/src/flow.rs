@@ -26,6 +26,8 @@ use crate::synth::{synthesize, SynthesisConfig, SynthesizedAnswer};
 /// Bundled into one value so each helper stays below the seven-argument
 /// threshold and callers can reuse the same invocation across flows.
 pub struct Flow<'a, E: ?Sized, L: ?Sized> {
+    /// Retrieval extensions owned by the host scope.
+    pub extensions: &'a crate::plugin::RetrievalExtensions,
     /// Embedding port owned by the host.
     pub embedder: &'a E,
     /// Completion port used for rewrite, decomposition, HyDE and synthesis.
@@ -68,7 +70,15 @@ where
     where
         R: llm_rerank::provider::RerankProvider + ?Sized,
     {
-        answer_with_variants(self.store, &self.flow, rewriter, query_text, rerank).await
+        answer_with_variants(
+            self.store,
+            &self.flow,
+            rewriter,
+            query_text,
+            rerank,
+            self.flow.extensions,
+        )
+        .await
     }
 }
 
@@ -140,6 +150,7 @@ pub async fn answer_with_variants<S, E, L, R>(
     rewriter: &dyn QueryRewriter,
     query_text: &str,
     rerank: Option<&RerankPass<'_, R>>,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<SynthesizedAnswer>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -156,10 +167,19 @@ where
         flow.namespace,
         &variants,
         flow.query_config,
+        extensions,
     )
     .await?;
     let hits = apply_rerank(rerank, query, hits).await;
-    synthesize(flow.llm, query, flow.namespace, &hits, flow.synth_config).await
+    synthesize(
+        flow.llm,
+        query,
+        flow.namespace,
+        &hits,
+        flow.synth_config,
+        extensions,
+    )
+    .await
 }
 
 /// Decomposes the question into sub-questions, retrieves and synthesizes.
@@ -169,6 +189,7 @@ pub async fn answer_with_sub_questions<S, E, L, R>(
     max_sub: usize,
     query_text: &str,
     rerank: Option<&RerankPass<'_, R>>,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<SynthesizedAnswer>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -177,7 +198,9 @@ where
     R: llm_rerank::provider::RerankProvider + ?Sized,
 {
     let query = ensure_query(query_text)?;
-    let variants = crate::transform::decompose_questions(flow.llm, query, max_sub).await;
+    let variants =
+        crate::transform::decompose_questions(flow.llm, query, max_sub, &flow.query_config.prompts)
+            .await;
     let hits = crate::pipeline::query_multi(
         store,
         flow.embedder,
@@ -185,10 +208,19 @@ where
         flow.namespace,
         &variants,
         flow.query_config,
+        extensions,
     )
     .await?;
     let hits = apply_rerank(rerank, query, hits).await;
-    synthesize(flow.llm, query, flow.namespace, &hits, flow.synth_config).await
+    synthesize(
+        flow.llm,
+        query,
+        flow.namespace,
+        &hits,
+        flow.synth_config,
+        extensions,
+    )
+    .await
 }
 
 /// Retrieves with a hypothetical answer passage (HyDE), then synthesizes.
@@ -200,6 +232,7 @@ pub async fn answer_with_hyde<S, E, L, R>(
     flow: &Flow<'_, E, L>,
     query_text: &str,
     rerank: Option<&RerankPass<'_, R>>,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<SynthesizedAnswer>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -216,10 +249,19 @@ where
         flow.namespace,
         query,
         flow.query_config,
+        extensions,
     )
     .await?;
     let hits = apply_rerank(rerank, query, hits).await;
-    synthesize(flow.llm, query, flow.namespace, &hits, flow.synth_config).await
+    synthesize(
+        flow.llm,
+        query,
+        flow.namespace,
+        &hits,
+        flow.synth_config,
+        extensions,
+    )
+    .await
 }
 
 #[cfg(test)]

@@ -8,27 +8,26 @@
 //! returned hits. Capabilities such as highlighting, snippets and paging stay
 //! out until a consumer needs them.
 
+#[cfg(feature = "elastic")]
+pub mod elastic_index;
 pub mod error;
 pub mod sqlite_index;
 pub mod store;
-pub mod tokenizer;
-pub mod types;
-#[cfg(feature = "elastic")]
-pub mod elastic_index;
 #[cfg(feature = "tantivy")]
 pub mod tantivy_index;
+pub mod tokenizer;
+pub mod types;
 
+#[cfg(feature = "elastic")]
+pub use elastic_index::ElasticKeywordIndex;
 pub use error::{KeywordError, Result};
 pub use sqlite_index::SqliteKeywordIndex;
 pub use store::KeywordIndex;
-#[cfg(feature = "elastic")]
-pub use elastic_index::ElasticKeywordIndex;
 #[cfg(feature = "tantivy")]
 pub use tantivy_index::TantivyKeywordIndex;
 pub use tokenizer::{
-    clear_analyzers, ensure_analyzer_registered, find_analyzer, is_cjk, mixed_terms, pretokenize,
-    register_analyzer, split_identifier, terms, unregister_analyzer, CustomAnalyzer, MixedToken,
-    MAX_CJK_RUN_CHARS, MAX_TOKENIZE_CHARS,
+    is_cjk, mixed_terms, pretokenize, split_identifier, terms, AnalyzerRegistry, CustomAnalyzer,
+    MixedToken, MAX_CJK_RUN_CHARS, MAX_TOKENIZE_CHARS,
 };
 pub use types::{KeywordDocument, KeywordFormat, KeywordQuery, KeywordScope};
 
@@ -76,13 +75,17 @@ impl ElasticKeywordConfig {
     }
 }
 
+/// Shared handle to one host scope's analyzer registry.
+pub type SharedAnalyzerRegistry = std::sync::Arc<AnalyzerRegistry>;
+
 /// Opens an in-memory SQLite keyword index with an explicit selection.
 pub fn open_sqlite_ram_keyword_with(
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index =
-        sqlite_index::SqliteKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?;
+    let index = sqlite_index::SqliteKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)
+        .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 
@@ -91,14 +94,21 @@ pub fn open_sqlite_file_keyword_with(
     path: &str,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
+    let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)
+        .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 
 /// Opens a file SQLite keyword index with an explicit format stamp.
-pub fn open_sqlite_file_keyword_format(path: &str, format: KeywordFormat) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_with_format(path, format)?;
+pub fn open_sqlite_file_keyword_format(
+    path: &str,
+    format: KeywordFormat,
+    analyzers: SharedAnalyzerRegistry,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    let index =
+        sqlite_index::SqliteKeywordIndex::open_with_format(path, format).with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 
@@ -107,8 +117,10 @@ pub fn open_sqlite_file_keyword_format(path: &str, format: KeywordFormat) -> Res
 pub fn open_tantivy_ram_keyword_with(
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = tantivy_index::TantivyKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?;
+    let index = tantivy_index::TantivyKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?
+        .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 
@@ -118,8 +130,10 @@ pub fn open_tantivy_dir_keyword_with(
     path: &str,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = tantivy_index::TantivyKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
+    let index = tantivy_index::TantivyKeywordIndex::open_with(path, tokenizer, analyzer_name)?
+        .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 
@@ -129,8 +143,11 @@ pub fn open_tantivy_dir_keyword_format(
     path: &str,
     format: KeywordFormat,
     writer_heap_bytes: Option<usize>,
+    analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = tantivy_index::TantivyKeywordIndex::open_with_format(path, format, writer_heap_bytes)?;
+    let index =
+        tantivy_index::TantivyKeywordIndex::open_with_format(path, format, writer_heap_bytes)?
+            .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 
@@ -138,7 +155,9 @@ pub fn open_tantivy_dir_keyword_format(
 #[cfg(feature = "elastic")]
 pub fn open_elastic_keyword(
     config: &ElasticKeywordConfig,
+    analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = elastic_index::ElasticKeywordIndex::new(config)?;
+    let index = elastic_index::ElasticKeywordIndex::new(config)?.with_analyzers(analyzers);
+    index.validate_analyzer()?;
     Ok(std::sync::Arc::new(index))
 }

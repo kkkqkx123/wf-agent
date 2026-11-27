@@ -208,6 +208,7 @@ impl ElasticKeywordIndex {
         size: usize,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<&str>,
+        analyzers: &crate::tokenizer::AnalyzerRegistry,
     ) -> serde_json::Value {
         use wf_types::config::keyword::KeywordTokenizer as Selection;
         let must = match tokenizer {
@@ -215,7 +216,8 @@ impl ElasticKeywordIndex {
                 vec![json!({"match": {"content": {"query": query, "operator": "or"}}})]
             }
             Selection::Mixed => {
-                let tokens = crate::tokenizer::pretokenize(query, tokenizer, analyzer_name);
+                let tokens =
+                    crate::tokenizer::pretokenize(query, tokenizer, analyzer_name, analyzers);
                 if tokens.trim().is_empty() {
                     vec![json!({"match_none": {}})]
                 } else {
@@ -264,6 +266,7 @@ impl ElasticKeywordIndex {
         document: &KeywordDocument,
         tokenizer: wf_types::config::keyword::KeywordTokenizer,
         analyzer_name: Option<&str>,
+        analyzers: &crate::tokenizer::AnalyzerRegistry,
     ) -> KeywordResult<(String, serde_json::Value)> {
         if document.id.is_empty() {
             return Err(KeywordError::invalid_input("document id must not be empty"));
@@ -285,8 +288,12 @@ impl ElasticKeywordIndex {
                 "payload": payload,
             }),
             Selection::Mixed => {
-                let tokens =
-                    crate::tokenizer::pretokenize(&document.text, tokenizer, analyzer_name);
+                let tokens = crate::tokenizer::pretokenize(
+                    &document.text,
+                    tokenizer,
+                    analyzer_name,
+                    analyzers,
+                );
                 json!({
                     "collection": collection,
                     "chunk_id": document.id.clone(),

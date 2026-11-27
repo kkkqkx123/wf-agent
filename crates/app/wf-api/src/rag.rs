@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tracing::info;
+use wf_rag::RetrievalExtensions;
 use wf_types::config::keyword::KeywordIndexConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
 
@@ -32,6 +33,8 @@ pub struct RagHandles {
     /// Keyword index shared with tools and workflow nodes; `None`
     /// disables hybrid retrieval and dual writes.
     pub keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
+    /// Retrieval extensions owned by this host scope.
+    pub extensions: Arc<RetrievalExtensions>,
 }
 
 impl RagHandles {
@@ -40,11 +43,13 @@ impl RagHandles {
         store: Arc<dyn vector_contracts::VectorStorage>,
         embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
         keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
+        extensions: Arc<RetrievalExtensions>,
     ) -> Self {
         Self {
             store,
             embedder,
             keyword,
+            extensions,
         }
     }
 }
@@ -466,6 +471,28 @@ impl std::fmt::Debug for SharedKeywordIndex {
     }
 }
 
+/// Rejects an index whose declared capabilities cannot serve the resolved
+/// tokenizer or analyzer selection before any document is written.
+fn ensure_keyword_capabilities(
+    index: &dyn keyword_contracts::KeywordIndex,
+    selection: &KeywordTokenizerSelection,
+) -> ApiResult<()> {
+    if !index.supported_tokenizers().contains(&selection.tokenizer) {
+        return Err(ApiError::Validation(format!(
+            "keyword backend '{}' does not support tokenizer {:?}",
+            index.backend_name(),
+            selection.tokenizer
+        )));
+    }
+    if selection.analyzer_name.is_some() && !index.supports_custom_analyzer() {
+        return Err(ApiError::Validation(format!(
+            "keyword backend '{}' does not support custom analyzers",
+            index.backend_name()
+        )));
+    }
+    Ok(())
+}
+
 /// Opens the keyword index for the resolved location. Blocking: callers
 /// run it on a blocking thread pool, never on an async worker. `Disabled`
 /// yields `None`; any open failure is an explicit error so bootstrap
@@ -474,8 +501,9 @@ impl std::fmt::Debug for SharedKeywordIndex {
 /// analyzers go through [`open_keyword_index_with`].
 pub fn open_keyword_index(
     location: &KeywordIndexLocation,
+    extensions: &RetrievalExtensions,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
-    open_keyword_index_with(location, &KeywordTokenizerSelection::default())
+    open_keyword_index_with(location, &KeywordTokenizerSelection::default(), extensions)
 }
 
 /// Opens the keyword index with an explicit tokenizer selection.
@@ -485,6 +513,7 @@ pub fn open_keyword_index(
 pub fn open_keyword_index_with(
     location: &KeywordIndexLocation,
     selection: &KeywordTokenizerSelection,
+    extensions: &RetrievalExtensions,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
     match location {
         KeywordIndexLocation::Disabled => {
@@ -492,13 +521,15 @@ pub fn open_keyword_index_with(
             Ok(None)
         }
         KeywordIndexLocation::Memory => {
-            let index = wf_rag::open_sqlite_ram_keyword_with(
+            let index = keyword_contracts::open_sqlite_ram_keyword_with(
                 selection.tokenizer,
                 selection.analyzer_name.clone(),
+                extensions.analyzer_registry(),
             )
             .map_err(|err| {
                 ApiError::execution(format!("Failed to open in-memory keyword index: {err}"))
             })?;
+            ensure_keyword_capabilities(index.as_ref(), selection)?;
             info!(
                 backend = index.backend_name(),
                 "keyword index opened in memory"
@@ -522,12 +553,18 @@ pub fn open_keyword_index_with(
                 analyzer_name: selection.analyzer_name.clone(),
                 policy: selection.format_policy,
             };
-            let index = wf_rag::open_sqlite_file_keyword_format(&raw, format).map_err(|err| {
+            let index = keyword_contracts::open_sqlite_file_keyword_format(
+                &raw,
+                format,
+                extensions.analyzer_registry(),
+            )
+            .map_err(|err| {
                 ApiError::execution(format!(
                     "Failed to open keyword index at '{}': {err}",
                     path.display()
                 ))
             })?;
+            ensure_keyword_capabilities(index.as_ref(), selection)?;
             info!(
                 backend = index.backend_name(),
                 path = %path.display(),
@@ -537,9 +574,10 @@ pub fn open_keyword_index_with(
         }
         KeywordIndexLocation::Tantivy(path) => {
             let index = match path {
-                None => wf_rag::open_tantivy_ram_keyword_with(
+                None => keyword_contracts::open_tantivy_ram_keyword_with(
                     selection.tokenizer,
                     selection.analyzer_name.clone(),
+                    extensions.analyzer_registry(),
                 )
                 .map_err(|err| {
                     ApiError::execution(format!(
@@ -553,10 +591,11 @@ pub fn open_keyword_index_with(
                         analyzer_name: selection.analyzer_name.clone(),
                         policy: selection.format_policy,
                     };
-                    wf_rag::open_tantivy_dir_keyword_format(
+                    keyword_contracts::open_tantivy_dir_keyword_format(
                         &raw,
                         format,
                         selection.writer_heap_bytes,
+                        extensions.analyzer_registry(),
                     )
                     .map_err(|err| {
                         ApiError::execution(format!(
@@ -566,11 +605,12 @@ pub fn open_keyword_index_with(
                     })?
                 }
             };
+            ensure_keyword_capabilities(index.as_ref(), selection)?;
             info!(backend = index.backend_name(), "keyword index opened");
             Ok(Some(SharedKeywordIndex::new(index)))
         }
         KeywordIndexLocation::Elastic(location) => {
-            let index = open_elastic_handle(location).map_err(|err| {
+            let index = open_elastic_handle(location, selection, extensions).map_err(|err| {
                 ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
             })?;
             info!(
@@ -589,27 +629,34 @@ pub fn open_keyword_index_with(
 /// wrong port or unreachable server fails fast instead of degrading.
 fn open_elastic_handle(
     location: &ElasticLocation,
+    selection: &KeywordTokenizerSelection,
+    extensions: &RetrievalExtensions,
 ) -> Result<std::sync::Arc<dyn keyword_contracts::KeywordIndex>, wf_rag::RagError> {
-    let mut config = wf_rag::ElasticKeywordConfig::new(location.base_url.clone());
-    config.api_key.clone_from(&location.api_key);
-    config.index.clone_from(&location.index);
-    config.timeout_secs = location.timeout_secs;
-    config.batch_size = location.batch_size;
-    config.exact_count = location.exact_count;
-    config.tokenizer = location.tokenizer;
-    config.analyzer_name.clone_from(&location.analyzer_name);
-    wf_rag::open_elastic_keyword(&config)
+    let config = elastic_config_with(location, selection);
+    keyword_contracts::open_elastic_keyword(&config, extensions.analyzer_registry())
 }
 
-fn elastic_config_for(location: &ElasticLocation) -> wf_rag::ElasticKeywordConfig {
-    let mut config = wf_rag::ElasticKeywordConfig::new(location.base_url.clone());
+fn elastic_config_with(
+    location: &ElasticLocation,
+    selection: &KeywordTokenizerSelection,
+) -> keyword_contracts::ElasticKeywordConfig {
+    let mut config = keyword_contracts::ElasticKeywordConfig::new(location.base_url.clone());
     config.api_key.clone_from(&location.api_key);
     config.index.clone_from(&location.index);
     config.timeout_secs = location.timeout_secs;
     config.batch_size = location.batch_size;
     config.exact_count = location.exact_count;
-    config.tokenizer = location.tokenizer;
-    config.analyzer_name.clone_from(&location.analyzer_name);
+    config.tokenizer = if location.tokenizer == wf_types::config::keyword::KeywordTokenizer::English
+        && selection.tokenizer != wf_types::config::keyword::KeywordTokenizer::English
+    {
+        selection.tokenizer
+    } else {
+        location.tokenizer
+    };
+    config.analyzer_name = selection
+        .analyzer_name
+        .clone()
+        .or_else(|| location.analyzer_name.clone());
     config
 }
 
@@ -618,8 +665,9 @@ fn elastic_config_for(location: &ElasticLocation) -> wf_rag::ElasticKeywordConfi
 /// Disabled yields `None`; any failure is explicit so bootstrap fails fast.
 pub async fn open_keyword_index_async(
     location: &KeywordIndexLocation,
+    extensions: &RetrievalExtensions,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
-    open_keyword_index_async_with(location, &KeywordTokenizerSelection::default()).await
+    open_keyword_index_async_with(location, &KeywordTokenizerSelection::default(), extensions).await
 }
 
 /// Async open with an explicit tokenizer selection. The remote branch
@@ -627,18 +675,11 @@ pub async fn open_keyword_index_async(
 pub async fn open_keyword_index_async_with(
     location: &KeywordIndexLocation,
     selection: &KeywordTokenizerSelection,
+    extensions: &RetrievalExtensions,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
     match location {
         KeywordIndexLocation::Elastic(resolved) => {
-            let mut config = elastic_config_for(resolved);
-            if config.analyzer_name.is_none() {
-                config.analyzer_name.clone_from(&selection.analyzer_name);
-            }
-            if config.tokenizer == wf_types::config::keyword::KeywordTokenizer::English
-                && selection.tokenizer != wf_types::config::keyword::KeywordTokenizer::English
-            {
-                config.tokenizer = selection.tokenizer;
-            }
+            let config = elastic_config_with(resolved, selection);
             let version = wf_rag::probe_elastic_keyword(&config)
                 .await
                 .map_err(|err| {
@@ -666,9 +707,10 @@ pub async fn open_keyword_index_async_with(
             } else {
                 info!(version = %version, index = %resolved.index, "elastic keyword version probed");
             }
-            let handle = open_elastic_handle(resolved).map_err(|err| {
+            let handle = open_elastic_handle(resolved, selection, extensions).map_err(|err| {
                 ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
             })?;
+            ensure_keyword_capabilities(handle.as_ref(), selection)?;
             info!(
                 backend = handle.backend_name(),
                 index = %resolved.index,
@@ -679,9 +721,11 @@ pub async fn open_keyword_index_async_with(
         other => {
             let owned = other.clone();
             let selection = selection.clone();
-            tokio::task::spawn_blocking(move || open_keyword_index_with(&owned, &selection))
-                .await
-                .map_err(|err| ApiError::execution(format!("Keyword open task failed: {err}")))?
+            tokio::task::spawn_blocking(move || {
+                open_keyword_index_with(&owned, &selection, extensions)
+            })
+            .await
+            .map_err(|err| ApiError::execution(format!("Keyword open task failed: {err}")))?
         }
     }
 }
@@ -1016,6 +1060,7 @@ pub async fn preview_search(
     embedder: &dyn llm_embedding::provider::EmbeddingProvider,
     keyword: Option<&dyn keyword_contracts::KeywordIndex>,
     defaults: &wf_rag::RagQueryConfig,
+    extensions: &RetrievalExtensions,
     params: PreviewParams<'_>,
 ) -> ApiResult<Vec<PreviewHit>> {
     if params.query.trim().is_empty() {
@@ -1030,7 +1075,7 @@ pub async fn preview_search(
         fields: std::collections::HashMap::new(),
     };
     let hits = wf_tools::predefined::rag::search_with_defaults(
-        store, embedder, keyword, defaults, request,
+        store, embedder, keyword, defaults, extensions, request,
     )
     .await
     .map_err(|err| ApiError::execution(err.to_string()))?;
@@ -1344,13 +1389,21 @@ mod tests {
 
     #[test]
     fn disabled_location_opens_to_empty_slot() {
-        let opened = open_keyword_index(&KeywordIndexLocation::Disabled).expect("open");
+        let opened = open_keyword_index(
+            &KeywordIndexLocation::Disabled,
+            &wf_rag::RetrievalExtensions::new(),
+        )
+        .expect("open");
         assert!(opened.is_none());
     }
 
     #[test]
     fn memory_location_opens_usable_index() {
-        let opened = open_keyword_index(&KeywordIndexLocation::Memory).expect("open");
+        let opened = open_keyword_index(
+            &KeywordIndexLocation::Memory,
+            &wf_rag::RetrievalExtensions::new(),
+        )
+        .expect("open");
         let index = opened.expect("memory index");
         assert_eq!(index.as_arc().backend_name(), "sqlite-fts");
     }
@@ -1360,11 +1413,13 @@ mod tests {
         let dir = unique_temp_dir("wf-keyword-file");
         let path = dir.join("nested").join("keyword.db");
         let location = KeywordIndexLocation::File(path.clone());
-        let opened = open_keyword_index(&location).expect("open");
+        let opened =
+            open_keyword_index(&location, &wf_rag::RetrievalExtensions::new()).expect("open");
         assert!(opened.is_some());
         assert!(path.exists());
         drop(opened);
-        let reopened = open_keyword_index(&location).expect("reopen");
+        let reopened =
+            open_keyword_index(&location, &wf_rag::RetrievalExtensions::new()).expect("reopen");
         assert!(reopened.is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1374,7 +1429,7 @@ mod tests {
         let dir = unique_temp_dir("wf-keyword-dir-fail");
         std::fs::create_dir_all(&dir).expect("temp dir");
         let location = KeywordIndexLocation::File(dir.clone());
-        assert!(open_keyword_index(&location).is_err());
+        assert!(open_keyword_index(&location, &wf_rag::RetrievalExtensions::new()).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1414,7 +1469,10 @@ mod tests {
 
     #[test]
     fn tantivy_location_open_reports_feature_status() {
-        let opened = open_keyword_index(&KeywordIndexLocation::Tantivy(None));
+        let opened = open_keyword_index(
+            &KeywordIndexLocation::Tantivy(None),
+            &wf_rag::RetrievalExtensions::new(),
+        );
         match opened {
             Ok(shared) => assert_eq!(shared.expect("index").as_arc().backend_name(), "tantivy"),
             Err(err) => assert!(
@@ -1464,7 +1522,7 @@ mod tests {
             analyzer_name: None,
             version_policy: wf_types::config::keyword::ElasticVersionPolicy::default(),
         });
-        assert!(open_keyword_index(&location).is_err());
+        assert!(open_keyword_index(&location, &wf_rag::RetrievalExtensions::new()).is_err());
     }
 
     #[test]
@@ -1540,8 +1598,12 @@ mod tests {
             format_policy: wf_types::config::keyword::KeywordFormatPolicy::default(),
             writer_heap_bytes: None,
         };
-        let opened =
-            open_keyword_index_with(&KeywordIndexLocation::Memory, &selection).expect("open");
+        let opened = open_keyword_index_with(
+            &KeywordIndexLocation::Memory,
+            &selection,
+            &wf_rag::RetrievalExtensions::new(),
+        )
+        .expect("open");
         assert!(opened.is_some());
     }
 
@@ -1558,13 +1620,17 @@ mod tests {
             analyzer_name: None,
             version_policy: wf_types::config::keyword::ElasticVersionPolicy::default(),
         });
-        assert!(open_keyword_index_async(&location).await.is_err());
+        assert!(
+            open_keyword_index_async(&location, &wf_rag::RetrievalExtensions::new())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn memory_index_dual_write_and_hybrid_hit() {
         let store = vector_contracts::InMemoryVectorStore::new();
-        let keyword = wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword");
+        let keyword = keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword");
         let embedder = UnitEmbedder { dimension: 8 };
         wf_rag::pipeline::ingest_documents(
             &store,
@@ -1613,8 +1679,9 @@ mod tests {
         use wf_tools::predefined::rag::{RagSearchBackend, RagSearchQuery, RagService};
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
-        let keyword =
-            std::sync::Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        let keyword = std::sync::Arc::new(
+            keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword"),
+        );
         wf_rag::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),
@@ -1666,8 +1733,9 @@ mod tests {
     async fn host_management_and_workflow_wiring_share_singleton() {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
-        let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> =
-            std::sync::Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> = std::sync::Arc::new(
+            keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword"),
+        );
         wf_rag::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),
@@ -1682,7 +1750,12 @@ mod tests {
         )
         .await
         .expect("ingest");
-        let handles = RagHandles::new(store.clone(), embedder.clone(), Some(keyword.clone()));
+        let handles = RagHandles::new(
+            store.clone(),
+            embedder.clone(),
+            Some(keyword.clone()),
+            std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
+        );
         let stats = collection_stats(
             handles.store.as_ref(),
             handles.keyword.as_deref(),
@@ -1719,9 +1792,9 @@ mod tests {
         let store = Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = Arc::new(UnitEmbedder { dimension: 8 });
         let handle_keyword: Arc<dyn keyword_contracts::KeywordIndex> =
-            Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+            Arc::new(keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         let ctx_keyword: Arc<dyn keyword_contracts::KeywordIndex> =
-            Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+            Arc::new(keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         let ctx_with_both = crate::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
             Arc::new(wf_resource::registry::ResourceRegistries::new()),
@@ -1730,6 +1803,7 @@ mod tests {
             store.clone(),
             embedder.clone(),
             Some(handle_keyword.clone()),
+            std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
         ))
         .with_keyword_index(ctx_keyword.clone());
         let effective = ctx_with_both.effective_keyword_index().expect("keyword");
@@ -1738,7 +1812,12 @@ mod tests {
             wf_storage::context::StorageContext::new_memory(),
             Arc::new(wf_resource::registry::ResourceRegistries::new()),
         )
-        .with_rag_handles(RagHandles::new(store, embedder, None))
+        .with_rag_handles(RagHandles::new(
+            store,
+            embedder,
+            None,
+            std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
+        ))
         .with_keyword_index(ctx_keyword.clone());
         let effective = ctx_fallback.effective_keyword_index().expect("keyword");
         assert!(Arc::ptr_eq(&effective, &ctx_keyword));
@@ -1780,6 +1859,7 @@ mod tests {
             &embedder,
             None,
             &open,
+            &wf_rag::RetrievalExtensions::new(),
             PreviewParams {
                 collection: "kb",
                 namespace: "kb",
@@ -1804,6 +1884,7 @@ mod tests {
             &embedder,
             None,
             &floored,
+            &wf_rag::RetrievalExtensions::new(),
             PreviewParams {
                 collection: "kb",
                 namespace: "kb",

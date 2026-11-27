@@ -119,9 +119,7 @@ impl Plugin for NativePlugin {
             register_node_template: Some(ffi_register_node_template),
             register_trigger: Some(ffi_register_trigger),
             register_text_analyzer: Some(ffi_register_text_analyzer),
-            register_retrieval_advisor: Some(ffi_register_retrieval_advisor),
             register_vector_encoding: Some(ffi_register_vector_encoding),
-            register_snapshot_policy: Some(ffi_register_snapshot_policy),
             register_metadata_extractor: Some(ffi_register_metadata_extractor),
             register_chunk_splitter: Some(ffi_register_chunk_splitter),
             register_route_selector: Some(ffi_register_route_selector),
@@ -824,26 +822,6 @@ extern "C" fn ffi_register_text_analyzer(
     registrar_ctx.record(result)
 }
 
-extern "C" fn ffi_register_retrieval_advisor(
-    ctx_ptr: *mut std::ffi::c_void,
-    name: *const std::os::raw::c_char,
-) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() {
-        return 1;
-    }
-    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
-    let name_str = unsafe { ptr_to_string(name) };
-    let dispatch = registrar_ctx.dispatch;
-    let result = registrar_ctx.registrar.register_retrieval_advisor(
-        &name_str.clone(),
-        Arc::new(NativeRetrievalAdvisor {
-            name: name_str,
-            dispatch,
-        }),
-    );
-    registrar_ctx.record(result)
-}
-
 extern "C" fn ffi_register_vector_encoding(
     ctx_ptr: *mut std::ffi::c_void,
     name: *const std::os::raw::c_char,
@@ -861,34 +839,6 @@ extern "C" fn ffi_register_vector_encoding(
             dispatch,
         }),
     );
-    registrar_ctx.record(result)
-}
-
-extern "C" fn ffi_register_snapshot_policy(
-    ctx_ptr: *mut std::ffi::c_void,
-    name: *const std::os::raw::c_char,
-    policy_json: *const std::os::raw::c_char,
-) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() || policy_json.is_null() {
-        return 1;
-    }
-    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
-    let name_str = unsafe { ptr_to_string(name) };
-    let raw = unsafe { ptr_to_string(policy_json) };
-    let parsed: Result<Value, _> = serde_json::from_str(&raw);
-    let policy = match parsed {
-        Ok(p) => p,
-        Err(e) => {
-            let result = Err(PluginError::InvalidContribution {
-                plugin_id: String::new(),
-                message: format!("invalid snapshot-policy JSON: {e}"),
-            });
-            return registrar_ctx.record(result);
-        }
-    };
-    let result = registrar_ctx
-        .registrar
-        .register_snapshot_policy(&name_str, policy);
     registrar_ctx.record(result)
 }
 
@@ -1258,21 +1208,6 @@ impl PluginTextAnalyzer for NativeTextAnalyzer {
         let output = dispatch_call(self.dispatch, "text-analyzer", &self.name, &input_json)?;
         serde_json::from_slice::<Vec<String>>(&output)
             .map_err(|e| PluginError::NativeError(format!("deserialize analyzer output: {e}")))
-    }
-}
-
-pub struct NativeRetrievalAdvisor {
-    name: String,
-    dispatch: Option<DispatchFn>,
-}
-
-impl PluginRetrievalAdvisor for NativeRetrievalAdvisor {
-    fn advise(&self, input: Value) -> PluginResult<Value> {
-        let input_json = serde_json::to_string(&input)
-            .map_err(|e| PluginError::NativeError(format!("serialize retrieval input: {e}")))?;
-        let output = dispatch_call(self.dispatch, "retrieval", &self.name, &input_json)?;
-        serde_json::from_slice::<Value>(&output)
-            .map_err(|e| PluginError::NativeError(format!("deserialize retrieval output: {e}")))
     }
 }
 

@@ -62,31 +62,17 @@ pub struct RouterConfig {
 /// Resolves the targets for one question through the configured plugin
 /// route selector, falling back to keyword rules. Unknown selector names
 /// fail; failing or empty suggestions fall back to rule resolution.
-pub fn resolve_selected<'a>(config: &'a RouterConfig, query: &str) -> Result<Vec<&'a RouteTarget>> {
-    let Some(name) = config
-        .route_selector
-        .as_deref()
-        .filter(|name| !name.trim().is_empty())
-    else {
-        return Ok(resolve_targets(config, query));
-    };
-    let Some(selector) = crate::plugin::find_route_selector(name) else {
-        return Err(RagError::InvalidInput(format!(
-            "unknown route selector '{name}'"
-        )));
-    };
+pub fn resolve_selected<'a>(
+    config: &'a RouterConfig,
+    query: &str,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Result<Vec<&'a RouteTarget>> {
     let candidates: Vec<String> = config
         .targets
         .iter()
         .map(|target| target.name.clone())
         .collect();
-    let selected = match crate::plugin::poll_route_selector(selector.as_ref(), query, &candidates) {
-        Ok(selected) => selected,
-        Err(error) => {
-            tracing::warn!(selector = %name, error = %error, "route selector failed; keeping keyword rules");
-            return Ok(resolve_targets(config, query));
-        }
-    };
+    let selected = extensions.select(config.route_selector.as_deref(), query, &candidates)?;
     let matched: Vec<&RouteTarget> = selected
         .iter()
         .filter_map(|name| config.targets.iter().find(|target| &target.name == name))
@@ -128,6 +114,7 @@ pub async fn query_routed<S, E>(
     router: &RouterConfig,
     query_text: &str,
     query_config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -142,7 +129,7 @@ where
         return Err(RagError::InvalidInput("router has no targets".to_string()));
     }
     let mut weighted = Vec::new();
-    for target in resolve_selected(router, query_text)? {
+    for target in resolve_selected(router, query_text, extensions)? {
         if target.collection.trim().is_empty() || target.namespace.trim().is_empty() {
             return Err(RagError::InvalidInput(format!(
                 "route target '{}' has an empty collection or namespace",
@@ -156,6 +143,7 @@ where
             &target.namespace,
             query_text,
             query_config,
+            extensions,
         )
         .await?;
         weighted.push((target.weight.max(0.0), hits));
@@ -269,21 +257,24 @@ mod tests {
 
     #[test]
     fn selector_prefers_plugin_subset_and_validates_names() {
-        crate::plugin::clear_route_selectors();
-        crate::plugin::register_route_selector("code", std::sync::Arc::new(CodeSelector));
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        extensions.clear_route_selectors();
+        extensions.register_route_selector("code", std::sync::Arc::new(CodeSelector));
         let mut config = router();
         config.route_selector = Some("code".to_string());
-        let resolved = resolve_selected(&config, "ownership").expect("selector resolves");
+        let resolved =
+            resolve_selected(&config, "ownership", &extensions).expect("selector resolves");
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].name, "code");
         config.route_selector = Some("missing-selector".to_string());
-        assert!(resolve_selected(&config, "ownership").is_err());
-        crate::plugin::register_route_selector("fail", std::sync::Arc::new(FailingSelector));
+        assert!(resolve_selected(&config, "ownership", &extensions).is_err());
+        extensions.register_route_selector("fail", std::sync::Arc::new(FailingSelector));
         config.route_selector = Some("fail".to_string());
-        let fallback = resolve_selected(&config, "struct Foo").expect("failure falls back");
+        let fallback =
+            resolve_selected(&config, "struct Foo", &extensions).expect("failure falls back");
         assert_eq!(fallback.len(), 1);
         assert_eq!(fallback[0].name, "code");
-        crate::plugin::clear_route_selectors();
+        extensions.clear_route_selectors();
     }
 
     struct UnitEmbedder {
@@ -327,9 +318,10 @@ mod tests {
     }
 
     async fn seeded_store() -> (vector_contracts::InMemoryVectorStore, UnitEmbedder) {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let store = vector_contracts::InMemoryVectorStore::new();
         let keyword =
-            crate::sqlite_index::SqliteKeywordIndex::open_in_memory().expect("keyword index");
+            keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         for (collection, namespace) in [("kb-docs", "docs"), ("kb-code", "code")] {
             crate::pipeline::ingest_documents(
@@ -343,6 +335,7 @@ mod tests {
                     "ownership borrowing guide text for retrieval",
                 )],
                 &crate::RagIndexConfig::new(namespace),
+                &extensions,
             )
             .await
             .expect("ingest");
@@ -352,6 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn routed_query_covers_every_scope() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let (store, embedder) = seeded_store().await;
         let hits = query_routed(
             &store,
@@ -359,6 +353,7 @@ mod tests {
             &router(),
             "ownership borrowing",
             &crate::RagQueryConfig::default(),
+            &extensions,
         )
         .await
         .expect("query");
@@ -370,6 +365,7 @@ mod tests {
 
     #[tokio::test]
     async fn routed_query_rejects_bad_config() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let (store, embedder) = seeded_store().await;
         let empty = RouterConfig {
             targets: Vec::new(),
@@ -382,7 +378,8 @@ mod tests {
             &embedder,
             &empty,
             "ownership",
-            &crate::RagQueryConfig::default()
+            &crate::RagQueryConfig::default(),
+            &extensions
         )
         .await
         .is_err());
@@ -391,7 +388,8 @@ mod tests {
             &embedder,
             &router(),
             "   ",
-            &crate::RagQueryConfig::default()
+            &crate::RagQueryConfig::default(),
+            &extensions
         )
         .await
         .is_err());

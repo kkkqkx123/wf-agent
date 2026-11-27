@@ -50,9 +50,8 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 default = []
 lua = ["wf-sandbox/lua"]
 file-checkpoint = []
-keyword = ["wf-rag/keyword-sqlite"]
+keyword = []
 rag-vector = [
-    "wf-rag/vector",
     "vector-contracts/qdrant",
     "vector-contracts/simvec",
 ]

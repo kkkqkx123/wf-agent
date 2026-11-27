@@ -11,9 +11,9 @@ pub use wf_plugin_sdk::contributions::{
     PluginEventHandler, PluginExecutionContext, PluginHookHandler, PluginHookOutcome,
     PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge, PluginLoginStep,
     PluginMarkdownRule, PluginMetadataExtractor, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginPostprocessor, PluginRetrievalAdvisor, PluginRouteSelector,
-    PluginSettingField, PluginTextAnalyzer, PluginToolContext, PluginToolExecutor,
-    PluginToolResult, PluginToolSummary, PluginVectorEncoding,
+    PluginNodeResult, PluginPostprocessor, PluginRouteSelector, PluginSettingField,
+    PluginTextAnalyzer, PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
+    PluginVectorEncoding,
 };
 
 // ============================================================
@@ -48,14 +48,9 @@ pub enum ContributionType {
     Tool,
     /// Full-text analyzer (`text-analyzer`). Advisory only; native-dispatched.
     TextAnalyzer,
-    /// Retrieval shaping advice (`retrieval-advisor`). Advisory only; native-dispatched.
-    RetrievalAdvisor,
     /// Sparse and multi-vector encoders (`vector-encoding`). Advisory only;
     /// native-dispatched.
     VectorEncoding,
-    /// Snapshot expectations as declarative JSON (`snapshot-policy`).
-    /// Reservation only; native-declared, no pipeline reads them.
-    SnapshotPolicy,
     /// Ingest metadata enrichment (`metadata-extractor`). Advisory only;
     /// native-dispatched.
     MetadataExtractor,
@@ -105,9 +100,7 @@ impl ContributionType {
             Self::ToolDescription => "tool-description",
             Self::Tool => "tool",
             Self::TextAnalyzer => "text-analyzer",
-            Self::RetrievalAdvisor => "retrieval-advisor",
             Self::VectorEncoding => "vector-encoding",
-            Self::SnapshotPolicy => "snapshot-policy",
             Self::MetadataExtractor => "metadata-extractor",
             Self::ChunkSplitter => "chunk-splitter",
             Self::RouteSelector => "route-selector",
@@ -141,9 +134,7 @@ impl ContributionType {
             Self::ToolDescription,
             Self::Tool,
             Self::TextAnalyzer,
-            Self::RetrievalAdvisor,
             Self::VectorEncoding,
-            Self::SnapshotPolicy,
             Self::MetadataExtractor,
             Self::ChunkSplitter,
             Self::RouteSelector,

@@ -8,11 +8,11 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use async_trait::async_trait;
 use crate::{
     KeywordDocument, KeywordError, KeywordFormat, KeywordIndex, KeywordQuery, KeywordScope,
     Result as KeywordResult,
 };
+use async_trait::async_trait;
 use vector_contracts::ScoredPoint;
 
 const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts USING fts5(collection UNINDEXED, chunk_id UNINDEXED, namespace UNINDEXED, source UNINDEXED, content, payload UNINDEXED, tokenize='unicode61')";
@@ -44,6 +44,7 @@ pub struct SqliteKeywordIndex {
     conn: Mutex<rusqlite::Connection>,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<String>,
+    analyzers: std::sync::Arc<crate::tokenizer::AnalyzerRegistry>,
     /// Set when the index opened under the read-only degrade policy after
     /// a format mismatch; every write path fails with this flag set.
     readonly: std::sync::atomic::AtomicBool,
@@ -65,6 +66,7 @@ impl SqliteKeywordIndex {
             conn: Mutex::new(conn),
             tokenizer,
             analyzer_name,
+            analyzers: std::sync::Arc::new(crate::tokenizer::AnalyzerRegistry::new()),
             readonly: std::sync::atomic::AtomicBool::new(false),
         };
         index.ensure_schema()?;
@@ -111,11 +113,35 @@ impl SqliteKeywordIndex {
             conn: Mutex::new(conn),
             tokenizer: format.tokenizer,
             analyzer_name: format.analyzer_name.clone(),
+            analyzers: std::sync::Arc::new(crate::tokenizer::AnalyzerRegistry::new()),
             readonly: std::sync::atomic::AtomicBool::new(false),
         };
         index.ensure_schema()?;
         index.check_format_stamp(&format)?;
         Ok(index)
+    }
+
+    /// Attaches the host scope's analyzer registry. The registry must be
+    /// attached before writes or searches that name a plugin analyzer.
+    pub fn with_analyzers(
+        mut self,
+        analyzers: std::sync::Arc<crate::tokenizer::AnalyzerRegistry>,
+    ) -> Self {
+        self.analyzers = analyzers;
+        self
+    }
+
+    fn check_analyzer(&self) -> KeywordResult<()> {
+        if let Some(name) = self
+            .analyzer_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
+            self.analyzers
+                .ensure(name)
+                .map_err(KeywordError::invalid_input)?;
+        }
+        Ok(())
     }
 
     fn ensure_schema(&self) -> KeywordResult<()> {
@@ -229,24 +255,19 @@ fn fts_query_for_with(
     question: &str,
     tokenizer: wf_types::config::keyword::KeywordTokenizer,
     analyzer_name: Option<&str>,
+    analyzers: &crate::tokenizer::AnalyzerRegistry,
 ) -> Option<String> {
-    let mut terms: Vec<String> = crate::tokenizer::terms(question, tokenizer, analyzer_name)
-        .into_iter()
-        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
-        .collect();
+    let mut terms: Vec<String> =
+        crate::tokenizer::terms(question, tokenizer, analyzer_name, analyzers)
+            .into_iter()
+            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+            .collect();
     if terms.is_empty() {
         return None;
     }
     terms.sort();
     terms.dedup();
     Some(terms.join(" OR "))
-}
-
-fn check_analyzer(analyzer_name: Option<&str>) -> KeywordResult<()> {
-    if let Some(name) = analyzer_name.filter(|name| !name.trim().is_empty()) {
-        crate::tokenizer::ensure_analyzer_registered(name).map_err(KeywordError::invalid_input)?;
-    }
-    Ok(())
 }
 
 #[async_trait]
@@ -293,7 +314,7 @@ impl KeywordIndex for SqliteKeywordIndex {
         if collection.is_empty() {
             return Err(KeywordError::invalid_input("collection must not be empty"));
         }
-        check_analyzer(self.analyzer_name.as_deref())?;
+        self.check_analyzer()?;
         self.ensure_writable()?;
         let mut guard = self.lock()?;
         let tx = guard.transaction().map_err(keyword_error)?;
@@ -312,6 +333,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                     &document.text,
                     self.tokenizer,
                     self.analyzer_name.as_deref(),
+                    &self.analyzers,
                 ),
             };
             if index_content.trim().is_empty() {
@@ -340,10 +362,13 @@ impl KeywordIndex for SqliteKeywordIndex {
         if query.limit == 0 {
             return Ok(Vec::new());
         }
-        check_analyzer(self.analyzer_name.as_deref())?;
-        let Some(match_query) =
-            fts_query_for_with(&query.text, self.tokenizer, self.analyzer_name.as_deref())
-        else {
+        self.check_analyzer()?;
+        let Some(match_query) = fts_query_for_with(
+            &query.text,
+            self.tokenizer,
+            self.analyzer_name.as_deref(),
+            &self.analyzers,
+        ) else {
             return Ok(Vec::new());
         };
         let scope = query.scope.as_ref();

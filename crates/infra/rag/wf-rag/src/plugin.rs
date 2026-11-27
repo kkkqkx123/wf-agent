@@ -20,14 +20,16 @@
 //! expose no retrieval channel.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
+use keyword_contracts::AnalyzerRegistry;
 use vector_contracts::{validate_named_data, VectorData, VectorKind, VectorSpaceSpec};
 use wf_plugin_sdk::{
     PluginChunkSplitter, PluginEvalJudge, PluginMetadataExtractor, PluginPostprocessor,
     PluginRouteSelector, PluginTextAnalyzer, PluginVectorEncoding,
 };
 
+use crate::error::Result;
 use crate::retriever::RetrievedChunk;
 
 mod analyzer;
@@ -38,28 +40,10 @@ mod retrieval;
 mod routing;
 
 pub use analyzer::{register_plugin_analyzer, unregister_plugin_analyzer};
-pub use encoding::{
-    clear_vector_encodings, encode_named_with_registered, encode_with_registered,
-    find_vector_encoding, register_vector_encoding, unregister_vector_encoding,
-};
-pub use eval::{
-    clear_eval_judges, find_eval_judge, judge_with_registered, register_eval_judge,
-    unregister_eval_judge, JudgeScore,
-};
-pub use ingest::{
-    clear_chunk_splitters, clear_metadata_extractors, extract_with_registered, find_chunk_splitter,
-    find_metadata_extractor, register_chunk_splitter, register_metadata_extractor,
-    split_with_registered, unregister_chunk_splitter, unregister_metadata_extractor, SplitPiece,
-};
-pub use retrieval::{
-    apply_registered_postprocessor, clear_postprocessors, find_postprocessor,
-    register_postprocessor, unregister_postprocessor,
-};
-pub(crate) use routing::poll_route_selector;
-pub use routing::{
-    apply_registered_selector, clear_route_selectors, find_route_selector, register_route_selector,
-    unregister_route_selector,
-};
+pub use encoding::{encode_named_with_registered, encode_with_registered};
+pub use eval::judge_with_registered;
+pub use ingest::{extract_with_registered, split_with_registered};
+pub use retrieval::apply_registered_postprocessor;
 /// Protocol version sent with every route selector input.
 pub const ROUTE_SELECTOR_PROTOCOL_VERSION: u32 = 1;
 /// Protocol version sent with every postprocessor input.
@@ -99,12 +83,12 @@ pub struct EncodedVector {
 
 /// Host-owned registry for retrieval extensions.
 ///
-/// Hosts hold one instance per configuration scope and pass it into pipelines
-/// instead of relying on process-wide state. The free functions in this module
-/// delegate to a shared global instance so existing call sites keep working
-/// while new code threads an explicit instance through.
+/// Hosts hold one instance per configuration scope and pass it into pipelines.
+/// All lookups and executions stay on the instance; no process-wide state is
+/// consulted.
 #[derive(Default)]
 pub struct RetrievalExtensions {
+    analyzers: Arc<AnalyzerRegistry>,
     vector_encodings: Mutex<HashMap<String, Arc<dyn PluginVectorEncoding>>>,
     metadata_extractors: Mutex<HashMap<String, Arc<dyn PluginMetadataExtractor>>>,
     chunk_splitters: Mutex<HashMap<String, Arc<dyn PluginChunkSplitter>>>,
@@ -119,10 +103,48 @@ impl RetrievalExtensions {
         Self::default()
     }
 
-    /// Shared global registry backing the free functions.
-    pub fn global() -> &'static Self {
-        static GLOBAL: OnceLock<RetrievalExtensions> = OnceLock::new();
-        GLOBAL.get_or_init(RetrievalExtensions::new)
+    /// Analyzer registry belonging to this host scope.
+    pub fn analyzer_registry(&self) -> Arc<AnalyzerRegistry> {
+        self.analyzers.clone()
+    }
+
+    /// Finds an analyzer registered in this host scope.
+    pub fn find_analyzer(&self, name: &str) -> Option<keyword_contracts::CustomAnalyzer> {
+        self.analyzers.find(name)
+    }
+
+    /// Runs the configured selector once and applies its fallback rules.
+    /// Unknown names fail; execution errors and empty suggestions keep every
+    /// candidate so callers can apply their own secondary policy.
+    pub fn select(
+        &self,
+        name: Option<&str>,
+        query: &str,
+        candidates: &[String],
+    ) -> Result<Vec<String>> {
+        let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
+            return Ok(candidates.to_vec());
+        };
+        let Some(selector) = self.find_route_selector(name) else {
+            return Err(crate::error::RagError::InvalidInput(format!(
+                "unknown route selector '{name}'"
+            )));
+        };
+        let selected = match routing::poll_route_selector(selector.as_ref(), query, candidates) {
+            Ok(selected) => selected,
+            Err(error) => {
+                tracing::warn!(selector = %name, error = %error, "route selector failed; keeping all targets");
+                return Ok(candidates.to_vec());
+            }
+        };
+        let kept: Vec<String> = selected
+            .into_iter()
+            .filter(|item| candidates.iter().any(|candidate| candidate == item))
+            .collect();
+        if kept.is_empty() {
+            return Ok(candidates.to_vec());
+        }
+        Ok(kept)
     }
 
     /// Registers a vector encoding, replacing any prior entry.
@@ -159,7 +181,11 @@ impl RetrievalExtensions {
     }
 
     /// Registers a metadata extractor, replacing any prior entry.
-    pub fn register_metadata_extractor(&self, name: &str, extractor: Arc<dyn PluginMetadataExtractor>) {
+    pub fn register_metadata_extractor(
+        &self,
+        name: &str,
+        extractor: Arc<dyn PluginMetadataExtractor>,
+    ) {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             return;
@@ -333,17 +359,6 @@ impl RetrievalExtensions {
             guard.clear();
         }
     }
-}
-
-/// Serializes tests that mutate the process-wide plugin registries. A
-/// parallel test's `clear_*` otherwise races another test's `register_*`
-/// plus in-flight use and flakes the suite.
-#[cfg(test)]
-pub(crate) async fn test_registry_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
 }
 
 #[cfg(test)]

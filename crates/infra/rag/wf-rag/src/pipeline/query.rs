@@ -10,15 +10,16 @@ pub async fn query<S, E>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: VectorStorage + ?Sized,
     E: EmbeddingProvider + ?Sized,
 {
     let owned = query_text.to_string();
-    validate_vector_encoding(&owned, config)?;
+    validate_vector_encoding(&owned, config, extensions)?;
     validate_fusion(config)?;
-    validate_shaping_names(config)?;
+    validate_shaping_names(config, extensions)?;
     let searched = search_variants(
         store,
         embedder,
@@ -26,9 +27,10 @@ where
         namespace,
         std::slice::from_ref(&owned),
         config,
+        extensions,
     )
     .await?;
-    let advised = apply_configured_shaping(searched.hits, query_text, config)?;
+    let advised = apply_configured_shaping(searched.hits, query_text, config, extensions)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -40,6 +42,7 @@ pub async fn query_multi<S, E>(
     namespace: &str,
     query_texts: &[String],
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: VectorStorage + ?Sized,
@@ -51,14 +54,22 @@ where
         ));
     }
     for variant in query_texts {
-        validate_vector_encoding(variant, config)?;
+        validate_vector_encoding(variant, config, extensions)?;
     }
     validate_fusion(config)?;
-    validate_shaping_names(config)?;
-    let searched =
-        search_variants(store, embedder, collection, namespace, query_texts, config).await?;
+    validate_shaping_names(config, extensions)?;
+    let searched = search_variants(
+        store,
+        embedder,
+        collection,
+        namespace,
+        query_texts,
+        config,
+        extensions,
+    )
+    .await?;
     let representative = query_texts.first().map(String::as_str).unwrap_or("");
-    let advised = apply_configured_shaping(searched.hits, representative, config)?;
+    let advised = apply_configured_shaping(searched.hits, representative, config, extensions)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -75,6 +86,7 @@ pub async fn query_hybrid<S, E, K>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: VectorStorage + ?Sized,
@@ -87,9 +99,9 @@ where
         ));
     }
     let owned = query_text.to_string();
-    validate_vector_encoding(&owned, config)?;
+    validate_vector_encoding(&owned, config, extensions)?;
     validate_fusion(config)?;
-    validate_shaping_names(config)?;
+    validate_shaping_names(config, extensions)?;
     let searched = search_variants(
         store,
         embedder,
@@ -97,6 +109,7 @@ where
         namespace,
         std::slice::from_ref(&owned),
         config,
+        extensions,
     )
     .await?;
     let fused = if config.keyword_candidates > 0 {
@@ -123,7 +136,7 @@ where
     } else {
         searched.hits
     };
-    let advised = apply_configured_shaping(fused, query_text, config)?;
+    let advised = apply_configured_shaping(fused, query_text, config, extensions)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -178,6 +191,7 @@ pub async fn query_with_metrics<S, E>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<(Vec<RetrievedChunk>, RetrievalMetrics)>
 where
     S: VectorStorage + ?Sized,
@@ -185,9 +199,9 @@ where
 {
     let started = std::time::Instant::now();
     let owned = query_text.to_string();
-    validate_vector_encoding(&owned, config)?;
+    validate_vector_encoding(&owned, config, extensions)?;
     validate_fusion(config)?;
-    validate_shaping_names(config)?;
+    validate_shaping_names(config, extensions)?;
     let searched = search_variants(
         store,
         embedder,
@@ -195,12 +209,13 @@ where
         namespace,
         std::slice::from_ref(&owned),
         config,
+        extensions,
     )
     .await?;
     let lists = searched.lists;
     let requested = candidate_limit(config) * lists;
     let returned = searched.fused_len;
-    let advised = apply_configured_shaping(searched.hits, query_text, config)?;
+    let advised = apply_configured_shaping(searched.hits, query_text, config, extensions)?;
     let hits = postprocess(store, collection, advised, config).await?;
     let metrics = RetrievalMetrics {
         latency_ms: started.elapsed().as_millis() as u64,
@@ -231,6 +246,7 @@ pub async fn query_with_rerank_metrics<S, E, R>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<(Vec<RankedChunk>, RetrievalMetrics)>
 where
     S: VectorStorage + ?Sized,
@@ -238,8 +254,10 @@ where
     R: RerankProvider + ?Sized,
 {
     let started = std::time::Instant::now();
-    let (hits, mut metrics) =
-        query_with_metrics(store, embedder, collection, namespace, query_text, config).await?;
+    let (hits, mut metrics) = query_with_metrics(
+        store, embedder, collection, namespace, query_text, config, extensions,
+    )
+    .await?;
     let before: Vec<String> = hits.iter().map(|hit| hit.chunk_id.clone()).collect();
     let top_n = config
         .rerank
@@ -286,6 +304,7 @@ pub async fn query_with_rerank<S, E, R>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RankedChunk>>
 where
     S: VectorStorage + ?Sized,
@@ -297,7 +316,10 @@ where
             "query must not be empty".to_string(),
         ));
     }
-    let hits = query(store, embedder, collection, namespace, query_text, config).await?;
+    let hits = query(
+        store, embedder, collection, namespace, query_text, config, extensions,
+    )
+    .await?;
     let top_n = config
         .rerank
         .as_ref()
@@ -352,6 +374,7 @@ pub(crate) async fn search_variants<S, E>(
     namespace: &str,
     variants: &[String],
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<SearchedHits>
 where
     S: VectorStorage + ?Sized,
@@ -387,6 +410,7 @@ where
                     )
                 })?;
             let encoded = crate::plugin::encode_named_with_registered(
+                extensions,
                 name,
                 variant,
                 serde_json::json!({}),
@@ -422,6 +446,7 @@ where
             embedder,
             config.vector_encoding.as_deref(),
             config.vector_kind,
+            extensions,
         )
         .await?;
         let limit = match config.vector_kind {
@@ -444,7 +469,14 @@ where
             hits.push(chunk_from_hit(&point)?);
         }
         for extra in &config.additional_kinds {
-            let data = query_vector(variant, embedder, Some(&extra.encoder), extra.kind).await?;
+            let data = query_vector(
+                variant,
+                embedder,
+                Some(&extra.encoder),
+                extra.kind,
+                extensions,
+            )
+            .await?;
             let extra_limit = match extra.kind {
                 VectorKind::Sparse => config
                     .sparse_candidates

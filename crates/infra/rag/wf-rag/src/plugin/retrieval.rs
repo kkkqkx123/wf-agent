@@ -63,30 +63,10 @@ pub(crate) fn apply_shaping_output(
     ordered
 }
 
-/// Registers a post-fusion shaping step under `name`, replacing any prior entry.
-/// Delegates to the shared global registry; new code holds an explicit instance.
-pub fn register_postprocessor(name: &str, postprocessor: Arc<dyn PluginPostprocessor>) {
-    super::RetrievalExtensions::global().register_postprocessor(name, postprocessor);
-}
-
-/// Removes a post-fusion shaping step.
-pub fn unregister_postprocessor(name: &str) {
-    super::RetrievalExtensions::global().unregister_postprocessor(name);
-}
-
-/// Finds a registered post-fusion shaping step by name.
-pub fn find_postprocessor(name: &str) -> Option<Arc<dyn PluginPostprocessor>> {
-    super::RetrievalExtensions::global().find_postprocessor(name)
-}
-
-/// Clears post-fusion shaping steps; tests use it to isolate cases.
-pub fn clear_postprocessors() {
-    super::RetrievalExtensions::global().clear_postprocessors();
-}
-
 /// Applies the named post-fusion shaping step to fused hits.
 /// Unknown names fail; failing or empty suggestions keep the input order.
 pub fn apply_registered_postprocessor(
+    extensions: &RetrievalExtensions,
     query: &str,
     hits: Vec<RetrievedChunk>,
     name: Option<&str>,
@@ -94,7 +74,7 @@ pub fn apply_registered_postprocessor(
     let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
         return Ok(hits);
     };
-    let Some(postprocessor) = find_postprocessor(name) else {
+    let Some(postprocessor) = extensions.find_postprocessor(name) else {
         return Err(crate::error::RagError::InvalidInput(format!(
             "unknown postprocessor '{name}'"
         )));

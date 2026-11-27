@@ -164,15 +164,22 @@ impl Runtime {
         let mut storage_manager = StorageManager::new(config.storage).with_cache_config(cache);
         storage_manager.initialize().await?;
 
+        // One extension registry per host scope; plugin contributions and
+        // every retrieval handle share this instance instead of process state.
+        let retrieval_extensions = Arc::new(wf_rag::RetrievalExtensions::new());
+
         // Keyword index singleton: embedded and file branches open on a
         // blocking thread pool while the remote branch probes health and
         // version asynchronously. An open failure fails bootstrap fast;
         // only explicit disabling yields an empty slot.
         #[cfg(feature = "keyword")]
-        let keyword_index =
-            wf_api::rag::open_keyword_index_async_with(&keyword_location, &keyword_selection)
-                .await
-                .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
+        let keyword_index = wf_api::rag::open_keyword_index_async_with(
+            &keyword_location,
+            &keyword_selection,
+            &retrieval_extensions,
+        )
+        .await
+        .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
         #[cfg(not(feature = "keyword"))]
         let keyword_index = {
             let _ = (keyword_location, keyword_selection);
@@ -349,6 +356,7 @@ impl Runtime {
                     keyword_index
                         .as_ref()
                         .map(|index: &wf_api::rag::SharedKeywordIndex| index.as_arc().clone()),
+                    retrieval_extensions.clone(),
                 )
             })
         } else {
@@ -417,6 +425,7 @@ impl Runtime {
             tool_registry.clone(),
             llm_gateway.clone(),
             hook_handler_registry.clone(),
+            retrieval_extensions.clone(),
         )
         .await?;
         config.resource.apply_custom_source();

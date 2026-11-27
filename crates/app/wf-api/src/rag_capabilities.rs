@@ -283,6 +283,7 @@ impl RagSearchBackend for RagCapabilityService {
             self.handles.embedder.as_ref(),
             self.handles.keyword.as_deref(),
             &self.settings.query,
+            &self.handles.extensions,
             query,
         )
         .await
@@ -499,6 +500,7 @@ impl RagEvalBackend for RagCapabilityService {
             &query.namespace,
             &query.cases,
             &config,
+            &self.handles.extensions,
         )
         .await
         .map_err(|error| ToolError::ExecutionError(error.to_string()))?;
@@ -597,6 +599,7 @@ mod tests {
             Arc::new(vector_contracts::InMemoryVectorStore::new()),
             Arc::new(TestEmbedder),
             None,
+            std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
         );
         let settings = RagCapabilitySettings {
             enabled: true,
@@ -730,6 +733,7 @@ mod tests {
             Arc::new(vector_contracts::InMemoryVectorStore::new()),
             Arc::new(TestEmbedder),
             None,
+            std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
         );
         let disabled = Arc::new(RagCapabilityService::new(
             handles,

@@ -26,14 +26,12 @@ use crate::{
 /// dispatch handlers that call back into the generated
 /// `wf_plugin_dispatch_handler`, JSON entries carry declarative CLI payloads
 /// validated by the host, so no handler closures are needed here.
-/// One recorded contribution: the first C string argument travels in
-/// `first`, the optional second C string argument in `second`, and the
-/// middleware priority in `priority`.
+/// One recorded contribution: the C string argument travels in `first`
+/// and the middleware priority in `priority`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NativeRecord {
     pub kind: String,
     pub first: String,
-    pub second: String,
     pub priority: i32,
 }
 
@@ -55,19 +53,6 @@ impl NativeRegistrar {
             .push(NativeRecord {
                 kind: kind.to_owned(),
                 first: first.to_owned(),
-                second: String::new(),
-                priority: 0,
-            });
-    }
-
-    fn record_double(&self, kind: &str, first: &str, second: &str) {
-        self.names
-            .lock()
-            .expect("registrar poisoned")
-            .push(NativeRecord {
-                kind: kind.to_owned(),
-                first: first.to_owned(),
-                second: second.to_owned(),
                 priority: 0,
             });
     }
@@ -153,11 +138,6 @@ impl NativeRegistrar {
         self.record("text-analyzer", name);
     }
 
-    /// Register retrieval shaping advice; dispatched on `retrieval`.
-    pub fn register_retrieval_advisor(&self, name: &str) {
-        self.record("retrieval-advisor", name);
-    }
-
     /// Register ingest metadata enrichment; dispatched on `metadata-extractor`.
     pub fn register_metadata_extractor(&self, name: &str) {
         self.record("metadata-extractor", name);
@@ -193,13 +173,6 @@ impl NativeRegistrar {
         self.record("vector-encoding", name);
     }
 
-    /// Register a snapshot policy document under `name`.
-    pub fn register_snapshot_policy(&self, name: &str, policy: &serde_json::Value) {
-        if let Ok(json) = serde_json::to_string(policy) {
-            self.record_double("snapshot-policy", name, &json);
-        }
-    }
-
     pub fn register_event_handler(&self, event_type: &str) {
         self.record("event-handler", event_type);
     }
@@ -211,7 +184,6 @@ impl NativeRegistrar {
             .push(NativeRecord {
                 kind: "middleware".to_owned(),
                 first: phase.to_owned(),
-                second: String::new(),
                 priority,
             });
     }
@@ -465,11 +437,7 @@ pub mod __private {
             let Ok(c_first) = CString::new(record.first) else {
                 return 1;
             };
-            let Ok(c_second) = CString::new(record.second) else {
-                return 1;
-            };
             let first_ptr = c_first.as_ptr();
-            let second_ptr = c_second.as_ptr();
             let ctx = host.context;
             let priority = record.priority;
             let ok = match record.kind.as_str() {
@@ -490,16 +458,12 @@ pub mod __private {
                 "node-template" => host.register_node_template.map(|f| f(ctx, first_ptr)),
                 "trigger" => host.register_trigger.map(|f| f(ctx, first_ptr)),
                 "text-analyzer" => host.register_text_analyzer.map(|f| f(ctx, first_ptr)),
-                "retrieval-advisor" => host.register_retrieval_advisor.map(|f| f(ctx, first_ptr)),
                 "metadata-extractor" => host.register_metadata_extractor.map(|f| f(ctx, first_ptr)),
                 "chunk-splitter" => host.register_chunk_splitter.map(|f| f(ctx, first_ptr)),
                 "route-selector" => host.register_route_selector.map(|f| f(ctx, first_ptr)),
                 "postprocessor" => host.register_postprocessor.map(|f| f(ctx, first_ptr)),
                 "eval-judge" => host.register_eval_judge.map(|f| f(ctx, first_ptr)),
                 "vector-encoding" => host.register_vector_encoding.map(|f| f(ctx, first_ptr)),
-                "snapshot-policy" => host
-                    .register_snapshot_policy
-                    .map(|f| f(ctx, first_ptr, second_ptr)),
                 "event-handler" => host.register_event_handler.map(|f| f(ctx, first_ptr)),
                 "middleware" => host
                     .register_middleware
@@ -940,24 +904,6 @@ mod tests {
     }
 
     #[test]
-    fn registrar_records_middleware_priority_and_snapshot_policy() {
-        let registrar = NativeRegistrar::new();
-        registrar.register_middleware("pre", 7);
-        registrar.register_snapshot_policy("nightly", &json!({"expect": 1}));
-        registrar.register_tool(&json!({"id": "t"}));
-        let recorded = registrar.recorded();
-        assert_eq!(recorded.len(), 3);
-        assert_eq!(recorded[0].kind, "middleware");
-        assert_eq!(recorded[0].first, "pre");
-        assert_eq!(recorded[0].priority, 7);
-        assert_eq!(recorded[1].kind, "snapshot-policy");
-        assert_eq!(recorded[1].first, "nightly");
-        assert!(recorded[1].second.contains("expect"));
-        assert_eq!(recorded[2].kind, "tool");
-        assert!(recorded[2].first.contains("\"id\""));
-    }
-
-    #[test]
     fn header_mirror_covers_new_registrar_symbols() {
         let header = include_str!("../c-api/wf_plugin.h");
         for symbol in [
@@ -970,9 +916,7 @@ mod tests {
             "register_node_template",
             "register_trigger",
             "register_text_analyzer",
-            "register_retrieval_advisor",
             "register_vector_encoding",
-            "register_snapshot_policy",
             "register_metadata_extractor",
             "register_chunk_splitter",
             "register_route_selector",

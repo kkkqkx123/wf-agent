@@ -69,9 +69,7 @@ typedef struct WfContributionRegistrar {
     int (*register_trigger)(void *ctx, const char *trigger_json);
     int (*register_compaction_advisor)(void *ctx, const char *name);
     int (*register_text_analyzer)(void *ctx, const char *name);
-    int (*register_retrieval_advisor)(void *ctx, const char *name);
     int (*register_vector_encoding)(void *ctx, const char *name);
-    int (*register_snapshot_policy)(void *ctx, const char *name, const char *policy_json);
     int (*register_metadata_extractor)(void *ctx, const char *name);
     int (*register_chunk_splitter)(void *ctx, const char *name);
     int (*register_route_selector)(void *ctx, const char *name);

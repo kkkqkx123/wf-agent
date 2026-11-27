@@ -103,6 +103,7 @@ mod tests {
             gateway.clone(),
             Arc::new(wf_execution_shared::hooks::HookHandlerRegistry::new()),
             Arc::new(wf_plugin::PluginRegistry::new()),
+            Arc::new(wf_rag::RetrievalExtensions::new()),
         );
 
         let manager = ContributionManager::new();

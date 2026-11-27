@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::RagIndexConfig;
-use crate::sqlite_index::SqliteKeywordIndex;
+use keyword_contracts::SqliteKeywordIndex;
 use vector_contracts::{FieldFilter, FilterOperator, InMemoryVectorStore};
 
 struct UnitEmbedder {
@@ -125,6 +125,7 @@ impl wf_plugin_sdk::PluginPostprocessor for ReversePostprocessor {
 
 #[tokio::test]
 async fn conditions_and_shaping_apply_on_read_path() {
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
@@ -139,6 +140,7 @@ async fn conditions_and_shaping_apply_on_read_path() {
         "kb",
         &[first, second],
         &RagIndexConfig::new("kb"),
+        &extensions,
     )
     .await
     .expect("ingest");
@@ -149,9 +151,17 @@ async fn conditions_and_shaping_apply_on_read_path() {
         context_budget_chars: Some(10000),
         ..RagQueryConfig::default()
     };
-    let hits = query(&store, &embedder, "kb", "kb", "rust ownership", &config)
-        .await
-        .expect("query");
+    let hits = query(
+        &store,
+        &embedder,
+        "kb",
+        "kb",
+        "rust ownership",
+        &config,
+        &extensions,
+    )
+    .await
+    .expect("query");
     assert!(!hits.is_empty());
     assert!(hits.iter().all(|hit| hit.source == "b.md"));
     let plain = query(
@@ -161,6 +171,7 @@ async fn conditions_and_shaping_apply_on_read_path() {
         "kb",
         "rust ownership",
         &RagQueryConfig::default(),
+        &extensions,
     )
     .await
     .expect("query");
@@ -169,6 +180,7 @@ async fn conditions_and_shaping_apply_on_read_path() {
 
 #[tokio::test]
 async fn ingest_then_query_roundtrip() {
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
@@ -182,6 +194,7 @@ async fn ingest_then_query_roundtrip() {
             doc("d2", "go.md", "go go go routines channels"),
         ],
         &RagIndexConfig::new("kb"),
+        &extensions,
     )
     .await
     .expect("ingest");
@@ -195,6 +208,7 @@ async fn ingest_then_query_roundtrip() {
         "kb",
         "rust ownership",
         &RagQueryConfig::default(),
+        &extensions,
     )
     .await
     .expect("query");
@@ -204,6 +218,7 @@ async fn ingest_then_query_roundtrip() {
 
 #[tokio::test]
 async fn duplicate_policy_skip_and_overwrite() {
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
@@ -215,6 +230,7 @@ async fn duplicate_policy_skip_and_overwrite() {
         "kb",
         &documents,
         &RagIndexConfig::new("kb"),
+        &extensions,
     )
     .await
     .expect("first ingest");
@@ -226,6 +242,7 @@ async fn duplicate_policy_skip_and_overwrite() {
         "kb",
         &documents,
         &RagIndexConfig::new("kb"),
+        &extensions,
     )
     .await
     .expect("second ingest");
@@ -240,6 +257,7 @@ async fn duplicate_policy_skip_and_overwrite() {
         "kb",
         &documents,
         &overwrite,
+        &extensions,
     )
     .await
     .expect("overwrite");
@@ -247,15 +265,22 @@ async fn duplicate_policy_skip_and_overwrite() {
 
     let mut fail = RagIndexConfig::new("kb");
     fail.duplicate_policy = DuplicatePolicy::Fail;
-    assert!(
-        ingest_documents(&store, Some(&keyword), &embedder, "kb", &documents, &fail)
-            .await
-            .is_err()
-    );
+    assert!(ingest_documents(
+        &store,
+        Some(&keyword),
+        &embedder,
+        "kb",
+        &documents,
+        &fail,
+        &extensions
+    )
+    .await
+    .is_err());
 }
 
 #[tokio::test]
 async fn cleaning_applies_before_chunking() {
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
@@ -268,6 +293,7 @@ async fn cleaning_applies_before_chunking() {
         "kb",
         &[doc("d1", "noisy.md", "alpha\nalpha\nbeta gamma delta")],
         &config,
+        &extensions,
     )
     .await
     .expect("ingest");
@@ -279,6 +305,7 @@ async fn cleaning_applies_before_chunking() {
         "kb",
         "beta",
         &RagQueryConfig::default(),
+        &extensions,
     )
     .await
     .expect("query");
@@ -287,6 +314,7 @@ async fn cleaning_applies_before_chunking() {
 
 #[tokio::test]
 async fn hybrid_query_blends_keyword_signal() {
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
@@ -297,6 +325,7 @@ async fn hybrid_query_blends_keyword_signal() {
         "kb",
         &[doc("d1", "rust.md", "rust ownership borrowing")],
         &RagIndexConfig::new("kb"),
+        &extensions,
     )
     .await
     .expect("ingest");
@@ -312,6 +341,7 @@ async fn hybrid_query_blends_keyword_signal() {
         "kb",
         "ownership",
         &config,
+        &extensions,
     )
     .await
     .expect("hybrid");
@@ -323,6 +353,7 @@ async fn hybrid_query_blends_keyword_signal() {
         "kb",
         "ownership",
         &RagQueryConfig::default(),
+        &extensions,
     )
     .await
     .expect("metrics");
@@ -331,28 +362,36 @@ async fn hybrid_query_blends_keyword_signal() {
 
 #[tokio::test]
 async fn unknown_shaping_name_fails() {
-    let _guard = crate::plugin::test_registry_guard().await;
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_postprocessors();
+    extensions.clear_postprocessors();
     let config = RagQueryConfig {
         postprocessor: Some("missing-shape".to_string()),
         ..RagQueryConfig::default()
     };
-    let err = query(&store, &embedder, "kb", "kb", "ownership", &config)
-        .await
-        .expect_err("unknown shaping must fail");
+    let err = query(
+        &store,
+        &embedder,
+        "kb",
+        "kb",
+        "ownership",
+        &config,
+        &extensions,
+    )
+    .await
+    .expect_err("unknown shaping must fail");
     assert!(err.to_string().contains("missing-shape"));
-    crate::plugin::clear_postprocessors();
+    extensions.clear_postprocessors();
 }
 
 #[tokio::test]
 async fn plugin_chunking_names_are_validated() {
-    let _guard = crate::plugin::test_registry_guard().await;
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_metadata_extractors();
-    crate::plugin::clear_chunk_splitters();
+    extensions.clear_metadata_extractors();
+    extensions.clear_chunk_splitters();
     let mut config = RagIndexConfig::new("kb");
     config.metadata_extractor = Some("missing-extractor".to_string());
     assert!(ingest_documents(
@@ -361,7 +400,8 @@ async fn plugin_chunking_names_are_validated() {
         &embedder,
         "kb",
         &[doc("d1", "a.md", "alpha beta gamma")],
-        &config
+        &config,
+        &extensions
     )
     .await
     .is_err());
@@ -373,13 +413,14 @@ async fn plugin_chunking_names_are_validated() {
         &embedder,
         "kb",
         &[doc("d1", "a.md", "alpha beta gamma")],
-        &config
+        &config,
+        &extensions
     )
     .await
     .is_err());
     let mut config = RagIndexConfig::new("kb");
     config.hierarchical = true;
-    crate::plugin::register_chunk_splitter("split", std::sync::Arc::new(TwoPieceSplitter));
+    extensions.register_chunk_splitter("split", std::sync::Arc::new(TwoPieceSplitter));
     config.chunk_splitter = Some("split".to_string());
     assert!(ingest_documents(
         &store,
@@ -387,23 +428,24 @@ async fn plugin_chunking_names_are_validated() {
         &embedder,
         "kb",
         &[doc("d1", "a.md", "alpha beta gamma")],
-        &config
+        &config,
+        &extensions
     )
     .await
     .is_err());
-    crate::plugin::clear_metadata_extractors();
-    crate::plugin::clear_chunk_splitters();
+    extensions.clear_metadata_extractors();
+    extensions.clear_chunk_splitters();
 }
 
 #[tokio::test]
 async fn extractor_merges_and_splitter_replaces() {
-    let _guard = crate::plugin::test_registry_guard().await;
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_metadata_extractors();
-    crate::plugin::clear_chunk_splitters();
-    crate::plugin::register_metadata_extractor("ext", std::sync::Arc::new(MergingExtractor));
-    crate::plugin::register_chunk_splitter("split", std::sync::Arc::new(TwoPieceSplitter));
+    extensions.clear_metadata_extractors();
+    extensions.clear_chunk_splitters();
+    extensions.register_metadata_extractor("ext", std::sync::Arc::new(MergingExtractor));
+    extensions.register_chunk_splitter("split", std::sync::Arc::new(TwoPieceSplitter));
     let mut config = RagIndexConfig::new("kb");
     config.metadata_extractor = Some("ext".to_string());
     config.chunk_splitter = Some("split".to_string());
@@ -414,6 +456,7 @@ async fn extractor_merges_and_splitter_replaces() {
         "kb",
         &[doc("d1", "a.md", "alpha beta gamma delta epsilon").with_metadata("page", "1")],
         &config,
+        &extensions,
     )
     .await
     .expect("ingest with plugins");
@@ -444,21 +487,22 @@ async fn extractor_merges_and_splitter_replaces() {
         "kb",
         "first",
         &RagQueryConfig::default(),
+        &extensions,
     )
     .await
     .expect("query");
     assert_eq!(hits.len(), 2);
-    crate::plugin::clear_metadata_extractors();
-    crate::plugin::clear_chunk_splitters();
+    extensions.clear_metadata_extractors();
+    extensions.clear_chunk_splitters();
 }
 
 #[tokio::test]
 async fn failing_splitter_falls_back_to_builtin() {
-    let _guard = crate::plugin::test_registry_guard().await;
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_chunk_splitters();
-    crate::plugin::register_chunk_splitter("fail", std::sync::Arc::new(FailingSplitter));
+    extensions.clear_chunk_splitters();
+    extensions.register_chunk_splitter("fail", std::sync::Arc::new(FailingSplitter));
     let mut config = RagIndexConfig::new("kb");
     config.chunk_splitter = Some("fail".to_string());
     let stats = ingest_documents(
@@ -468,19 +512,20 @@ async fn failing_splitter_falls_back_to_builtin() {
         "kb",
         &[doc("d1", "a.md", "alpha beta gamma delta")],
         &config,
+        &extensions,
     )
     .await
     .expect("fallback ingest");
     assert_eq!(stats.documents, 1);
-    crate::plugin::clear_chunk_splitters();
+    extensions.clear_chunk_splitters();
 }
 
 #[tokio::test]
 async fn postprocessor_shapes_hits_and_unknown_fails() {
-    let _guard = crate::plugin::test_registry_guard().await;
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_postprocessors();
+    extensions.clear_postprocessors();
     ingest_documents(
         &store,
         None::<&SqliteKeywordIndex>,
@@ -491,10 +536,11 @@ async fn postprocessor_shapes_hits_and_unknown_fails() {
             doc("d2", "go.md", "go go go routines channels"),
         ],
         &RagIndexConfig::new("kb"),
+        &extensions,
     )
     .await
     .expect("ingest");
-    crate::plugin::register_postprocessor("rev", std::sync::Arc::new(ReversePostprocessor));
+    extensions.register_postprocessor("rev", std::sync::Arc::new(ReversePostprocessor));
     let config = RagQueryConfig {
         postprocessor: Some("rev".to_string()),
         ..RagQueryConfig::default()
@@ -506,38 +552,58 @@ async fn postprocessor_shapes_hits_and_unknown_fails() {
         "kb",
         "routines",
         &RagQueryConfig::default(),
+        &extensions,
     )
     .await
     .expect("query");
-    let shaped = query(&store, &embedder, "kb", "kb", "routines", &config)
-        .await
-        .expect("shaped query");
+    let shaped = query(
+        &store,
+        &embedder,
+        "kb",
+        "kb",
+        "routines",
+        &config,
+        &extensions,
+    )
+    .await
+    .expect("shaped query");
     assert_eq!(shaped.len(), plain.len());
     assert_eq!(shaped[0].chunk_id, plain.last().expect("hit").chunk_id);
     let bad = RagQueryConfig {
         postprocessor: Some("missing-post".to_string()),
         ..RagQueryConfig::default()
     };
-    assert!(query(&store, &embedder, "kb", "kb", "routines", &bad)
-        .await
-        .is_err());
-    crate::plugin::clear_postprocessors();
+    assert!(
+        query(&store, &embedder, "kb", "kb", "routines", &bad, &extensions)
+            .await
+            .is_err()
+    );
+    extensions.clear_postprocessors();
 }
 
 #[tokio::test]
 async fn unknown_encoding_name_fails() {
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_vector_encodings();
+    extensions.clear_vector_encodings();
     let config = RagQueryConfig {
         vector_encoding: Some("missing-encoding".to_string()),
         ..RagQueryConfig::default()
     };
-    let err = query(&store, &embedder, "kb", "kb", "ownership", &config)
-        .await
-        .expect_err("unknown encoding must fail");
+    let err = query(
+        &store,
+        &embedder,
+        "kb",
+        "kb",
+        "ownership",
+        &config,
+        &extensions,
+    )
+    .await
+    .expect_err("unknown encoding must fail");
     assert!(err.to_string().contains("missing-encoding"));
-    crate::plugin::clear_vector_encodings();
+    extensions.clear_vector_encodings();
 }
 
 struct SparseEncoding;
@@ -563,14 +629,12 @@ impl wf_plugin_sdk::PluginVectorEncoding for SparseEncoding {
 
 #[tokio::test]
 async fn sparse_encoding_ingests_and_queries() {
-    let _guard = crate::plugin::test_registry_guard().await;
+    let extensions = crate::plugin::RetrievalExtensions::new();
     let store = InMemoryVectorStore::new();
     let embedder = UnitEmbedder { dimension: 8 };
-    crate::plugin::clear_vector_encodings();
-    crate::plugin::register_vector_encoding(
-        "test-sparse-encoding",
-        std::sync::Arc::new(SparseEncoding),
-    );
+    extensions.clear_vector_encodings();
+    extensions
+        .register_vector_encoding("test-sparse-encoding", std::sync::Arc::new(SparseEncoding));
     let index = RagIndexConfig::new("kb").with_kind(VectorKind::Sparse, "test-sparse-encoding");
     ingest_documents(
         &store,
@@ -582,6 +646,7 @@ async fn sparse_encoding_ingests_and_queries() {
             doc("d2", "go.md", "go routines"),
         ],
         &index,
+        &extensions,
     )
     .await
     .expect("sparse ingest");
@@ -591,7 +656,7 @@ async fn sparse_encoding_ingests_and_queries() {
         sparse_candidates: Some(5),
         ..RagQueryConfig::default()
     };
-    let hits = query(&store, &embedder, "kb", "kb", "rust", &config)
+    let hits = query(&store, &embedder, "kb", "kb", "rust", &config, &extensions)
         .await
         .expect("sparse query");
     assert!(!hits.is_empty());
@@ -604,7 +669,7 @@ async fn sparse_encoding_ingests_and_queries() {
         page.points[0].vector,
         vector_contracts::VectorData::Sparse { .. }
     ));
-    crate::plugin::clear_vector_encodings();
+    extensions.clear_vector_encodings();
 }
 
 struct PipelineNamedEncoding;
@@ -633,9 +698,9 @@ impl wf_plugin_sdk::PluginVectorEncoding for PipelineNamedEncoding {
 
 #[tokio::test]
 async fn named_encoding_ingests_and_fuses_space_lists() {
-    let _guard = crate::plugin::test_registry_guard().await;
-    crate::plugin::clear_vector_encodings();
-    crate::plugin::register_vector_encoding(
+    let extensions = crate::plugin::RetrievalExtensions::new();
+    extensions.clear_vector_encodings();
+    extensions.register_vector_encoding(
         "test-pipeline-named",
         std::sync::Arc::new(PipelineNamedEncoding),
     );
@@ -678,6 +743,7 @@ async fn named_encoding_ingests_and_fuses_space_lists() {
             doc("d2", "go.md", "go routines"),
         ],
         &index,
+        &extensions,
     )
     .await
     .expect("named ingest");
@@ -689,10 +755,17 @@ async fn named_encoding_ingests_and_fuses_space_lists() {
         top_k: 5,
         ..RagQueryConfig::default()
     };
-    let (hits, metrics) =
-        query_with_metrics(&store, &embedder, "named-kb", "kb", "rust", &query_config)
-            .await
-            .expect("named query");
+    let (hits, metrics) = query_with_metrics(
+        &store,
+        &embedder,
+        "named-kb",
+        "kb",
+        "rust",
+        &query_config,
+        &extensions,
+    )
+    .await
+    .expect("named query");
     assert!(!hits.is_empty());
     assert_eq!(metrics.target_space.as_deref(), Some("title"));
     assert_eq!(
@@ -707,11 +780,17 @@ async fn named_encoding_ingests_and_fuses_space_lists() {
         },
         ..query_config
     };
-    assert!(
-        query(&store, &embedder, "named-kb", "kb", "rust", &weighted)
-            .await
-            .is_err()
-    );
-    crate::plugin::clear_vector_encodings();
+    assert!(query(
+        &store,
+        &embedder,
+        "named-kb",
+        "kb",
+        "rust",
+        &weighted,
+        &extensions
+    )
+    .await
+    .is_err());
+    extensions.clear_vector_encodings();
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -75,6 +75,7 @@ pub async fn init_plugins(
     tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     llm_gateway: Arc<LlmGateway>,
     hook_registry: Arc<wf_execution_shared::hooks::HookHandlerRegistry>,
+    retrieval_extensions: Arc<wf_rag::RetrievalExtensions>,
 ) -> RuntimeResult<Option<wf_plugin::PluginEngine>> {
     if !config.enabled {
         return Ok(None);
@@ -107,6 +108,7 @@ pub async fn init_plugins(
             llm_gateway,
             hook_registry,
             registry.clone(),
+            retrieval_extensions,
         )));
 
     let event_bus = wf_core::EventBus::new(256);

@@ -43,9 +43,7 @@ pub struct ContributionManager {
     pub(crate) tool_description_registry: Registry<String, Arc<ToolDescriptionData>>,
     pub(crate) tool_registry: Registry<String, Arc<ToolDef>>,
     pub(crate) text_analyzer_registry: Registry<String, Arc<dyn PluginTextAnalyzer>>,
-    pub(crate) retrieval_advisor_registry: Registry<String, Arc<dyn PluginRetrievalAdvisor>>,
     pub(crate) vector_encoding_registry: Registry<String, Arc<dyn PluginVectorEncoding>>,
-    pub(crate) snapshot_policy_registry: Registry<String, Arc<Value>>,
     pub(crate) metadata_extractor_registry: Registry<String, Arc<dyn PluginMetadataExtractor>>,
     pub(crate) chunk_splitter_registry: Registry<String, Arc<dyn PluginChunkSplitter>>,
     pub(crate) route_selector_registry: Registry<String, Arc<dyn PluginRouteSelector>>,
@@ -94,9 +92,7 @@ impl ContributionManager {
             tool_description_registry: Registry::new(),
             tool_registry: Registry::new(),
             text_analyzer_registry: Registry::new(),
-            retrieval_advisor_registry: Registry::new(),
             vector_encoding_registry: Registry::new(),
-            snapshot_policy_registry: Registry::new(),
             metadata_extractor_registry: Registry::new(),
             chunk_splitter_registry: Registry::new(),
             route_selector_registry: Registry::new(),
@@ -143,11 +139,7 @@ impl ContributionManager {
             .unregister_by_plugin(plugin_id);
         self.tool_registry.unregister_by_plugin(plugin_id);
         self.text_analyzer_registry.unregister_by_plugin(plugin_id);
-        self.retrieval_advisor_registry
-            .unregister_by_plugin(plugin_id);
         self.vector_encoding_registry
-            .unregister_by_plugin(plugin_id);
-        self.snapshot_policy_registry
             .unregister_by_plugin(plugin_id);
         self.metadata_extractor_registry
             .unregister_by_plugin(plugin_id);
@@ -315,19 +307,9 @@ impl ContributionManager {
                 records.push((ContributionType::TextAnalyzer.as_str().into(), key));
             }
         }
-        for (key, owner) in self.all_retrieval_advisors() {
-            if owner == plugin_id {
-                records.push((ContributionType::RetrievalAdvisor.as_str().into(), key));
-            }
-        }
         for (key, owner) in self.all_vector_encodings() {
             if owner == plugin_id {
                 records.push((ContributionType::VectorEncoding.as_str().into(), key));
-            }
-        }
-        for (key, owner) in self.all_snapshot_policies() {
-            if owner == plugin_id {
-                records.push((ContributionType::SnapshotPolicy.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_metadata_extractors() {

@@ -15,6 +15,7 @@ pub async fn ingest_documents<S, E, K>(
     collection: &str,
     documents: &[RagDocument],
     config: &RagIndexConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<IngestStats>
 where
     S: VectorStorage + ?Sized,
@@ -31,8 +32,8 @@ where
             "namespace must not be empty".to_string(),
         ));
     }
-    validate_plugin_chunking(config)?;
-    validate_ingest_encoding(config)?;
+    validate_plugin_chunking(config, extensions)?;
+    validate_ingest_encoding(config, extensions)?;
     let chunker = RecursiveChunker::new(config.chunker_config())?;
     let mut stats = IngestStats::default();
     let mut pending: Vec<RagChunk> = Vec::new();
@@ -46,7 +47,7 @@ where
         } else {
             document.clone()
         };
-        apply_configured_extractor(&mut effective, config)?;
+        apply_configured_extractor(&mut effective, config, extensions)?;
         if !matches!(config.duplicate_policy, DuplicatePolicy::Overwrite)
             && source_indexed(
                 store,
@@ -81,7 +82,7 @@ where
             .as_deref()
             .filter(|name| !name.trim().is_empty())
         {
-            match split_with_plugin(&effective, name) {
+            match split_with_plugin(&effective, name, extensions) {
                 Some(chunks) => chunks,
                 None => chunker.split_documents(std::slice::from_ref(&effective))?,
             }
@@ -111,6 +112,7 @@ where
             })?;
         for text in &texts {
             let output = crate::plugin::encode_named_with_registered(
+                extensions,
                 name,
                 text,
                 serde_json::json!({}),
@@ -125,6 +127,7 @@ where
     {
         for text in &texts {
             let output = crate::plugin::encode_with_registered(
+                extensions,
                 name,
                 text,
                 serde_json::json!({}),
@@ -171,6 +174,9 @@ where
         spec
     };
     store.ensure_collection(&spec).await?;
+    if let Some(keyword) = keyword {
+        keyword.ensure_collection(collection).await?;
+    }
     let mut points = Vec::with_capacity(pending.len());
     if let Some(spaces) = &named_spaces {
         for (chunk, vectors) in pending.iter().zip(named_encoded) {

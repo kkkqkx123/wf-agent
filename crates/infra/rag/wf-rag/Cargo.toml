@@ -9,7 +9,6 @@ keyword-contracts = { path = "../keyword-contracts" }
 source-contracts = { path = "../source-contracts" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-plugin-sdk = { path = "../../../foundation/wf-plugin-sdk" }
-once_cell = { workspace = true }
 llm-embedding = { package = "llm-suite-embedding", path = "../../llm-suite/crates/llm-suite-embedding" }
 llm-rerank = { package = "llm-suite-rerank", path = "../../llm-suite/crates/llm-suite-rerank" }
 serde.workspace = true
@@ -21,8 +20,6 @@ tracing.workspace = true
 sha2.workspace = true
 [features]
 default = []
-keyword-sqlite = []
-vector = []
 tantivy = ["keyword-contracts/tantivy"]
 elastic = ["keyword-contracts/elastic"]
 

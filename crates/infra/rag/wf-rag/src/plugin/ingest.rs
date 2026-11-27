@@ -1,47 +1,5 @@
 use super::*;
 
-/// Registers a metadata extractor under `name`, replacing any prior entry.
-/// Delegates to the shared global registry; new code holds an explicit instance.
-pub fn register_metadata_extractor(name: &str, extractor: Arc<dyn PluginMetadataExtractor>) {
-    super::RetrievalExtensions::global().register_metadata_extractor(name, extractor);
-}
-
-/// Removes a metadata extractor.
-pub fn unregister_metadata_extractor(name: &str) {
-    super::RetrievalExtensions::global().unregister_metadata_extractor(name);
-}
-
-/// Finds a registered metadata extractor by name.
-pub fn find_metadata_extractor(name: &str) -> Option<Arc<dyn PluginMetadataExtractor>> {
-    super::RetrievalExtensions::global().find_metadata_extractor(name)
-}
-
-/// Clears metadata extractors; tests use it to isolate cases.
-pub fn clear_metadata_extractors() {
-    super::RetrievalExtensions::global().clear_metadata_extractors();
-}
-
-/// Registers a chunk splitter under `name`, replacing any prior entry.
-/// Delegates to the shared global registry; new code holds an explicit instance.
-pub fn register_chunk_splitter(name: &str, splitter: Arc<dyn PluginChunkSplitter>) {
-    super::RetrievalExtensions::global().register_chunk_splitter(name, splitter);
-}
-
-/// Removes a chunk splitter.
-pub fn unregister_chunk_splitter(name: &str) {
-    super::RetrievalExtensions::global().unregister_chunk_splitter(name);
-}
-
-/// Finds a registered chunk splitter by name.
-pub fn find_chunk_splitter(name: &str) -> Option<Arc<dyn PluginChunkSplitter>> {
-    super::RetrievalExtensions::global().find_chunk_splitter(name)
-}
-
-/// Clears chunk splitters; tests use it to isolate cases.
-pub fn clear_chunk_splitters() {
-    super::RetrievalExtensions::global().clear_chunk_splitters();
-}
-
 /// One suggested content piece from a chunk splitter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SplitPiece {
@@ -55,11 +13,12 @@ pub struct SplitPiece {
 /// Output must be an object of scalar values; unknown names and
 /// non-object outputs fail so misconfiguration surfaces loudly.
 pub fn extract_with_registered(
+    extensions: &RetrievalExtensions,
     name: &str,
     text: &str,
     options: serde_json::Value,
 ) -> crate::error::Result<HashMap<String, String>> {
-    let Some(extractor) = find_metadata_extractor(name) else {
+    let Some(extractor) = extensions.find_metadata_extractor(name) else {
         return Err(crate::error::RagError::InvalidInput(format!(
             "unknown metadata extractor '{name}'"
         )));
@@ -92,11 +51,12 @@ pub fn extract_with_registered(
 /// Unknown names fail; empty or failing suggestions let the caller keep
 /// the built-in splitter by handling the error as a fallback signal.
 pub fn split_with_registered(
+    extensions: &RetrievalExtensions,
     name: &str,
     text: &str,
     options: serde_json::Value,
 ) -> crate::error::Result<Vec<SplitPiece>> {
-    let Some(splitter) = find_chunk_splitter(name) else {
+    let Some(splitter) = extensions.find_chunk_splitter(name) else {
         return Err(crate::error::RagError::InvalidInput(format!(
             "unknown chunk splitter '{name}'"
         )));

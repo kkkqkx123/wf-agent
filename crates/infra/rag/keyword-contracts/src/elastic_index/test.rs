@@ -48,8 +48,10 @@ fn mixed_mapping_carries_sidecar_and_roundtrip_bodies() {
         "chunk_id".to_string(),
         serde_json::json!("a"),
     )]));
-    let (_, doc) = ElasticKeywordIndex::doc_body_with("kb", &point, KeywordTokenizer::Mixed, None)
-        .expect("doc");
+    let registry = crate::tokenizer::AnalyzerRegistry::new();
+    let (_, doc) =
+        ElasticKeywordIndex::doc_body_with("kb", &point, KeywordTokenizer::Mixed, None, &registry)
+            .expect("doc");
     assert!(doc.get("content_tokens").is_some());
     let body = ElasticKeywordIndex::search_body_with(
         "kb",
@@ -58,6 +60,7 @@ fn mixed_mapping_carries_sidecar_and_roundtrip_bodies() {
         10,
         KeywordTokenizer::Mixed,
         None,
+        &registry,
     );
     assert!(body.pointer("/query/bool/must").is_some());
 }

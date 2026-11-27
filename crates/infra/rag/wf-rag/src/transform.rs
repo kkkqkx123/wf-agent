@@ -9,7 +9,7 @@ use async_trait::async_trait;
 
 use crate::config::RagQueryConfig;
 use crate::error::{RagError, Result};
-use crate::llm::{map_failure, CompletionLlm};
+use crate::llm::{map_failure, CompletionLlm, PromptTemplates};
 use crate::retriever::RetrievedChunk;
 use crate::rewrite::QueryRewriter;
 
@@ -47,16 +47,14 @@ pub async fn decompose_questions<L: CompletionLlm + ?Sized>(
     llm: &L,
     query: &str,
     max_sub: usize,
+    prompts: &PromptTemplates,
 ) -> Vec<String> {
     if query.trim().is_empty() {
         return Vec::new();
     }
     let original = query.trim().to_string();
-    let prompt = format!(
-        "Break the question below into independent sub-questions that together cover it. \
-         List each sub-question on its own line starting with '- '. Keep them short.\n\nQuestion: {original}"
-    );
-    match llm.complete(&prompt).await {
+    let request = prompts.request(&prompts.decompose, &[("query", &original)]);
+    match llm.complete_request(&request).await {
         Ok(text) => {
             let mut variants = vec![original];
             for item in parse_list_answer(&text, max_sub) {
@@ -78,15 +76,13 @@ pub async fn decompose_questions<L: CompletionLlm + ?Sized>(
 pub async fn hypothetical_passage<L: CompletionLlm + ?Sized>(
     llm: &L,
     query: &str,
+    prompts: &PromptTemplates,
 ) -> Option<String> {
     if query.trim().is_empty() {
         return None;
     }
-    let prompt = format!(
-        "Write a short factual passage that answers the question below. Output only the passage.\n\nQuestion: {}",
-        query.trim()
-    );
-    match llm.complete(&prompt).await {
+    let request = prompts.request(&prompts.hypothetical, &[("query", query.trim())]);
+    match llm.complete_request(&request).await {
         Ok(text) => {
             let trimmed = text.trim().to_string();
             if trimmed.is_empty() {
@@ -107,6 +103,7 @@ pub async fn refine_with_feedback<L: CompletionLlm + ?Sized>(
     llm: &L,
     query: &str,
     excerpts: &[String],
+    prompts: &PromptTemplates,
 ) -> String {
     let original = query.trim().to_string();
     if original.is_empty() || excerpts.is_empty() {
@@ -125,11 +122,11 @@ pub async fn refine_with_feedback<L: CompletionLlm + ?Sized>(
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let prompt = format!(
-        "Rewrite the question below into a sharper retrieval query using the passages as context. \
-         Output only the rewritten question.\n\nQuestion: {original}\n\nPassages:\n{context}"
+    let request = prompts.request(
+        &prompts.feedback,
+        &[("query", &original), ("context", &context)],
     );
-    match llm.complete(&prompt).await {
+    match llm.complete_request(&request).await {
         Ok(text) => {
             let trimmed = text.trim().to_string();
             if trimmed.is_empty() {
@@ -152,6 +149,8 @@ pub struct LlmQueryRewriter<'a, L: ?Sized> {
     pub llm: &'a L,
     /// Total variants including the original question.
     pub variants: usize,
+    /// Prompt templates used for expansion.
+    pub prompts: PromptTemplates,
 }
 
 #[async_trait]
@@ -164,12 +163,17 @@ impl<L: CompletionLlm + ?Sized> QueryRewriter for LlmQueryRewriter<'_, L> {
         }
         let original = query.trim().to_string();
         let wanted = self.variants.max(2);
-        let prompt = format!(
-            "Rewrite the question below into {} diverse search variants covering the same need. \
-             List each variant on its own line starting with '- '.\n\nQuestion: {original}",
-            wanted - 1
+        let count = (wanted - 1).to_string();
+        let request = self.prompts.request(
+            &self.prompts.variants,
+            &[("count", &count), ("query", &original)],
         );
-        let text = match llm_complete(self.llm, &prompt, "query expansion").await {
+        let text = match self
+            .llm
+            .complete_request(&request)
+            .await
+            .map_err(|err| map_failure("query expansion", err.to_string()))
+        {
             Ok(text) => text,
             Err(_) => return Ok(vec![original]),
         };
@@ -184,16 +188,6 @@ impl<L: CompletionLlm + ?Sized> QueryRewriter for LlmQueryRewriter<'_, L> {
         }
         Ok(variants)
     }
-}
-
-async fn llm_complete<L: CompletionLlm + ?Sized>(
-    llm: &L,
-    prompt: &str,
-    operation: &str,
-) -> Result<String> {
-    llm.complete(prompt)
-        .await
-        .map_err(|err| map_failure(operation, err.to_string()))
 }
 
 /// Decomposition invocation bundling the model port and its shaping.
@@ -214,6 +208,7 @@ pub async fn query_sub_questions<S, E, L>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -225,8 +220,17 @@ where
             "query must not be empty".to_string(),
         ));
     }
-    let variants = decompose_questions(transform.llm, query_text, transform.max_sub).await;
-    crate::pipeline::query_multi(store, embedder, collection, namespace, &variants, config).await
+    let variants = decompose_questions(
+        transform.llm,
+        query_text,
+        transform.max_sub,
+        &config.prompts,
+    )
+    .await;
+    crate::pipeline::query_multi(
+        store, embedder, collection, namespace, &variants, config, extensions,
+    )
+    .await
 }
 
 /// Retrieves with a hypothetical answer passage as an extra variant.
@@ -240,6 +244,7 @@ pub async fn query_with_hyde<S, E, L>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -252,7 +257,7 @@ where
         ));
     }
     let original = query_text.trim().to_string();
-    match hypothetical_passage(llm, &original).await {
+    match hypothetical_passage(llm, &original, &config.prompts).await {
         Some(passage) => {
             crate::pipeline::query_multi(
                 store,
@@ -261,11 +266,15 @@ where
                 namespace,
                 &[original, passage],
                 config,
+                extensions,
             )
             .await
         }
         None => {
-            crate::pipeline::query(store, embedder, collection, namespace, &original, config).await
+            crate::pipeline::query(
+                store, embedder, collection, namespace, &original, config, extensions,
+            )
+            .await
         }
     }
 }
@@ -282,6 +291,7 @@ pub async fn query_with_feedback<S, E, L>(
     namespace: &str,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -293,18 +303,22 @@ where
             "query must not be empty".to_string(),
         ));
     }
-    let first =
-        crate::pipeline::query(store, embedder, collection, namespace, query_text, config).await?;
+    let first = crate::pipeline::query(
+        store, embedder, collection, namespace, query_text, config, extensions,
+    )
+    .await?;
     if first.is_empty() {
         return Ok(first);
     }
     let excerpts: Vec<String> = first.iter().map(|hit| hit.content.clone()).collect();
-    let refined = refine_with_feedback(llm, query_text, &excerpts).await;
+    let refined = refine_with_feedback(llm, query_text, &excerpts, &config.prompts).await;
     if refined == query_text.trim() {
         return Ok(first);
     }
-    let second =
-        crate::pipeline::query(store, embedder, collection, namespace, &refined, config).await?;
+    let second = crate::pipeline::query(
+        store, embedder, collection, namespace, &refined, config, extensions,
+    )
+    .await?;
     if second.is_empty() {
         Ok(first)
     } else {
@@ -408,38 +422,55 @@ mod tests {
     #[tokio::test]
     async fn decomposition_falls_back_to_original() {
         assert_eq!(
-            decompose_questions(&FailingLlm, "why?", 3).await,
+            decompose_questions(&FailingLlm, "why?", 3, &PromptTemplates::default()).await,
             vec!["why?".to_string()]
         );
-        assert!(decompose_questions(&ScriptedLlm::new("- a"), "  ", 3)
-            .await
-            .is_empty());
+        assert!(decompose_questions(
+            &ScriptedLlm::new("- a"),
+            "  ",
+            3,
+            &PromptTemplates::default()
+        )
+        .await
+        .is_empty());
     }
 
     #[tokio::test]
     async fn decomposition_prepends_original_and_caps() {
         let llm = ScriptedLlm::new("- sub one\n- sub two\n- sub three");
-        let variants = decompose_questions(&llm, "main?", 2).await;
+        let variants = decompose_questions(&llm, "main?", 2, &PromptTemplates::default()).await;
         assert_eq!(variants[0], "main?");
         assert_eq!(variants.len(), 3);
     }
 
     #[tokio::test]
     async fn hypothetical_returns_none_on_empty_or_failure() {
-        assert!(hypothetical_passage(&FailingLlm, "why?").await.is_none());
-        assert!(hypothetical_passage(&ScriptedLlm::new("   "), "why?")
-            .await
-            .is_none());
-        assert!(hypothetical_passage(&ScriptedLlm::new("passage"), "why?")
-            .await
-            .is_some());
+        assert!(
+            hypothetical_passage(&FailingLlm, "why?", &PromptTemplates::default())
+                .await
+                .is_none()
+        );
+        assert!(hypothetical_passage(
+            &ScriptedLlm::new("   "),
+            "why?",
+            &PromptTemplates::default()
+        )
+        .await
+        .is_none());
+        assert!(hypothetical_passage(
+            &ScriptedLlm::new("passage"),
+            "why?",
+            &PromptTemplates::default()
+        )
+        .await
+        .is_some());
     }
 
     #[tokio::test]
     async fn feedback_without_excerpts_skips_model_call() {
         let llm = ScriptedLlm::new("refined");
         assert_eq!(
-            refine_with_feedback(&llm, "why?", &[]).await,
+            refine_with_feedback(&llm, "why?", &[], &PromptTemplates::default()).await,
             "why?".to_string()
         );
         assert_eq!(llm.calls.load(Ordering::SeqCst), 0);
@@ -448,11 +479,23 @@ mod tests {
     #[tokio::test]
     async fn feedback_falls_back_to_original() {
         assert_eq!(
-            refine_with_feedback(&FailingLlm, "why?", &["excerpt".to_string()]).await,
+            refine_with_feedback(
+                &FailingLlm,
+                "why?",
+                &["excerpt".to_string()],
+                &PromptTemplates::default()
+            )
+            .await,
             "why?".to_string()
         );
         assert_eq!(
-            refine_with_feedback(&ScriptedLlm::new("  "), "why?", &["excerpt".to_string()]).await,
+            refine_with_feedback(
+                &ScriptedLlm::new("  "),
+                "why?",
+                &["excerpt".to_string()],
+                &PromptTemplates::default()
+            )
+            .await,
             "why?".to_string()
         );
     }
@@ -462,6 +505,7 @@ mod tests {
         let llm = ScriptedLlm::new("- variant one\n- variant two");
         let rewriter = LlmQueryRewriter {
             llm: &llm,
+            prompts: PromptTemplates::default(),
             variants: 3,
         };
         let variants = rewriter.rewrite("original?").await.expect("rewrite");
@@ -474,6 +518,7 @@ mod tests {
     async fn llm_rewriter_degrades_to_original_on_failure() {
         let rewriter = LlmQueryRewriter {
             llm: &FailingLlm,
+            prompts: PromptTemplates::default(),
             variants: 3,
         };
         assert_eq!(
@@ -518,10 +563,12 @@ mod tests {
         }
     }
 
-    async fn seeded_store() -> (vector_contracts::InMemoryVectorStore, UnitEmbedder) {
+    async fn seeded_store(
+        extensions: &crate::plugin::RetrievalExtensions,
+    ) -> (vector_contracts::InMemoryVectorStore, UnitEmbedder) {
         let store = vector_contracts::InMemoryVectorStore::new();
         let keyword =
-            crate::sqlite_index::SqliteKeywordIndex::open_in_memory().expect("keyword index");
+            keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         crate::pipeline::ingest_documents(
             &store,
@@ -534,6 +581,7 @@ mod tests {
                 "rust.md",
             )],
             &crate::RagIndexConfig::new("kb"),
+            extensions,
         )
         .await
         .expect("ingest");
@@ -542,7 +590,8 @@ mod tests {
 
     #[tokio::test]
     async fn sub_question_flow_fuses_variants() {
-        let (store, embedder) = seeded_store().await;
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        let (store, embedder) = seeded_store(&extensions).await;
         let llm = ScriptedLlm::new("- ownership rules");
         let transform = TransformInvocation {
             llm: &llm,
@@ -556,6 +605,7 @@ mod tests {
             "kb",
             "rust ownership?",
             &crate::RagQueryConfig::default(),
+            &extensions,
         )
         .await
         .expect("query");
@@ -573,6 +623,7 @@ mod tests {
             "kb",
             "   ",
             &crate::RagQueryConfig::default(),
+            &extensions,
         )
         .await
         .is_err());
@@ -580,7 +631,8 @@ mod tests {
 
     #[tokio::test]
     async fn hyde_flow_falls_back_to_single_query() {
-        let (store, embedder) = seeded_store().await;
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        let (store, embedder) = seeded_store(&extensions).await;
         let llm = ScriptedLlm::new("   ");
         let hits = query_with_hyde(
             &store,
@@ -590,6 +642,7 @@ mod tests {
             "kb",
             "rust ownership?",
             &crate::RagQueryConfig::default(),
+            &extensions,
         )
         .await
         .expect("query");
@@ -598,7 +651,8 @@ mod tests {
 
     #[tokio::test]
     async fn feedback_flow_keeps_first_hits_without_change() {
-        let (store, embedder) = seeded_store().await;
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        let (store, embedder) = seeded_store(&extensions).await;
         let query = "rust ownership?";
         let llm = ScriptedLlm::new(query);
         let hits = query_with_feedback(
@@ -609,6 +663,7 @@ mod tests {
             "kb",
             query,
             &crate::RagQueryConfig::default(),
+            &extensions,
         )
         .await
         .expect("query");

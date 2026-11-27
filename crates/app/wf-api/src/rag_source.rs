@@ -627,6 +627,7 @@ impl RagSourceService {
             &descriptor.collection,
             &rag_documents,
             &index,
+            &self.handles.extensions,
         )
         .await
         {
@@ -936,6 +937,7 @@ mod tests {
                 store as Arc<dyn vector_contracts::VectorStorage>,
                 Arc::new(UnitEmbedder { dimension: 8 }),
                 None,
+                std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
             ),
             readers,
             Arc::new(MemoryRagSourceStateStore::default()),

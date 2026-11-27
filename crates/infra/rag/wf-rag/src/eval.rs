@@ -104,6 +104,7 @@ pub async fn run_eval_cases<S, E>(
     namespace: &str,
     cases: &[EvalCase],
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<EvalRun>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -116,8 +117,16 @@ where
         } else {
             &case.namespace
         };
-        let hits =
-            crate::pipeline::query(store, embedder, collection, scope, &case.query, config).await?;
+        let hits = crate::pipeline::query(
+            store,
+            embedder,
+            collection,
+            scope,
+            &case.query,
+            config,
+            extensions,
+        )
+        .await?;
         outcomes.push(score_case(case, &hits));
     }
     let summary = summarize(&outcomes);

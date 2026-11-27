@@ -6,7 +6,10 @@
 //! [`crate::filter::SearchFilter::matches_point`] on every backend.
 //! Payload updates address one point by id and leave its vector
 //! untouched; scrolling pages through filtered points with an opaque
-//! cursor.
+//! cursor. A stored vector is bound to the collection's kind, dimension,
+//! distance and encoder layout: changing that encoding fingerprint invalidates
+//! the collection and requires an explicit rebuild. The contract adds no format
+//! stamp or compatibility path for such changes.
 
 use async_trait::async_trait;
 

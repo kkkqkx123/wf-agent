@@ -14,6 +14,7 @@ use crate::citation::{
 };
 use crate::config::RagQueryConfig;
 use crate::error::{RagError, Result};
+use crate::llm::PromptTemplates;
 use crate::llm::{map_failure, CompletionLlm};
 use crate::plugin::JudgeScore;
 use crate::retriever::RetrievedChunk;
@@ -52,6 +53,9 @@ pub struct SynthesisConfig {
     /// Plugin eval judge scoring the answer after synthesis; unset skips scoring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eval_judge: Option<String>,
+    /// Prompt templates used by the synthesis calls.
+    #[serde(default)]
+    pub prompts: PromptTemplates,
 }
 
 fn default_excerpt_chars() -> usize {
@@ -79,6 +83,7 @@ impl Default for SynthesisConfig {
             max_passages: default_max_passages(),
             no_hit_hint: default_no_hit_hint(),
             eval_judge: None,
+            prompts: PromptTemplates::default(),
         }
     }
 }
@@ -111,13 +116,14 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
     namespace: &str,
     hits: &[RetrievedChunk],
     config: &SynthesisConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<SynthesizedAnswer> {
     if query.trim().is_empty() {
         return Err(RagError::InvalidInput(
             "query must not be empty".to_string(),
         ));
     }
-    validate_judge_name(config)?;
+    validate_judge_name(config, extensions)?;
     let used: Vec<RetrievedChunk> = hits
         .iter()
         .take(config.max_passages.max(1))
@@ -141,8 +147,12 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
     let (answer, model_calls) = match config.mode {
         SynthesisMode::SinglePass => {
             let (context, _) = render_context(&used, config.excerpt_chars);
+            let request = config.prompts.request(
+                &config.prompts.synthesis,
+                &[("query", query), ("context", &context)],
+            );
             let text = llm
-                .complete(&single_pass_prompt(query, &context))
+                .complete_request(&request)
                 .await
                 .map_err(|err| map_failure("synthesis", err.to_string()))?;
             (require_answer(text)?, 1)
@@ -156,7 +166,7 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
             "{answer}\n\nNote: some passages lack source labels; verify claims before citing."
         ),
     };
-    let eval = score_answer(query, &answer, &used, config);
+    let eval = score_answer(query, &answer, &used, config, extensions);
     Ok(SynthesizedAnswer {
         answer,
         citations: build_citations(&used, config.excerpt_chars),
@@ -170,7 +180,10 @@ pub async fn synthesize<L: CompletionLlm + ?Sized>(
 /// Validates the configured eval judge name before synthesis.
 /// Unknown names fail so misconfiguration surfaces; execution failures
 /// later only skip scoring with a warning and never fail synthesis.
-fn validate_judge_name(config: &SynthesisConfig) -> Result<()> {
+fn validate_judge_name(
+    config: &SynthesisConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Result<()> {
     let Some(name) = config
         .eval_judge
         .as_deref()
@@ -178,7 +191,7 @@ fn validate_judge_name(config: &SynthesisConfig) -> Result<()> {
     else {
         return Ok(());
     };
-    if crate::plugin::find_eval_judge(name).is_none() {
+    if extensions.find_eval_judge(name).is_none() {
         return Err(RagError::InvalidInput(format!(
             "unknown eval judge '{name}'"
         )));
@@ -194,13 +207,14 @@ fn score_answer(
     answer: &str,
     used: &[RetrievedChunk],
     config: &SynthesisConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Option<JudgeScore> {
     let name = config
         .eval_judge
         .as_deref()
         .filter(|name| !name.trim().is_empty())?;
     let contexts: Vec<String> = used.iter().map(|hit| hit.content.clone()).collect();
-    match crate::plugin::judge_with_registered(name, query, answer, &contexts) {
+    match crate::plugin::judge_with_registered(extensions, name, query, answer, &contexts) {
         Ok(scored) => Some(scored),
         Err(error) => {
             tracing::warn!(judge = %name, error = %error, "eval judge failed; keeping unscored answer");
@@ -227,6 +241,7 @@ pub async fn query_and_synthesize<S, E, L>(
     namespace: &str,
     query_text: &str,
     query_config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<SynthesizedAnswer>
 where
     S: vector_contracts::VectorStorage + ?Sized,
@@ -240,6 +255,7 @@ where
         namespace,
         query_text,
         query_config,
+        extensions,
     )
     .await?;
     synthesize(
@@ -248,6 +264,7 @@ where
         namespace,
         &hits,
         synthesis.config,
+        extensions,
     )
     .await
 }
@@ -267,20 +284,41 @@ async fn refine_answer<L: CompletionLlm + ?Sized>(
             && !draft.is_empty()
             && draft.chars().count() + excerpt.chars().count() > config.context_budget_chars.max(1)
         {
+            let request = config
+                .prompts
+                .request(&config.prompts.compress, &[("draft", &draft)]);
             draft = llm
-                .complete(&compress_prompt(&draft))
+                .complete_request(&request)
                 .await
                 .map_err(|err| map_failure("synthesis compression", err.to_string()))
                 .and_then(require_answer)?;
             model_calls += 1;
         }
-        let prompt = if draft.is_empty() {
-            single_passage_prompt(query, index + 1, &hit.source, &excerpt)
+        let index_text = (index + 1).to_string();
+        let request = if draft.is_empty() {
+            config.prompts.request(
+                &config.prompts.passage,
+                &[
+                    ("query", query),
+                    ("index", &index_text),
+                    ("source", &hit.source),
+                    ("excerpt", &excerpt),
+                ],
+            )
         } else {
-            refine_prompt(query, &draft, index + 1, &hit.source, &excerpt)
+            config.prompts.request(
+                &config.prompts.refine,
+                &[
+                    ("query", query),
+                    ("draft", &draft),
+                    ("index", &index_text),
+                    ("source", &hit.source),
+                    ("excerpt", &excerpt),
+                ],
+            )
         };
         draft = llm
-            .complete(&prompt)
+            .complete_request(&request)
             .await
             .map_err(|err| map_failure("synthesis refinement", err.to_string()))
             .and_then(require_answer)?;
@@ -297,30 +335,6 @@ fn require_answer(text: String) -> Result<String> {
         ));
     }
     Ok(trimmed)
-}
-
-fn single_pass_prompt(query: &str, context: &str) -> String {
-    format!(
-        "Answer the question using only the numbered passages below. Cite supporting passages as [n]. When no passage supports a claim, say so instead of citing.\n\nPassages:\n{context}\n\nQuestion: {query}\n\nAnswer:"
-    )
-}
-
-fn single_passage_prompt(query: &str, index: usize, source: &str, excerpt: &str) -> String {
-    format!(
-        "Answer the question using the passage below. Cite it as [{index}]. When the passage does not support an answer, say so.\n\nQuestion: {query}\n\nPassage [{index}] from {source}:\n{excerpt}\n\nAnswer:"
-    )
-}
-
-fn refine_prompt(query: &str, draft: &str, index: usize, source: &str, excerpt: &str) -> String {
-    format!(
-        "Improve the draft answer using the additional passage. Keep citations as [n].\n\nQuestion: {query}\n\nDraft:\n{draft}\n\nAdditional passage [{index}] from {source}:\n{excerpt}\n\nImproved answer:"
-    )
-}
-
-fn compress_prompt(draft: &str) -> String {
-    format!(
-        "Compress the following draft answer to its essential claims, keeping passage citations [n]:\n{draft}"
-    )
 }
 
 fn truncate(content: &str, max_chars: usize) -> String {
@@ -381,12 +395,14 @@ mod tests {
 
     #[tokio::test]
     async fn no_hits_short_circuit_without_model_call() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let answer = synthesize(
             &CountingLlm,
             "query",
             "kb",
             &[],
             &SynthesisConfig::default(),
+            &extensions,
         )
         .await
         .expect("synthesize");
@@ -397,6 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn single_pass_uses_one_call_and_numbers_citations() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let answer = synthesize(
             &ScriptedLlm {
                 answers: vec!["final [1]".to_string()],
@@ -405,6 +422,7 @@ mod tests {
             "kb",
             &[hit("a", "doc.md"), hit("b", "doc.md")],
             &SynthesisConfig::default(),
+            &extensions,
         )
         .await
         .expect("synthesize");
@@ -417,6 +435,7 @@ mod tests {
 
     #[tokio::test]
     async fn refine_spends_one_call_per_passage() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let config = SynthesisConfig {
             mode: SynthesisMode::Refine,
             ..SynthesisConfig::default()
@@ -427,6 +446,7 @@ mod tests {
             "kb",
             &[hit("a", "doc.md"), hit("b", "doc.md"), hit("c", "doc.md")],
             &config,
+            &extensions,
         )
         .await
         .expect("synthesize");
@@ -436,6 +456,7 @@ mod tests {
 
     #[tokio::test]
     async fn compact_compresses_beyond_budget() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let config = SynthesisConfig {
             mode: SynthesisMode::Compact,
             context_budget_chars: 10,
@@ -447,6 +468,7 @@ mod tests {
             "kb",
             &[hit("a", "doc.md"), hit("b", "doc.md")],
             &config,
+            &extensions,
         )
         .await
         .expect("synthesize");
@@ -455,6 +477,7 @@ mod tests {
 
     #[tokio::test]
     async fn sourceless_hits_carry_incompleteness_note() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let mut orphan = hit("a", "doc.md");
         orphan.source = "  ".to_string();
         let answer = synthesize(
@@ -465,6 +488,7 @@ mod tests {
             "kb",
             &[orphan],
             &SynthesisConfig::default(),
+            &extensions,
         )
         .await
         .expect("synthesize");
@@ -474,12 +498,14 @@ mod tests {
 
     #[tokio::test]
     async fn empty_model_output_fails() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let result = synthesize(
             &EmptyLlm,
             "query",
             "kb",
             &[hit("a", "doc.md")],
             &SynthesisConfig::default(),
+            &extensions,
         )
         .await;
         assert!(matches!(result, Err(RagError::Llm(_))));
@@ -487,6 +513,7 @@ mod tests {
 
     #[tokio::test]
     async fn max_passages_bounds_model_cost() {
+        let extensions = crate::plugin::RetrievalExtensions::new();
         let config = SynthesisConfig {
             max_passages: 1,
             ..SynthesisConfig::default()
@@ -499,6 +526,7 @@ mod tests {
             "kb",
             &[hit("a", "doc.md"), hit("b", "doc.md")],
             &config,
+            &extensions,
         )
         .await
         .expect("synthesize");
@@ -539,9 +567,9 @@ mod tests {
 
     #[tokio::test]
     async fn configured_judge_scores_answer_without_changing_it() {
-        let _guard = crate::plugin::test_registry_guard().await;
-        crate::plugin::clear_eval_judges();
-        crate::plugin::register_eval_judge("cited", std::sync::Arc::new(CitedJudge));
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        extensions.clear_eval_judges();
+        extensions.register_eval_judge("cited", std::sync::Arc::new(CitedJudge));
         let config = SynthesisConfig {
             eval_judge: Some("cited".to_string()),
             ..SynthesisConfig::default()
@@ -554,19 +582,20 @@ mod tests {
             "kb",
             &[hit("a", "doc.md")],
             &config,
+            &extensions,
         )
         .await
         .expect("synthesize");
         assert_eq!(answer.answer, "final [1]");
         let scored = answer.eval.expect("judge scores");
         assert!((scored.score - 1.0).abs() < f64::EPSILON);
-        crate::plugin::clear_eval_judges();
+        extensions.clear_eval_judges();
     }
 
     #[tokio::test]
     async fn unknown_judge_name_fails_synthesis() {
-        let _guard = crate::plugin::test_registry_guard().await;
-        crate::plugin::clear_eval_judges();
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        extensions.clear_eval_judges();
         let config = SynthesisConfig {
             eval_judge: Some("missing-judge".to_string()),
             ..SynthesisConfig::default()
@@ -579,18 +608,19 @@ mod tests {
             "kb",
             &[hit("a", "doc.md")],
             &config,
+            &extensions,
         )
         .await
         .expect_err("unknown judge must fail");
         assert!(err.to_string().contains("missing-judge"));
-        crate::plugin::clear_eval_judges();
+        extensions.clear_eval_judges();
     }
 
     #[tokio::test]
     async fn judge_failure_keeps_unscored_answer() {
-        let _guard = crate::plugin::test_registry_guard().await;
-        crate::plugin::clear_eval_judges();
-        crate::plugin::register_eval_judge("oob", std::sync::Arc::new(OutOfRangeJudge));
+        let extensions = crate::plugin::RetrievalExtensions::new();
+        extensions.clear_eval_judges();
+        extensions.register_eval_judge("oob", std::sync::Arc::new(OutOfRangeJudge));
         let config = SynthesisConfig {
             eval_judge: Some("oob".to_string()),
             ..SynthesisConfig::default()
@@ -603,11 +633,12 @@ mod tests {
             "kb",
             &[hit("a", "doc.md")],
             &config,
+            &extensions,
         )
         .await
         .expect("synthesis survives judge failure");
         assert_eq!(answer.answer, "text");
         assert!(answer.eval.is_none());
-        crate::plugin::clear_eval_judges();
+        extensions.clear_eval_judges();
     }
 }

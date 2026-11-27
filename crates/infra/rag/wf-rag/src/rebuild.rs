@@ -13,8 +13,8 @@ use vector_contracts::VectorPoint;
 
 use crate::error::{RagError, Result};
 use crate::keyword_index::keyword_documents;
-use crate::sqlite_index::SqliteKeywordIndex;
 use keyword_contracts::{KeywordFormat, KeywordIndex, KeywordQuery};
+use keyword_contracts::{SqliteKeywordIndex, TantivyKeywordIndex};
 
 /// Embedded index kinds a shadow rebuild can swap. Remote Elasticsearch
 /// indexes are rebuilt through the provider's own alias workflow and are
@@ -78,10 +78,15 @@ pub async fn rebuild_embedded(
     params: RebuildParams,
     batches: Vec<Vec<VectorPoint>>,
     cancel: Arc<AtomicBool>,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<RebuildOutcome> {
     match slot {
-        EmbeddedSlot::Sqlite(path) => rebuild_sqlite(path, format, params, batches, cancel).await,
-        EmbeddedSlot::Tantivy(dir) => rebuild_tantivy(dir, format, params, batches, cancel).await,
+        EmbeddedSlot::Sqlite(path) => {
+            rebuild_sqlite(path, format, params, batches, cancel, extensions).await
+        }
+        EmbeddedSlot::Tantivy(dir) => {
+            rebuild_tantivy(dir, format, params, batches, cancel, extensions).await
+        }
     }
 }
 
@@ -91,13 +96,17 @@ async fn rebuild_sqlite(
     _params: RebuildParams,
     batches: Vec<Vec<VectorPoint>>,
     cancel: Arc<AtomicBool>,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<RebuildOutcome> {
     let shadow = shadow_path(&path);
     let backup = backup_path(&path);
     for stale in [&shadow, &backup] {
         let _ = std::fs::remove_file(stale);
     }
-    let index = Arc::new(SqliteKeywordIndex::open_with_format(&shadow, format)?);
+    let index = Arc::new(
+        SqliteKeywordIndex::open_with_format(&shadow, format)?
+            .with_analyzers(extensions.analyzer_registry()),
+    );
     let mut points_done = 0_u64;
     for (done, batch) in batches.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
@@ -124,7 +133,8 @@ async fn rebuild_sqlite(
 }
 
 fn count_file_sqlite(path: &str) -> Result<u64> {
-    keyword_contracts::sqlite_index::count_file(path).map_err(|err| RagError::keyword(err.to_string()))
+    keyword_contracts::sqlite_index::count_file(path)
+        .map_err(|err| RagError::keyword(err.to_string()))
 }
 
 async fn rebuild_tantivy(
@@ -133,6 +143,7 @@ async fn rebuild_tantivy(
     params: RebuildParams,
     batches: Vec<Vec<VectorPoint>>,
     cancel: Arc<AtomicBool>,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<RebuildOutcome> {
     let shadow = shadow_path(&dir);
     let backup = backup_path(&dir);
@@ -141,11 +152,10 @@ async fn rebuild_tantivy(
     }
     #[cfg(feature = "tantivy")]
     {
-        let index = Arc::new(crate::tantivy_index::TantivyKeywordIndex::open_with_format(
-            &shadow,
-            format,
-            params.writer_heap_bytes,
-        )?);
+        let index = Arc::new(
+            TantivyKeywordIndex::open_with_format(&shadow, format, params.writer_heap_bytes)?
+                .with_analyzers(extensions.analyzer_registry()),
+        );
         let mut points_done = 0_u64;
         for (done, batch) in batches.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {

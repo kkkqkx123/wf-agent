@@ -25,24 +25,12 @@ impl ContributionManager {
         self.text_analyzer_registry.all()
     }
 
-    pub fn get_retrieval_advisor(&self, name: &str) -> Option<Arc<dyn PluginRetrievalAdvisor>> {
-        self.retrieval_advisor_registry.get(name)
-    }
-
-    pub fn all_retrieval_advisors(&self) -> Vec<(String, String)> {
-        self.retrieval_advisor_registry.all()
-    }
-
     pub fn get_vector_encoding(&self, name: &str) -> Option<Arc<dyn PluginVectorEncoding>> {
         self.vector_encoding_registry.get(name)
     }
 
     pub fn all_vector_encodings(&self) -> Vec<(String, String)> {
         self.vector_encoding_registry.all()
-    }
-
-    pub fn get_snapshot_policy(&self, name: &str) -> Option<Arc<Value>> {
-        self.snapshot_policy_registry.get(name)
     }
 
     pub fn get_metadata_extractor(&self, name: &str) -> Option<Arc<dyn PluginMetadataExtractor>> {
@@ -91,10 +79,6 @@ impl ContributionManager {
 
     pub fn all_eval_judges(&self) -> Vec<(String, String)> {
         self.eval_judge_registry.all()
-    }
-
-    pub fn all_snapshot_policies(&self) -> Vec<(String, String)> {
-        self.snapshot_policy_registry.all()
     }
 
     /// Owned CLI command snapshot for hosts that render without holding

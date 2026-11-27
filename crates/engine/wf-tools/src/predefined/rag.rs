@@ -254,6 +254,7 @@ pub async fn search_with_defaults<S, E, K>(
     embedder: &E,
     keyword: Option<&K>,
     defaults: &wf_rag::RagQueryConfig,
+    extensions: &wf_rag::RetrievalExtensions,
     query: RagSearchQuery,
 ) -> ToolResult<Vec<RagHit>>
 where
@@ -271,27 +272,27 @@ where
     }
     let hits = match keyword.filter(|_| config.keyword_candidates > 0) {
         Some(keyword) => {
-            wf_rag::pipeline::query_hybrid(
+            wf_rag::StandardRetriever {
                 store,
-                keyword,
                 embedder,
-                &query.collection,
-                &query.namespace,
-                &query.query,
-                &config,
-            )
+                collection: &query.collection,
+                namespace: &query.namespace,
+                config: &config,
+                extensions,
+            }
+            .retrieve_hybrid(keyword, &query.query)
             .await
         }
         None => {
-            wf_rag::pipeline::query(
+            let retriever = wf_rag::StandardRetriever {
                 store,
                 embedder,
-                &query.collection,
-                &query.namespace,
-                &query.query,
-                &config,
-            )
-            .await
+                collection: &query.collection,
+                namespace: &query.namespace,
+                config: &config,
+                extensions,
+            };
+            retriever.retrieve(&query.query).await
         }
     }
     .map_err(|err| ToolError::ExecutionError(err.to_string()))?;
@@ -315,6 +316,7 @@ pub struct RagService<S, E> {
     store: Arc<S>,
     embedder: Arc<E>,
     keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
+    extensions: Arc<wf_rag::RetrievalExtensions>,
     query_defaults: wf_rag::RagQueryConfig,
 }
 
@@ -325,6 +327,7 @@ impl<S, E> RagService<S, E> {
             store,
             embedder,
             keyword: None,
+            extensions: Arc::new(wf_rag::RetrievalExtensions::new()),
             query_defaults: wf_rag::RagQueryConfig::default(),
         }
     }
@@ -342,6 +345,12 @@ impl<S, E> RagService<S, E> {
         self.keyword = Some(keyword);
         self
     }
+
+    /// Attaches the host-owned retrieval extension registry.
+    pub fn with_extensions(mut self, extensions: Arc<wf_rag::RetrievalExtensions>) -> Self {
+        self.extensions = extensions;
+        self
+    }
 }
 
 #[async_trait]
@@ -356,6 +365,7 @@ where
             self.embedder.as_ref(),
             self.keyword.as_deref(),
             &self.query_defaults,
+            &self.extensions,
             query,
         )
         .await

@@ -8,6 +8,7 @@ use vector_contracts::{VectorKind, VectorSpaceSpec};
 
 use crate::chunker::ChunkerConfig;
 use crate::cleaner::CleanerConfig;
+use crate::llm::PromptTemplates;
 
 /// Write-side policy when a source is already indexed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -254,6 +255,9 @@ pub struct RagQueryConfig {
     /// Plugin post-fusion shaping step; unset keeps fused order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postprocessor: Option<String>,
+    /// Prompt templates used by model-backed query transforms.
+    #[serde(default)]
+    pub prompts: PromptTemplates,
 }
 
 /// Multi-list fusion strategy.
@@ -352,6 +356,7 @@ impl Default for RagQueryConfig {
             target_space: None,
             additional_named_spaces: Vec::new(),
             postprocessor: None,
+            prompts: PromptTemplates::default(),
             conditions: Vec::new(),
         }
     }

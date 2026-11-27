@@ -4,13 +4,16 @@ use super::*;
 /// Unknown extractor and splitter names fail so configuration errors
 /// surface; splitter execution failures fall back to built-in chunking.
 /// A splitter replaces flat chunking and conflicts with `hierarchical`.
-pub(crate) fn validate_plugin_chunking(config: &RagIndexConfig) -> Result<()> {
+pub(crate) fn validate_plugin_chunking(
+    config: &RagIndexConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Result<()> {
     if let Some(name) = config
         .metadata_extractor
         .as_deref()
         .filter(|name| !name.trim().is_empty())
     {
-        if crate::plugin::find_metadata_extractor(name).is_none() {
+        if extensions.find_metadata_extractor(name).is_none() {
             return Err(RagError::InvalidInput(format!(
                 "unknown metadata extractor '{name}'"
             )));
@@ -26,7 +29,7 @@ pub(crate) fn validate_plugin_chunking(config: &RagIndexConfig) -> Result<()> {
                 "chunk splitter conflicts with hierarchical chunking".to_string(),
             ));
         }
-        if crate::plugin::find_chunk_splitter(name).is_none() {
+        if extensions.find_chunk_splitter(name).is_none() {
             return Err(RagError::InvalidInput(format!(
                 "unknown chunk splitter '{name}'"
             )));
@@ -41,6 +44,7 @@ pub(crate) fn validate_plugin_chunking(config: &RagIndexConfig) -> Result<()> {
 pub(crate) fn apply_configured_extractor(
     document: &mut RagDocument,
     config: &RagIndexConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<()> {
     let Some(name) = config
         .metadata_extractor
@@ -49,7 +53,12 @@ pub(crate) fn apply_configured_extractor(
     else {
         return Ok(());
     };
-    match crate::plugin::extract_with_registered(name, &document.content, serde_json::json!({})) {
+    match crate::plugin::extract_with_registered(
+        extensions,
+        name,
+        &document.content,
+        serde_json::json!({}),
+    ) {
         Ok(extra) => {
             for (key, value) in extra {
                 document.metadata.entry(key).or_insert(value);
@@ -66,8 +75,13 @@ pub(crate) fn apply_configured_extractor(
 /// Splits one document through the named plugin splitter.
 /// Returns `None` when the suggestion fails so the caller keeps built-in
 /// chunking; unknown names never reach here (validated before ingest).
-pub(crate) fn split_with_plugin(document: &RagDocument, name: &str) -> Option<Vec<RagChunk>> {
+pub(crate) fn split_with_plugin(
+    document: &RagDocument,
+    name: &str,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Option<Vec<RagChunk>> {
     let pieces = match crate::plugin::split_with_registered(
+        extensions,
         name,
         &document.content,
         serde_json::json!({}),
@@ -109,7 +123,10 @@ pub(crate) fn split_with_plugin(document: &RagDocument, name: &str) -> Option<Ve
 
 /// Validates the configured post-fusion shaping name.
 /// Unknown postprocessor names fail so configuration errors surface.
-pub(crate) fn validate_shaping_names(config: &RagQueryConfig) -> Result<()> {
+pub(crate) fn validate_shaping_names(
+    config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
+) -> Result<()> {
     let Some(name) = config
         .postprocessor
         .as_deref()
@@ -117,7 +134,7 @@ pub(crate) fn validate_shaping_names(config: &RagQueryConfig) -> Result<()> {
     else {
         return Ok(());
     };
-    if crate::plugin::find_postprocessor(name).is_none() {
+    if extensions.find_postprocessor(name).is_none() {
         return Err(RagError::InvalidInput(format!(
             "unknown postprocessor '{name}'"
         )));
@@ -129,8 +146,10 @@ pub(crate) fn apply_configured_shaping(
     hits: Vec<RetrievedChunk>,
     query_text: &str,
     config: &RagQueryConfig,
+    extensions: &crate::plugin::RetrievalExtensions,
 ) -> Result<Vec<RetrievedChunk>> {
     crate::plugin::apply_registered_postprocessor(
+        extensions,
         query_text,
         hits,
         config.postprocessor.as_deref(),

@@ -373,6 +373,7 @@ pub(crate) async fn handle_rag_preview(
         handles.embedder.as_ref(),
         keyword.as_deref(),
         &defaults,
+        &handles.extensions,
         wf_api::rag::PreviewParams {
             collection: &query.collection,
             namespace: &query.namespace,
@@ -669,8 +670,9 @@ mod tests {
     async fn rag_stats_falls_back_to_context_keyword_index() {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
-        let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> =
-            std::sync::Arc::new(wf_rag::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        let keyword: std::sync::Arc<dyn keyword_contracts::KeywordIndex> = std::sync::Arc::new(
+            keyword_contracts::SqliteKeywordIndex::open_in_memory().expect("keyword"),
+        );
         wf_rag::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),
@@ -690,7 +692,12 @@ mod tests {
                 wf_storage::context::StorageContext::new_memory(),
                 std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
             )
-            .with_rag_handles(wf_api::rag::RagHandles::new(store, embedder, None))
+            .with_rag_handles(wf_api::rag::RagHandles::new(
+                store,
+                embedder,
+                None,
+                std::sync::Arc::new(wf_rag::RetrievalExtensions::new()),
+            ))
             .with_keyword_index(keyword),
         );
         let response = get(ctx, "/api/v1/rag/stats?collection=kb&namespace=kb").await;

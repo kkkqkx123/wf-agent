@@ -34,56 +34,65 @@ pub struct MixedToken {
 /// Pure mapping from text to search tokens; network access is forbidden.
 pub type CustomAnalyzer = Arc<dyn Fn(String) -> Vec<String> + Send + Sync>;
 
-fn registry() -> &'static Mutex<HashMap<String, CustomAnalyzer>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, CustomAnalyzer>>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+/// Shared analyzer registry owned by one host configuration scope.
+/// Backends hold the same instance so analyzers never leak across scopes.
+#[derive(Debug, Default)]
+pub struct AnalyzerRegistry {
+    analyzers: Mutex<HashMap<String, CustomAnalyzer>>,
 }
 
-/// Registers a host analyzer under `name`, replacing any prior entry.
-pub fn register_analyzer(name: &str, analyzer: CustomAnalyzer) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
+impl AnalyzerRegistry {
+    /// Creates an empty registry.
+    pub fn new() -> Self {
+        Self::default()
     }
-    if let Ok(mut guard) = registry().lock() {
-        guard.insert(trimmed.to_string(), analyzer);
-    }
-}
 
-/// Removes a registered host analyzer; missing names are ignored.
-pub fn unregister_analyzer(name: &str) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return;
+    /// Registers an analyzer under `name`, replacing any prior entry.
+    pub fn register(&self, name: &str, analyzer: CustomAnalyzer) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.analyzers.lock() {
+            guard.insert(trimmed.to_string(), analyzer);
+        }
     }
-    if let Ok(mut guard) = registry().lock() {
-        guard.remove(trimmed);
-    }
-}
 
-/// Finds a registered host analyzer by name.
-pub fn find_analyzer(name: &str) -> Option<CustomAnalyzer> {
-    registry()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(name.trim()).cloned())
-}
-
-/// Clears registered host analyzers; tests use it to isolate cases.
-pub fn clear_analyzers() {
-    if let Ok(mut guard) = registry().lock() {
-        guard.clear();
+    /// Removes an analyzer; missing names are ignored.
+    pub fn unregister(&self, name: &str) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.analyzers.lock() {
+            guard.remove(trimmed);
+        }
     }
-}
 
-/// Fails when the named analyzer is requested but not registered.
-pub fn ensure_analyzer_registered(name: &str) -> Result<(), String> {
-    if name.trim().is_empty() {
-        return Err("analyzer name must not be empty".to_string());
+    /// Finds an analyzer by name.
+    pub fn find(&self, name: &str) -> Option<CustomAnalyzer> {
+        self.analyzers
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(name.trim()).cloned())
     }
-    match find_analyzer(name) {
-        Some(_) => Ok(()),
-        None => Err(format!("unknown text analyzer '{name}'")),
+
+    /// Removes every analyzer; tests use it to isolate cases.
+    pub fn clear(&self) {
+        if let Ok(mut guard) = self.analyzers.lock() {
+            guard.clear();
+        }
+    }
+
+    /// Fails when a requested analyzer is not registered in this scope.
+    pub fn ensure(&self, name: &str) -> Result<(), String> {
+        if name.trim().is_empty() {
+            return Err("analyzer name must not be empty".to_string());
+        }
+        match self.find(name) {
+            Some(_) => Ok(()),
+            None => Err(format!("unknown text analyzer '{name}'")),
+        }
     }
 }
 
@@ -189,10 +198,15 @@ pub fn mixed_terms(text: &str) -> Vec<String> {
 
 /// Terms for one tokenizer with an optional host analyzer override.
 /// Unknown analyzer names fall back to the built-in path here; backends
-/// validate with [`ensure_analyzer_registered`] so use fails fast.
-pub fn terms(text: &str, tokenizer: KeywordTokenizer, analyzer_name: Option<&str>) -> Vec<String> {
+/// validate with [`AnalyzerRegistry::ensure`] so use fails fast.
+pub fn terms(
+    text: &str,
+    tokenizer: KeywordTokenizer,
+    analyzer_name: Option<&str>,
+    analyzers: &AnalyzerRegistry,
+) -> Vec<String> {
     if let Some(name) = analyzer_name.filter(|name| !name.trim().is_empty()) {
-        if let Some(analyzer) = find_analyzer(name) {
+        if let Some(analyzer) = analyzers.find(name) {
             return analyzer(text.to_string())
                 .into_iter()
                 .map(|term| term.trim().to_string())
@@ -207,8 +221,13 @@ pub fn terms(text: &str, tokenizer: KeywordTokenizer, analyzer_name: Option<&str
 }
 
 /// Space-joined pretokenized form for whitespace-analyzed sidecars.
-pub fn pretokenize(text: &str, tokenizer: KeywordTokenizer, analyzer_name: Option<&str>) -> String {
-    terms(text, tokenizer, analyzer_name).join(" ")
+pub fn pretokenize(
+    text: &str,
+    tokenizer: KeywordTokenizer,
+    analyzer_name: Option<&str>,
+    analyzers: &AnalyzerRegistry,
+) -> String {
+    terms(text, tokenizer, analyzer_name, analyzers).join(" ")
 }
 
 /// Position count of analyzed tokens for budget accounting.
@@ -376,14 +395,18 @@ mod tests {
     fn english_keeps_legacy_splitting() {
         assert_eq!(english_terms("Rust Ownership!"), vec!["rust", "ownership"]);
         assert_eq!(
-            terms("Hello World", KeywordTokenizer::English, None),
+            terms(
+                "Hello World",
+                KeywordTokenizer::English,
+                None,
+                &AnalyzerRegistry::new()
+            ),
             english_terms("Hello World")
         );
     }
 
     #[test]
     fn mixed_segments_chinese_and_splits_identifiers() {
-        clear_analyzers();
         let tokens = mixed_terms("中文分词 getUserById");
         assert!(tokens
             .iter()
@@ -407,15 +430,29 @@ mod tests {
 
     #[test]
     fn custom_analyzer_overrides_builtin() {
-        clear_analyzers();
-        register_analyzer(
+        let registry = AnalyzerRegistry::new();
+        registry.register(
             "test-custom",
             Arc::new(|text: String| vec![format!("custom-{text}")]),
         );
-        let got = terms("hello", KeywordTokenizer::English, Some("test-custom"));
+        let got = terms(
+            "hello",
+            KeywordTokenizer::English,
+            Some("test-custom"),
+            &registry,
+        );
         assert_eq!(got, vec!["custom-hello"]);
-        assert!(ensure_analyzer_registered("test-custom").is_ok());
-        assert!(ensure_analyzer_registered("missing").is_err());
-        clear_analyzers();
+        assert!(registry.ensure("test-custom").is_ok());
+        assert!(registry.ensure("missing").is_err());
+        registry.clear();
+    }
+
+    #[test]
+    fn analyzers_are_isolated_per_registry() {
+        let first = AnalyzerRegistry::new();
+        let second = AnalyzerRegistry::new();
+        first.register("local", Arc::new(|text: String| vec![text]));
+        assert!(first.find("local").is_some());
+        assert!(second.find("local").is_none());
     }
 }

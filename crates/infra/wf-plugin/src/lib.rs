@@ -47,9 +47,9 @@ pub use contributions::{
     PluginEventHandler, PluginExecutionContext, PluginHookHandler, PluginHookOutcome,
     PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge, PluginLoginStep,
     PluginMarkdownRule, PluginMetadataExtractor, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginPostprocessor, PluginRetrievalAdvisor, PluginRouteSelector,
-    PluginSettingField, PluginTextAnalyzer, PluginToolContext, PluginToolExecutor,
-    PluginToolResult, PluginToolSummary, PluginVectorEncoding, RegistrarGuard,
+    PluginNodeResult, PluginPostprocessor, PluginRouteSelector, PluginSettingField,
+    PluginTextAnalyzer, PluginToolContext, PluginToolExecutor, PluginToolResult, PluginToolSummary,
+    PluginVectorEncoding, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

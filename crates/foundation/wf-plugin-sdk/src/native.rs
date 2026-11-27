@@ -89,20 +89,9 @@ pub struct ContributionRegistrarC {
     /// Full-text analyzer under `name`; dispatched on `text-analyzer`.
     pub register_text_analyzer:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
-    /// Retrieval shaping advice under `name`; dispatched on `retrieval`.
-    pub register_retrieval_advisor:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
     /// Vector encoding under `name`; dispatched on `vector-encoding`.
     pub register_vector_encoding:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
-    /// Snapshot policy (`name` plus arbitrary JSON policy document).
-    pub register_snapshot_policy: Option<
-        extern "C" fn(
-            ctx: *mut std::ffi::c_void,
-            name: *const c_char,
-            policy_json: *const c_char,
-        ) -> i32,
-    >,
     /// Ingest metadata enrichment under `name`; dispatched on `metadata-extractor`.
     pub register_metadata_extractor:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,

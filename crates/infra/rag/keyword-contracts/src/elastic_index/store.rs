@@ -96,6 +96,7 @@ impl KeywordIndex for ElasticKeywordIndex {
         if documents.is_empty() {
             return Ok(());
         }
+        self.validate_analyzer()?;
         self.ensure_index().await?;
         for batch in documents.chunks(self.batch_size()) {
             let mut body = String::new();
@@ -106,6 +107,7 @@ impl KeywordIndex for ElasticKeywordIndex {
                     document,
                     self.config.tokenizer,
                     self.config.analyzer_name.as_deref(),
+                    &self.analyzers,
                 )?;
                 body.push_str(
                     &serde_json::to_string(&json!({"index": {"_id": id}}))
@@ -163,6 +165,7 @@ impl KeywordIndex for ElasticKeywordIndex {
         if query.limit == 0 || query.text.trim().is_empty() {
             return Ok(Vec::new());
         }
+        self.validate_analyzer()?;
         let scope = query.scope.as_ref();
         let fetch = query.limit;
         let index = self.index_name().to_string();
@@ -177,6 +180,7 @@ impl KeywordIndex for ElasticKeywordIndex {
                         fetch,
                         self.config.tokenizer,
                         self.config.analyzer_name.as_deref(),
+                        &self.analyzers,
                     ))
             })
             .await?;

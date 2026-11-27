@@ -76,6 +76,8 @@ pub use query::{
 /// every free function. Existing free functions stay as the default
 /// implementation backing this handle.
 pub struct StandardRetriever<'a, S: ?Sized, E: ?Sized> {
+    /// Retrieval extensions owned by the host scope.
+    pub extensions: &'a crate::plugin::RetrievalExtensions,
     /// Vector backend owned by the host.
     pub store: &'a S,
     /// Embedding provider owned by the host.
@@ -102,6 +104,7 @@ where
             self.namespace,
             query_text,
             self.config,
+            self.extensions,
         )
         .await
     }
@@ -115,6 +118,46 @@ where
             self.namespace,
             query_texts,
             self.config,
+            self.extensions,
+        )
+        .await
+    }
+
+    /// Blends keyword recall into the standard read path.
+    pub async fn retrieve_hybrid<K>(
+        &self,
+        keyword: &K,
+        query_text: &str,
+    ) -> Result<Vec<RetrievedChunk>>
+    where
+        K: keyword_contracts::KeywordIndex + ?Sized,
+    {
+        query_hybrid(
+            self.store,
+            keyword,
+            self.embedder,
+            self.collection,
+            self.namespace,
+            query_text,
+            self.config,
+            self.extensions,
+        )
+        .await
+    }
+
+    /// Fans out to routed scopes and fuses their hit lists once.
+    pub async fn retrieve_routed(
+        &self,
+        router: &crate::router::RouterConfig,
+        query_text: &str,
+    ) -> Result<Vec<RetrievedChunk>> {
+        crate::router::query_routed(
+            self.store,
+            self.embedder,
+            router,
+            query_text,
+            self.config,
+            self.extensions,
         )
         .await
     }

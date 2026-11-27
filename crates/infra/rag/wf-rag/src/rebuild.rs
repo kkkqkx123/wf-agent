@@ -14,7 +14,9 @@ use vector_contracts::VectorPoint;
 use crate::error::{RagError, Result};
 use crate::keyword_index::keyword_documents;
 use keyword_contracts::{KeywordFormat, KeywordIndex, KeywordQuery};
-use keyword_contracts::{SqliteKeywordIndex, TantivyKeywordIndex};
+use keyword_contracts::SqliteKeywordIndex;
+#[cfg(feature = "tantivy")]
+use keyword_contracts::TantivyKeywordIndex;
 
 /// Embedded index kinds a shadow rebuild can swap. Remote Elasticsearch
 /// indexes are rebuilt through the provider's own alias workflow and are

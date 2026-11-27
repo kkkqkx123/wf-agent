@@ -91,17 +91,25 @@ async fn test_runtime_keyword_tantivy_without_feature_fails_fast() {
 
     let mut config = default_test_config();
     config.keyword.backend = wf_types::config::keyword::KeywordBackend::Tantivy;
-    let err = match Runtime::bootstrap(config).await {
+    match Runtime::bootstrap(config).await {
         Ok(runtime) => {
+            // The tantivy backend was compiled in; the configured backend
+            // must be the one actually opened.
+            assert!(
+                format!("{:?}", runtime.keyword_index().expect("keyword")).contains("tantivy"),
+                "compiled-in tantivy backend must be selected"
+            );
             runtime.shutdown().await.unwrap();
-            panic!("tantivy without the feature must fail bootstrap");
         }
-        Err(e) => e,
-    };
-    assert!(
-        err.to_string().to_lowercase().contains("keyword"),
-        "tantivy open failure must name the keyword index: {err}"
-    );
+        Err(err) => {
+            // Without the feature, bootstrap fails fast naming the keyword
+            // index instead of silently falling back to another backend.
+            assert!(
+                err.to_string().to_lowercase().contains("keyword"),
+                "tantivy open failure must name the keyword index: {err}"
+            );
+        }
+    }
     clear_env_vars();
 }
 

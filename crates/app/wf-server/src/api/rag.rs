@@ -684,6 +684,7 @@ mod tests {
                 "rust.md",
             )],
             &wf_rag::RagIndexConfig::new("kb"),
+            &wf_rag::RetrievalExtensions::new(),
         )
         .await
         .expect("ingest");

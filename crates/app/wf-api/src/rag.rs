@@ -633,7 +633,10 @@ fn open_elastic_handle(
     extensions: &RetrievalExtensions,
 ) -> Result<std::sync::Arc<dyn keyword_contracts::KeywordIndex>, wf_rag::RagError> {
     let config = elastic_config_with(location, selection);
-    keyword_contracts::open_elastic_keyword(&config, extensions.analyzer_registry())
+    Ok(keyword_contracts::open_elastic_keyword(
+        &config,
+        extensions.analyzer_registry(),
+    )?)
 }
 
 fn elastic_config_with(
@@ -665,7 +668,7 @@ fn elastic_config_with(
 /// Disabled yields `None`; any failure is explicit so bootstrap fails fast.
 pub async fn open_keyword_index_async(
     location: &KeywordIndexLocation,
-    extensions: &RetrievalExtensions,
+    extensions: Arc<RetrievalExtensions>,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
     open_keyword_index_async_with(location, &KeywordTokenizerSelection::default(), extensions).await
 }
@@ -675,7 +678,7 @@ pub async fn open_keyword_index_async(
 pub async fn open_keyword_index_async_with(
     location: &KeywordIndexLocation,
     selection: &KeywordTokenizerSelection,
-    extensions: &RetrievalExtensions,
+    extensions: Arc<RetrievalExtensions>,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
     match location {
         KeywordIndexLocation::Elastic(resolved) => {
@@ -707,7 +710,7 @@ pub async fn open_keyword_index_async_with(
             } else {
                 info!(version = %version, index = %resolved.index, "elastic keyword version probed");
             }
-            let handle = open_elastic_handle(resolved, selection, extensions).map_err(|err| {
+            let handle = open_elastic_handle(resolved, selection, extensions.as_ref()).map_err(|err| {
                 ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
             })?;
             ensure_keyword_capabilities(handle.as_ref(), selection)?;
@@ -721,8 +724,9 @@ pub async fn open_keyword_index_async_with(
         other => {
             let owned = other.clone();
             let selection = selection.clone();
+            let extensions = Arc::clone(&extensions);
             tokio::task::spawn_blocking(move || {
-                open_keyword_index_with(&owned, &selection, extensions)
+                open_keyword_index_with(&owned, &selection, extensions.as_ref())
             })
             .await
             .map_err(|err| ApiError::execution(format!("Keyword open task failed: {err}")))?
@@ -1621,7 +1625,7 @@ mod tests {
             version_policy: wf_types::config::keyword::ElasticVersionPolicy::default(),
         });
         assert!(
-            open_keyword_index_async(&location, &wf_rag::RetrievalExtensions::new())
+            open_keyword_index_async(&location, Arc::new(wf_rag::RetrievalExtensions::new()))
                 .await
                 .is_err()
         );
@@ -1643,6 +1647,7 @@ mod tests {
                 "rust.md",
             )],
             &wf_rag::RagIndexConfig::new("kb"),
+            &wf_rag::RetrievalExtensions::new(),
         )
         .await
         .expect("ingest");
@@ -1667,6 +1672,7 @@ mod tests {
             "kb",
             "ownership",
             &config,
+            &wf_rag::RetrievalExtensions::new(),
         )
         .await
         .expect("hybrid");
@@ -1693,6 +1699,7 @@ mod tests {
                 "rust.md",
             )],
             &wf_rag::RagIndexConfig::new("kb"),
+            &wf_rag::RetrievalExtensions::new(),
         )
         .await
         .expect("ingest");
@@ -1747,6 +1754,7 @@ mod tests {
                 "rust.md",
             )],
             &wf_rag::RagIndexConfig::new("kb"),
+            &wf_rag::RetrievalExtensions::new(),
         )
         .await
         .expect("ingest");
@@ -1850,6 +1858,7 @@ mod tests {
                 "rust.md",
             )],
             &wf_rag::RagIndexConfig::new("kb"),
+            &wf_rag::RetrievalExtensions::new(),
         )
         .await
         .expect("ingest");

@@ -39,7 +39,6 @@ pub(crate) fn validate_vector_encoding(
             ));
         }
         crate::plugin::encode_named_with_registered(
-            &extensions,
             extensions,
             name,
             query_text,
@@ -54,7 +53,6 @@ pub(crate) fn validate_vector_encoding(
         .filter(|name| !name.trim().is_empty())
     {
         crate::plugin::encode_with_registered(
-            &extensions,
             extensions,
             name,
             query_text,
@@ -74,7 +72,6 @@ pub(crate) fn validate_vector_encoding(
             ));
         }
         crate::plugin::encode_with_registered(
-            &extensions,
             extensions,
             &extra.encoder,
             query_text,
@@ -200,7 +197,6 @@ where
 {
     if let Some(name) = encoder.filter(|name| !name.trim().is_empty()) {
         let encoded = crate::plugin::encode_with_registered(
-            &extensions,
             extensions,
             name,
             text,

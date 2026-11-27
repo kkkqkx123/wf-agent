@@ -84,7 +84,7 @@ pub fn open_sqlite_ram_keyword_with(
     analyzer_name: Option<String>,
     analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)
+    let index = sqlite_index::SqliteKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?
         .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
@@ -96,7 +96,7 @@ pub fn open_sqlite_file_keyword_with(
     analyzer_name: Option<String>,
     analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
-    let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)
+    let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)?
         .with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
@@ -108,7 +108,7 @@ pub fn open_sqlite_file_keyword_format(
     analyzers: SharedAnalyzerRegistry,
 ) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     let index =
-        sqlite_index::SqliteKeywordIndex::open_with_format(path, format).with_analyzers(analyzers);
+        sqlite_index::SqliteKeywordIndex::open_with_format(path, format)?.with_analyzers(analyzers);
     Ok(std::sync::Arc::new(index))
 }
 

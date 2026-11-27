@@ -143,18 +143,19 @@ mod tests {
     #[test]
     fn palette_filter_narrows_and_clears() {
         let mut palette = CommandPalette::new();
+        let total = palette.visible_len();
         palette.filter_push('m');
         palette.filter_push('o');
-        assert!(palette.visible_len() < 7, "filter narrows the list");
+        assert!(palette.visible_len() < total, "filter narrows the list");
         assert_eq!(
             palette.selected_command().map(|command| command.id),
             Some("session.model")
         );
         palette.handle(KeyAction::Clear);
-        assert!(palette.visible_len() >= 7);
+        assert_eq!(palette.visible_len(), total);
         // Backspace on an empty filter is a no-op.
         palette.filter_backspace();
-        assert!(palette.visible_len() >= 7);
+        assert_eq!(palette.visible_len(), total);
     }
 
     #[test]

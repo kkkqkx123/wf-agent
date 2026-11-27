@@ -176,7 +176,7 @@ impl Runtime {
         let keyword_index = wf_api::rag::open_keyword_index_async_with(
             &keyword_location,
             &keyword_selection,
-            &retrieval_extensions,
+            Arc::clone(&retrieval_extensions),
         )
         .await
         .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;

@@ -41,8 +41,8 @@ mod routing;
 
 pub use analyzer::{register_plugin_analyzer, unregister_plugin_analyzer};
 pub use encoding::{encode_named_with_registered, encode_with_registered};
-pub use eval::judge_with_registered;
-pub use ingest::{extract_with_registered, split_with_registered};
+pub use eval::{judge_with_registered, JudgeScore};
+pub use ingest::{extract_with_registered, split_with_registered, SplitPiece};
 pub use retrieval::apply_registered_postprocessor;
 /// Protocol version sent with every route selector input.
 pub const ROUTE_SELECTOR_PROTOCOL_VERSION: u32 = 1;

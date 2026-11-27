@@ -10,6 +10,7 @@ use async_trait::async_trait;
 
 use crate::error::{RagError, Result};
 use crate::llm::CompletionLlm;
+use crate::PromptTemplates;
 
 /// Port for question rewriting. Hosts implement it with the model gateway
 /// (multi-query expansion) or with rule-based expansion.

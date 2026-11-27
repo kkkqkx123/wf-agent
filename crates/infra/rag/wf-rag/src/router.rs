@@ -72,7 +72,20 @@ pub fn resolve_selected<'a>(
         .iter()
         .map(|target| target.name.clone())
         .collect();
+    let has_selector = config
+        .route_selector
+        .as_deref()
+        .is_some_and(|name| !name.trim().is_empty());
     let selected = extensions.select(config.route_selector.as_deref(), query, &candidates)?;
+    // A configured selector that fails or suggests nothing keeps every
+    // candidate; refine that full set with keyword rules instead.
+    let all_candidates = selected.len() == candidates.len()
+        && selected
+            .iter()
+            .all(|name| candidates.iter().any(|candidate| candidate == name));
+    if has_selector && all_candidates {
+        return Ok(resolve_targets(config, query));
+    }
     let matched: Vec<&RouteTarget> = selected
         .iter()
         .filter_map(|name| config.targets.iter().find(|target| &target.name == name))

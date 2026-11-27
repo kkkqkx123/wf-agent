@@ -8733,7 +8733,6 @@ dependencies = [
  "keyword-contracts",
  "llm-suite-embedding",
  "llm-suite-rerank",
- "once_cell",
  "serde",
  "serde_json",
  "sha2 0.11.0",

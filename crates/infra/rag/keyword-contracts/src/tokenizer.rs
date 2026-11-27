@@ -36,9 +36,18 @@ pub type CustomAnalyzer = Arc<dyn Fn(String) -> Vec<String> + Send + Sync>;
 
 /// Shared analyzer registry owned by one host configuration scope.
 /// Backends hold the same instance so analyzers never leak across scopes.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct AnalyzerRegistry {
     analyzers: Mutex<HashMap<String, CustomAnalyzer>>,
+}
+
+impl std::fmt::Debug for AnalyzerRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.analyzers.lock().map_or(0, |guard| guard.len());
+        f.debug_struct("AnalyzerRegistry")
+            .field("analyzers", &count)
+            .finish()
+    }
 }
 
 impl AnalyzerRegistry {

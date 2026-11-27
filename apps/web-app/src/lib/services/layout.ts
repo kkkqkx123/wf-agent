@@ -9,9 +9,9 @@ import type { GraphLayoutKind } from '#lib/graph/display-model';
  *   (`GET/PUT/DELETE /workflows/{id}/layout`). The edit tab saves topology
  *   via drafts and positions via this endpoint independently (`dirty` vs
  *   `layoutDirty`); the read-only graph tab autosaves view drags debounced.
- * - Template workflow graphs keep positions as ephemeral canvas state only.
- *   They have no layout endpoint by design, `layoutDirty` stays unwired, and
- *   pure moves are dropped when the session folds back to text.
+ * - Template workflow graphs save positions when the definition is saved.
+ *   `layoutDirty` stays unwired because moves are not autosaved, but the
+ *   editor writes the accumulated positions through the same endpoint.
  *
  * `LayoutKind` mirrors `GraphLayoutKind` from the canvas display model; the
  * canvas owns the canonical union and this module reuses it so the two never

@@ -109,7 +109,7 @@ impl SimvecVectorStore {
         &self,
         space: simvec::VectorSpaceConfig,
     ) -> Result<VectorSpaceSpec> {
-        let distance = match space.distance {
+        let distance = match space.distance() {
             simvec::DistanceMetric::Cosine => DistanceMetric::Cosine,
             simvec::DistanceMetric::Dot => DistanceMetric::Dot,
             simvec::DistanceMetric::Euclid => DistanceMetric::Euclid,
@@ -121,27 +121,22 @@ impl SimvecVectorStore {
             }
         };
         Ok(VectorSpaceSpec {
-            kind: Self::map_engine_kind(space.kind),
-            vector_size: space.vector_size,
+            kind: Self::map_engine_kind(space.kind()),
+            vector_size: space.vector_size(),
             distance,
         })
     }
 
     pub(crate) fn map_space(space: &VectorSpaceSpec) -> simvec::VectorSpaceConfig {
-        // `multi_config` must be present exactly when the kind is multi. Named
-        // spaces reject the multi kind during contracts validation, so this
-        // only ever fills for a layout that reaches the engine through the
-        // single-space path; the width stays at the same default the
-        // single-space builder uses.
-        let multi_config = match space.kind {
-            VectorKind::Multi => Some(simvec::MultiConfig::new(DEFAULT_MULTI_VECTORS)),
-            VectorKind::Dense | VectorKind::Sparse => None,
-        };
-        simvec::VectorSpaceConfig {
-            kind: Self::map_kind(space.kind),
-            vector_size: space.vector_size,
-            distance: Self::map_distance(space.distance),
-            multi_config,
+        let distance = Self::map_distance(space.distance);
+        match space.kind {
+            VectorKind::Multi => simvec::VectorSpaceConfig::multi(
+                space.vector_size,
+                distance,
+                simvec::MultiConfig::new(DEFAULT_MULTI_VECTORS),
+            ),
+            VectorKind::Dense => simvec::VectorSpaceConfig::dense(space.vector_size, distance),
+            VectorKind::Sparse => simvec::VectorSpaceConfig::sparse(distance),
         }
     }
 
@@ -212,10 +207,7 @@ impl SimvecVectorStore {
                 // against its own bound and the collection therefore declares
                 // no vocabulary size. The contracts-level `sparse_max_index`
                 // stays a caller-side admission limit only.
-                simvec::CollectionConfig::with_sparse(
-                    simvec::SPARSE_DIM_BOUND,
-                    Self::map_distance(spec.distance),
-                )
+                simvec::CollectionConfig::with_sparse(Self::map_distance(spec.distance))
             }
             VectorKind::Multi => simvec::CollectionConfig::with_multi(
                 spec.dimension,

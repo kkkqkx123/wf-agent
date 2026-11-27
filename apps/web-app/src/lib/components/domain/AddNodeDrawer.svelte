@@ -19,11 +19,12 @@
 		 */
 		anchor?: { x: number; y: number } | null;
 		/**
-		 * Node type plus label; a null label means the caller names the node.
-		 * The type is already normalised, so it is either a builtin name or a
-		 * plugin-contributed one.
+		 * Node type, label and source template id; a null label means the
+		 * caller names the node. The type is already normalised, so it is
+		 * either a builtin name or a plugin-contributed one. A null id means
+		 * the blank, untemplated choice.
 		 */
-		onselect: (nodeType: string, name: string | null) => void;
+		onselect: (nodeType: string, name: string | null, templateId: string | null) => void;
 		onclose?: () => void;
 	}
 
@@ -145,7 +146,7 @@
 	}
 
 	function choose(choice: Choice): void {
-		onselect(choice.nodeType, choice.name);
+		onselect(choice.nodeType, choice.name, choice.key === 'blank' ? null : choice.key);
 		open = false;
 	}
 

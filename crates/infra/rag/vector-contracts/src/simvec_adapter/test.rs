@@ -645,7 +645,11 @@ fn named_collection_round_trips_through_contracts() {
         ),
         (
             "terms".to_string(),
-            VectorSpaceSpec::new(VectorKind::Sparse, 8, crate::types::DistanceMetric::Dot),
+            VectorSpaceSpec::new(
+                VectorKind::Sparse,
+                simvec::SPARSE_DIM_BOUND,
+                crate::types::DistanceMetric::Dot,
+            ),
         ),
     ]);
     let spec = CollectionSpec::new("named", 0).with_spaces(spaces.clone());

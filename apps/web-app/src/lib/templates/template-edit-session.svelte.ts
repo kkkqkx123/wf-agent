@@ -10,11 +10,8 @@ import {
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
-import {
-	createWorkflow,
-	deleteWorkflow,
-	replaceWorkflow,
-} from '#lib/services/workflows';
+import { createWorkflow, deleteWorkflow, replaceWorkflow } from '#lib/services/workflows';
+import { getWorkflowLayout, saveWorkflowLayout } from '#lib/services/layout';
 import {
 	allocateGraphNodeId,
 	cloneTemplate,
@@ -34,7 +31,7 @@ import {
 	type TemplateIssue,
 } from '#lib/services/templates';
 import type { TemplateEditTab, TemplateKind } from '#lib/types/models';
-import { normalizeNodeType } from '#lib/graph/node-kind';
+import { DEFAULT_NODE_TYPE, normalizeNodeType } from '#lib/graph/node-kind';
 import { nodeInsertStore } from '#lib/stores/node-insert.svelte';
 import { toasts } from '#lib/stores/toast.svelte';
 import { slugify } from '#lib/utils/format';
@@ -94,9 +91,8 @@ export class TemplateEditController {
 
 	// Controlled graph edit state for workflow templates. The canvas only
 	// emits intents; every mutation lands here and re-renders from it.
-	// Positions stay ephemeral here: templates have no layout endpoint, so
-	// `layoutDirty` is intentionally unwired and only the session document
-	// guards unsaved changes.
+	// Positions are saved with the definition on save; `layoutDirty` stays
+	// unwired because template graph moves are not autosaved.
 	templateEditStore = new GraphEditStore();
 	session = new TemplateEditSession();
 	graphRequest = $state(0);
@@ -171,7 +167,7 @@ export class TemplateEditController {
 
 	kindOptions = KIND_OPTIONS;
 
-	enterEdit(tab: TemplateEditTab): void {
+	async enterEdit(tab: TemplateEditTab): Promise<void> {
 		const kind = this.kind;
 		const detail = this.detail;
 		if (!kind || !detail) return;
@@ -186,8 +182,10 @@ export class TemplateEditController {
 		this.serverIssues = [];
 		this.validatedText = null;
 		if (tab === 'graph') {
-			this.graphRequest += 1;
+			await this.acquireEditLock();
 			this.consumePendingInsert();
+			this.graphRequest += 1;
+			return;
 		}
 		void this.acquireEditLock();
 	}
@@ -297,11 +295,25 @@ export class TemplateEditController {
 		this.templateEditStore.applyMoves(moves);
 	}
 
-	handleTemplateAddNode(position: CanvasPosition): void {
+	handleTemplateAddNode(
+		position: CanvasPosition,
+		nodeType: string = DEFAULT_NODE_TYPE,
+		name: string | null = null,
+		templateId: string | null = null,
+	): void {
 		const store = this.templateEditStore;
 		const existing = new SvelteSet(store.nodes.map((node) => node.id));
 		const id = allocateGraphNodeId(existing);
-		store.addNode({ id, label: id, kind: 'STEP' }, position);
+		const kind = normalizeNodeType(nodeType) ?? DEFAULT_NODE_TYPE;
+		store.addNode(
+			{
+				id,
+				label: name?.trim() || id,
+				kind,
+				...(templateId ? { config: { template_id: templateId } } : {}),
+			},
+			position,
+		);
 		store.selectedId = id;
 	}
 
@@ -337,12 +349,12 @@ export class TemplateEditController {
 		return { ...base, definition: parsed };
 	}
 
-	buildBackendDefinition(value: unknown): Record<string, unknown> {
+	buildBackendDefinition(value: unknown, checkId?: string): Record<string, unknown> {
 		const isNew = this.isNew;
 		return templateBackendDefinition(
 			this.kind ?? 'node',
 			value,
-			`template-${isNew ? this.createId.trim() || 'new' : this.routeIdParam}`,
+			checkId ?? `template-${isNew ? this.createId.trim() || 'new' : this.routeIdParam}`,
 			`template-${isNew ? 'new' : this.routeIdParam}`,
 		);
 	}
@@ -353,7 +365,7 @@ export class TemplateEditController {
 	 * delete the check draft so validation leaves no residue. Returns true
 	 * when the server reports no issues.
 	 */
-	async runTemplateServerGate(): Promise<boolean> {
+	async runTemplateServerGate(options?: { quiet?: boolean }): Promise<boolean> {
 		this.flushEditState();
 		this.session.applyText(this.editText);
 		this.syntaxError = this.session.syntaxError;
@@ -366,7 +378,11 @@ export class TemplateEditController {
 		}
 		let definition: Record<string, unknown>;
 		try {
-			definition = this.buildBackendDefinition(value);
+			const suffix =
+				typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+					? crypto.randomUUID().slice(0, 8)
+					: Date.now().toString(36);
+			definition = this.buildBackendDefinition(value, `template-check-${suffix}`);
 		} catch (e) {
 			toasts.error('Template invalid', e instanceof Error ? e.message : undefined);
 			return false;
@@ -382,7 +398,7 @@ export class TemplateEditController {
 				toasts.warning(`Server reports ${issues.length} issue(s)`);
 				return false;
 			}
-			toasts.success('Server validation passed');
+			if (!options?.quiet) toasts.success('Server validation passed');
 			return true;
 		} catch (e) {
 			toasts.error('Server validation failed', e instanceof Error ? e.message : undefined);
@@ -475,6 +491,9 @@ export class TemplateEditController {
 					this.routeIdParam,
 				);
 				await replaceWorkflow(this.routeIdParam, { ...definition, id: this.routeIdParam });
+				await this.saveTemplateLayout().catch((e) => {
+					toasts.warning('Layout save failed', e instanceof Error ? e.message : undefined);
+				});
 				toasts.success('Template saved');
 				this.session.markClean();
 				this.exitEdit();
@@ -500,11 +519,7 @@ export class TemplateEditController {
 		try {
 			// Every kind clones through the unified library endpoint, which
 			// answers the new entry id; no per-kind branching is needed.
-			const newId = await cloneTemplate(
-				detail.template.id,
-				kind,
-				`${detail.template.name} (copy)`,
-			);
+			const newId = await cloneTemplate(detail.template.id, kind, `${detail.template.name} (copy)`);
 			void recordTemplateUsage(detail.template.id).catch(() => undefined);
 			toasts.success('Template cloned');
 			await goto(resolve('/templates/[kind]/[id]', { kind, id: newId }));
@@ -561,7 +576,7 @@ export class TemplateEditController {
 			return;
 		}
 		if (!this.detail) return;
-		this.enterEdit(next === 'graph' ? 'graph' : 'json');
+		void this.enterEdit(next === 'graph' ? 'graph' : 'json');
 	}
 
 	/**
@@ -585,10 +600,17 @@ export class TemplateEditController {
 	 * then deep-link to the target. Only node templates can land on a
 	 * canvas, and only when the stored `node_type` is a non-blank name.
 	 */
-	insertIntoCanvas(targetWorkflowId?: string | null): void {
+	async insertIntoCanvas(targetWorkflowId?: string | null): Promise<void> {
 		const detail = this.detail;
 		const nodeType = this.insertNodeType;
 		if (!detail || nodeType === null) return;
+		const issues = await validateTemplateDefinition('node', detail.raw);
+		if (issues.length > 0) {
+			this.serverIssues = issues;
+			this.validationState = 'invalid';
+			toasts.error('Template invalid', 'Fix the reported issues before inserting it.');
+			return;
+		}
 		const target = targetWorkflowId?.trim() || null;
 		nodeInsertStore.set({
 			nodeType,
@@ -621,6 +643,13 @@ export class TemplateEditController {
 		if (this.kind !== 'workflow') return;
 		const pendingInsert = nodeInsertStore.peek();
 		if (!pendingInsert) return;
+		if (this.lockStore && !this.lockStore.canWrite) {
+			toasts.warning(
+				'Insert deferred',
+				`Held by ${this.lockStore.displayHolder}. The queued node stays available.`,
+			);
+			return;
+		}
 		if (pendingInsert.targetWorkflowId && pendingInsert.targetWorkflowId !== this.routeIdParam) {
 			toasts.info(
 				`Node queued for ${pendingInsert.targetWorkflowId}`,
@@ -628,13 +657,40 @@ export class TemplateEditController {
 			);
 			return;
 		}
-		nodeInsertStore.consume();
 		const topology = this.session.topology();
 		const existing = new SvelteSet(topology.nodes.map((node) => node.id));
 		const id = allocateGraphNodeId(existing);
-		const nodes = [...topology.nodes, { id, label: pendingInsert.name || id, kind: 'STEP' }];
+		const nodes = [
+			...topology.nodes,
+			{
+				id,
+				label: pendingInsert.name || id,
+				kind: pendingInsert.nodeType,
+				...(pendingInsert.sourceTemplateId
+					? { config: { template_id: pendingInsert.sourceTemplateId } }
+					: {}),
+			},
+		];
 		this.session.mergeGraph(nodes, topology.edges);
 		this.editText = this.session.text;
+		nodeInsertStore.clear();
+		void this.runTemplateServerGate({ quiet: true });
+	}
+
+	/** Save edited canvas positions with the workflow definition. */
+	private async saveTemplateLayout(): Promise<void> {
+		if (this.kind !== 'workflow' || this.isNew) return;
+		const entries = Object.entries(this.templateEditStore.positions);
+		if (entries.length === 0) return;
+		const positions = Object.fromEntries(
+			entries.map(([id, position]) => [id, { x: position.x, y: position.y }]),
+		);
+		const id = this.routeIdParam;
+		const saved = await getWorkflowLayout(id).catch(() => null);
+		await saveWorkflowLayout(id, {
+			positions: { ...(saved?.positions ?? {}), ...positions },
+			...(saved?.settings ? { settings: saved.settings } : {}),
+		});
 	}
 
 	discardEditsAndLeave(): void {

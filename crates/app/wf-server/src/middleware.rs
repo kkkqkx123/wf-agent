@@ -1231,6 +1231,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_guard_refuses_new_work_but_allows_reads() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
         crate::api::system::server::reset_server_stopping_for_test();
         struct Probe;
         impl Probe {

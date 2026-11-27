@@ -156,7 +156,7 @@
 		try {
 			detail = await getTemplateDetail(id, activeKind);
 			if (view !== 'preview') {
-				controller.enterEdit(view === 'graph' ? 'graph' : 'json');
+				await controller.enterEdit(view === 'graph' ? 'graph' : 'json');
 			} else {
 				controller.editMode = false;
 			}
@@ -246,7 +246,7 @@
 				<Button
 					variant="outline"
 					size="sm"
-					onclick={() => controller.insertIntoCanvas(insertTarget || null)}
+					onclick={() => void controller.insertIntoCanvas(insertTarget || null)}
 				>
 					<Icon name="blocks" size={13} />
 					Insert as {controller.insertNodeType}

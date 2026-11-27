@@ -17,9 +17,9 @@ use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 
 use wf_api::ToolApprovalRequestData;
+use wf_api::ToolExecutionOptions;
 use wf_api::UserInteractionListOptions;
 use wf_api::UserInteractionStorageMetadata;
-use wf_api::ToolExecutionOptions;
 
 use crate::envelope::{err, error_response, ok, InvalidParams};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
@@ -113,8 +113,7 @@ pub(crate) async fn handle_check_approval(
     // Policy-first, mirroring the engine gates: auto-approved and denied
     // calls resolve without a handler; only an `Ask` decision needs a human
     // and fails fast when nobody can answer.
-    let options =
-        wf_api::workflow::tool_approval_handler::host_approval_options(&state.ctx);
+    let options = wf_api::workflow::tool_approval_handler::host_approval_options(&state.ctx);
     let tool_snapshot = state
         .ctx
         .tool_registry
@@ -197,8 +196,7 @@ pub(crate) async fn handle_execute_tool(
         tool_index: None,
         total_tools: None,
     };
-    let policy_options =
-        wf_api::workflow::tool_approval_handler::host_approval_options(&state.ctx);
+    let policy_options = wf_api::workflow::tool_approval_handler::host_approval_options(&state.ctx);
     let mcp_manager = state.ctx.tool_registry.mcp_manager();
     let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
     let mcp_context = wf_api::McpToolContext {
@@ -424,15 +422,12 @@ pub(crate) async fn handle_respond_interaction(
     Path(path): Path<IdPath>,
     Json(body): Json<RespondBody>,
 ) -> impl IntoResponse {
-    let interaction = match wf_api::entity::user_interaction::get_interaction(
-        &state.ctx.storage,
-        &path.id,
-    )
-    .await
-    {
-        Ok(interaction) => interaction,
-        Err(e) => return error_response(e),
-    };
+    let interaction =
+        match wf_api::entity::user_interaction::get_interaction(&state.ctx.storage, &path.id).await
+        {
+            Ok(interaction) => interaction,
+            Err(e) => return error_response(e),
+        };
     match wf_api::entity::user_interaction::respond_interaction(
         &state.ctx.storage,
         &path.id,

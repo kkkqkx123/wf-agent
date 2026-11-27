@@ -693,6 +693,7 @@ mod tests {
 
     #[tokio::test]
     async fn ws_full_cycle() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
         let ctx = make_ctx();
         let handle = start_server(ctx.clone()).await;
 
@@ -747,10 +748,12 @@ mod tests {
 
         socket.close(None).await.unwrap();
         handle.shutdown().await;
+        crate::api::system::server::reset_server_stopping_for_test();
     }
 
     #[tokio::test]
     async fn ws_terminal_event_ends_subscription() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
         let ctx = make_ctx();
         let handle = start_server(ctx.clone()).await;
 
@@ -788,10 +791,12 @@ mod tests {
 
         socket.close(None).await.unwrap();
         handle.shutdown().await;
+        crate::api::system::server::reset_server_stopping_for_test();
     }
 
     #[tokio::test]
     async fn ws_agent_loop_subscription() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
         let ctx = make_ctx();
         let handle = start_server(ctx.clone()).await;
 
@@ -830,10 +835,12 @@ mod tests {
 
         socket.close(None).await.unwrap();
         handle.shutdown().await;
+        crate::api::system::server::reset_server_stopping_for_test();
     }
 
     #[tokio::test]
     async fn ws_rejects_invalid_messages() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
         let ctx = make_ctx();
         let handle = start_server(ctx.clone()).await;
 
@@ -860,10 +867,12 @@ mod tests {
 
         socket.close(None).await.unwrap();
         handle.shutdown().await;
+        crate::api::system::server::reset_server_stopping_for_test();
     }
 
     #[tokio::test]
     async fn ws_auth_accepts_valid_key_and_rejects_missing() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
         let ctx = make_ctx();
         let config = crate::middleware::ServerMiddlewareConfig {
             auth: crate::middleware::AuthConfig {
@@ -910,5 +919,6 @@ mod tests {
             }
         }
         handle.shutdown().await;
+        crate::api::system::server::reset_server_stopping_for_test();
     }
 }

@@ -8,7 +8,6 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use wf_api::NodeTemplateListOptions;
 use wf_api::{NodeTemplateStorageMetadata, TriggerTemplateStorageMetadata};
 
 use crate::envelope::{error_response, ok};
@@ -99,47 +98,37 @@ pub(crate) async fn handle_list_node_templates(
     Query(query): Query<ListNodeTemplatesQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
-    // A name query cannot be pushed to storage (the filter language only
-    // covers equality), so the filtered path lists without storage
-    // pagination and pages the matches in memory; the unfiltered path
-    // keeps the storage-level window exactly as before.
-    if let Some(keyword) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-        let options = NodeTemplateListOptions {
-            offset: None,
-            limit: None,
-            node_type_filter: query.node_type,
-        };
-        let needle = keyword.to_lowercase();
-        return match wf_api::template::node_template::node_template_summaries(
-            &state.ctx.storage,
-            Some(options),
-        )
-        .await
-        {
-            Ok(templates) => {
-                let window = templates
-                    .into_iter()
-                    .filter(|t| t.name.to_lowercase().contains(&needle))
-                    .skip(offset as usize)
-                    .take(fetch_size(limit) as usize)
-                    .collect();
-                ok_page(window, limit, offset).into_response()
-            }
-            Err(e) => error_response(e),
-        };
-    }
-    let options = NodeTemplateListOptions {
-        offset: Some(offset),
-        limit: Some(fetch_size(limit)),
-        node_type_filter: query.node_type,
-    };
-    match wf_api::template::node_template::node_template_summaries(
-        &state.ctx.storage,
-        Some(options),
-    )
-    .await
-    {
-        Ok(templates) => ok_page(templates, limit, offset).into_response(),
+    let needle = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(str::to_lowercase);
+    let node_type = query
+        .node_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    match wf_api::template::node_template::node_template_summaries_with_registry(&state.ctx).await {
+        Ok(templates) => {
+            let window = templates
+                .into_iter()
+                .filter(|template| {
+                    node_type
+                        .as_ref()
+                        .map_or(true, |expected| template.node_type == *expected)
+                })
+                .filter(|template| {
+                    needle
+                        .as_ref()
+                        .map_or(true, |value| template.name.to_lowercase().contains(value))
+                })
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

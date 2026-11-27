@@ -65,7 +65,8 @@
 	onservercheck={() => void controller.runTemplateServerGate()}
 	onmovenode={(id, position) => controller.handleTemplateMoveNode(id, position)}
 	onmovenodes={(moves) => controller.handleTemplateMoveNodes(moves)}
-	onaddnode={(position) => controller.handleTemplateAddNode(position)}
+	onaddnode={(position, nodeType, name, templateId) =>
+		controller.handleTemplateAddNode(position, nodeType, name, templateId)}
 	onconnect={(source, target) => controller.handleTemplateConnect(source, target)}
 	ondeletenodes={(ids) => controller.handleTemplateDeleteNodes(ids)}
 	ondeletegroups={(ids) => controller.handleTemplateDeleteGroups(ids)}

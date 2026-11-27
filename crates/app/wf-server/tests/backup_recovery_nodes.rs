@@ -466,7 +466,15 @@ async fn divergent_target_needs_replace_and_replace_converges() {
 
     assert_eq!(nodes.remote_digest().await, Some(snapshot_digest.clone()));
 
-    let settled = nodes.wait_status("ok").await;
+    // The status was already healthy before the restore, so waiting for the
+    // label alone can observe the pre-restore position. Wait for the digest
+    // to converge as well.
+    let settled = nodes
+        .wait_state("a converged target after replace", |state| {
+            state["repair_status"] == "ok"
+                && state["digest"].as_str() == Some(snapshot_digest.as_str())
+        })
+        .await;
     assert_eq!(settled["digest"], snapshot_digest);
 }
 

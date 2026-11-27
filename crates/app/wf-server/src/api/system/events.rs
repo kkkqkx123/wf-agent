@@ -659,13 +659,14 @@ pub(crate) async fn handle_event_stream(
         tracing::warn!(target: "wf_server", "SSE connection rejected: max connections ({MAX_SSE_CLIENTS}) reached");
         return crate::envelope::service_unavailable("Too many SSE connections");
     }
-    // Client disconnect drops the guard and the stream, cancelling the
-    // subscription immediately; no explicit cancel frame is needed.
+    // The guard is moved into the response stream below, so the admission
+    // counter follows the connection lifetime instead of the handler future.
+    // Client disconnect drops both the stream and the subscription.
     // The stream is volatile by contract: a slow consumer overflows and
     // the connection is dropped, and events during disconnection are
     // missed. Reconnect with the opaque `since` cursor to replay the
     // bounded retained window.
-    let _guard = SseClientGuard;
+    let guard = SseClientGuard;
 
     let execution_id = query.execution_id.clone();
     let type_filter = query.event_types.as_deref().or(query.types.as_deref());
@@ -758,10 +759,19 @@ pub(crate) async fn handle_event_stream(
             ))
         },
     );
-    sse_response(futures::stream::select(
+    let stream = Box::pin(futures::stream::select(
         connected.chain(backlog_stream).chain(events),
         keepalive,
-    ))
+    ));
+    // Keep the admission guard in the stream state: it is released when the
+    // client disconnects, the stream ends, or the response is dropped.
+    let guarded = futures::stream::unfold((stream, guard), |(mut stream, guard)| async move {
+        match stream.next().await {
+            Some(item) => Some((item, (stream, guard))),
+            None => None,
+        }
+    });
+    sse_response(guarded)
 }
 
 #[cfg(test)]
@@ -796,10 +806,13 @@ mod tests {
 
     use super::MAX_SSE_CLIENTS;
 
-    /// Serializes the SSE connection-limit tests: they share the process-wide
-    /// `SSE_CLIENTS` counter with the live-stream test, so they must not run
-    /// concurrently.
-    static SSE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    /// Give each locked test a clean process-wide state. Both the SSE
+    /// admission counter and the shutdown drain flag reject new streams, and
+    /// either can leak from an unrelated test.
+    fn reset_process_test_state() {
+        super::SSE_CLIENTS.store(0, Ordering::SeqCst);
+        crate::api::system::server::reset_server_stopping_for_test();
+    }
 
     fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
@@ -820,6 +833,20 @@ mod tests {
             .await
             .unwrap();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    async fn require_stream_ok(response: Response) -> Response {
+        let status = response.status();
+        if status != axum::http::StatusCode::OK {
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            panic!(
+                "unexpected stream response {status}: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+        }
+        response
     }
 
     #[tokio::test]
@@ -902,14 +929,14 @@ mod tests {
 
     #[tokio::test]
     async fn event_stream_emits_sse_frames() {
-        let _lock = SSE_TEST_LOCK.lock().await;
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
+        reset_process_test_state();
         let ctx = make_ctx();
 
         let client = tokio::spawn({
             let ctx = ctx.clone();
             async move {
-                let response = get(ctx, "/api/v1/events/stream").await;
-                assert_eq!(response.status(), axum::http::StatusCode::OK);
+                let response = require_stream_ok(get(ctx, "/api/v1/events/stream").await).await;
                 assert_eq!(
                     response.headers().get("content-type").unwrap(),
                     "text/event-stream"
@@ -962,8 +989,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sse_stream_holds_the_admission_guard_until_response_drops() {
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
+        reset_process_test_state();
+        let ctx = make_ctx();
+        let before = super::SSE_CLIENTS.load(Ordering::SeqCst);
+
+        let response = require_stream_ok(get(ctx, "/api/v1/events/stream").await).await;
+        assert_eq!(super::SSE_CLIENTS.load(Ordering::SeqCst), before + 1);
+
+        drop(response);
+        assert_eq!(super::SSE_CLIENTS.load(Ordering::SeqCst), before);
+    }
+
+    #[tokio::test]
     async fn event_stream_rejects_when_limit_reached() {
-        let _lock = SSE_TEST_LOCK.lock().await;
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
+        reset_process_test_state();
         let ctx = make_ctx();
         // Saturate the client counter (with margin so concurrent tests
         // releasing their connections cannot drop it below the limit).
@@ -978,7 +1020,8 @@ mod tests {
 
     #[tokio::test]
     async fn sse_guard_decrements_on_drop() {
-        let _lock = SSE_TEST_LOCK.lock().await;
+        let _lock = crate::PROCESS_STATE_TEST_LOCK.lock().await;
+        reset_process_test_state();
         let before = super::SSE_CLIENTS.load(Ordering::SeqCst);
         super::SSE_CLIENTS.fetch_add(1, Ordering::SeqCst);
         {

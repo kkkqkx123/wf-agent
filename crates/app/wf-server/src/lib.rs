@@ -27,6 +27,12 @@ pub mod sse;
 pub mod static_files;
 pub mod ws;
 
+/// Serializes tests that mutate process-wide server state, such as the SSE
+/// admission counter and the shutdown drain flag.
+#[cfg(test)]
+pub(crate) static PROCESS_STATE_TEST_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
 pub use api::system::health::HealthView;
 pub use api::workflow::executions::{ExecuteBody, ExecuteView};
 #[cfg(feature = "metrics")]

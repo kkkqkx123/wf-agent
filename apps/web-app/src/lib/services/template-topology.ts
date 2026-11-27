@@ -1,11 +1,19 @@
 import { backendEdgeType } from '#lib/graph/display-model';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+import { DEFAULT_NODE_TYPE } from '#lib/graph/node-kind';
 import { asRecordList } from '#lib/services/graph';
 import type { KeyValue, TemplateKind } from '#lib/types/models';
 
 function field(record: Record<string, unknown>, key: string, fallback: string): string {
 	const value = record[key];
 	return typeof value === 'string' && value !== '' ? value : fallback;
+}
+
+function nodeConfig(record: Record<string, unknown>): Record<string, unknown> | undefined {
+	const config = record.config;
+	return config && typeof config === 'object' && !Array.isArray(config)
+		? (config as Record<string, unknown>)
+		: undefined;
 }
 
 /** Definition-level object a form edits, unwrapped for library kinds. */
@@ -29,11 +37,15 @@ export function parseTemplateTopology(value: unknown): TemplateTopology {
 				: (value as Record<string, unknown>)
 			: {};
 	return {
-		nodes: asRecordList(target.nodes).map((node, index) => ({
-			id: field(node, 'id', `node-${index}`),
-			label: field(node, 'name', field(node, 'id', `node-${index}`)),
-			kind: field(node, 'node_type', 'STEP'),
-		})),
+		nodes: asRecordList(target.nodes).map((node, index) => {
+			const config = nodeConfig(node);
+			return {
+				id: field(node, 'id', `node-${index}`),
+				label: field(node, 'name', field(node, 'id', `node-${index}`)),
+				kind: field(node, 'node_type', DEFAULT_NODE_TYPE),
+				...(config ? { config } : {}),
+			};
+		}),
 		edges: asRecordList(target.edges)
 			.map((edge, index) => ({
 				id: field(edge, 'id', `edge-${index}`),
@@ -82,6 +94,7 @@ export function mergeTemplateGraph(
 			id: node.id || field(prev, 'id', `node-${index}`),
 			node_type: node.kind,
 			name: node.label,
+			...(node.config ? { config: node.config } : {}),
 		};
 	});
 	const nextEdges = edges.map((edge, index) => {
@@ -120,7 +133,7 @@ export function templateBackendDefinition(
 		nodes: nodes.map((node, index) => ({
 			...node,
 			id: field(node, 'id', `node-${index}`),
-			node_type: field(node, 'node_type', 'STEP'),
+			node_type: field(node, 'node_type', DEFAULT_NODE_TYPE),
 			name: field(node, 'name', field(node, 'id', `node-${index}`)),
 		})),
 		edges: asRecordList(record.edges).map((edge, index) => ({

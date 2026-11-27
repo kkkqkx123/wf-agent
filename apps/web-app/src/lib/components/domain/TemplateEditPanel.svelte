@@ -23,6 +23,7 @@
 		type TemplateIssue,
 	} from '#lib/services/templates';
 	import type { TemplateKind } from '#lib/types/models';
+	import { DEFAULT_NODE_TYPE } from '#lib/graph/node-kind';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 
@@ -41,6 +42,8 @@
 		draftBusy: boolean;
 		saveBusy: boolean;
 		graphRequest: number;
+		/** Workflow id whose persisted canvas layout backs the graph tab. */
+		layoutId?: string;
 		/** Single-writer lock holder text; empty when the kind has no lock. */
 		lockHolder?: string;
 		/** Whether the current edit may write; lock-free kinds are writable. */
@@ -52,7 +55,12 @@
 		onservercheck: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
 		onmovenodes: (moves: Array<{ id: string; position: CanvasPosition }>) => void;
-		onaddnode: (position: CanvasPosition) => void;
+		onaddnode: (
+			position: CanvasPosition,
+			nodeType: string,
+			name: string | null,
+			templateId: string | null,
+		) => void;
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
 		ondeletegroups: (ids: string[]) => void;
@@ -73,6 +81,7 @@
 		draftBusy,
 		saveBusy,
 		graphRequest,
+		layoutId = undefined,
 		lockHolder = '',
 		canWrite = true,
 		ontabchange,
@@ -374,6 +383,7 @@
 				editDirty={store.dirty}
 				canUndo={store.canUndo}
 				canRedo={store.canRedo}
+				{layoutId}
 				positions={store.positions}
 				issueIds={serverIssueIds}
 				onundo={() => store.undo()}
@@ -381,7 +391,8 @@
 				onsave={() => onsave()}
 				onmovenode={(id, position) => onmovenode(id, position)}
 				onmovenodes={(moves) => onmovenodes(moves)}
-				onaddnode={(position) => onaddnode(position)}
+				onaddnode={(position, nodeType, name, templateId) =>
+					onaddnode(position, nodeType, name, templateId)}
 				ondeleteedge={(id) => store.removeEdge(id)}
 				onconnect={(source, target) => onconnect(source, target)}
 				ondeletenodes={(ids) => ondeletenodes(ids)}
@@ -422,7 +433,7 @@
 								const next = (event.currentTarget as HTMLInputElement).value;
 								if (store.selectedId) {
 									store.updateNode(store.selectedId, {
-										kind: next.trim() || 'STEP',
+										kind: next.trim() || DEFAULT_NODE_TYPE,
 									});
 								}
 							}}

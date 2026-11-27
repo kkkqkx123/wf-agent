@@ -1,3 +1,5 @@
+import { normalizeNodeType } from '#lib/graph/node-kind';
+
 /**
  * A node queued for the workflow canvas. `nodeType` is already normalised to
  * what the backend stores — a builtin name or a plugin-contributed one — so
@@ -12,13 +14,39 @@ export interface PendingNodeInsert {
 	 * edit tab.
 	 */
 	targetWorkflowId?: string | null;
-	/** Template the insert was queued from, for recoverable prompts. */
+	/** Template the insert was queued from, used as the node template reference. */
 	sourceTemplateId?: string | null;
 	/** When the insert was queued, for expiry and diagnostics. */
 	queuedAt: number;
 }
 
 const STORAGE_KEY = 'wf.pending-node-insert.v1';
+
+/** Inserts older than this are stale intents and must not be replayed. */
+export const NODE_INSERT_MAX_AGE_MS = 30 * 60 * 1000;
+
+function text(value: unknown): string | null {
+	return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeEntry(value: unknown, now: number = Date.now()): PendingNodeInsert | null {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+	const record = value as Record<string, unknown>;
+	const nodeType = normalizeNodeType(text(record.nodeType) ?? '');
+	if (nodeType === null) return null;
+	const queuedAt =
+		typeof record.queuedAt === 'number' && Number.isFinite(record.queuedAt) ? record.queuedAt : now;
+	if (queuedAt <= 0 || queuedAt - now > 60_000 || now - queuedAt > NODE_INSERT_MAX_AGE_MS) {
+		return null;
+	}
+	return {
+		nodeType,
+		name: text(record.name) ?? '',
+		targetWorkflowId: text(record.targetWorkflowId),
+		sourceTemplateId: text(record.sourceTemplateId),
+		queuedAt,
+	};
+}
 
 /**
  * Pending node insertion aimed at the workflow editor. The template detail
@@ -27,21 +55,15 @@ const STORAGE_KEY = 'wf.pending-node-insert.v1';
  *
  * The queue lives in memory with a `sessionStorage` backup: a reload before
  * reaching the editor restores from storage instead of dropping silently.
- * When both are empty the workflow page shows a recoverable prompt that
- * links back to the template instead of failing silently.
+ * An expired or malformed entry is removed on read, and the editor clears it
+ * only after the insertion has been applied to the session document.
  */
 class NodeInsertStore {
 	private pending = $state<PendingNodeInsert | null>(null);
 
-	get value(): PendingNodeInsert | null {
-		return this.pending;
-	}
-
 	set(node: Omit<PendingNodeInsert, 'queuedAt'> & { queuedAt?: number }): void {
-		const entry: PendingNodeInsert = {
-			...node,
-			queuedAt: node.queuedAt ?? Date.now(),
-		};
+		const entry = normalizeEntry({ ...node, queuedAt: node.queuedAt ?? Date.now() });
+		if (entry === null) throw new Error('Pending node insert requires a non-blank node type');
 		this.pending = entry;
 		try {
 			if (typeof sessionStorage !== 'undefined') {
@@ -53,45 +75,35 @@ class NodeInsertStore {
 	}
 
 	peek(): PendingNodeInsert | null {
-		if (this.pending) return this.pending;
+		if (this.pending) {
+			const current = normalizeEntry(this.pending);
+			if (current) return current;
+			this.pending = null;
+			this.removeStorage();
+			return null;
+		}
 		try {
 			if (typeof sessionStorage === 'undefined') return null;
 			const raw = sessionStorage.getItem(STORAGE_KEY);
 			if (!raw) return null;
-			const parsed = JSON.parse(raw) as PendingNodeInsert;
-			if (!parsed || typeof parsed.nodeType !== 'string' || !parsed.nodeType) {
+			const restored = normalizeEntry(JSON.parse(raw) as unknown);
+			if (restored === null) {
+				this.removeStorage();
 				return null;
 			}
-			this.pending = {
-				nodeType: parsed.nodeType,
-				name: typeof parsed.name === 'string' ? parsed.name : '',
-				targetWorkflowId:
-					typeof parsed.targetWorkflowId === 'string' ? parsed.targetWorkflowId : null,
-				sourceTemplateId:
-					typeof parsed.sourceTemplateId === 'string' ? parsed.sourceTemplateId : null,
-				queuedAt: typeof parsed.queuedAt === 'number' ? parsed.queuedAt : Date.now(),
-			};
-			return this.pending;
+			this.pending = restored;
+			return restored;
 		} catch {
 			return null;
 		}
 	}
 
-	consume(): PendingNodeInsert | null {
-		const current = this.peek();
-		this.pending = null;
-		try {
-			if (typeof sessionStorage !== 'undefined') {
-				sessionStorage.removeItem(STORAGE_KEY);
-			}
-		} catch {
-			// Clearing storage is best-effort.
-		}
-		return current;
-	}
-
 	clear(): void {
 		this.pending = null;
+		this.removeStorage();
+	}
+
+	private removeStorage(): void {
 		try {
 			if (typeof sessionStorage !== 'undefined') {
 				sessionStorage.removeItem(STORAGE_KEY);

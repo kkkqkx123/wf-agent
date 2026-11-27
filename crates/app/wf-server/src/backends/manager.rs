@@ -715,22 +715,15 @@ impl BackendManager {
     /// Effective repair status for one write. A reset that recorded `rebasing`
     /// after this writer took its snapshot keeps the mark; adopting a snapshot
     /// (a backup id the stored row does not carry) clears it.
-    async fn repair_status_for_write(
-        &self,
-        backend: &str,
-        execution: &str,
+    fn repair_status_for_write(
+        stored: Option<&SyncStateView>,
         wanted: &str,
         backup_id: Option<&str>,
     ) -> String {
         if wanted == REBASING_STATUS {
             return wanted.to_string();
         }
-        let stored = self
-            .store
-            .get_sync_state(backend, execution)
-            .await
-            .unwrap_or(None);
-        let reset_landed = stored.as_ref().is_some_and(|row| {
+        let reset_landed = stored.is_some_and(|row| {
             row.repair_status == REBASING_STATUS
                 && row.backup_id.is_some()
                 && row.backup_id.as_deref() == backup_id
@@ -749,14 +742,34 @@ impl BackendManager {
     /// never saw: only a different backup id carries a position that replaces
     /// the dropped baseline, everything else is the position it escaped.
     async fn write_sync_state(&self, mut state: SyncStateView) {
-        let repair_status = self
-            .repair_status_for_write(
-                &state.backend,
-                &state.execution,
-                &state.repair_status,
-                state.backup_id.as_deref(),
-            )
-            .await;
+        let stored = self
+            .store
+            .get_sync_state(&state.backend, &state.execution)
+            .await
+            .unwrap_or(None);
+        // A round classifies from the state it read at the start. If a newer
+        // write landed in the meantime, keep its position and still surface
+        // this writer's diagnostics instead of rolling the target back.
+        let stale = stored
+            .as_ref()
+            .and_then(|row| row.last_attempt_ms)
+            .zip(state.last_attempt_ms)
+            .is_some_and(|(current, incoming)| incoming < current);
+        if stale {
+            if let Some(current) = stored.as_ref() {
+                state.last_success_ms = current.last_success_ms;
+                state.last_attempt_ms = current.last_attempt_ms;
+                state.revision = current.revision;
+                state.digest = current.digest.clone();
+                state.backup_id = current.backup_id.clone();
+                state.repair_status = current.repair_status.clone();
+            }
+        }
+        let repair_status = Self::repair_status_for_write(
+            stored.as_ref(),
+            &state.repair_status,
+            state.backup_id.as_deref(),
+        );
         state.repair_status = repair_status;
         if let Err(e) = self.store.upsert_sync_state(&state).await {
             tracing::warn!(
@@ -2226,6 +2239,11 @@ impl BackendManager {
             .get_backup(id)
             .await?
             .ok_or_else(|| format!("backup '{id}' not found"))?;
+        // A restore publishes a new sync position. Hold the same per-target
+        // lock as the backup round so an in-flight snapshot cannot publish a
+        // position it observed before the remote converged.
+        let key = Self::backup_key(&record.backend, &record.execution);
+        let _guard = self.backup_guard(&key).await;
         let verification = self.verify_backup(id).await?;
         if !verification.verified {
             return Err(format!(
@@ -2766,6 +2784,59 @@ mod tests {
         assert_eq!(state.repair_status, "ok");
         assert_eq!(state.revision, Some(5));
         assert_eq!(state.backup_id.as_deref(), Some("backup-2"));
+    }
+
+    /// A backup round that classified the target before a restore finishes
+    /// must not roll the published position back. Its diagnostics still land
+    /// so a real failure is not hidden.
+    #[tokio::test]
+    async fn a_stale_position_write_keeps_the_restored_position() {
+        let manager = enabled_manager();
+        manager
+            .store
+            .upsert_sync_state(&SyncStateView {
+                backend: "alpha".to_string(),
+                execution: "exec-1".to_string(),
+                last_success_ms: Some(40),
+                last_attempt_ms: Some(40),
+                revision: Some(5),
+                digest: Some("restored-digest".to_string()),
+                backup_id: Some("backup-2".to_string()),
+                failures: 0,
+                repair_status: "ok".to_string(),
+                local_status: "ok".to_string(),
+                error: None,
+            })
+            .await
+            .unwrap();
+
+        manager
+            .write_sync_state(SyncStateView {
+                backend: "alpha".to_string(),
+                execution: "exec-1".to_string(),
+                last_success_ms: Some(30),
+                last_attempt_ms: Some(30),
+                revision: Some(4),
+                digest: Some("ahead-digest".to_string()),
+                backup_id: Some("backup-1".to_string()),
+                failures: 1,
+                repair_status: "ok".to_string(),
+                local_status: "ok".to_string(),
+                error: Some("stale snapshot".to_string()),
+            })
+            .await;
+
+        let state = manager
+            .store
+            .get_sync_state("alpha", "exec-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.revision, Some(5));
+        assert_eq!(state.digest.as_deref(), Some("restored-digest"));
+        assert_eq!(state.backup_id.as_deref(), Some("backup-2"));
+        assert_eq!(state.failures, 1);
+        assert_eq!(state.error.as_deref(), Some("stale snapshot"));
     }
 
     #[tokio::test]

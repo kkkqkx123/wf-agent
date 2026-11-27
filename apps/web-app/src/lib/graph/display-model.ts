@@ -25,6 +25,8 @@ export interface DisplayNode {
 	kind: string;
 	status?: string;
 	iteration?: number;
+	/** Backend node config carried through graph edits, including template references. */
+	config?: Record<string, unknown>;
 	/** Frontend-only group membership; empty means ungrouped. */
 	groupId?: string;
 	/** Human label for the group; falls back to the group id. */

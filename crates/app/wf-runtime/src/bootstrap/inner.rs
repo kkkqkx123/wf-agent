@@ -469,6 +469,40 @@ impl Runtime {
                     info!("Restored {} persisted agent(s) from storage", restored);
                 }
             }
+            // Hydrate persisted node templates into the runtime registry so
+            // nodes carrying a template reference resolve their type after
+            // restart. Registry-owned predefined and plugin templates keep
+            // their own version.
+            if let Ok(templates) = storage_ctx.node_template.list(None).await {
+                let mut restored = 0usize;
+                for template in templates {
+                    let key = template.id.to_string();
+                    if registries.node_templates.has(&key) {
+                        continue;
+                    }
+                    let restored_template = wf_types::workflow::node_template::NodeTemplate {
+                        id: key.clone(),
+                        name: template.name,
+                        description: template.description.unwrap_or_default(),
+                        node_type: template.node_type,
+                        default_config: None,
+                    };
+                    if let Err(e) = registries
+                        .node_templates
+                        .register(key, Arc::new(restored_template))
+                    {
+                        warn!(error = %e, "hydrate persisted node template skipped");
+                    } else {
+                        restored += 1;
+                    }
+                }
+                if restored > 0 {
+                    info!(
+                        "Restored {} persisted node template(s) from storage",
+                        restored
+                    );
+                }
+            }
             // Hydrate persisted workflows into the runtime registry so tool
             // dispatch and subgraph resolution see them after restart. Each
             // workflow keeps the published state its definition carries, so

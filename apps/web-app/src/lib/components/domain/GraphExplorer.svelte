@@ -99,7 +99,12 @@
 		/** Batched move for group drags; undoes in a single step. */
 		onmovenodes?: (moves: CanvasMove[]) => void;
 		/** `nodeType` is normalised: a builtin name or a plugin-contributed one. */
-		onaddnode?: (position: CanvasPosition, nodeType: string, name: string | null) => void;
+		onaddnode?: (
+			position: CanvasPosition,
+			nodeType: string,
+			name: string | null,
+			templateId: string | null,
+		) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
 		ondeletenodes?: (ids: string[]) => void;
@@ -435,8 +440,17 @@
 		addNodeOpen = true;
 	}
 
-	function handleAddNodeChoice(nodeType: string, name: string | null): void {
-		onaddnode?.(pendingAddPosition ?? canvas?.viewportCenter() ?? { x: 0, y: 0 }, nodeType, name);
+	function handleAddNodeChoice(
+		nodeType: string,
+		name: string | null,
+		templateId: string | null,
+	): void {
+		onaddnode?.(
+			pendingAddPosition ?? canvas?.viewportCenter() ?? { x: 0, y: 0 },
+			nodeType,
+			name,
+			templateId,
+		);
 		pendingAddPosition = null;
 		addNodeAnchor = null;
 	}

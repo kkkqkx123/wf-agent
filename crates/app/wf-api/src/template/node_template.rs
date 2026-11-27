@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+
+use wf_core::registry::Registry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::node_template::{NodeTemplateListOptions, NodeTemplateStorageAdapter};
 use wf_storage::context::StorageContext;
@@ -163,6 +166,34 @@ pub async fn node_template_summaries(
         .collect())
 }
 
+/// Browse node templates from storage plus the live registry.
+///
+/// Stored entries keep their id and own their editable metadata. Registry
+/// entries fill in predefined and plugin-contributed templates that were
+/// never written to storage, so the add-node drawer sees both sources.
+pub async fn node_template_summaries_with_registry(
+    ctx: &crate::infra::context::ApiContext,
+) -> crate::ApiResult<Vec<NodeTemplateSummary>> {
+    let mut summaries = node_template_summaries(&ctx.storage, None).await?;
+    let mut seen: HashSet<String> = summaries.iter().map(|summary| summary.id.clone()).collect();
+    for id in ctx.registries.node_templates.list() {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        let Some(template) = ctx.registries.node_templates.get(&id) else {
+            continue;
+        };
+        summaries.push(NodeTemplateSummary {
+            id,
+            name: template.name.clone(),
+            node_type: template.node_type.clone(),
+            description: (!template.description.is_empty()).then(|| template.description.clone()),
+            updated_at: 0,
+        });
+    }
+    Ok(summaries)
+}
+
 /// Export a node template as a JSON string.
 pub async fn export_template(ctx: &StorageContext, id: &str) -> crate::ApiResult<String> {
     let template = get_node_template(ctx, id).await?;
@@ -206,7 +237,7 @@ pub async fn clone_template(
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wf_core::registry::Registry;
+    use wf_core::registry::{MutableRegistry, Registry};
     use wf_resource::registry::ResourceRegistries;
 
     fn make_ctx() -> Arc<crate::infra::context::ApiContext> {
@@ -227,6 +258,29 @@ mod tests {
 
             derived_from: None,
         }
+    }
+
+    #[tokio::test]
+    async fn summaries_include_registry_entries() {
+        let ctx = make_ctx();
+        ctx.registries
+            .node_templates
+            .register(
+                "nt-plugin".to_string(),
+                Arc::new(wf_types::workflow::node_template::NodeTemplate {
+                    id: "nt-plugin".into(),
+                    name: "Plugin Step".into(),
+                    description: "plugin-owned".into(),
+                    node_type: "acme.step".into(),
+                    default_config: None,
+                }),
+            )
+            .expect("registry insert must succeed");
+
+        let summaries = node_template_summaries_with_registry(&ctx).await.unwrap();
+        let plugin = summaries.iter().find(|row| row.id == "nt-plugin").unwrap();
+        assert_eq!(plugin.name, "Plugin Step");
+        assert_eq!(plugin.node_type, "acme.step");
     }
 
     #[tokio::test]

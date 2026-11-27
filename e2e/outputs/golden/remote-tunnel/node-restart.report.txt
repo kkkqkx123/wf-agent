@@ -1,0 +1,8 @@
+before_stop=ok
+exit_code=0
+backend_reachable=unreachable
+tunnel_child=alive
+after_restart=reachable
+execution_visible=yes
+admin_exit_code=0
+ssh_child_after_admin_exit=gone

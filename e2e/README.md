@@ -17,5 +17,8 @@
 - `fixtures/`：版本化输入数据，见其目录说明
 - `outputs/`：黄金与实际输出，见其目录说明
 - `lib/common.sh`：端口选择、健康等待、调用封装等公共辅助
+- `lib/process_lifecycle.sh`：进程存活、日志与 argv 投影、报告提升
 - `sync-bin.sh`：复制构建产物并确认版本
 - `run-e2e.sh`：启动隔离服务端、串行执行用例、收集输出、清理进程
+- `run-process-lifecycle.sh`：真实 SIGTERM、SSH 隧道子进程与 PTY 子进程收敛，不进入默认门禁
+- `run-remote-backup-over-tunnel.sh`：经 SSH 隧道的双节点备份恢复与节点重启，不进入默认门禁

@@ -1,0 +1,9 @@
+{
+  "cwd": "",
+  "command": "__PTY_WORKER__",
+  "rows": 24,
+  "cols": 80,
+  "title": "e2e-pty",
+  "title_source": "default",
+  "persistent": true
+}

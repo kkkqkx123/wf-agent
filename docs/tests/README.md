@@ -17,6 +17,7 @@
 | [06 端到端补齐设计方案](./06-e2e-supplement-plan.md) | 补齐顺序、线束扩展、固件规划、分阶段用例与验收标准 |
 | [07 工作流节点覆盖补齐方案](./07-workflow-node-coverage.md) | 工作流场景与节点执行语义补齐、壳层与集成层分工、验收标准 |
 | [08 远端备份与恢复链路测试](./08-remote-backup-recovery-tests.md) | 双节点集成用例、端到端脚本、链路级缺陷与未覆盖项 |
+| [09 进程生命周期与双节点增量测试](./09-process-lifecycle-and-two-node-tests.md) | SIGTERM、SSH 隧道、PTY 子进程收敛、隧道双节点与节点重启用例 |
 
 ## 目录映射
 

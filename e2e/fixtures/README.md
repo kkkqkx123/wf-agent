@@ -17,5 +17,9 @@
 | `prompt-smoke.txt` | 手工真模型会话提示词 | 仅手工运行，不进入默认门禁 |
 | `network-web-search.params.json` | web_search 调用参数（真实查询与结果上限） | `--tier=network` 显式联网用例 |
 | `network-tools.toml` | web_search 后端配置，走 127.0.0.1:7890 代理 | `--tier=network` 启动前复制到工作区 `.wf/infrastructure/tools.toml` |
+| `process-lifecycle/bin/ssh` | 仅监听回环的假 SSH，记录 argv、PID 并转发本地端口 | 进程生命周期与隧道双节点脚本专用 |
+| `process-lifecycle/pty-worker.sh` | 输出就绪标记、回显输入后驻留的 PTY 子进程 | 真实 PTY 子进程测试专用 |
+| `process-lifecycle/backend-tunnel.json` | 后端注册模板，端口与目录由脚本注入 | 隧道子进程与双节点脚本专用 |
+| `process-lifecycle/pty-create.json` | PTY 创建模板，命令路径由脚本注入 | 真实 PTY 子进程测试专用 |
 
 固件遵循最小可用原则：管理链路只用最小流程，避免与脚本注册表耦合；执行层单独使用脚本流程，环境不支持时明确跳过。新增用例需要新输入时，在此目录新增具名文件并在此表登记，不复用已有文件的副作用。

@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Loopback-only fake ssh used by the process lifecycle end-to-end runs."""
+
+import json
+import os
+import signal
+import socket
+import sys
+import threading
+import time
+
+argv = sys.argv[1:]
+log_dir = os.environ.get("WF_E2E_SSH_FAKE_DIR")
+if not log_dir:
+    sys.exit(2)
+os.makedirs(log_dir, exist_ok=True)
+
+try:
+    forward_index = argv.index("-L")
+    forward_spec = argv[forward_index + 1]
+    local_text, _, forward_target = forward_spec.partition(":")
+    remote_text = forward_target.rsplit(":", 1)[1]
+    local_port = int(local_text)
+    remote_port = int(remote_text)
+except (ValueError, IndexError):
+    sys.exit(2)
+
+pid = os.getpid()
+mode = "forward"
+exit_ports = {
+    item.strip()
+    for item in os.environ.get("WF_E2E_SSH_FAKE_EXIT_PORTS", "").split(",")
+    if item.strip()
+}
+if str(local_port) in exit_ports:
+    mode = "exit-later"
+
+with open(os.path.join(log_dir, "argv.log"), "a", encoding="utf-8") as handle:
+    handle.write(
+        "pid={pid} local={local} remote={remote} mode={mode} argv={argv}\n".format(
+            pid=pid,
+            local=local_port,
+            remote=remote_port,
+            mode=mode,
+            argv=json.dumps(argv),
+        )
+    )
+with open(os.path.join(log_dir, "ssh-{}.pid".format(local_port)), "w", encoding="utf-8") as handle:
+    handle.write(str(pid))
+
+if mode == "exit-later":
+    time.sleep(0.4)
+    sys.exit(7)
+
+
+def stop(_signum, _frame):
+    raise SystemExit(0)
+
+
+signal.signal(signal.SIGTERM, stop)
+
+listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+listener.bind(("127.0.0.1", local_port))
+listener.listen(32)
+
+connection_log = os.path.join(log_dir, "connections.log")
+
+
+def pump(source, destination):
+    try:
+        while True:
+            chunk = source.recv(65536)
+            if not chunk:
+                break
+            destination.sendall(chunk)
+    except OSError:
+        pass
+    finally:
+        try:
+            destination.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+
+def handle(client):
+    upstream = None
+    try:
+        upstream = socket.create_connection(("127.0.0.1", remote_port))
+        with open(connection_log, "a", encoding="utf-8") as record:
+            record.write("{} {} {}\n".format(pid, local_port, remote_port))
+        to_remote = threading.Thread(target=pump, args=(client, upstream), daemon=True)
+        to_client = threading.Thread(target=pump, args=(upstream, client), daemon=True)
+        to_remote.start()
+        to_client.start()
+        to_remote.join()
+        to_client.join()
+    except OSError:
+        pass
+    finally:
+        if upstream is not None:
+            upstream.close()
+        client.close()
+
+
+while True:
+    client, _ = listener.accept()
+    threading.Thread(target=handle, args=(client,), daemon=True).start()

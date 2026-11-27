@@ -1,0 +1,6 @@
+argv=ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -p <SSH_PORT> -L <LOCAL>:127.0.0.1:<REMOTE> -o ControlMaster=yes -o ControlPath=<CONTROL_PATH> -o ControlPersist=no <USER>@<HOST>
+tunnel_state=running
+pid_file=alive
+stop=stopped=true
+child_after_stop=gone
+abnormal_interrupted=tunnel exited: exit status: <CODE>

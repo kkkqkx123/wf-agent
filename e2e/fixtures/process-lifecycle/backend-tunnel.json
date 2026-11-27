@@ -1,0 +1,12 @@
+{
+  "name": "e2e-tunnel",
+  "entry": {
+    "host": "127.0.0.1",
+    "port": 2222,
+    "username": "e2e",
+    "local_port": 0,
+    "server_port": 0,
+    "backup_executions": [],
+    "backup_directory": ""
+  }
+}

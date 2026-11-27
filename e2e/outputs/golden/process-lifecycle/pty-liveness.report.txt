@@ -1,0 +1,5 @@
+create=ok
+status=running
+child_alive=yes
+child_after_shutdown=gone
+session_after_shutdown=absent

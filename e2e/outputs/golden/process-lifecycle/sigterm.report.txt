@@ -1,0 +1,10 @@
+listen=ok
+status_pid=matched
+signal=SIGTERM
+exit_code=0
+listener_after=closed
+process_after=gone
+ssh_child_alive=gone
+pty_child_alive=gone
+log_signal=SIGTERM received, shutting down
+log_pty=stopped PTY sessions on shutdown

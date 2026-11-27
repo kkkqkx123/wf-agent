@@ -736,6 +736,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-loops/{id}/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_compact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-loops/{id}/context-evolution": {
         parameters: {
             query?: never;
@@ -7674,6 +7690,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backends/{name}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_system_backend_log"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backends/{name}/sync-state/reset": {
         parameters: {
             query?: never;
@@ -10398,6 +10430,21 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_BackendLogView: {
+            /** @description Read-only tail of the deployed server log on one backend. */
+            data?: {
+                backend: string;
+                content: string;
+                /** @description Requested line count after validation. */
+                lines: number;
+                /** @description Remote path the text came from, for operator context. */
+                path: string;
+                /** @description True when the bounded response kept only the newest bytes. */
+                truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_BackgroundExecuteView: {
             data?: {
                 background: boolean;
@@ -10636,6 +10683,21 @@ export interface components {
                 revision: number;
                 settings: components["schemas"]["CliSettingField"][];
                 tool_summaries: components["schemas"]["CliToolSummary"][];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CompactResponse: {
+            /**
+             * @description Wire response of a manual compaction. Mirrors the shared face result so
+             *     the OpenAPI schema can be derived here without pulling `utoipa` into the
+             *     API crate.
+             */
+            data?: {
+                applied: boolean;
+                detail: string;
+                engine?: string | null;
+                kind: string;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -12482,6 +12544,17 @@ export interface components {
             backup_round_error?: string | null;
             source: string;
         };
+        /** @description Read-only tail of the deployed server log on one backend. */
+        BackendLogView: {
+            backend: string;
+            content: string;
+            /** @description Requested line count after validation. */
+            lines: number;
+            /** @description Remote path the text came from, for operator context. */
+            path: string;
+            /** @description True when the bounded response kept only the newest bytes. */
+            truncated: boolean;
+        };
         /**
          * @description Runtime reachability of one backend. Unreachable rows are data, never
          *     errors, so one dead backend cannot hide the rest.
@@ -12871,6 +12944,22 @@ export interface components {
         CloneTemplateBody: {
             kind: string;
             new_name?: string | null;
+        };
+        /** @description Wire body of `POST /agent-loops/{id}/compact`. */
+        CompactBody: {
+            /** @description Optional free-form reason recorded in the audit trail. */
+            reason?: string;
+        };
+        /**
+         * @description Wire response of a manual compaction. Mirrors the shared face result so
+         *     the OpenAPI schema can be derived here without pulling `utoipa` into the
+         *     API crate.
+         */
+        CompactResponse: {
+            applied: boolean;
+            detail: string;
+            engine?: string | null;
+            kind: string;
         };
         ConfigEntry: {
             key: string;
@@ -14254,7 +14343,12 @@ export interface components {
             score: number;
             source: string;
         };
-        RagSourceDelete: {
+        /**
+         * @description Identifies one indexed source. Used to delete it and to rebuild it, so a
+         *     rebuild never has to resend the reader kind, URI or reader options the
+         *     server already persisted with the source state.
+         */
+        RagSourceRef: {
             collection: string;
             namespace: string;
             source: string;
@@ -19344,6 +19438,76 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_compact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompactBody"];
+            };
+        };
+        responses: {
+            /** @description Manual compaction result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CompactResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -50533,7 +50697,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RagSourceDelete"];
+                "application/json": components["schemas"]["RagSourceRef"];
             };
         };
         responses: {
@@ -50601,7 +50765,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RagSourceWrite"];
+                "application/json": components["schemas"]["RagSourceRef"];
             };
         };
         responses: {
@@ -54647,6 +54811,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_DeployProbeView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown backend */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Backend management disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_system_backend_log: {
+        parameters: {
+            query?: {
+                /** @description Number of newest lines to return. */
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest process log lines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BackendLogView"];
+                };
+            };
+            /** @description Invalid line count */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

@@ -72,6 +72,9 @@ pub struct Runtime {
     /// Shared retrieval handles assembled at bootstrap. `None` while the
     /// embedding provider is not configured.
     pub(super) rag_handles: Option<wf_api::rag::RagHandles>,
+    /// Retrieval defaults resolved from the declarative config. Shared by the
+    /// management routes and the workflow node handles.
+    pub(super) rag_defaults: Option<wf_api::rag::RagDefaults>,
     /// Source ingestion service shared by tools, routes and workflow nodes.
     pub(super) rag_source_service: Option<std::sync::Arc<wf_api::rag_source::RagSourceService>>,
     /// Capability state built over the durable source state store.

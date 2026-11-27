@@ -124,6 +124,10 @@ pub struct ApiContext {
     rag_handles: Option<crate::rag::RagHandles>,
     /// Host source ingestion service shared by tools and management routes.
     rag_source_service: Option<std::sync::Arc<crate::rag_source::RagSourceService>>,
+    /// Effective retrieval defaults resolved from host configuration. Shared
+    /// by the management routes and the workflow node handles so one config
+    /// change moves every consumer together.
+    rag_defaults: Option<crate::rag::RagDefaults>,
     /// Shared keyword index opened by the host runtime. Stored separately
     /// so hybrid consumers observe it before the vector backend exists.
     keyword_index: Option<std::sync::Arc<dyn keyword_contracts::KeywordIndex>>,
@@ -176,6 +180,7 @@ impl ApiContext {
             user_git: None,
             rag_handles: None,
             rag_source_service: None,
+            rag_defaults: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -232,6 +237,7 @@ impl ApiContext {
             user_git: None,
             rag_handles: None,
             rag_source_service: None,
+            rag_defaults: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -402,6 +408,17 @@ impl ApiContext {
         self
     }
 
+    /// Attaches the resolved retrieval defaults shared by routes and nodes.
+    pub fn with_rag_defaults(mut self, defaults: crate::rag::RagDefaults) -> Self {
+        self.rag_defaults = Some(defaults);
+        self
+    }
+
+    /// The resolved retrieval defaults, if the host supplied them.
+    pub fn rag_defaults(&self) -> Option<&crate::rag::RagDefaults> {
+        self.rag_defaults.as_ref()
+    }
+
     /// Borrows the shared source ingestion service.
     pub fn rag_source_service(
         &self,
@@ -480,6 +497,13 @@ impl ApiContext {
         );
         if let Some(keyword) = self.effective_keyword_index() {
             node_handles = node_handles.with_keyword(keyword);
+        }
+        // Nodes read the same shaping the tools and previews use; without
+        // this they would silently fall back to the built-in defaults.
+        if let Some(defaults) = &self.rag_defaults {
+            node_handles = node_handles
+                .with_default_query(defaults.query.clone())
+                .with_default_index(defaults.index.clone());
         }
         Some(node_handles)
     }

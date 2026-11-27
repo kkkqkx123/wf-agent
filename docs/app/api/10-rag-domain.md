@@ -27,7 +27,9 @@
 4. 有检索句柄时创建 `RagSourceService`，复用统一 web fetch backend，遵守代理、域名和 robots 策略；source 状态写入持久化存储。
 5. 主开关开启时调用 `attach_rag_capabilities`，注册工具定义与执行 handler，并登记工具描述资源。
 
-主开关是工具装配的唯一总闸。只读检索属于主开关能力，不要求同时开启摄取或评估；摄取、源管理、状态与评估工具各自还有子开关，未配置 backend 的工具不注册。这样工具列表与实际可执行性一致。
+主开关是检索能力的唯一总闸：关闭时不构造检索句柄与 source service，管理路由、工具与工作流节点一起消失。只读检索属于主开关能力，不要求同时开启摄取或评估；摄取、源管理、状态与评估工具各自还有子开关，未配置 backend 的工具不注册。这样工具列表、管理面与实际可执行性保持一致。`rag.enabled` 但缺少 embedding 时启动直接失败，而不是留下"能写库但查不到"的中间态。
+
+宿主解析出的检索默认值（collection、namespace、`RagQueryConfig`、`RagIndexConfig`）只解析一次，注入 `ApiContext` 后同时供管理路由与工作流节点使用，避免各自回落到内置默认值。
 
 ## 3. wf-api 服务边界
 
@@ -36,7 +38,7 @@
 `wf-api::rag` 提供三类宿主函数：
 
 - `collection_stats`：按 collection 与 namespace 统计向量点数，并在关键词索引存在时返回关键词点数，供界面发现双写漂移。
-- `preview_search`：用标准查询管线取得命中，但只输出 chunk 标识、source、截断摘录和分数，不向管理接口暴露向量。
+- `preview_search`：接收宿主解析的查询默认值，直接复用工具的检索路径（同一 hybrid 门禁、同一重排），只输出 chunk 标识、source、截断摘录和分数，不向管理接口暴露向量。预览因此不会与模型实际召回产生偏差。
 - `diagnose_no_hits`：根据查询形状与关键词开关给出可能原因；调用方可追加具体命名空间的点数提示。
 
 这些函数不读取插件注册表和配置源码，查询规约仍由 `RagQueryConfig` 承担。
@@ -47,7 +49,9 @@
 
 - 内置读取器覆盖 URL 与本地文件；文件读取受配置的文件根约束。
 - revision 由内容哈希与可选的 HTTP 校验信息组成；未变化时默认跳过，显式 force 或 reindex 才重写。
-- 状态以 collection、namespace、source 三元组为键持久化；失败 source 保留错误信息并允许重试。
+- 状态以 collection、namespace、source 三元组为键持久化，并保存读取器种类、URI、转换器、读取选项与编码指纹，因此可由状态重建完整描述符；失败 source 保留错误信息并允许重试。
+- 读取与写入分为两个阶段：`fetch` 只读取并计算哈希，`write` 才判重、清理旧点并写入。重建先读取，读取失败时索引与状态原样保留。
+- `reindex_known` 按三元组从状态重放描述符后重建，未知源返回 `NOT_FOUND`。
 - `delete` 删除状态记录并清理对应索引；`status` 把持久化状态与实时点数合并后返回。
 
 ### 3.3 工具能力面
@@ -74,8 +78,9 @@
 | `GET /rag/preview` | `RagPreviewHitView` 数组：chunk 标识、source、摘录、分数 |
 | `GET /rag/diagnose` | `RagNoHitDiagnosisView`：可能原因数组 |
 | `GET /rag/sources` | `RagSourceStatusEntry` 数组：持久化状态 + 实时点数 |
-| `POST /rag/sources` / `POST /rag/sources/reindex` | `RagIngestResultView`：动作、计数、内容哈希、revision、metadata |
-| `DELETE /rag/sources` | 受影响 source 数量 |
+| `POST /rag/sources` | `RagIngestResultView`：动作、计数、内容哈希、revision、metadata |
+| `POST /rag/sources/reindex` | `RagIngestResultView`；请求体为 `RagSourceRef` 三元组，读取参数由服务端状态决定 |
+| `DELETE /rag/sources` | 受影响 source 数量；请求体同为 `RagSourceRef` |
 
 这些 DTO 只存在于服务端，用于把原本的通用 JSON 响应注解变成可生成的 schema；运行时 JSON 字段保持原样。OpenAPI 快照由测试刷新，Web 类型文件与 Rust 生成客户端都从该快照产出，链路见 [09-openapi-doc-generation.md](./09-openapi-doc-generation.md)。
 

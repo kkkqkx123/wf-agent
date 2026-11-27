@@ -77,6 +77,12 @@
 		}
 	}
 
+	function boundedInt(raw: string, fallback: number, max: number): number {
+		const value = Math.trunc(Number(raw));
+		if (!Number.isFinite(value) || value < 1) return fallback;
+		return Math.min(value, max);
+	}
+
 	async function preview(): Promise<void> {
 		previewed = true;
 		hits = [];
@@ -84,8 +90,8 @@
 			hits = await ragPreview({
 				...scope(),
 				query,
-				top_k: Number(topK),
-				excerpt_chars: Number(excerptChars),
+				top_k: boundedInt(topK, 5, 50),
+				excerpt_chars: boundedInt(excerptChars, 200, 4000),
 			});
 		} catch (err) {
 			toasts.error(t('page.rag.actionFailed', { message: messageOf(err) }));
@@ -97,7 +103,7 @@
 		try {
 			const result = await ragDiagnose({
 				query,
-				top_k: Number(topK),
+				top_k: boundedInt(topK, 5, 50),
 				collection,
 				namespace,
 			});
@@ -137,25 +143,22 @@
 		}).then((result) => t('page.rag.ingested', { source: result.source, chunks: result.chunks }));
 	}
 
-	function reindex(entry: RagSourceStatusEntry): Promise<string> {
-		return reindexRagSource({
+	function refOf(entry: RagSourceStatusEntry) {
+		return {
 			source: entry.state.source,
-			uri: entry.state.uri,
-			kind: entry.state.kind,
 			collection: entry.state.collection,
 			namespace: entry.state.namespace,
-			converter: entry.state.converter,
-			options: {},
-			force: true,
-		}).then((result) => t('page.rag.ingested', { source: result.source, chunks: result.chunks }));
+		};
+	}
+
+	function reindex(entry: RagSourceStatusEntry): Promise<string> {
+		return reindexRagSource(refOf(entry)).then((result) =>
+			t('page.rag.ingested', { source: result.source, chunks: result.chunks }),
+		);
 	}
 
 	function remove(entry: RagSourceStatusEntry): Promise<string> {
-		return deleteRagSource({
-			source: entry.state.source,
-			collection: entry.state.collection,
-			namespace: entry.state.namespace,
-		}).then((count) => t('page.rag.deleted', { count }));
+		return deleteRagSource(refOf(entry)).then((count) => t('page.rag.deleted', { count }));
 	}
 
 	onMount(() => {

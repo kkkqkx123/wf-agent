@@ -12,6 +12,7 @@ export type RagPreviewHit = components['schemas']['RagPreviewHitView'];
 export type RagDiagnosis = components['schemas']['RagNoHitDiagnosisView'];
 export type RagSourceStatusEntry = components['schemas']['RagSourceStatusEntry'];
 export type RagSourceWrite = components['schemas']['RagSourceWrite'];
+export type RagSourceRef = components['schemas']['RagSourceRef'];
 export type RagIngestResult = components['schemas']['RagIngestResultView'];
 
 export type RagPreviewParams = RagScope & {
@@ -71,24 +72,21 @@ export async function ingestRagSource(body: RagSourceWrite): Promise<RagIngestRe
 	);
 }
 
-export async function reindexRagSource(body: RagSourceWrite): Promise<RagIngestResult> {
+/**
+ * Rebuilds one source. Only the identity triple travels: reader kind, URI,
+ * converter and reader options come from the state the server persisted, so a
+ * rebuild cannot change how the source is read.
+ */
+export async function reindexRagSource(body: RagSourceRef): Promise<RagIngestResult> {
 	return requireData(
 		await call<RagIngestResult>(client.POST('/api/v1/rag/sources/reindex', { body })),
 		'RAG reindex result',
 	);
 }
 
-export async function deleteRagSource(scope: RagScope & { source: string }): Promise<number> {
+export async function deleteRagSource(body: RagSourceRef): Promise<number> {
 	return requireData(
-		await call<number>(
-			client.DELETE('/api/v1/rag/sources', {
-				body: {
-					collection: scope.collection,
-					namespace: scope.namespace,
-					source: scope.source,
-				},
-			}),
-		),
+		await call<number>(client.DELETE('/api/v1/rag/sources', { body })),
 		'RAG delete result',
 	);
 }

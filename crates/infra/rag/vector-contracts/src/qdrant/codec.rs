@@ -273,12 +273,15 @@ impl QdrantVectorStore {
                 )));
             }
         }
-        if query
-            .vector
-            .as_dense()?
-            .iter()
-            .any(|value| !value.is_finite())
-        {
+        // The finiteness check has to cover every payload kind: reaching for
+        // the dense slice first rejected sparse and multi queries with
+        // "expected a dense vector" before they could become a request body.
+        let non_finite = match &query.vector {
+            VectorData::Dense(vector) => vector.iter().any(|value| !value.is_finite()),
+            VectorData::Sparse { values, .. } => values.iter().any(|value| !value.is_finite()),
+            VectorData::Multi(vectors) => vectors.iter().flatten().any(|value| !value.is_finite()),
+        };
+        if non_finite {
             return Err(VectorError::InvalidInput(
                 "query vector contains non-finite elements".to_string(),
             ));

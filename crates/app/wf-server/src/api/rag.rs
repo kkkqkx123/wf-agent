@@ -68,8 +68,11 @@ pub(crate) struct RagSourceWrite {
     force: bool,
 }
 
+/// Identifies one indexed source. Used to delete it and to rebuild it, so a
+/// rebuild never has to resend the reader kind, URI or reader options the
+/// server already persisted with the source state.
 #[derive(Debug, Deserialize, ToSchema)]
-pub(crate) struct RagSourceDelete {
+pub(crate) struct RagSourceRef {
     source: String,
     collection: String,
     namespace: String,
@@ -359,14 +362,24 @@ pub(crate) async fn handle_rag_preview(
         Ok(handles) => handles,
         Err(e) => return error_response(e),
     };
+    let defaults = state
+        .ctx
+        .rag_defaults()
+        .map(|defaults| defaults.query.clone())
+        .unwrap_or_default();
+    let keyword = state.ctx.effective_keyword_index();
     match wf_api::rag::preview_search(
         handles.store.as_ref(),
         handles.embedder.as_ref(),
-        &query.collection,
-        &query.namespace,
-        &query.query,
-        query.top_k,
-        query.excerpt_chars,
+        keyword.as_deref(),
+        &defaults,
+        wf_api::rag::PreviewParams {
+            collection: &query.collection,
+            namespace: &query.namespace,
+            query: &query.query,
+            top_k: query.top_k,
+            excerpt_chars: query.excerpt_chars,
+        },
     )
     .await
     {
@@ -507,7 +520,7 @@ pub(crate) async fn handle_rag_ingest_source(
     post,
     path = "/api/v1/rag/sources/reindex",
     tag = "rag",
-    request_body = RagSourceWrite,
+    request_body = RagSourceRef,
     responses(
         (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<RagIngestResultView>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
@@ -516,13 +529,15 @@ pub(crate) async fn handle_rag_ingest_source(
 )]
 pub(crate) async fn handle_rag_reindex_source(
     State(state): State<ApiState>,
-    Json(body): Json<RagSourceWrite>,
+    Json(body): Json<RagSourceRef>,
 ) -> impl IntoResponse {
     let Some(service) = state.ctx.rag_source_service().cloned() else {
         return error_response(source_service_error());
     };
-    let (descriptor, _) = descriptor_from_body(body);
-    match service.reindex(descriptor).await {
+    match service
+        .reindex_known(&body.collection, &body.namespace, &body.source)
+        .await
+    {
         Ok(result) => ok(RagIngestResultView::from(result)).into_response(),
         Err(err) => error_response(err),
     }
@@ -532,7 +547,7 @@ pub(crate) async fn handle_rag_reindex_source(
     delete,
     path = "/api/v1/rag/sources",
     tag = "rag",
-    request_body = RagSourceDelete,
+    request_body = RagSourceRef,
     responses(
         (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<u64>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
@@ -541,7 +556,7 @@ pub(crate) async fn handle_rag_reindex_source(
 )]
 pub(crate) async fn handle_rag_delete_source(
     State(state): State<ApiState>,
-    Json(body): Json<RagSourceDelete>,
+    Json(body): Json<RagSourceRef>,
 ) -> impl IntoResponse {
     let Some(service) = state.ctx.rag_source_service().cloned() else {
         return error_response(source_service_error());

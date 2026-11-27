@@ -99,29 +99,17 @@ pub enum RagSourceSub {
         #[arg(long)]
         force: bool,
     },
-    /// Force reindex of one source.
+    /// Rebuild one source from the settings it was indexed with.
     Reindex {
         /// Stable source label.
         #[arg(value_name = "SOURCE")]
         source: String,
-        /// Source location: URL or filesystem path.
-        #[arg(value_name = "URI")]
-        uri: String,
-        /// Reader kind, either `url` or `file`.
-        #[arg(value_name = "KIND")]
-        kind: String,
-        /// Vector collection to write.
+        /// Vector collection holding the source.
         #[arg(long, default_value = "kb")]
         collection: String,
-        /// Knowledge-base namespace to write.
+        /// Knowledge-base namespace holding the source.
         #[arg(long, default_value = "kb")]
         namespace: String,
-        /// Optional converter name.
-        #[arg(long)]
-        converter: Option<String>,
-        /// Reader options as a JSON object.
-        #[arg(long, value_name = "JSON")]
-        options: Option<String>,
     },
     /// Remove one source from the registry and its indexes.
     Delete {

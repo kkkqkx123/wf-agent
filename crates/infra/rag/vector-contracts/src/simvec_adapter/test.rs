@@ -65,8 +65,13 @@ fn simvec_claims_all_kinds_and_serves_sparse_multi() {
         .build()
         .expect("runtime");
     runtime.block_on(async {
-        // Sparse: end-to-end ensure/upsert/search/fetch round trip.
-        let spec = CollectionSpec::new("sparse-kb", 100).with_kind(VectorKind::Sparse);
+        // Sparse: end-to-end ensure/upsert/search/fetch round trip. Dot scores
+        // the raw weight overlap the assertion below pins down; Cosine is the
+        // spec default and normalises that same overlap, so it is checked
+        // separately to keep both readings of `distance` covered.
+        let spec = CollectionSpec::new("sparse-kb", 100)
+            .with_kind(VectorKind::Sparse)
+            .with_distance(DistanceMetric::Dot);
         assert!(store.ensure_collection(&spec).await.expect("ensure"));
         let sparse_point = |id: &str, pairs: &[(u32, f32)]| {
             let (indices, values): (Vec<u32>, Vec<f32>) = pairs.iter().copied().unzip();
@@ -91,6 +96,27 @@ fn simvec_claims_all_kinds_and_serves_sparse_multi() {
         let hits = store.search("sparse-kb", &query).await.expect("search");
         assert_eq!(hits[0].id, "strong");
         assert!((hits[0].score - 3.0).abs() < 1e-5);
+        let cosine = CollectionSpec::new("sparse-cos-kb", 100).with_kind(VectorKind::Sparse);
+        assert!(store
+            .ensure_collection(&cosine)
+            .await
+            .expect("ensure cosine"));
+        store
+            .upsert(
+                "sparse-cos-kb",
+                &[sparse_point("strong", &[(1, 2.0), (3, 1.0)])],
+            )
+            .await
+            .expect("upsert cosine");
+        let cosine_hits = store
+            .search("sparse-cos-kb", &query)
+            .await
+            .expect("search cosine");
+        assert!(
+            (cosine_hits[0].score - 3.0 / 10f32.sqrt()).abs() < 1e-5,
+            "cosine normalises the sparse overlap, got {}",
+            cosine_hits[0].score
+        );
         let fetched = store
             .fetch("sparse-kb", &["strong".to_string()])
             .await

@@ -14,6 +14,12 @@ type SourceBody = {
 	force?: boolean;
 };
 
+type SourceRefBody = {
+	source: string;
+	collection: string;
+	namespace: string;
+};
+
 function ingestResult(body: SourceBody, action: 'insert' | 'update' | 'skip'): RagIngestResult {
 	return {
 		source: body.source,
@@ -33,8 +39,19 @@ function ingestResult(body: SourceBody, action: 'insert' | 'update' | 'skip'): R
 	};
 }
 
+function sameEntry(entry: RagSourceStatusEntry, ref: SourceRefBody): boolean {
+	return (
+		entry.state.source === ref.source &&
+		entry.state.collection === ref.collection &&
+		entry.state.namespace === ref.namespace
+	);
+}
+
 export function registerRag(router: MockRouter): void {
 	const sources: RagSourceStatusEntry[] = structuredClone(ragSources);
+
+	const findEntry = (ref: SourceRefBody): RagSourceStatusEntry | undefined =>
+		sources.find((entry) => sameEntry(entry, ref));
 
 	router.on('GET', '/api/v1/rag/stats', () => ragStats);
 
@@ -58,9 +75,23 @@ export function registerRag(router: MockRouter): void {
 		);
 	});
 
+	// A rebuild only carries the identity triple; the fixture replays the
+	// stored reader shape the way the server replays its persisted state.
 	router.on('POST', '/api/v1/rag/sources/reindex', (_p, _query, body) => {
-		const source = body as SourceBody;
-		return ingestResult(source, 'update');
+		const ref = body as SourceRefBody;
+		const existing = findEntry(ref);
+		if (!existing) return ingestResult({ ...ref, uri: '', kind: '' }, 'update');
+		const result = ingestResult(
+			{ ...ref, uri: existing.state.uri, kind: existing.state.kind },
+			'update',
+		);
+		existing.state.status = 'active';
+		existing.state.error = null;
+		existing.state.content_hash = result.content_hash;
+		existing.state.chunks = result.chunks;
+		existing.state.points = result.points;
+		existing.point_count = result.points;
+		return result;
 	});
 
 	router.on('POST', '/api/v1/rag/sources', (_p, _query, body) => {
@@ -113,14 +144,9 @@ export function registerRag(router: MockRouter): void {
 	});
 
 	router.on('DELETE', '/api/v1/rag/sources', (_p, _query, body) => {
-		const source = body as { source: string; collection: string; namespace: string };
+		const ref = body as SourceRefBody;
 		const before = sources.length;
-		const index = sources.findIndex(
-			(entry) =>
-				entry.state.source === source.source &&
-				entry.state.collection === source.collection &&
-				entry.state.namespace === source.namespace,
-		);
+		const index = sources.findIndex((entry) => sameEntry(entry, ref));
 		if (index >= 0) sources.splice(index, 1);
 		return before - sources.length;
 	});

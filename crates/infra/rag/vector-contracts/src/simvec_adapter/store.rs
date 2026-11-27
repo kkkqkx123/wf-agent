@@ -141,20 +141,9 @@ impl VectorStorage for SimvecVectorStore {
             }
             match spec.kind {
                 VectorKind::Sparse => {
-                    let vocab = existing
-                        .sparse_config
-                        .map(|config| config.vocab_size)
-                        .unwrap_or(existing.vector_size);
-                    let requested = spec
-                        .sparse_max_index
-                        .map(|max| max as usize + 1)
-                        .unwrap_or(spec.dimension);
-                    if vocab != requested {
-                        return Err(VectorError::DimensionMismatch {
-                            expected: vocab,
-                            actual: requested,
-                        });
-                    }
+                    // A sparse space declares no vocabulary bound: indices are
+                    // open `u32` ids validated per point, so only the kind and
+                    // the distance have to agree with the stored collection.
                 }
                 VectorKind::Multi => {
                     if existing.vector_size != spec.dimension {
@@ -312,9 +301,7 @@ impl VectorStorage for SimvecVectorStore {
                 payload.insert(PID_KEY.to_string(), serde_json::json!(point.id));
                 mapped.push(simvec::VectorPoint {
                     id: Self::point_id(&point.id),
-                    vector: Vec::new(),
-                    data: None,
-                    named,
+                    vectors: named,
                     payload: Some(payload),
                 });
             }

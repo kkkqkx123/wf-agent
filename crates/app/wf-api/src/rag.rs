@@ -1,9 +1,11 @@
 //! Read-only index management and query troubleshooting for RAG.
 //!
 //! Transports render these shapes; full vectors never leave the backend.
-//! Source enumeration stays caller-maintained (a small registry of known
-//! sources per namespace) because the storage contract has no scan call;
-//! every function documents which inputs it needs.
+//! Retrieval defaults come from [`RagDefaults`], injected by the host, so a
+//! preview runs the same query policy the tools and workflow nodes use.
+//! Source enumeration reads the persisted source state; rebuilding the list
+//! from stored points is not implemented yet, so points written before that
+//! state existed stay invisible to the management surface.
 
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +54,35 @@ impl std::fmt::Debug for RagHandles {
         f.debug_struct("RagHandles")
             .field("keyword_configured", &self.keyword.is_some())
             .finish()
+    }
+}
+
+/// Effective retrieval defaults shared by every consumer.
+///
+/// Bootstrap resolves the declarative config once and injects these values,
+/// so previews, workflow nodes and tools cannot drift into different
+/// collection, namespace or retrieval policies.
+#[derive(Debug, Clone)]
+pub struct RagDefaults {
+    /// Collection used when a caller or node omits one.
+    pub collection: String,
+    /// Namespace used when a caller or node omits one.
+    pub namespace: String,
+    /// Read-path shaping shared by previews, nodes and tools.
+    pub query: wf_rag::RagQueryConfig,
+    /// Write-path shaping shared by ingest paths.
+    pub index: wf_rag::RagIndexConfig,
+}
+
+impl RagDefaults {
+    /// Resolves the defaults from the host capability settings.
+    pub fn from_settings(settings: &crate::rag_capabilities::RagCapabilitySettings) -> Self {
+        Self {
+            collection: settings.default_collection.clone(),
+            namespace: settings.default_namespace.clone(),
+            query: settings.query.clone(),
+            index: settings.index.clone(),
+        }
     }
 }
 
@@ -959,34 +990,56 @@ pub struct PreviewHit {
     pub score: f32,
 }
 
+/// One preview request: the scope, the question and the excerpt budget.
+#[derive(Debug, Clone, Copy)]
+pub struct PreviewParams<'a> {
+    /// Collection to search.
+    pub collection: &'a str,
+    /// Namespace scope.
+    pub namespace: &'a str,
+    /// Natural-language question.
+    pub query: &'a str,
+    /// Maximum passages to return.
+    pub top_k: usize,
+    /// Maximum characters kept per excerpt.
+    pub excerpt_chars: usize,
+}
+
 /// Previews ranked hits for a question without exposing vectors.
-/// Runs the standard read path with a caller-controlled excerpt budget.
+///
+/// Runs the same retrieval path as the `rag_search` tool — same query
+/// defaults, same hybrid gating, same rerank — so an operator previewing a
+/// question sees what the model would actually receive. Only the rendering
+/// differs: excerpts are truncated and vectors stay in the backend.
 pub async fn preview_search(
     store: &dyn vector_contracts::VectorStorage,
     embedder: &dyn llm_embedding::provider::EmbeddingProvider,
-    collection: &str,
-    namespace: &str,
-    query_text: &str,
-    top_k: usize,
-    excerpt_chars: usize,
+    keyword: Option<&dyn keyword_contracts::KeywordIndex>,
+    defaults: &wf_rag::RagQueryConfig,
+    params: PreviewParams<'_>,
 ) -> ApiResult<Vec<PreviewHit>> {
-    if query_text.trim().is_empty() {
+    if params.query.trim().is_empty() {
         return Err(ApiError::Validation("query must not be empty".to_string()));
     }
-    let config = wf_rag::RagQueryConfig {
-        top_k: top_k.clamp(1, 50),
-        ..Default::default()
+    let request = wf_tools::predefined::rag::RagSearchQuery {
+        query: params.query.to_string(),
+        collection: params.collection.to_string(),
+        namespace: params.namespace.to_string(),
+        top_k: params.top_k.clamp(1, 50),
+        score_threshold: None,
+        fields: std::collections::HashMap::new(),
     };
-    let hits =
-        wf_rag::pipeline::query(store, embedder, collection, namespace, query_text, &config)
-            .await
-            .map_err(|err| ApiError::Validation(err.to_string()))?;
+    let hits = wf_tools::predefined::rag::search_with_defaults(
+        store, embedder, keyword, defaults, request,
+    )
+    .await
+    .map_err(|err| ApiError::execution(err.to_string()))?;
     Ok(hits
         .into_iter()
         .map(|hit| PreviewHit {
             chunk_id: hit.chunk_id,
             source: hit.source,
-            excerpt: truncate_excerpt(&hit.content, excerpt_chars),
+            excerpt: truncate_excerpt(&hit.content, params.excerpt_chars),
             score: hit.score,
         })
         .collect())
@@ -1701,5 +1754,66 @@ mod tests {
             Arc::new(wf_resource::registry::ResourceRegistries::new()),
         );
         assert!(ctx_empty.effective_keyword_index().is_none());
+    }
+
+    #[tokio::test]
+    async fn preview_honours_injected_query_defaults() {
+        let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
+        let embedder = UnitEmbedder { dimension: 8 };
+        wf_rag::pipeline::ingest_documents(
+            store.as_ref(),
+            None::<&dyn keyword_contracts::KeywordIndex>,
+            &embedder,
+            "kb",
+            &[wf_rag::RagDocument::new(
+                "d1",
+                "rust ownership and borrowing rules",
+                "rust.md",
+            )],
+            &wf_rag::RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let open = wf_rag::RagQueryConfig::default();
+        let hits = preview_search(
+            store.as_ref(),
+            &embedder,
+            None,
+            &open,
+            PreviewParams {
+                collection: "kb",
+                namespace: "kb",
+                query: "ownership",
+                top_k: 5,
+                excerpt_chars: 40,
+            },
+        )
+        .await
+        .expect("preview");
+        assert!(!hits.is_empty(), "open defaults must return the passage");
+        assert!(hits[0].excerpt.chars().count() <= 43);
+
+        // A floor above every possible score can only come from the injected
+        // defaults: the preview used to hardcode its own policy and ignored it.
+        let floored = wf_rag::RagQueryConfig {
+            score_threshold: Some(1.5),
+            ..Default::default()
+        };
+        let hits = preview_search(
+            store.as_ref(),
+            &embedder,
+            None,
+            &floored,
+            PreviewParams {
+                collection: "kb",
+                namespace: "kb",
+                query: "ownership",
+                top_k: 5,
+                excerpt_chars: 40,
+            },
+        )
+        .await
+        .expect("preview");
+        assert!(hits.is_empty(), "injected score floor must apply");
     }
 }

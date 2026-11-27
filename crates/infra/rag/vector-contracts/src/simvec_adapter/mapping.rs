@@ -1,5 +1,10 @@
 use super::*;
 
+/// Sub-vector admission limit used when a caller leaves it unset. Matches the
+/// engine's own default so a collection created here and one created by the
+/// engine directly stay compatible.
+const DEFAULT_MULTI_VECTORS: usize = 16;
+
 impl SimvecVectorStore {
     pub(crate) fn map_distance(distance: crate::types::DistanceMetric) -> simvec::DistanceMetric {
         match distance {
@@ -27,7 +32,12 @@ impl SimvecVectorStore {
             simvec::VectorData::Sparse { indices, values } => {
                 VectorData::Sparse { indices, values }
             }
-            simvec::VectorData::Multi(vectors) => VectorData::Multi(vectors),
+            // simvec keeps multi-vectors in one contiguous buffer to avoid an
+            // allocation per sub-vector; the contracts payload keeps them
+            // nested, so chunk the buffer back by sub-vector dimension.
+            simvec::VectorData::Multi(multi) => {
+                VectorData::Multi(multi.vectors().map(<[f32]>::to_vec).collect())
+            }
         }
     }
 
@@ -118,10 +128,20 @@ impl SimvecVectorStore {
     }
 
     pub(crate) fn map_space(space: &VectorSpaceSpec) -> simvec::VectorSpaceConfig {
+        // `multi_config` must be present exactly when the kind is multi. Named
+        // spaces reject the multi kind during contracts validation, so this
+        // only ever fills for a layout that reaches the engine through the
+        // single-space path; the width stays at the same default the
+        // single-space builder uses.
+        let multi_config = match space.kind {
+            VectorKind::Multi => Some(simvec::MultiConfig::new(DEFAULT_MULTI_VECTORS)),
+            VectorKind::Dense | VectorKind::Sparse => None,
+        };
         simvec::VectorSpaceConfig {
             kind: Self::map_kind(space.kind),
             vector_size: space.vector_size,
             distance: Self::map_distance(space.distance),
+            multi_config,
         }
     }
 
@@ -129,28 +149,35 @@ impl SimvecVectorStore {
         &self,
         config: &simvec::CollectionConfig,
     ) -> Result<Option<BTreeMap<String, VectorSpaceSpec>>> {
-        match &config.vectors {
-            simvec::VectorsConfig::Named(spaces) => spaces
-                .iter()
-                .map(|(name, space)| Ok((name.clone(), self.map_engine_space(space.clone())?)))
-                .collect::<Result<BTreeMap<_, _>>>()
-                .map(Some),
-            simvec::VectorsConfig::Single => Ok(None),
+        // simvec keeps every layout in a single space map; a single-space
+        // collection is exactly the one whose only key is the default name.
+        if !config.is_named_layout() {
+            return Ok(None);
         }
+        config
+            .vectors
+            .iter()
+            .map(|(name, space)| Ok((name.clone(), self.map_engine_space(space.clone())?)))
+            .collect::<Result<BTreeMap<_, _>>>()
+            .map(Some)
     }
 
     /// Converts an engine point, preserving named-space payloads.
     pub(crate) fn map_engine_point(point: simvec::VectorPoint, id_hint: &str) -> VectorPoint {
-        let resolved = point
-            .payload
+        let simvec::VectorPoint {
+            vectors, payload, ..
+        } = point;
+        let resolved = payload
             .as_ref()
             .and_then(|payload| payload.get(PID_KEY))
             .and_then(|value| value.as_str())
             .map(str::to_string)
             .unwrap_or_else(|| id_hint.to_string());
-        if !point.named.is_empty() {
-            let named = point
-                .named
+        // A named layout never fills the default slot, so its absence is what
+        // separates the two shapes; everything then moves wholesale into the
+        // contracts `named` map, leaving the single payload empty.
+        if vectors.len() != 1 || !vectors.contains_key(simvec::DEFAULT_VECTOR_NAME) {
+            let named = vectors
                 .into_iter()
                 .map(|(name, data)| (name, Self::map_engine_data(data)))
                 .collect();
@@ -158,18 +185,19 @@ impl SimvecVectorStore {
                 id: resolved,
                 vector: VectorData::Dense(Vec::new()),
                 named: Some(named),
-                payload: point.payload.unwrap_or_default(),
+                payload: payload.unwrap_or_default(),
             };
         }
-        let vector = match point.data {
-            Some(data) => Self::map_engine_data(data),
-            None => VectorData::Dense(point.vector),
-        };
+        let vector = vectors
+            .into_iter()
+            .next()
+            .map(|(_, data)| Self::map_engine_data(data))
+            .unwrap_or(VectorData::Dense(Vec::new()));
         VectorPoint {
             id: resolved,
             vector,
             named: None,
-            payload: point.payload.unwrap_or_default(),
+            payload: payload.unwrap_or_default(),
         }
     }
 
@@ -180,24 +208,19 @@ impl SimvecVectorStore {
     ) -> Result<simvec::CollectionConfig> {
         let config = match spec.kind {
             VectorKind::Sparse => {
-                // The engine stores the vocabulary bound as `vector_size` and
-                // checks sparse indices against it during writes and queries.
-                let vocab_size = spec
-                    .sparse_max_index
-                    .map(|max| max as usize + 1)
-                    .unwrap_or(spec.dimension);
+                // Sparse indices are open `u32` ids: the engine validates them
+                // against its own bound and the collection therefore declares
+                // no vocabulary size. The contracts-level `sparse_max_index`
+                // stays a caller-side admission limit only.
                 simvec::CollectionConfig::with_sparse(
-                    vocab_size,
+                    simvec::SPARSE_DIM_BOUND,
                     Self::map_distance(spec.distance),
-                    simvec::SparseConfig { vocab_size },
                 )
             }
             VectorKind::Multi => simvec::CollectionConfig::with_multi(
                 spec.dimension,
                 Self::map_distance(spec.distance),
-                simvec::MultiConfig {
-                    max_vectors_per_point: spec.multi_max_vectors.unwrap_or(16),
-                },
+                simvec::MultiConfig::new(spec.multi_max_vectors.unwrap_or(DEFAULT_MULTI_VECTORS)),
             ),
             VectorKind::Dense => unreachable!("dense configs use the dense path"),
         };

@@ -43,6 +43,10 @@ pub struct RagSourceState {
     pub uri: String,
     #[serde(default)]
     pub converter: Option<String>,
+    /// Reader options captured at ingest time. Persisted so a rebuild
+    /// replays the same selection, focus and limits instead of the defaults.
+    #[serde(default)]
+    pub options: serde_json::Value,
     #[serde(default = "default_vector_kind")]
     pub vector_kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,6 +89,7 @@ impl RagSourceState {
             kind: descriptor.kind.clone(),
             uri: descriptor.uri.clone(),
             converter: descriptor.converter.clone(),
+            options: descriptor.options.clone(),
             vector_kind: default_vector_kind(),
             encoder: None,
             encoder_fingerprint: None,
@@ -99,6 +104,23 @@ impl RagSourceState {
             status: RagSourceStatus::Active,
             error: None,
         }
+    }
+
+    /// Rebuilds the descriptor this state was ingested from.
+    ///
+    /// The record carries the reader kind, URI, converter and options, so a
+    /// rebuild replays the original read instead of guessing at it.
+    pub fn descriptor(&self) -> SourceDescriptor {
+        let mut descriptor = SourceDescriptor::new(
+            self.kind.clone(),
+            self.source.clone(),
+            self.uri.clone(),
+            self.collection.clone(),
+            self.namespace.clone(),
+        );
+        descriptor.converter = self.converter.clone();
+        descriptor.options = self.options.clone();
+        descriptor
     }
 
     /// Storage key shared by every state backend.
@@ -350,6 +372,17 @@ pub enum RagSourceSyncAction {
     Skip,
 }
 
+/// Upper bound on reader pages per source. A reader that keeps handing out
+/// cursors past this is reported instead of silently truncated.
+const MAX_SOURCE_PAGES: usize = 64;
+
+/// One completed read pass over a source, ready to be written.
+struct FetchedSource {
+    documents: Vec<source_contracts::SourceDocument>,
+    revision: source_contracts::SourceRevision,
+    content_hash: String,
+}
+
 /// Host-side source ingestion over injected readers and conversion registry.
 pub struct RagSourceService {
     handles: RagHandles,
@@ -412,6 +445,15 @@ impl RagSourceService {
         descriptor: SourceDescriptor,
         force: bool,
     ) -> ApiResult<RagSourceIngestResult> {
+        let fetched = self.fetch(&descriptor).await?;
+        self.write(descriptor, fetched, force).await
+    }
+
+    /// Reads one source into memory without touching either index.
+    ///
+    /// Splitting the read from the write lets a rebuild fail on a transient
+    /// fetch error while the previously indexed content stays in place.
+    async fn fetch(&self, descriptor: &SourceDescriptor) -> ApiResult<FetchedSource> {
         descriptor
             .validate()
             .map_err(|err| ApiError::Validation(err.to_string()))?;
@@ -420,13 +462,21 @@ impl RagSourceService {
         })?;
         let mut cursor: Option<String> = None;
         let mut documents = Vec::new();
-        let mut revision = source_contracts::SourceRevision::default();
-        for _ in 0..64 {
+        let mut revision: Option<source_contracts::SourceRevision>;
+        let mut pages = 0;
+        loop {
+            if pages >= MAX_SOURCE_PAGES {
+                return Err(ApiError::execution(format!(
+                    "source '{}' exceeded {MAX_SOURCE_PAGES} reader pages; split the source or raise the page cap",
+                    descriptor.source
+                )));
+            }
             let page = reader
-                .read(&descriptor, cursor.as_deref())
+                .read(descriptor, cursor.as_deref())
                 .await
                 .map_err(|err| ApiError::execution(format!("source read failed: {err}")))?;
-            revision = page.revision;
+            pages += 1;
+            revision = Some(page.revision);
             documents.extend(page.documents);
             match page.next_cursor {
                 None => break,
@@ -436,6 +486,7 @@ impl RagSourceService {
                 Some(next) => cursor = Some(next),
             }
         }
+        let mut revision = revision.unwrap_or_default();
         let combined = documents
             .iter()
             .map(|document| document.content.as_str())
@@ -450,6 +501,25 @@ impl RagSourceService {
         if revision.fetched_at.is_none() {
             revision.fetched_at = Some(Utc::now().to_rfc3339());
         }
+        Ok(FetchedSource {
+            documents,
+            revision,
+            content_hash,
+        })
+    }
+
+    /// Writes one already-read source through the ingest pipeline.
+    async fn write(
+        &self,
+        descriptor: SourceDescriptor,
+        fetched: FetchedSource,
+        force: bool,
+    ) -> ApiResult<RagSourceIngestResult> {
+        let FetchedSource {
+            documents,
+            revision,
+            content_hash,
+        } = fetched;
         let mut index = self.index_defaults.clone();
         index.namespace = descriptor.namespace.clone();
         index.duplicate_policy = wf_rag::DuplicatePolicy::Skip;
@@ -600,18 +670,42 @@ impl RagSourceService {
         Ok(removed)
     }
 
-    /// Deletes and re-ingests a source without revision skip.
+    /// Rebuilds a source without ever leaving the index empty on failure.
+    ///
+    /// The read happens first: a transient fetch or conversion error aborts
+    /// before anything is deleted, so the previously indexed content and its
+    /// state record survive. Only a successful read clears the old points.
     pub async fn reindex(&self, descriptor: SourceDescriptor) -> ApiResult<RagSourceIngestResult> {
-        descriptor
-            .validate()
-            .map_err(|err| ApiError::Validation(err.to_string()))?;
+        let fetched = self.fetch(&descriptor).await?;
         self.delete(
             &descriptor.collection,
             &descriptor.namespace,
             &descriptor.source,
         )
         .await?;
-        self.ingest(descriptor, true).await
+        self.write(descriptor, fetched, true).await
+    }
+
+    /// Rebuilds one known source from its persisted descriptor.
+    ///
+    /// Callers only supply the identity triple; reader kind, URI, converter
+    /// and reader options come from the state record, so a rebuild cannot
+    /// silently change how the source is read.
+    pub async fn reindex_known(
+        &self,
+        collection: &str,
+        namespace: &str,
+        source: &str,
+    ) -> ApiResult<RagSourceIngestResult> {
+        let state = self
+            .states
+            .get(collection, namespace, source)
+            .await?
+            .ok_or_else(|| ApiError::NotFound {
+                entity_type: "rag_source".to_string(),
+                id: RagSourceState::key(collection, namespace, source),
+            })?;
+        self.reindex(state.descriptor()).await
     }
 
     /// Lists known sources with their per-side point counts.
@@ -716,4 +810,199 @@ pub type SourceMetadata = HashMap<String, String>;
 #[allow(dead_code)]
 fn warn_stale_source(source: &str) {
     warn!(source = %source, "source state has no indexed points");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use source_contracts::{
+        SourceDescriptor, SourceError, SourcePage, SourceReader, SourceRevision,
+    };
+    use vector_contracts::{InMemoryVectorStore, VectorStorage as _};
+
+    use super::{
+        MemoryRagSourceStateStore, RagSourceService, RagSourceStatus, SourceReaderRegistry,
+    };
+    use crate::rag::RagHandles;
+
+    struct UnitEmbedder {
+        dimension: usize,
+    }
+
+    #[async_trait::async_trait]
+    impl llm_embedding::provider::EmbeddingProvider for UnitEmbedder {
+        async fn embed(
+            &self,
+            texts: &[String],
+        ) -> llm_embedding::error::Result<llm_embedding::provider::EmbeddingResult> {
+            Ok(llm_embedding::provider::EmbeddingResult {
+                embeddings: texts.iter().map(|text| self.vector_for(text)).collect(),
+                prompt_tokens: 0,
+                total_tokens: 0,
+            })
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+
+        fn model_name(&self) -> &str {
+            "test-unit"
+        }
+    }
+
+    impl UnitEmbedder {
+        fn vector_for(&self, text: &str) -> Vec<f32> {
+            let mut vector = vec![0.0; self.dimension];
+            for (index, byte) in text.bytes().enumerate() {
+                vector[index % self.dimension] += f32::from(byte) / 255.0;
+            }
+            let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for value in &mut vector {
+                    *value /= norm;
+                }
+            }
+            vector
+        }
+    }
+
+    /// Reader that records the options it was called with and can be flipped
+    /// into a failing state, standing in for a page fetch that times out.
+    struct ScriptedReader {
+        content: Mutex<String>,
+        seen_options: Mutex<Vec<serde_json::Value>>,
+        fail: AtomicBool,
+    }
+
+    impl ScriptedReader {
+        fn new(content: &str) -> Self {
+            Self {
+                content: Mutex::new(content.to_string()),
+                seen_options: Mutex::new(Vec::new()),
+                fail: AtomicBool::new(false),
+            }
+        }
+
+        fn set_content(&self, content: &str) {
+            *self.content.lock().expect("content lock") = content.to_string();
+        }
+
+        fn fail_next(&self) {
+            self.fail.store(true, Ordering::SeqCst);
+        }
+
+        fn observed_options(&self) -> Vec<serde_json::Value> {
+            self.seen_options.lock().expect("options lock").clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SourceReader for ScriptedReader {
+        fn kind(&self) -> &'static str {
+            "scripted"
+        }
+
+        async fn read(
+            &self,
+            descriptor: &SourceDescriptor,
+            _cursor: Option<&str>,
+        ) -> source_contracts::Result<SourcePage> {
+            self.seen_options
+                .lock()
+                .expect("options lock")
+                .push(descriptor.options.clone());
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(SourceError::Read("reader is offline".to_string()));
+            }
+            let content = self.content.lock().expect("content lock").clone();
+            Ok(SourcePage {
+                documents: vec![source_contracts::SourceDocument::new("d1", content)],
+                revision: SourceRevision::default(),
+                next_cursor: None,
+            })
+        }
+    }
+
+    fn service(reader: Arc<ScriptedReader>, store: Arc<InMemoryVectorStore>) -> RagSourceService {
+        let readers = Arc::new(SourceReaderRegistry::new());
+        readers
+            .register(reader as Arc<dyn SourceReader>)
+            .expect("register scripted reader");
+        RagSourceService::new(
+            RagHandles::new(
+                store as Arc<dyn vector_contracts::VectorStorage>,
+                Arc::new(UnitEmbedder { dimension: 8 }),
+                None,
+            ),
+            readers,
+            Arc::new(MemoryRagSourceStateStore::default()),
+            wf_rag::RagIndexConfig::new("kb"),
+        )
+    }
+
+    #[tokio::test]
+    async fn rebuild_replays_persisted_options() {
+        let reader = Arc::new(ScriptedReader::new("alpha passage about ownership"));
+        let store = Arc::new(InMemoryVectorStore::new());
+        let service = service(reader.clone(), store.clone());
+
+        let mut descriptor = SourceDescriptor::new("scripted", "doc", "inline://doc", "kb", "kb");
+        // No extension in the URI: only an explicit converter resolves, which
+        // also proves the rebuild replays the persisted converter.
+        descriptor.converter = Some("plain".to_string());
+        descriptor.options = serde_json::json!({ "selector": "#main", "min_words": 10 });
+        service.ingest(descriptor, false).await.expect("ingest");
+
+        let listed = service
+            .status("kb", "kb", Some("doc"))
+            .await
+            .expect("status");
+        assert_eq!(listed[0].state.options["selector"], "#main");
+
+        reader.set_content("beta passage about borrowing");
+        service
+            .reindex_known("kb", "kb", "doc")
+            .await
+            .expect("rebuild");
+
+        // The rebuild must replay the persisted reader options, not defaults.
+        let observed = reader.observed_options();
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[1]["selector"], "#main");
+    }
+
+    #[tokio::test]
+    async fn failed_rebuild_keeps_indexed_content() {
+        let reader = Arc::new(ScriptedReader::new("alpha passage about ownership"));
+        let store = Arc::new(InMemoryVectorStore::new());
+        let service = service(reader.clone(), store.clone());
+
+        let mut descriptor = SourceDescriptor::new("scripted", "doc", "inline://doc", "kb", "kb");
+        descriptor.converter = Some("plain".to_string());
+        service.ingest(descriptor, false).await.expect("ingest");
+        let before = store.count("kb", None).await.expect("count");
+        assert!(before > 0);
+
+        reader.fail_next();
+        assert!(service.reindex_known("kb", "kb", "doc").await.is_err());
+
+        let after = store.count("kb", None).await.expect("count");
+        assert_eq!(after, before, "a failed read must not clear the index");
+        let listed = service
+            .status("kb", "kb", Some("doc"))
+            .await
+            .expect("status");
+        assert_eq!(listed[0].state.status, RagSourceStatus::Active);
+    }
+
+    #[tokio::test]
+    async fn rebuild_rejects_unknown_source() {
+        let reader = Arc::new(ScriptedReader::new("unused"));
+        let store = Arc::new(InMemoryVectorStore::new());
+        let service = service(reader, store);
+        assert!(service.reindex_known("kb", "kb", "missing").await.is_err());
+    }
 }

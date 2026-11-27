@@ -337,13 +337,26 @@ impl Runtime {
         } else {
             None
         };
-        let rag_handles = embedder.map(|provider| {
-            wf_api::rag::RagHandles::new(
-                vector_store,
-                provider,
-                keyword_index.as_ref().map(|index| index.as_arc().clone()),
-            )
-        });
+        // One switch drives every retrieval surface. Building handles only
+        // when embedding is on used to leave the management routes live while
+        // the tools stayed off, producing a knowledge base nothing could
+        // query; the master switch now decides both together.
+        let rag_handles = if config.rag.enabled {
+            embedder.map(|provider| {
+                wf_api::rag::RagHandles::new(
+                    vector_store,
+                    provider,
+                    keyword_index
+                        .as_ref()
+                        .map(|index: &wf_api::rag::SharedKeywordIndex| index.as_arc().clone()),
+                )
+            })
+        } else {
+            None
+        };
+        let rag_defaults = rag_handles
+            .as_ref()
+            .map(|_| wf_api::rag::RagDefaults::from_settings(&rag_settings));
         let rag_source_service = rag_handles.clone().map(|handles| {
             Arc::new(wf_api::rag_source::RagSourceService::with_builtin_readers(
                 handles,
@@ -690,6 +703,7 @@ impl Runtime {
             keyword_index,
             rag_handles,
             rag_source_service,
+            rag_defaults,
             rag_capability_state,
             web_fetch_backend,
             api_ctx: std::sync::OnceLock::new(),

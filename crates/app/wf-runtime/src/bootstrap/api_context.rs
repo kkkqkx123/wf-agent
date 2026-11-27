@@ -77,7 +77,22 @@ impl Runtime {
             }
             if let Some(handles) = &self.rag_handles {
                 ctx = ctx.with_rag_handles(handles.clone());
-                if let Some(node_handles) = ctx.rag_node_handles("kb", "kb") {
+                // Defaults travel with the handles: previews, nodes and tools
+                // must read one policy instead of three built-in fallbacks.
+                if let Some(defaults) = &self.rag_defaults {
+                    ctx = ctx.with_rag_defaults(defaults.clone());
+                }
+                let collection = self
+                    .rag_defaults
+                    .as_ref()
+                    .map(|defaults| defaults.collection.clone())
+                    .unwrap_or_else(|| "kb".to_string());
+                let namespace = self
+                    .rag_defaults
+                    .as_ref()
+                    .map(|defaults| defaults.namespace.clone())
+                    .unwrap_or_else(|| "kb".to_string());
+                if let Some(node_handles) = ctx.rag_node_handles(collection, namespace) {
                     ctx = ctx.with_rag_node_handlers(node_handles);
                 }
             }

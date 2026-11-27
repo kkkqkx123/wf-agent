@@ -5,6 +5,7 @@ use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
+use wf_client::models::{RagSourceRef, RagSourceWrite};
 
 pub async fn run(cli: &Cli, sub: &RagSub) -> CliResult<()> {
     let handle = ClientHandle::from_cli(cli).await?;
@@ -14,14 +15,12 @@ pub async fn run(cli: &Cli, sub: &RagSub) -> CliResult<()> {
             collection,
             namespace,
         } => {
-            let path = query_path(
-                "/api/v1/rag/stats",
-                &[
-                    ("collection", Some(collection.clone())),
-                    ("namespace", Some(namespace.clone())),
-                ],
-            );
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .handle_rag_stats(collection, namespace)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("rag-stats", data).with_entity(collection.clone()),
@@ -34,17 +33,18 @@ pub async fn run(cli: &Cli, sub: &RagSub) -> CliResult<()> {
             collection,
             namespace,
         } => {
-            let path = query_path(
-                "/api/v1/rag/preview",
-                &[
-                    ("collection", Some(collection.clone())),
-                    ("namespace", Some(namespace.clone())),
-                    ("query", Some(query.clone())),
-                    ("top_k", Some(top_k.to_string())),
-                    ("excerpt_chars", Some(excerpt_chars.to_string())),
-                ],
-            );
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .handle_rag_preview(
+                    collection,
+                    Some(*excerpt_chars as u64),
+                    namespace,
+                    query,
+                    Some(*top_k as u64),
+                )
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             crate::rag_render::render_hits(cli.output, &data)?;
             render_envelope(
                 cli.output,
@@ -59,21 +59,19 @@ pub async fn run(cli: &Cli, sub: &RagSub) -> CliResult<()> {
             collection,
             namespace,
         } => {
-            let path = query_path(
-                "/api/v1/rag/diagnose",
-                &[
-                    ("query", Some(query.clone())),
-                    ("top_k", Some(top_k.to_string())),
-                    ("filter_fields", Some(filter_fields.to_string())),
-                    (
-                        "score_threshold",
-                        score_threshold.map(|value| value.to_string()),
-                    ),
-                    ("collection", collection.clone()),
-                    ("namespace", namespace.clone()),
-                ],
-            );
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .handle_rag_diagnose(
+                    collection.as_deref(),
+                    Some(*filter_fields as u64),
+                    namespace.as_deref(),
+                    query,
+                    *score_threshold,
+                    Some(*top_k as u64),
+                )
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("rag-diagnose", data).with_entity(query.clone()),
@@ -89,14 +87,12 @@ async fn run_sources(cli: &Cli, client: &wf_client::WfClient, sub: &RagSourceSub
             collection,
             namespace,
         } => {
-            let path = query_path(
-                "/api/v1/rag/sources",
-                &[
-                    ("collection", Some(collection.clone())),
-                    ("namespace", Some(namespace.clone())),
-                ],
-            );
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .handle_rag_sources(collection, namespace)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("rag-source-list", data).with_entity(collection.clone()),
@@ -112,17 +108,22 @@ async fn run_sources(cli: &Cli, client: &wf_client::WfClient, sub: &RagSourceSub
             options,
             force,
         } => {
-            let body = source_body(
-                source,
-                uri,
-                kind,
-                collection,
-                namespace,
-                converter.as_deref(),
-                options.as_deref(),
-                *force,
-            )?;
-            let data: serde_json::Value = client.post_json("/api/v1/rag/sources", &body).await?;
+            let body = RagSourceWrite {
+                source: source.clone(),
+                uri: uri.clone(),
+                kind: kind.clone(),
+                collection: collection.clone(),
+                namespace: namespace.clone(),
+                converter: converter.clone(),
+                options: parse_options(options.as_deref())?,
+                force: Some(*force),
+            };
+            let envelope = client
+                .generated()
+                .handle_rag_ingest_source(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("rag-source-add", data).with_entity(source.clone()),
@@ -130,26 +131,16 @@ async fn run_sources(cli: &Cli, client: &wf_client::WfClient, sub: &RagSourceSub
         }
         RagSourceSub::Reindex {
             source,
-            uri,
-            kind,
             collection,
             namespace,
-            converter,
-            options,
         } => {
-            let body = source_body(
-                source,
-                uri,
-                kind,
-                collection,
-                namespace,
-                converter.as_deref(),
-                options.as_deref(),
-                true,
-            )?;
-            let data: serde_json::Value = client
-                .post_json("/api/v1/rag/sources/reindex", &body)
-                .await?;
+            let body = source_ref(source, collection, namespace);
+            let envelope = client
+                .generated()
+                .handle_rag_reindex_source(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("rag-source-reindex", data).with_entity(source.clone()),
@@ -160,14 +151,13 @@ async fn run_sources(cli: &Cli, client: &wf_client::WfClient, sub: &RagSourceSub
             collection,
             namespace,
         } => {
-            let body = serde_json::json!({
-                "source": source,
-                "collection": collection,
-                "namespace": namespace,
-            });
-            let data: serde_json::Value = client
-                .delete_json_with_body("/api/v1/rag/sources", &body)
-                .await?;
+            let body = source_ref(source, collection, namespace);
+            let envelope = client
+                .generated()
+                .handle_rag_delete_source(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data = envelope_value(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("rag-source-delete", data).with_entity(source.clone()),
@@ -176,41 +166,31 @@ async fn run_sources(cli: &Cli, client: &wf_client::WfClient, sub: &RagSourceSub
     }
 }
 
-fn query_path(base: &str, params: &[(&str, Option<String>)]) -> String {
-    let query: Vec<String> = params
-        .iter()
-        .filter_map(|(key, value)| value.as_ref().map(|value| format!("{key}={value}")))
-        .collect();
-    if query.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}?{}", query.join("&"))
+/// Unwraps one generated envelope into the JSON the renderers consume.
+fn envelope_value<T: serde::Serialize>(envelope: T) -> CliResult<serde_json::Value> {
+    wf_client::client::unwrap_generated_envelope(envelope).map_err(CliError::from)
+}
+
+/// Identity triple shared by the delete and rebuild routes.
+fn source_ref(source: &str, collection: &str, namespace: &str) -> RagSourceRef {
+    RagSourceRef {
+        source: source.to_string(),
+        collection: collection.to_string(),
+        namespace: namespace.to_string(),
     }
 }
 
-fn source_body(
-    source: &str,
-    uri: &str,
-    kind: &str,
-    collection: &str,
-    namespace: &str,
-    converter: Option<&str>,
-    options: Option<&str>,
-    force: bool,
-) -> CliResult<serde_json::Value> {
-    let options = match options {
-        Some(raw) => serde_json::from_str(raw)
-            .map_err(|err| CliError::Arguments(format!("invalid source options JSON: {err}")))?,
-        None => serde_json::json!({}),
+/// Parses reader options, rejecting anything that is not a JSON object.
+fn parse_options(raw: Option<&str>) -> CliResult<Option<serde_json::Value>> {
+    let Some(raw) = raw else {
+        return Ok(None);
     };
-    Ok(serde_json::json!({
-        "source": source,
-        "uri": uri,
-        "kind": kind,
-        "collection": collection,
-        "namespace": namespace,
-        "converter": converter,
-        "options": options,
-        "force": force,
-    }))
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|err| CliError::Arguments(format!("invalid source options JSON: {err}")))?;
+    if !value.is_object() {
+        return Err(CliError::Arguments(
+            "source options must be a JSON object".to_string(),
+        ));
+    }
+    Ok(Some(value))
 }

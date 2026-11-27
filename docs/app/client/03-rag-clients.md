@@ -1,9 +1,9 @@
 # RAG 客户端接入
 
-> 范围：`apps/web-app/src/lib/api` 中的 RAG 类型与服务、`crates/app/wf-client` 中的生成调用与手写请求入口
+> 范围：`apps/web-app/src/lib/api` 中的 RAG 类型与服务、`crates/app/wf-client` 中构建期生成的类型化调用
 > 上游契约：[../api/10-rag-domain.md](../api/10-rag-domain.md) 与 [../server/16-rag.md](../server/16-rag.md)
 
-两个客户端都不理解检索算法，只负责把 RAG HTTP 契约变成易用的调用入口。Web 侧按领域封装服务函数，Rust 侧以构建期生成的类型化客户端为主，并为带 body 的 DELETE 保留一个手写请求入口。
+两个客户端都不理解检索算法，只负责把 RAG HTTP 契约变成易用的调用入口。Web 侧按领域封装服务函数，Rust 侧全部走构建期生成的类型化客户端，没有手拼 URL 的调用点。
 
 ## 1. 契约来源
 
@@ -22,8 +22,8 @@ RAG 响应注解已改为专用 DTO，OpenAPI 快照包含统计、预览命中�
 | `ragDiagnose` | `GET /rag/diagnose` | 可能原因数组 |
 | `ragSources` | `GET /rag/sources` | source 状态条目数组 |
 | `ingestRagSource` | `POST /rag/sources` | 摄取结果 |
-| `reindexRagSource` | `POST /rag/sources/reindex` | 摄取结果 |
-| `deleteRagSource` | `DELETE /rag/sources` | 受影响数量 |
+| `reindexRagSource` | `POST /rag/sources/reindex`（`RagSourceRef`） | 摄取结果 |
+| `deleteRagSource` | `DELETE /rag/sources`（`RagSourceRef`） | 受影响数量 |
 
 所有调用统一经过既有信封拆包与缺载保护。服务层不做命名风格转换：后端字段已经是 snake_case，页面直接消费 DTO。错误由统一 `ApiHttpError` 抛出，页面通过错误码区分服务不可用与真实失败。
 
@@ -40,10 +40,9 @@ RAG 响应注解已改为专用 DTO，OpenAPI 快照包含统计、预览命中�
 
 ## 4. Rust 生成客户端
 
-`wf-client` 的调用分两类：
+`wf-client` 的 RAG 调用全部走生成客户端：stats、preview、diagnose、sources 列举、摄取、重建、删除均使用 `handle_rag_*` 类型化方法，查询参数由 progenitor 序列化，请求体使用 `models::RagSourceWrite` / `models::RagSourceRef`，信封统一经 `unwrap_generated_envelope` 拆解。这条路径不存在手拼 URL，因此不会出现保留字符未编码导致的拆参问题。
 
-- 已生成操作：stats、preview、diagnose、sources 列举、摄取、重建、删除都进入生成客户端，命令层使用类型化请求或 JSON escape hatch 解包信封。
-- 手写请求：`delete_json_with_body` 是对现有 escape hatch 的小扩充，用于服务端 DELETE 带 body 的契约；普通 DELETE 仍使用原有入口。
+`delete_json_with_body` 仍保留，用于其他领域带 body 的 DELETE；RAG 的删除已经改为类型化调用。
 
 客户端不缓存 RAG 状态，也不在连接阶段探测 RAG 能力——能力判断留给具体命令的响应错误码，避免把领域可用性误当成连接可用性。
 

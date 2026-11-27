@@ -4264,6 +4264,76 @@
         ]
       }
     },
+    "/api/v1/agent-loops/{id}/compact": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "operationId": "handle_compact",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompactBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Manual compaction result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_CompactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent-loops/{id}/context-evolution": {
       "get": {
         "tags": [
@@ -34816,7 +34886,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RagSourceDelete"
+                "$ref": "#/components/schemas/RagSourceRef"
               }
             }
           },
@@ -34876,7 +34946,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RagSourceWrite"
+                "$ref": "#/components/schemas/RagSourceRef"
               }
             }
           },
@@ -38586,6 +38656,93 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiEnvelope_DeployProbeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Unknown backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Backend management disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/backends/{name}/logs": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_backend_log",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lines",
+            "in": "query",
+            "description": "Number of newest lines to return.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest process log lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BackendLogView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid line count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -52998,6 +53155,59 @@
           }
         }
       },
+      "ApiEnvelope_BackendLogView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Read-only tail of the deployed server log on one backend.",
+            "required": [
+              "backend",
+              "path",
+              "lines",
+              "truncated",
+              "content"
+            ],
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "lines": {
+                "type": "integer",
+                "description": "Requested line count after validation.",
+                "minimum": 0
+              },
+              "path": {
+                "type": "string",
+                "description": "Remote path the text came from, for operator context."
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when the bounded response kept only the newest bytes."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_BackgroundExecuteView": {
         "type": "object",
         "required": [
@@ -53826,6 +54036,53 @@
                 "items": {
                   "$ref": "#/components/schemas/CliToolSummary"
                 }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_CompactResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Wire response of a manual compaction. Mirrors the shared face result so\nthe OpenAPI schema can be derived here without pulling `utoipa` into the\nAPI crate.",
+            "required": [
+              "applied",
+              "kind",
+              "detail"
+            ],
+            "properties": {
+              "applied": {
+                "type": "boolean"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "engine": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string"
               }
             }
           },
@@ -60682,6 +60939,38 @@
           }
         }
       },
+      "BackendLogView": {
+        "type": "object",
+        "description": "Read-only tail of the deployed server log on one backend.",
+        "required": [
+          "backend",
+          "path",
+          "lines",
+          "truncated",
+          "content"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "integer",
+            "description": "Requested line count after validation.",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string",
+            "description": "Remote path the text came from, for operator context."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the bounded response kept only the newest bytes."
+          }
+        }
+      },
       "BackendStatusView": {
         "type": "object",
         "description": "Runtime reachability of one backend. Unreachable rows are data, never\nerrors, so one dead backend cannot hide the rest.",
@@ -61760,6 +62049,42 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "CompactBody": {
+        "type": "object",
+        "description": "Wire body of `POST /agent-loops/{id}/compact`.",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Optional free-form reason recorded in the audit trail."
+          }
+        }
+      },
+      "CompactResponse": {
+        "type": "object",
+        "description": "Wire response of a manual compaction. Mirrors the shared face result so\nthe OpenAPI schema can be derived here without pulling `utoipa` into the\nAPI crate.",
+        "required": [
+          "applied",
+          "kind",
+          "detail"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "engine": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
           }
         }
       },
@@ -65827,8 +66152,9 @@
           }
         }
       },
-      "RagSourceDelete": {
+      "RagSourceRef": {
         "type": "object",
+        "description": "Identifies one indexed source. Used to delete it and to rebuild it, so a\nrebuild never has to resend the reader kind, URI or reader options the\nserver already persisted with the source state.",
         "required": [
           "source",
           "collection",

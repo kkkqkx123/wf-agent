@@ -185,6 +185,18 @@ impl RagNodeHandles {
         self.keyword = Some(keyword);
         self
     }
+
+    /// Replaces the read-path defaults resolved by the host.
+    pub fn with_default_query(mut self, query: wf_rag::RagQueryConfig) -> Self {
+        self.default_query = query;
+        self
+    }
+
+    /// Replaces the write-path defaults resolved by the host.
+    pub fn with_default_index(mut self, index: wf_rag::RagIndexConfig) -> Self {
+        self.default_index = index;
+        self
+    }
 }
 
 impl std::fmt::Debug for RagNodeHandles {

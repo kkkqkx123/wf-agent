@@ -158,11 +158,7 @@ pub async fn snapshot(
     let dirty = conversation_tree::evaluate_dirty(&tree, &index, leaf);
     let params = session_profile(ctx, &tree)
         .await
-        .map(|profile_id| ParamsFingerprint {
-            profile_id,
-            parameters: None,
-            tools: Vec::new(),
-        });
+        .and_then(|profile_id| current_fingerprint(ctx, &profile_id, &[]));
     let inflight: Option<InflightSnapshot> = runtime::runtime_for(session_id).inflight();
     Ok(SessionSnapshot {
         session_id: session_id.to_string(),
@@ -290,4 +286,42 @@ pub(crate) async fn session_profile(ctx: &ApiContext, tree: &ConversationTree) -
         .flatten()
         .and_then(|record| record.context)
         .and_then(|context| context.profile_id)
+}
+
+/// Build the current generation fingerprint for a profile.
+///
+/// This is the single source of truth for `model_drift`: the turn writer and
+/// the snapshot reader both go through it, so a reply is marked as drifted
+/// exactly when the model-side parameters changed. Generation parameters are
+/// captured as a stable JSON object; `tools` is the session allow-list and is
+/// empty until a read-only tool round is configured for the turn (the narrow
+/// driver lives in `wf-execution-shared::readonly_tool_round`).
+pub(crate) fn current_fingerprint(
+    ctx: &ApiContext,
+    profile_id: &str,
+    allowed_tools: &[String],
+) -> Option<ParamsFingerprint> {
+    let profile = ctx.llm_gateway.profile_registry().get(profile_id)?;
+    let mut parameters = serde_json::Map::new();
+    if let Some(value) = &profile.parameters {
+        parameters.insert("parameters".to_string(), value.clone());
+    }
+    if let Some(generation) = &profile.generation {
+        if let Ok(value) = serde_json::to_value(generation) {
+            parameters.insert("generation".to_string(), value);
+        }
+    }
+    let encoded = if parameters.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(parameters).to_string())
+    };
+    let mut tools = allowed_tools.to_vec();
+    tools.sort();
+    tools.dedup();
+    Some(ParamsFingerprint {
+        profile_id: profile_id.to_string(),
+        parameters: encoded,
+        tools,
+    })
 }

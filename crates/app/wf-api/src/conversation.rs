@@ -44,7 +44,7 @@ pub use stream::subscribe;
 pub use surgery::{
     acknowledge_reply, attach_graft, delete_node, delete_session, detach_subtree, discard_reply,
     edit_branch, insert_before, list_grafts, reparent, restore_reply, set_active_leaf, splice_out,
-    write_reply_body, write_user_content, InsertRequest, NodeChange, SurgeryRequest,
+    undo_last, write_reply_body, write_user_content, InsertRequest, NodeChange, SurgeryRequest,
 };
 pub use turn::{cancel_turn, submit_turn, TurnHandle, TurnRequest};
 
@@ -85,6 +85,10 @@ pub(crate) fn tree_error(error: TreeError) -> ApiError {
         )),
         TreeError::TooDeep { depth, limit } => {
             ApiError::Validation(format!("tree depth {depth} exceeds the limit of {limit}"))
+        }
+        TreeError::NoUndo => ApiError::not_found("undoable surgery", "none"),
+        TreeError::BadSnapshot(reason) => {
+            ApiError::Conflict(format!("undo snapshot cannot be restored: {reason}"))
         }
     }
 }

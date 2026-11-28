@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use wf_execution_shared::conversation_tree::{self, TreeEditor};
-use wf_types::{ParamsFingerprint, ReplyOrigin, ReplyState};
+use wf_types::{ReplyOrigin, ReplyState};
 
-use super::query::session_profile;
+use super::query::{current_fingerprint, session_profile};
 use super::runtime::{self, SessionRuntime};
 use super::{events, store, turn};
 use crate::infra::context::ApiContext;
@@ -312,11 +312,9 @@ impl StepJob {
         let needs_placeholder = node.reply.is_none();
         let mut tree = tree;
         let now = wf_common::now();
-        let params = Some(ParamsFingerprint {
-            profile_id: self.profile_id.clone(),
-            parameters: None,
-            tools: Vec::new(),
-        });
+        // Use the same fingerprint the snapshot reader compares against, so a
+        // regenerated answer never reports a false model drift.
+        let params = current_fingerprint(&self.ctx, &self.profile_id, &[]);
         let mut digests = digests;
         if !needs_placeholder {
             let mut editor = TreeEditor::new(&mut tree, &mut digests, now);

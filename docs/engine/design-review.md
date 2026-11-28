@@ -3,6 +3,8 @@
 > 范围：chat 会话、single shot、agent loop、临时对话（TemporaryMode）、对话分支树五种形态的源码与文档，重点是 `crates/engine/wf-execution-shared/`、`crates/app/wf-api/` 与 `docs/engine/`。
 > 核验基准：本仓库 commit `00bd8970`。结论均附 `file:line` 证据，关键项已逐条复核。
 > 性质：分析文档。回答三个问题——设计是否合理、有无问题、有无可共用代码；以及 chat 与对话分支树是否应独立成目录与 agent/workflow 平级。
+>
+> **当前复核状态（commit `4c21ec3`）**：本文问题清单基于 `00bd8970`，其中多数代码问题已在后续提交修复。请先看文末「六、复核更新」，再读下面的历史分析，避免据旧行号或旧结论做倒退修改。
 
 ## 0. 总判断
 
@@ -97,3 +99,38 @@
 | 6 | 重新评估第 7 步只读工具轮与 undo 的预留复杂度是否值得保留 | 可选，产品决策 |
 
 **不建议**：为追求目录整齐而新增 `wf-chat` crate（制造依赖环或薄壳），或把 chat/conversation 与 agent/workflow 强行统一抽象（抹平本质的抽象层差异）。
+
+---
+
+## 六、复核更新（commit `4c21ec3`）
+
+> 本节是对上文历史分析的现状复核，逐条在当前 commit 上验证。结论：上文标注的多数代码问题已经修复，重复代码已经抽取；仅文档失真（D1、D3 部分）仍然成立，架构取舍（M4 与目录归属）仍待产品决策。
+
+### 6.1 已修复的问题（不要再按上文改动）
+
+| 旧编号 | 上文结论 | 当前实现（`4c21ec3`） |
+|--------|---------|----------------------|
+| H1 订阅泄漏 | `remove_subscriber` 零调用，无 RAII，广播关闭忙等 | 已修复。`conversation/runtime.rs:65` 新增 `SubscriptionGuard`，其 `Drop`（`:76`）调用 `remove_subscriber`（`:269`）；`stream.rs:58` 用 guard 持有订阅，`stream.rs:84` 对 `ChannelClosed` 直接 `return` 退出循环 |
+| H2 Pending/在飞槽竞态 | 先落库后占槽，存在误判窗口 | 已修复。`conversation/turn.rs:203-214` 改为先 `runtime.begin_turn` 占槽再 `save_tree`，且持会话写锁（`:98`），注释明确关闭误判窗口 |
+| M2 删除未等在飞收敛 | 只 cancel 不 await/abort | 已修复。`conversation/surgery.rs:690-712` 的 `delete_session` 先 cancel token，释放锁后 `wait_for_task` 等待收敛，超时再 `abort` |
+| M3 restricted 晋升无守卫 | 只有 ephemeral 有 id 重用保护 | 已修复。`agent_execution/lifecycle.rs:28`、`:112` 调用 `reject_live_restricted_reuse`（`:356`），运行中 restricted 用同 id 晋升会被拒绝 |
+| M1 部分文本不可回放 | 部分文本仅在内存 | 已改善。`turn.rs:548-561` 将中断/失败但已有文本的消息落库为 `ReplyState::Interrupted`；`projection.rs` 仍只投影 `Kept`（属"不进模型上下文"的有意设计，UI 可经 transcript 查看） |
+
+### 6.2 已抽取的重复代码（第「三」节建议已落地）
+
+| 旧优先级 | 上文建议 | 当前实现 |
+|---------|---------|---------|
+| 1 `merge_usage` 逐字重复 | 抽到 `wf-execution-shared` | 已抽取为 `TurnAccumulator`（`wf-execution-shared/src/turn_accumulator.rs`），`chat.rs:164`、`conversation/turn.rs:403` 共用 |
+| 2 `LlmRequest` 19 字段构造 | 加 builder | 已抽取 `new_llm_request`（`wf-types/src/llm/request_builder.rs:20`） |
+| 3 chat turn 校验三件套 | 抽 `validate_chat_turn` | 已抽取 `validate_chat_input`（`wf-api/src/infra/validation.rs:24`），`chat.rs:66`、`turn.rs:92` 共用 |
+| 4 流式驱动消费循环 | 抽 usage 合并与事件分类 | 已抽取 `TurnAccumulator::consume` 统一事件分类与用量折叠，各层只保留 sink |
+
+### 6.3 仍然成立的项
+
+- **D1 文档失真（仍成立）**：`docs/plan/conversation-branch-tree-design.md` 仍以 `d477951` 为基准，`chat.rs:98` 的 `tools: None` 现为 `chat.rs:122`。本文件第「三」「五」节的旧行号同样失效，阅读时以 code 为准。
+- **M4 复杂度与场景匹配（待产品决策）**：对话树 `conversation_tree/` 8 模块 + `wf-api/conversation/` 9 模块的预留复杂度是否值得，属取舍而非 bug。
+- **目录归属（待架构决策）**：第「四」节结论不变——不加 `wf-chat` crate；源码侧是否把对话树纯逻辑下沉到 `wf-api` 仍待决策。
+
+### 6.4 复核结论
+
+上文「保留形态分层、偿还技术债、收敛重复」的方向仍然有效，且**代码侧的技术债与重复已基本偿还完毕**。当前无需再按第「五」节顺序改动源码；下一步仅剩文档行号校对与两项架构/产品决策。

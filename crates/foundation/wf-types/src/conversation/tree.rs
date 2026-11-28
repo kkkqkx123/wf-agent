@@ -9,7 +9,10 @@ use crate::{Id, Timestamp};
 pub const CONVERSATION_ROOT: &str = "root";
 
 /// Document version, so a later shape change can migrate instead of guessing.
-pub const CONVERSATION_TREE_SCHEMA_VERSION: u16 = 1;
+///
+/// v2 adds `OpRecord.before` (a pre-surgery tree snapshot) and `OpRecord.params`
+/// so the most recent surgery can be undone without per-verb inverse logic.
+pub const CONVERSATION_TREE_SCHEMA_VERSION: u16 = 2;
 
 /// Number of `OpRecord`s kept for undo. Old records fall off the front.
 pub const CONVERSATION_MAX_OP_RECORDS: usize = 200;
@@ -289,7 +292,16 @@ pub struct PoolEntry {
     pub origin_node: NodeId,
 }
 
-/// One recorded surgery, kept so an undo can be derived instead of replayed.
+/// One recorded surgery, kept so the most recent structural change can be
+/// undone.
+///
+/// `before` is the full tree document captured before the surgery. Restoring
+/// it is sufficient to undo: messages live in a separate immutable store, so
+/// a tree snapshot needs no content rebuild. It is a `serde_json::Value`
+/// rather than a `ConversationTree` to avoid an infinitely recursive type
+/// (`ConversationTree` owns `Vec<OpRecord>`). `params` is a human-readable
+/// summary of the surgery's arguments, for display only. Both are optional so
+/// v1 documents keep deserializing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpRecord {
     pub op: String,
@@ -300,6 +312,12 @@ pub struct OpRecord {
     pub version_before: u64,
     pub version_after: u64,
     pub at: Timestamp,
+    /// Pre-surgery tree snapshot, used as the single source of truth for undo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<serde_json::Value>,
+    /// Display-only summary of the surgery arguments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
 }
 
 /// One conversation tree.

@@ -22,6 +22,7 @@ pub mod interruption;
 pub mod message_ops;
 pub mod messaging_impl;
 pub mod recap;
+pub mod readonly_tool_round;
 pub mod script_router;
 pub mod single_shot;
 pub mod title;
@@ -106,6 +107,9 @@ pub use ingest_preprocess::{
 pub use message_ops::{
     apply as apply_message_operation, extract_by_role, is_agent_safe, merge_compressed_with_tail,
     select_tail_start,
+};
+pub use readonly_tool_round::{
+    generate_readonly_turn, ReadonlyToolExecution, ReadonlyTurnOutcome,
 };
 pub use script_router::{RoutedScriptResult, ScriptRouter};
 pub use single_shot::{

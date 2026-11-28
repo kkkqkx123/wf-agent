@@ -15,6 +15,7 @@ use wf_types::{
     ConversationNode, ConversationTree, GraftOrigin, MessageRef, NodeId, OpRecord,
     ParamsFingerprint, PoolEntry, Reply, ReplyOrigin, ReplyState, CONVERSATION_MAX_OP_RECORDS,
 };
+use serde_json::Value;
 
 use super::digest::{self, DigestIndex};
 use super::invariants::{self, TreeError, MAX_TREE_DEPTH, MAX_TREE_NODES};
@@ -62,6 +63,9 @@ pub struct TreeEditor<'a> {
     tree: &'a mut ConversationTree,
     digests: &'a mut DigestIndex,
     now: wf_types::Timestamp,
+    /// Tree document captured before the mutation began, stored in each
+    /// `OpRecord` so the last surgery can be undone by restoring it.
+    before_snapshot: Option<Value>,
 }
 
 impl<'a> TreeEditor<'a> {
@@ -70,7 +74,25 @@ impl<'a> TreeEditor<'a> {
         digests: &'a mut DigestIndex,
         now: wf_types::Timestamp,
     ) -> Self {
-        Self { tree, digests, now }
+        // Capture the pre-mutation document here: `new` is always called
+        // before the first verb mutates the tree, so this is the correct undo
+        // baseline and every OpRecord written by this editor shares it.
+        let before_snapshot = serde_json::to_value(&*tree).ok();
+        Self {
+            tree,
+            digests,
+            now,
+            before_snapshot,
+        }
+    }
+
+    /// Capture the current tree as the undo baseline for the mutation about
+    /// to run, if no baseline exists yet. Provided for callers that create an
+    /// editor before a multi-step mutation; normally `new` already captured it.
+    pub fn capture_undo_baseline(&mut self) {
+        if self.before_snapshot.is_none() {
+            self.before_snapshot = serde_json::to_value(&*self.tree).ok();
+        }
     }
 
     pub fn tree(&self) -> &ConversationTree {
@@ -648,6 +670,44 @@ impl<'a> TreeEditor<'a> {
         Ok(self.bump())
     }
 
+    // ── undo ───────────────────────────────────────────────────────────────
+
+    /// Undo the most recent recorded surgery by restoring its pre-state
+    /// snapshot.
+    ///
+    /// The snapshot is the whole tree document captured before the verb ran.
+    /// Restoring the structural fields (`nodes`, `active_leaf`, `pool`,
+    /// `next_ordinal`) is sufficient: staleness is derived from content
+    /// digests, so rebuilding the index makes dirty state correct again with
+    /// no cleanup. Identity fields (`id`, `session_id`, `kind`, `profile_id`,
+    /// `created_at`) are kept from the live tree, and the operation history is
+    /// retained minus the undone record so the tree stays usable.
+    pub fn undo_last(&mut self) -> Result<SurgeryOutcome, TreeError> {
+        let record = self.tree.ops.last().cloned().ok_or(TreeError::NoUndo)?;
+        let before = record.before.ok_or(TreeError::NoUndo)?;
+        let snapshot: ConversationTree = serde_json::from_value(before)
+            .map_err(|error| TreeError::BadSnapshot(error.to_string()))?;
+
+        // Keep stable identity and the trimmed op history from the live tree.
+        let mut ops = std::mem::take(&mut self.tree.ops);
+        ops.pop();
+
+        self.tree.nodes = snapshot.nodes;
+        self.tree.active_leaf = snapshot.active_leaf;
+        self.tree.pool = snapshot.pool;
+        self.tree.next_ordinal = snapshot.next_ordinal;
+        self.tree.origin = snapshot.origin;
+        self.tree.ops = ops;
+        // Version advances monotonically (never rewinds): a client holding the
+        // pre-surgery version must see a *different* version after undo, or its
+        // optimistic concurrency check would silently pass over the undo.
+        let version = self.bump();
+
+        *self.digests = digest::build(self.tree);
+        let restale = digest::dirty_nodes(self.tree, self.digests);
+        Ok(self.outcome(version, restale))
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────
 
     fn bump(&mut self) -> u64 {
@@ -658,6 +718,13 @@ impl<'a> TreeEditor<'a> {
 
     fn record(&mut self, op: &str, target: Option<NodeId>, nodes: Vec<NodeId>) {
         let version_after = self.tree.version;
+        // Display-only argument summary. The authoritative undo state is
+        // `before`, captured once by `capture_undo_baseline` before the first
+        // verb ran.
+        let params = serde_json::json!({
+            "target": target,
+            "nodes": nodes.clone(),
+        });
         self.tree.ops.push(OpRecord {
             op: op.to_string(),
             target,
@@ -665,6 +732,8 @@ impl<'a> TreeEditor<'a> {
             version_before: version_after.saturating_sub(1),
             version_after,
             at: self.now,
+            before: self.before_snapshot.clone(),
+            params: Some(params),
         });
         if self.tree.ops.len() > CONVERSATION_MAX_OP_RECORDS {
             let excess = self.tree.ops.len() - CONVERSATION_MAX_OP_RECORDS;
@@ -749,6 +818,46 @@ mod tests {
         answer(&mut tree, &mut index, &a, "a1");
         answer(&mut tree, &mut index, &b, "a2");
         (tree, index, a, b)
+    }
+
+    #[test]
+    fn undo_restores_pre_surgery_tree_and_digests() {
+        let (mut tree, mut index, a, b) = chain();
+        let base_before = index.base(&b).expect("base").to_string();
+        let nodes_before = tree.nodes.len();
+
+        let premise = ConversationNode::premise(
+            "p1".to_string(),
+            "root".to_string(),
+            0,
+            reference("use vim"),
+            1,
+        );
+        TreeEditor::new(&mut tree, &mut index, 2)
+            .insert_before(&a, premise)
+            .expect("insert");
+        assert_eq!(tree.nodes.len(), nodes_before + 1);
+        assert_eq!(tree.ops.len(), 1);
+        assert!(tree.ops[0].before.is_some(), "op carries undo snapshot");
+
+        let outcome = TreeEditor::new(&mut tree, &mut index, 3)
+            .undo_last()
+            .expect("undo");
+        assert_eq!(tree.nodes.len(), nodes_before, "inserted node removed");
+        assert!(tree.node("p1").is_none());
+        assert_eq!(index.base(&b).expect("base"), base_before);
+        assert_eq!(outcome.dirty, 0, "freshness restored by snapshot");
+        assert!(tree.ops.is_empty(), "undone op is consumed");
+        validate_tree(&tree).expect("valid tree");
+    }
+
+    #[test]
+    fn undo_without_history_is_an_error() {
+        let (mut tree, mut index, _a, _b) = chain();
+        let error = TreeEditor::new(&mut tree, &mut index, 1)
+            .undo_last()
+            .unwrap_err();
+        assert!(matches!(error, TreeError::NoUndo));
     }
 
     #[test]

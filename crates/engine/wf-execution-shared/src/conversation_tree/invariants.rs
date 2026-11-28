@@ -35,6 +35,10 @@ pub enum TreeError {
     TooManyNodes { count: usize, limit: usize },
     #[error("tree depth {depth} exceeds the limit of {limit}")]
     TooDeep { depth: usize, limit: usize },
+    #[error("no surgery can be undone")]
+    NoUndo,
+    #[error("undo snapshot is invalid: {0}")]
+    BadSnapshot(String),
 }
 
 /// Validate the whole document.

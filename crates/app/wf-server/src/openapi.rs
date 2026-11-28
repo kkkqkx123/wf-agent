@@ -169,6 +169,7 @@ use utoipa::OpenApi;
         crate::api::conversation::handle_discard_reply,
         crate::api::conversation::handle_restore_reply,
         crate::api::conversation::handle_acknowledge,
+        crate::api::conversation::handle_undo,
         crate::api::conversation::handle_detach,
         crate::api::conversation::handle_attach,
         crate::api::conversation::handle_delete_node,

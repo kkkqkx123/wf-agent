@@ -626,6 +626,30 @@ pub async fn list_grafts(ctx: &ApiContext, session_id: &str) -> ApiResult<Vec<Po
         .collect())
 }
 
+/// Undo the most recent surgery by restoring its pre-state snapshot.
+///
+/// Structural fields and the digest index are restored together, so dirty
+/// state and staleness badges are correct without any cleanup. A tree with no
+/// recorded surgery returns 404. `if_version` is checked like any other
+/// mutation so a stale client cannot undo over a newer change.
+pub async fn undo_last(ctx: &ApiContext, request: SurgeryRequest) -> ApiResult<NodeChange> {
+    let (change, _) = mutate(
+        ctx,
+        &request.session_id,
+        request.if_version,
+        "undo",
+        None,
+        |tree, digests| {
+            let now = wf_common::now();
+            let mut editor = TreeEditor::new(tree, digests, now);
+            let outcome = editor.undo_last().map_err(tree_error)?;
+            Ok((change_of(&outcome), outcome))
+        },
+    )
+    .await?;
+    Ok(change)
+}
+
 /// Move the session's head.
 pub async fn set_active_leaf(
     ctx: &ApiContext,

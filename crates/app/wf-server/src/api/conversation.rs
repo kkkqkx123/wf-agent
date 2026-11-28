@@ -85,6 +85,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/chat/sessions/{id}/nodes/{node_id}/acknowledge",
             post(handle_acknowledge),
         )
+        .route("/chat/sessions/{id}/undo", post(handle_undo))
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -701,6 +702,34 @@ async fn handle_acknowledge(
         &state.ctx,
         surgery(&path.id, body.if_version),
         &path.node_id,
+    )
+    .await
+    {
+        Ok(change) => ok(change).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/sessions/{id}/undo",
+    tag = "chat",
+    params(SessionPath),
+    request_body = VersionBody,
+    responses(
+        (status = 200, description = "Surgery undone", body = serde_json::Value),
+        (status = 404, description = "No surgery to undo")
+    ),
+    security(("api_key" = []))
+)]
+async fn handle_undo(
+    State(state): State<ApiState>,
+    Path(path): Path<SessionPath>,
+    Json(body): Json<VersionBody>,
+) -> Response {
+    match wf_api::conversation::undo_last(
+        &state.ctx,
+        surgery(&path.id, body.if_version),
     )
     .await
     {

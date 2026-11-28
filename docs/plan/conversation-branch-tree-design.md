@@ -1,6 +1,8 @@
 # 对话分支树执行实例设计（子树嫁接 + 脏状态步进重算）
 
 > 分析对象：`kkkqkx123/wf-agent` @ `d477951`（递归拉取，含子模块 `crates/infra/llm-suite`、`crates/infra/simvec`）。
+>
+> 行号提示：本文基于旧 commit，部分 `file:line` 已漂移。已核对的修正：`chat.rs:98` → `chat.rs:122`（`tools: None`）。复核基准与最新状态见 `docs/engine/design-review.md` 的「六、复核更新」。
 > 场景边界：**一问一答的对话树**（知识探索、方案设计、查询型 MCP），只需要编排上下文历史，不需要文件检查点、工作区快照、工具审批与自治多轮循环。
 > 本文件是 v2 重写版，`attach` / `detach` 的含义由"观察者绑定"改为**子树嫁接**，并新增"脏状态 + 步进重算"这条主线。
 
@@ -38,7 +40,7 @@
 | 每轮新建内存会话并重新灌入历史 | `ChatSession::new`（`:88`）+ `session.restore(history)`（`:89`） |
 | 本轮注入的上下文消息也先灌进历史 | 提及消息与回执逐条 `session.restore(vec![...])`（`:91-109`），回执由 `dynamic_context_message` 生成（`crates/engine/wf-execution-shared/src/agent_prompt/tail_ops.rs:143-150`，实际是一条带 `type` 元数据的 `user` 消息） |
 | 一轮只发一次生成请求 | `begin_turn`（`:112`）→ `generate_stream`（`:117`），驱动循环只转发增量 |
-| 结构上不可能带工具 | `begin_turn` 内 `tools: None`（`crates/engine/wf-execution-shared/src/chat.rs:98`），模块注释写明 "request template carries no tools field"（`:1-8`） |
+| 结构上不可能带工具 | `begin_turn` 内 `tools: None`（`crates/engine/wf-execution-shared/src/chat.rs:122`），模块注释写明 "request template carries no tools field"（`:1-8`） |
 | 无检查点、无审批、不发布事件 | 模块注释 "no tools, no iterations, no checkpoints and no agent loop events are published"（`crates/app/wf-api/src/chat.rs:3-7`），文件内无事件总线引用 |
 | 落库的两笔 | `persist_messages`（`:317-343`）按 `history.len() - (2 + injected)` 切片写消息；`finish_turn`（`:347-408`）写会话记录 |
 | 对外只有一个端点 | `POST /api/v1/chat/stream`（`crates/app/wf-server/src/api/chat.rs:21-25`） |
@@ -626,7 +628,7 @@ root ── N1(Premise「项目用 Vim 编辑」)   in=#a1
 | 检查点 / 审批 / 工作区写入 | **无**（不建 checkpoint 会话，不产生文件观察项） |
 | 轨迹归属 | 作为节点 `reply.trace`，不成为树节点 |
 
-不能直接复用现有两件：`ChatSession` 结构上无 `tools` 字段（`crates/engine/wf-execution-shared/src/chat.rs:98`）；`generate_with_tools_once` 要求模型必须返回工具调用否则报错（`single_shot.rs:81-86`），且缺"工具后二次生成"。所以新增一个窄驱动，`ChatSession` 保持原样。
+不能直接复用现有两件：`ChatSession` 结构上无 `tools` 字段（`crates/engine/wf-execution-shared/src/chat.rs:122`）；`generate_with_tools_once` 要求模型必须返回工具调用否则报错（`single_shot.rs:81-86`），且缺"工具后二次生成"。所以新增一个窄驱动，`ChatSession` 保持原样。
 
 白名单来源：会话级 `allowed_tools: Vec<String>`（可被单轮覆盖，默认空 = 纯文本）。现状没有只读能力位（`ToolType` 只有 `Stateless / Stateful / Rest / BuiltIn / Mcp`，`crates/foundation/wf-types/src/tool/state.rs:5-12`），MCP 的 `readOnlyHint` 未被采集，所以第一版按名称白名单，能力位自动判定列 P2。
 
@@ -853,6 +855,8 @@ stop(reason=done)
 ## 11. 改动清单、实施、测试与待拍板
 
 ### 11.0 实施状态
+
+> **后续进展（见 `docs/plan/conversation-tree-reserved-fields-integration.md`）**：第 7 步的窄驱动执行原语已落地（`wf-execution-shared::readonly_tool_round`，含单测）；F14 的 undo 已以"快照式撤销"正式实现（`OpRecord.before` + `TreeEditor::undo_last` + `POST /chat/sessions/{id}/undo`，schema 升 v2）。下表保留当时的历史状态，仅作演进记录；当前状态以新文档第 6 节为准。窄驱动与流式生成链的完整接线仍需独立迭代。
 
 按 §11.3 的 8 步推进，**第 1–6 步与第 8 步的后端/API/前端最小可用部分已落地并通过编译与测试**，第 7 步（只读工具轮）仍未做。
 

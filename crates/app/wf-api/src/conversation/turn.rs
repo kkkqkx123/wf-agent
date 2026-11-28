@@ -14,9 +14,9 @@ use wf_execution_shared::turn_accumulator::{AccumAction, TurnAccumulator};
 use wf_execution_shared::ChatSession;
 use wf_types::llm::TokenUsageStats;
 use wf_types::message::{Message, MessageRole};
-use wf_types::{ConversationNode, MessageRef, ParamsFingerprint, Reply, ReplyState};
+use wf_types::{ConversationNode, MessageRef, Reply, ReplyState};
 
-use super::query::session_profile;
+use super::query::{current_fingerprint, session_profile};
 use super::runtime::{self, InflightTurn, SessionRuntime};
 use super::{events, store};
 use crate::infra::context::ApiContext;
@@ -181,15 +181,10 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
                 MessageRef::new(message.id.clone(), conversation_tree::message_hash(message))
             })
             .collect();
-        node.reply = Some(Reply::pending(
-            user_ref,
-            Some(ParamsFingerprint {
-                profile_id: profile_id.clone(),
-                parameters: None,
-                tools: Vec::new(),
-            }),
-            now,
-        ));
+        // Record the model-side parameters actually in effect so `model_drift`
+        // compares like with like at snapshot time.
+        let params = current_fingerprint(&ctx, &profile_id, &[]);
+        node.reply = Some(Reply::pending(user_ref, params, now));
 
         let mut digests = store::digests(&tree);
         let version = {

@@ -172,7 +172,6 @@ impl Runtime {
         // blocking thread pool while the remote branch probes health and
         // version asynchronously. An open failure fails bootstrap fast;
         // only explicit disabling yields an empty slot.
-        #[cfg(feature = "keyword")]
         let keyword_index = wf_api::rag::open_keyword_index_async_with(
             &keyword_location,
             &keyword_selection,
@@ -180,11 +179,6 @@ impl Runtime {
         )
         .await
         .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
-        #[cfg(not(feature = "keyword"))]
-        let keyword_index = {
-            let _ = (keyword_location, keyword_selection);
-            None
-        };
 
         // Durable checkpoint store backend: reuse the checkpoint table of the
         // shared storage context so execution checkpoints survive restarts
@@ -348,7 +342,7 @@ impl Runtime {
         // when embedding is on used to leave the management routes live while
         // the tools stayed off, producing a knowledge base nothing could
         // query; the master switch now decides both together.
-        let rag_handles = if config.rag.enabled {
+        let mut rag_handles = if config.rag.enabled {
             embedder.map(|provider| {
                 wf_api::rag::RagHandles::new(
                     vector_store,
@@ -450,6 +444,19 @@ impl Runtime {
         super::code_context::bake_fold_chains(&registries, &code_context);
 
         register_llm_config(&llm_gateway, &config.llm)?;
+
+        // Bind the RAG completion port once the gateway and its profiles are
+        // ready. Retrieval-only setups stay untouched unless the answer
+        // capability is explicitly enabled with a resolved model profile.
+        if config.rag.enabled && rag_settings.answer_enabled {
+            if let Some(handles) = rag_handles.as_mut() {
+                let completion = wf_api::rag_completion::GatewayCompletionLlm::new(
+                    llm_gateway.clone(),
+                    rag_settings.answer_profile_id.clone(),
+                );
+                *handles = handles.clone().with_completion(Arc::new(completion));
+            }
+        }
 
         // Hydrate persisted agent definitions into the runtime registry so
         // agents created through the API survive restarts. The registry

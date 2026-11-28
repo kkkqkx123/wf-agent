@@ -123,6 +123,23 @@ where
         .await
     }
 
+    /// Runs the standard read path and returns hits with retrieval metrics.
+    pub async fn retrieve_with_metrics(
+        &self,
+        query_text: &str,
+    ) -> Result<(Vec<RetrievedChunk>, RetrievalMetrics)> {
+        query_with_metrics(
+            self.store,
+            self.embedder,
+            self.collection,
+            self.namespace,
+            query_text,
+            self.config,
+            self.extensions,
+        )
+        .await
+    }
+
     /// Blends keyword recall into the standard read path.
     pub async fn retrieve_hybrid<K>(
         &self,

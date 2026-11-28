@@ -22,6 +22,7 @@ pub mod pty;
 pub mod query;
 pub mod rag;
 pub mod rag_capabilities;
+pub mod rag_completion;
 pub mod rag_source;
 pub mod rag_source_readers;
 pub mod recap;

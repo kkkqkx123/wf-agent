@@ -76,9 +76,7 @@ pub use keyword_index::{keyword_chunks, keyword_documents};
 /// Probes the Elasticsearch server version before a keyword index is opened.
 /// Fails when the server is unreachable or the response has no version.
 #[cfg(feature = "elastic")]
-pub async fn probe_elastic_keyword(
-    config: &ElasticKeywordConfig,
-) -> Result<String> {
+pub async fn probe_elastic_keyword(config: &ElasticKeywordConfig) -> Result<String> {
     let index = keyword_contracts::ElasticKeywordIndex::new(config)?;
     index.version().await.map_err(Into::into)
 }

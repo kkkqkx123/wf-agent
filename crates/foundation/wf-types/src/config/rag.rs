@@ -162,6 +162,78 @@ impl Default for RagEvalCapabilityConfig {
     }
 }
 
+/// Replaceable prompt templates for synthesis and query transforms.
+///
+/// Every field is a plain template string with named `{placeholder}` slots;
+/// empty strings fall back to the facade defaults. Kept dependency-free so
+/// the foundation config layer does not depend on the RAG facade.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RagPromptTemplatesConfig {
+    pub system: String,
+    pub synthesis: String,
+    pub passage: String,
+    pub refine: String,
+    pub compress: String,
+    pub decompose: String,
+    pub hypothetical: String,
+    pub feedback: String,
+    pub rewrite: String,
+    pub variants: String,
+}
+
+impl Default for RagPromptTemplatesConfig {
+    fn default() -> Self {
+        Self {
+            system: "Use only the supplied passages when answering; cite numbered passages."
+                .to_string(),
+            synthesis: "Answer the question using the numbered passages.\n\nQuestion: {query}\n\nPassages:\n{context}"
+                .to_string(),
+            passage: "Answer the question using this passage numbered {index} from {source}.\n\nQuestion: {query}\n\nPassage {index}: {excerpt}"
+                .to_string(),
+            refine: "Refine the draft answer using this passage numbered {index} from {source}.\n\nQuestion: {query}\n\nDraft:\n{draft}\n\nPassage {index}: {excerpt}"
+                .to_string(),
+            compress: "Compress the draft answer while keeping its citations.\n\nDraft:\n{draft}"
+                .to_string(),
+            decompose: "Break the question below into independent sub-questions that together cover it. List each sub-question on its own line starting with '- '. Keep them short.\n\nQuestion: {query}"
+                .to_string(),
+            hypothetical: "Write a short factual passage that answers the question below. Output only the passage.\n\nQuestion: {query}"
+                .to_string(),
+            feedback: "Rewrite the question below into a sharper retrieval query using the passages as context. Output only the rewritten question.\n\nQuestion: {query}\n\nPassages:\n{context}"
+                .to_string(),
+            rewrite: "Rewrite the follow-up question into a standalone question using the conversation history. Output only the rewritten question.\n\nHistory:\n{history}\n\nFollow-up: {query}"
+                .to_string(),
+            variants: "Rewrite the question below into {count} diverse search variants covering the same need. List each variant on its own line starting with '- '.\n\nQuestion: {query}"
+                .to_string(),
+        }
+    }
+}
+
+/// Question-answering capability built on top of retrieval.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RagAnswerCapabilityConfig {
+    /// Enables the synthesis and answer flow; needs a completion profile.
+    pub enabled: bool,
+    /// Model profile id used for synthesis and query transforms.
+    pub profile_id: String,
+    /// Maximum passages fed into one synthesis call.
+    pub max_passages: usize,
+    /// Replaceable prompt templates.
+    pub prompts: RagPromptTemplatesConfig,
+}
+
+impl Default for RagAnswerCapabilityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            profile_id: "DEFAULT".to_string(),
+            max_passages: 6,
+            prompts: RagPromptTemplatesConfig::default(),
+        }
+    }
+}
+
 /// Complete RAG enhancement configuration; disabled as a whole by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -175,6 +247,7 @@ pub struct RagCapabilitiesConfig {
     pub retrieval: RagRetrievalCapabilityConfig,
     pub citation: RagCitationCapabilityConfig,
     pub eval: RagEvalCapabilityConfig,
+    pub answer: RagAnswerCapabilityConfig,
 }
 
 impl Default for RagCapabilitiesConfig {
@@ -189,6 +262,7 @@ impl Default for RagCapabilitiesConfig {
             retrieval: RagRetrievalCapabilityConfig::default(),
             citation: RagCitationCapabilityConfig::default(),
             eval: RagEvalCapabilityConfig::default(),
+            answer: RagAnswerCapabilityConfig::default(),
         }
     }
 }
@@ -224,6 +298,12 @@ impl RagCapabilitiesConfig {
         }
         if self.citation.excerpt_chars == 0 {
             return Err("rag citation excerpt_chars must be positive".to_string());
+        }
+        if self.answer.enabled && self.answer.profile_id.trim().is_empty() {
+            return Err("rag answer profile_id must not be empty when enabled".to_string());
+        }
+        if self.answer.max_passages == 0 {
+            return Err("rag answer max_passages must be positive".to_string());
         }
         Ok(())
     }

@@ -348,6 +348,7 @@ fn truncate(content: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::CompletionRequest;
 
     struct ScriptedLlm {
         answers: Vec<String>,
@@ -355,7 +356,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CompletionLlm for ScriptedLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             Ok(self.answers.first().cloned().unwrap_or_default())
         }
     }
@@ -364,8 +365,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CompletionLlm for CountingLlm {
-        async fn complete(&self, prompt: &str) -> Result<String> {
-            Ok(format!("answer for {}", prompt.chars().count()))
+        async fn complete_request(&self, request: &CompletionRequest) -> Result<String> {
+            Ok(format!(
+                "answer for {}",
+                request.concatenated().chars().count()
+            ))
         }
     }
 
@@ -373,7 +377,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CompletionLlm for EmptyLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             Ok("   ".to_string())
         }
     }

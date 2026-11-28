@@ -134,18 +134,20 @@ impl PromptTemplates {
 }
 
 /// Minimal text completion used by synthesis and query transforms.
+///
+/// The structured request is the single required entry point: it carries
+/// separated roles and an output cap, so hosts can apply role-aware templates.
 #[async_trait]
 pub trait CompletionLlm: Send + Sync {
-    /// Completes one prompt into answer text. Empty answers are rejected
-    /// by the callers that require model output.
-    async fn complete(&self, prompt: &str) -> Result<String>;
+    /// Completes a structured request into answer text. Empty answers are
+    /// rejected by the callers that require model output.
+    async fn complete_request(&self, request: &CompletionRequest) -> Result<String>;
 
-    /// Completes a structured request. The default concatenates system and
-    /// user prompts and truncates the result, so existing gateways keep
-    /// working without role-aware handling.
-    async fn complete_request(&self, request: &CompletionRequest) -> Result<String> {
-        let text = self.complete(&request.concatenated()).await?;
-        Ok(request.truncate_output(text))
+    /// Completes one plain prompt. Kept as a convenience default for simple
+    /// callers; role-aware hosts implement only the structured method.
+    async fn complete(&self, prompt: &str) -> Result<String> {
+        self.complete_request(&CompletionRequest::user(prompt))
+            .await
     }
 }
 
@@ -162,7 +164,7 @@ mod tests {
 
     #[async_trait]
     impl CompletionLlm for FailingLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             Err(RagError::Llm("gateway down".to_string()))
         }
     }
@@ -171,8 +173,8 @@ mod tests {
 
     #[async_trait]
     impl CompletionLlm for EchoLlm {
-        async fn complete(&self, prompt: &str) -> Result<String> {
-            Ok(format!("echo {prompt}"))
+        async fn complete_request(&self, request: &CompletionRequest) -> Result<String> {
+            Ok(format!("echo {}", request.concatenated()))
         }
     }
 

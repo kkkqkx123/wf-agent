@@ -52,12 +52,13 @@ tempfile.workspace = true
 # `native` is compiled in by default but stays disabled at runtime.
 default = [
     "plugins", "lua", "native", "wasm",
-    "file-checkpoint", "keyword", "rag-vector", "mcp", "metrics",
+    "file-checkpoint", "keyword-tantivy", "keyword-elastic", "rag-vector", "mcp", "metrics",
     "storage-sqlite", "storage-postgres",
 ]
 plugins = ["dep:wf-plugin"]
 file-checkpoint = ["wf-checkpoint/file-checkpoint", "wf-api/file-checkpoint"]
-keyword = ["wf-api/keyword"]
+keyword-tantivy = ["wf-api/keyword-tantivy"]
+keyword-elastic = ["wf-api/keyword-elastic"]
 rag-vector = ["wf-api/rag-vector"]
 mcp = ["wf-tools/mcp"]
 metrics = ["wf-metrics/metrics"]

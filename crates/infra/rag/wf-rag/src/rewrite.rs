@@ -198,6 +198,7 @@ pub fn merge_variants(primary: Vec<String>, extra: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::CompletionRequest;
 
     struct FailingRewriter;
 
@@ -251,7 +252,7 @@ mod tests {
 
     #[async_trait]
     impl CompletionLlm for ScriptedLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(self.response.clone())
         }
@@ -261,7 +262,7 @@ mod tests {
 
     #[async_trait]
     impl CompletionLlm for FailingLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             Err(RagError::Llm("gateway down".to_string()))
         }
     }

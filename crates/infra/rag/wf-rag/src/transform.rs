@@ -374,6 +374,7 @@ fn truncate(content: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::CompletionRequest;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct ScriptedLlm {
@@ -392,7 +393,7 @@ mod tests {
 
     #[async_trait]
     impl CompletionLlm for ScriptedLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.response.clone())
         }
@@ -402,7 +403,7 @@ mod tests {
 
     #[async_trait]
     impl CompletionLlm for FailingLlm {
-        async fn complete(&self, _prompt: &str) -> Result<String> {
+        async fn complete_request(&self, _request: &CompletionRequest) -> Result<String> {
             Err(RagError::Llm("gateway down".to_string()))
         }
     }

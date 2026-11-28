@@ -494,7 +494,10 @@ impl ApiContext {
             handles.embedder.clone(),
             collection,
             namespace,
-        );
+        )
+        // Host-owned extensions must reach nodes; otherwise plugin analyzers
+        // and postprocessors registered through the runtime bridge are invisible here.
+        .with_extensions(handles.extensions.clone());
         if let Some(keyword) = self.effective_keyword_index() {
             node_handles = node_handles.with_keyword(keyword);
         }

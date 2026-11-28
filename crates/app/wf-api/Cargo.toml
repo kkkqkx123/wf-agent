@@ -50,7 +50,8 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 default = []
 lua = ["wf-sandbox/lua"]
 file-checkpoint = []
-keyword = []
+keyword-tantivy = ["keyword-contracts/tantivy", "wf-rag/tantivy"]
+keyword-elastic = ["keyword-contracts/elastic", "wf-rag/elastic"]
 rag-vector = [
     "vector-contracts/qdrant",
     "vector-contracts/simvec",

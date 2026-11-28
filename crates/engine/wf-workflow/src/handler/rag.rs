@@ -334,48 +334,34 @@ impl RagQueryHandler {
             None => wf_rag::merge_variants(vec![query_text.clone()], &extra_variants),
         };
         let hybrid_enabled = query_config.keyword_candidates > 0 && self.handles.keyword.is_some();
+        let retriever = wf_rag::StandardRetriever {
+            extensions: &self.handles.extensions,
+            store: self.handles.store.as_ref(),
+            embedder: self.handles.embedder.as_ref(),
+            collection: &collection,
+            namespace: &namespace,
+            config: &query_config,
+        };
         let hits = if variants.len() > 1 {
-            wf_rag::pipeline::query_multi(
-                self.handles.store.as_ref(),
-                self.handles.embedder.as_ref(),
-                &collection,
-                &namespace,
-                &variants,
-                &query_config,
-                &self.handles.extensions,
-            )
-            .await
-            .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
+            retriever
+                .retrieve_multi(&variants)
+                .await
+                .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
         } else if hybrid_enabled {
             let keyword = self
                 .handles
                 .keyword
                 .as_ref()
                 .expect("keyword index present");
-            wf_rag::pipeline::query_hybrid(
-                self.handles.store.as_ref(),
-                keyword.as_ref(),
-                self.handles.embedder.as_ref(),
-                &collection,
-                &namespace,
-                &query_text,
-                &query_config,
-                &self.handles.extensions,
-            )
-            .await
-            .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
+            retriever
+                .retrieve_hybrid(keyword.as_ref(), &query_text)
+                .await
+                .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
         } else {
-            wf_rag::pipeline::query(
-                self.handles.store.as_ref(),
-                self.handles.embedder.as_ref(),
-                &collection,
-                &namespace,
-                &query_text,
-                &query_config,
-                &self.handles.extensions,
-            )
-            .await
-            .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
+            retriever
+                .retrieve(&query_text)
+                .await
+                .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
         };
         let latency_ms = started.elapsed().as_millis() as u64;
         if let Some(metrics) = ctx.metrics.as_ref() {

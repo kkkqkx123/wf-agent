@@ -60,6 +60,36 @@ where
     E: llm_embedding::provider::EmbeddingProvider + ?Sized,
     L: CompletionLlm + ?Sized,
 {
+    /// Rewrites the question, retrieves every variant, then synthesizes
+    /// without a rerank pass.
+    pub async fn answer_plain(
+        &self,
+        rewriter: &dyn QueryRewriter,
+        query_text: &str,
+    ) -> Result<SynthesizedAnswer> {
+        let query = ensure_query(query_text)?;
+        let variants = rewrite_with_fallback(rewriter, query).await;
+        let hits = crate::pipeline::query_multi(
+            self.store,
+            self.flow.embedder,
+            self.flow.collection,
+            self.flow.namespace,
+            &variants,
+            self.flow.query_config,
+            self.flow.extensions,
+        )
+        .await?;
+        synthesize(
+            self.flow.llm,
+            query,
+            self.flow.namespace,
+            &hits,
+            self.flow.synth_config,
+            self.flow.extensions,
+        )
+        .await
+    }
+
     /// Rewrites the question, retrieves every variant, then synthesizes.
     pub async fn answer<R>(
         &self,
@@ -74,6 +104,46 @@ where
             self.store,
             &self.flow,
             rewriter,
+            query_text,
+            rerank,
+            self.flow.extensions,
+        )
+        .await
+    }
+
+    /// Decomposes the question into sub-questions, retrieves and synthesizes.
+    pub async fn answer_with_sub_questions<R>(
+        &self,
+        max_sub: usize,
+        query_text: &str,
+        rerank: Option<&RerankPass<'_, R>>,
+    ) -> Result<SynthesizedAnswer>
+    where
+        R: llm_rerank::provider::RerankProvider + ?Sized,
+    {
+        answer_with_sub_questions(
+            self.store,
+            &self.flow,
+            max_sub,
+            query_text,
+            rerank,
+            self.flow.extensions,
+        )
+        .await
+    }
+
+    /// Retrieves with a hypothetical answer passage, then synthesizes.
+    pub async fn answer_with_hyde<R>(
+        &self,
+        query_text: &str,
+        rerank: Option<&RerankPass<'_, R>>,
+    ) -> Result<SynthesizedAnswer>
+    where
+        R: llm_rerank::provider::RerankProvider + ?Sized,
+    {
+        answer_with_hyde(
+            self.store,
+            &self.flow,
             query_text,
             rerank,
             self.flow.extensions,

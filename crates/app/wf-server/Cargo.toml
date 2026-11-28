@@ -40,7 +40,7 @@ tokio-util.workspace = true
 # `native` is compiled in by default but stays disabled at runtime.
 default = [
     "plugins", "lua", "native", "wasm",
-    "file-checkpoint", "keyword", "rag-vector", "pty", "mcp", "git-fs",
+    "file-checkpoint", "keyword-tantivy", "keyword-elastic", "rag-vector", "pty", "mcp", "git-fs",
     "backends", "metrics", "storage-sqlite", "storage-postgres",
 ]
 plugins = ["wf-runtime/plugins"]
@@ -48,7 +48,8 @@ lua = ["wf-runtime/lua"]
 native = ["wf-runtime/native"]
 wasm = ["wf-runtime/wasm"]
 file-checkpoint = ["wf-runtime/file-checkpoint"]
-keyword = ["wf-runtime/keyword"]
+keyword-tantivy = ["wf-runtime/keyword-tantivy"]
+keyword-elastic = ["wf-runtime/keyword-elastic"]
 rag-vector = ["wf-runtime/rag-vector"]
 pty = ["wf-api/pty"]
 mcp = ["wf-runtime/mcp"]
@@ -63,7 +64,7 @@ openapi-docs = []
 # surfaces. Incompatible with `backends`, which belongs to the local side.
 remote-node = [
     "plugins", "lua", "wasm",
-    "file-checkpoint", "keyword", "rag-vector", "pty", "mcp", "git-fs",
+    "file-checkpoint", "keyword-tantivy", "keyword-elastic", "rag-vector", "pty", "mcp", "git-fs",
     "storage-sqlite",
 ]
 

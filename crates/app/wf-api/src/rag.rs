@@ -35,6 +35,9 @@ pub struct RagHandles {
     pub keyword: Option<Arc<dyn keyword_contracts::KeywordIndex>>,
     /// Retrieval extensions owned by this host scope.
     pub extensions: Arc<RetrievalExtensions>,
+    /// Completion port used by synthesis and answer flows; `None` keeps
+    /// retrieval-only surfaces working without a model gateway.
+    pub completion: Option<Arc<dyn wf_rag::CompletionLlm>>,
 }
 
 impl RagHandles {
@@ -50,7 +53,14 @@ impl RagHandles {
             embedder,
             keyword,
             extensions,
+            completion: None,
         }
+    }
+
+    /// Attaches the host completion port enabling synthesis and answer flows.
+    pub fn with_completion(mut self, completion: Arc<dyn wf_rag::CompletionLlm>) -> Self {
+        self.completion = Some(completion);
+        self
     }
 }
 
@@ -710,9 +720,10 @@ pub async fn open_keyword_index_async_with(
             } else {
                 info!(version = %version, index = %resolved.index, "elastic keyword version probed");
             }
-            let handle = open_elastic_handle(resolved, selection, extensions.as_ref()).map_err(|err| {
-                ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
-            })?;
+            let handle =
+                open_elastic_handle(resolved, selection, extensions.as_ref()).map_err(|err| {
+                    ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
+                })?;
             ensure_keyword_capabilities(handle.as_ref(), selection)?;
             info!(
                 backend = handle.backend_name(),

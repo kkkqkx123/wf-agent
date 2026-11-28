@@ -53,6 +53,12 @@ pub struct RagCapabilitySettings {
     pub sync_basis: wf_rag::SyncBasis,
     /// Citation presentation used by host prompt assembly.
     pub citation: wf_rag::CitationStyle,
+    /// Whether the answer flow is enabled and which model profile it uses.
+    pub answer_enabled: bool,
+    /// Model profile id resolved for synthesis and query transforms.
+    pub answer_profile_id: String,
+    /// Synthesis defaults including replaceable prompt templates.
+    pub synthesis: wf_rag::SynthesisConfig,
 }
 
 impl Default for RagCapabilitySettings {
@@ -71,6 +77,9 @@ impl Default for RagCapabilitySettings {
             source_roots: Vec::new(),
             sync_basis: wf_rag::SyncBasis::ContentHash,
             citation: wf_rag::CitationStyle::default(),
+            answer_enabled: false,
+            answer_profile_id: "DEFAULT".to_string(),
+            synthesis: wf_rag::SynthesisConfig::default(),
         }
     }
 }
@@ -122,6 +131,25 @@ impl RagCapabilitySettings {
             context_budget_chars: config.retrieval.context_budget_chars,
             ..wf_rag::RagQueryConfig::default()
         };
+        let configured = &config.answer.prompts;
+        let fallback = wf_rag::PromptTemplates::default();
+        let prompts = wf_rag::PromptTemplates {
+            system: pick_template(&configured.system, &fallback.system),
+            synthesis: pick_template(&configured.synthesis, &fallback.synthesis),
+            passage: pick_template(&configured.passage, &fallback.passage),
+            refine: pick_template(&configured.refine, &fallback.refine),
+            compress: pick_template(&configured.compress, &fallback.compress),
+            decompose: pick_template(&configured.decompose, &fallback.decompose),
+            hypothetical: pick_template(&configured.hypothetical, &fallback.hypothetical),
+            feedback: pick_template(&configured.feedback, &fallback.feedback),
+            rewrite: pick_template(&configured.rewrite, &fallback.rewrite),
+            variants: pick_template(&configured.variants, &fallback.variants),
+        };
+        let synthesis = wf_rag::SynthesisConfig {
+            max_passages: config.answer.max_passages,
+            prompts,
+            ..wf_rag::SynthesisConfig::default()
+        };
         Self {
             enabled: config.enabled,
             ingest_enabled: config.ingest.enabled,
@@ -145,7 +173,19 @@ impl RagCapabilitySettings {
                 include_score: config.citation.include_score,
                 no_hits_template: config.citation.no_hits_template.clone(),
             },
+            answer_enabled: config.answer.enabled,
+            answer_profile_id: config.answer.profile_id.clone(),
+            synthesis,
         }
+    }
+}
+
+/// Uses a configured template when non-empty, otherwise the built-in default.
+fn pick_template(configured: &str, fallback: &str) -> String {
+    if configured.trim().is_empty() {
+        fallback.to_string()
+    } else {
+        configured.to_string()
     }
 }
 

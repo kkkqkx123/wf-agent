@@ -296,6 +296,178 @@ async fn workflow_lock_conflict_keeps_the_first_owner() {
     assert!(body["data"].is_null());
 }
 
+fn assert_envelope_error(status: StatusCode, body: &Value, code: &str, label: &str) {
+    assert_eq!(body["success"], false, "{label}: {body}");
+    assert_eq!(body["error"]["code"], code, "{label}: {body}");
+    let expected = match code {
+        "NOT_FOUND" => StatusCode::NOT_FOUND,
+        "VALIDATION_ERROR" | "INVALID_PARAMS" => StatusCode::BAD_REQUEST,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    assert_eq!(status, expected, "{label}: {body}");
+}
+
+#[tokio::test]
+async fn template_library_usage_and_clone_are_reachable() {
+    let app = app();
+    // The read-only library routes are covered by
+    // template_library_is_reachable_with_empty_registries; add the usage and
+    // clone branches that the web app also calls.
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/templates/library/missing-template/usage",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["success"], true, "{body}");
+    assert!(body["data"].is_number(), "{body}");
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/api/v1/templates/library?kind=definitely-not-a-kind",
+        None,
+    )
+    .await;
+    assert_envelope_error(status, &body, "INVALID_PARAMS", "library query kind");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/templates/library/missing-template/clone",
+        Some(json!({"kind": "definitely-not-a-kind"})),
+    )
+    .await;
+    assert_envelope_error(status, &body, "VALIDATION_ERROR", "clone unknown kind");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/templates/library/missing-template/clone",
+        Some(json!({"kind": "agent", "new_name": "copy"})),
+    )
+    .await;
+    assert_envelope_error(status, &body, "NOT_FOUND", "clone missing source");
+}
+
+#[tokio::test]
+async fn agent_interaction_routes_cover_list_get_and_respond() {
+    let app = app();
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/api/v1/agent-loops/missing-loop/interactions",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["success"], true, "{body}");
+    assert!(body["data"]["items"].is_array(), "{body}");
+
+    let (status, body) = call(&app, "GET", "/api/v1/agent-interactions/missing", None).await;
+    assert_envelope_error(status, &body, "NOT_FOUND", "get interaction");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/agent-interactions/missing/respond",
+        Some(json!({"response_data": {}})),
+    )
+    .await;
+    assert_envelope_error(status, &body, "INVALID_PARAMS", "respond missing loop id");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/agent-interactions/missing/respond",
+        Some(json!({"agent_loop_id": "loop-1", "response_data": {}})),
+    )
+    .await;
+    assert_envelope_error(status, &body, "NOT_FOUND", "respond unknown interaction");
+}
+
+#[tokio::test]
+async fn workflow_version_routes_cover_list_get_increment_and_rollback() {
+    let app = app();
+    let (status, body) = call(&app, "GET", "/api/v1/workflows/missing/versions", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["success"], true, "{body}");
+    assert!(body["data"].is_array(), "{body}");
+
+    let (status, body) = call(&app, "GET", "/api/v1/workflows/missing/versions/v1", None).await;
+    assert_envelope_error(status, &body, "NOT_FOUND", "get version");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/missing/versions/increment?level=not-a-level",
+        Some(json!({"changes": {}, "keep_original": false})),
+    )
+    .await;
+    assert_envelope_error(status, &body, "INVALID_PARAMS", "increment bad level");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/workflows/missing/rollback",
+        Some(json!({"version": "v1"})),
+    )
+    .await;
+    assert_envelope_error(status, &body, "NOT_FOUND", "rollback version");
+}
+
+#[tokio::test]
+async fn representative_routes_render_a_structured_envelope() {
+    // Cross-domain baseline: every representative route must render either a
+    // structured envelope or a known extractor-level 400/422. Specific status
+    // and payload semantics are asserted in each functional test file.
+    let app = app();
+    let cases: Vec<(&str, &str, Option<Value>)> = vec![
+        ("GET", "/api/v1/tools", None),
+        ("GET", "/api/v1/tool-registry/stats", None),
+        ("GET", "/api/v1/system/retention", None),
+        ("GET", "/api/v1/system/code-context", None),
+        ("GET", "/api/v1/analysis/stats", None),
+        ("GET", "/api/v1/analysis/llm-metrics", None),
+        ("GET", "/api/v1/git/status", None),
+        ("GET", "/api/v1/agent-interactions/missing", None),
+        ("GET", "/api/v1/executions/missing/graph", None),
+        ("POST", "/api/v1/chat/title", Some(json!({}))),
+    ];
+    for (method, uri, body) in cases {
+        let (status, response) = call(&app, method, uri, body).await;
+        assert!(
+            matches!(
+                status,
+                StatusCode::OK
+                    | StatusCode::BAD_REQUEST
+                    | StatusCode::NOT_FOUND
+                    | StatusCode::UNPROCESSABLE_ENTITY
+                    | StatusCode::INTERNAL_SERVER_ERROR
+            ),
+            "{method} {uri}: unexpected status {status}: {response}"
+        );
+        if response.is_null() {
+            // Axum extractor rejections (Query 400 / Json 422) are the only
+            // transport responses that bypass the envelope.
+            assert!(
+                matches!(
+                    status,
+                    StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY
+                ),
+                "{method} {uri}: null body with status {status}"
+            );
+        } else {
+            assert!(
+                response.get("success").is_some(),
+                "{method} {uri}: missing success field: {response}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn node_template_draft_lifecycle_reaches_a_formal_template() {
     let app = app();

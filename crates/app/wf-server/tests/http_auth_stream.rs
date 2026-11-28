@@ -103,6 +103,74 @@ async fn auth_rejects_missing_and_invalid_keys() {
 }
 
 #[tokio::test]
+async fn auth_gates_newly_covered_write_routes() {
+    let app = app();
+    let cases: Vec<(&str, &str, Option<Value>)> = vec![
+        ("POST", "/api/v1/git/action", Some(json!({"action": ""}))),
+        (
+            "POST",
+            "/api/v1/chat/title",
+            Some(json!({"session_id": "missing", "profile_id": "p1"})),
+        ),
+        (
+            "PUT",
+            "/api/v1/system/retention",
+            Some(json!({"enabled": true})),
+        ),
+        (
+            "POST",
+            "/api/v1/tools/execute",
+            Some(json!({"tool_id": "missing", "parameters": {}})),
+        ),
+        (
+            "POST",
+            "/api/v1/templates/library/missing/clone",
+            Some(json!({"kind": "agent"})),
+        ),
+        (
+            "POST",
+            "/api/v1/workflows/missing/rollback",
+            Some(json!({"version": "v1"})),
+        ),
+    ];
+    for (method, uri, body) in cases {
+        let (status, response) = json_call(&app, method, uri, &[], body.clone()).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}: {response}");
+        assert_eq!(response["success"], false, "{method} {uri}: {response}");
+
+        let (status, _) = json_call(
+            &app,
+            method,
+            uri,
+            &[("x-api-key", "test-key")],
+            body,
+        )
+        .await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+        assert_ne!(status, StatusCode::FORBIDDEN, "{method} {uri}");
+    }
+}
+
+#[tokio::test]
+async fn auth_accepts_query_credential_and_keeps_health_exempt() {
+    let app = app();
+
+    let (status, _) = json_call(
+        &app,
+        "GET",
+        "/api/v1/workflows?api_key=test-key",
+        &[],
+        None,
+    )
+    .await;
+    assert_ne!(status, StatusCode::UNAUTHORIZED);
+    assert_ne!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = json_call(&app, "GET", "/health", &[], None).await;
+    assert_ne!(status, StatusCode::UNAUTHORIZED, "health must be exempt");
+}
+
+#[tokio::test]
 async fn ticket_minting_requires_marker_header() {
     let app = app();
 

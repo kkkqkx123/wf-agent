@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use wf_execution_shared::conversation_tree::{self, TreeEditor};
 use wf_types::{ReplyOrigin, ReplyState};
 
-use super::query::{current_fingerprint, session_profile};
+use super::query::{current_fingerprint, session_allowed_tools, session_profile};
 use super::runtime::{self, SessionRuntime};
 use super::{events, store, turn};
 use crate::infra::context::ApiContext;
@@ -84,7 +84,7 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
     let job_id = wf_common::generate_id();
     let cancel = CancellationToken::new();
     let keep_human = request.policy.as_deref() != Some("overwrite_human");
-    let (plan, leaf, profile_id) = {
+    let (plan, leaf, profile_id, allowed_tools) = {
         let _guard = runtime.write().await;
         if runtime.inflight().is_some() {
             return Err(ApiError::Conflict(
@@ -135,7 +135,11 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
             Some(profile) if !profile.trim().is_empty() => Some(profile),
             _ => session_profile(&ctx, &tree).await,
         };
-        (plan, leaf, profile_id)
+        // Stepper regenerates nodes with the same tool policy as a fresh turn,
+        // so a regenerated answer keeps the same fingerprint and never reports
+        // a false model drift.
+        let allowed_tools = session_allowed_tools(&ctx, &request.session_id).await;
+        (plan, leaf, profile_id, allowed_tools)
     };
 
     if plan.is_empty() {
@@ -174,6 +178,7 @@ pub async fn start_step(ctx: Arc<ApiContext>, request: StepRequest) -> ApiResult
             request.max_steps
         },
         profile_id,
+        allowed_tools,
         keep_human,
         cancel,
         runtime,
@@ -196,6 +201,7 @@ struct StepJob {
     stop_at: Option<String>,
     max_steps: usize,
     profile_id: String,
+    allowed_tools: Vec<String>,
     keep_human: bool,
     cancel: CancellationToken,
     runtime: Arc<SessionRuntime>,
@@ -236,6 +242,7 @@ impl StepJob {
                 &turn_id,
                 &node_id,
                 &self.profile_id,
+                &self.allowed_tools,
                 &self.cancel,
                 &self.runtime,
             )
@@ -314,7 +321,7 @@ impl StepJob {
         let now = wf_common::now();
         // Use the same fingerprint the snapshot reader compares against, so a
         // regenerated answer never reports a false model drift.
-        let params = current_fingerprint(&self.ctx, &self.profile_id, &[]);
+        let params = current_fingerprint(&self.ctx, &self.profile_id, &self.allowed_tools);
         let mut digests = digests;
         if !needs_placeholder {
             let mut editor = TreeEditor::new(&mut tree, &mut digests, now);

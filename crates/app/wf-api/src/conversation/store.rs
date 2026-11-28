@@ -155,6 +155,7 @@ pub async fn create_session(
     ctx: &ApiContext,
     profile_id: Option<String>,
     directory: Option<String>,
+    allowed_tools: Option<Vec<String>>,
 ) -> ApiResult<ConversationTree> {
     let session_id = wf_common::generate_id();
     let now = wf_common::now();
@@ -165,7 +166,14 @@ pub async fn create_session(
         now,
     );
     save_tree(ctx, &tree).await?;
-    record_session(ctx, &session_id, profile_id.as_deref(), directory).await?;
+    record_session(
+        ctx,
+        &session_id,
+        profile_id.as_deref(),
+        directory,
+        allowed_tools,
+    )
+    .await?;
     Ok(tree)
 }
 
@@ -176,6 +184,7 @@ pub async fn record_session(
     session_id: &str,
     profile_id: Option<&str>,
     directory: Option<String>,
+    allowed_tools: Option<Vec<String>>,
 ) -> ApiResult<()> {
     use wf_storage::adapter::base::BaseStorageAdapter;
     use wf_types::agent_execution::AgentRuntimeConfig;
@@ -196,6 +205,15 @@ pub async fn record_session(
             .and_then(|record| record.context.as_ref())
             .and_then(|context| context.profile_id.clone())
     });
+    // The allow-list is session-scoped: a turn call passes `None` here and must
+    // not erase a list configured at creation. Only an explicit Some replaces it.
+    let mut base_context = existing
+        .as_ref()
+        .and_then(|record| record.context.clone())
+        .unwrap_or_default();
+    if let Some(tools) = allowed_tools {
+        base_context.available_tools = Some(tools);
+    }
     let record = AgentExecution {
         id: Id::from(session_id.to_string()),
         definition_id: Id::from(crate::chat::CHAT_SESSION_DEFINITION_ID.to_string()),
@@ -215,10 +233,7 @@ pub async fn record_session(
         error: existing.as_ref().and_then(|record| record.error.clone()),
         context: Some(AgentRuntimeConfig {
             profile_id,
-            ..existing
-                .as_ref()
-                .and_then(|record| record.context.clone())
-                .unwrap_or_default()
+            ..base_context
         }),
         loop_config: None,
         permanently_failed_tools: None,

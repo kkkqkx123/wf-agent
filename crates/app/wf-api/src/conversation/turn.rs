@@ -16,7 +16,7 @@ use wf_types::llm::TokenUsageStats;
 use wf_types::message::{Message, MessageRole};
 use wf_types::{ConversationNode, MessageRef, Reply, ReplyState};
 
-use super::query::{current_fingerprint, session_profile};
+use super::query::{current_fingerprint, session_allowed_tools, session_profile};
 use super::runtime::{self, InflightTurn, SessionRuntime};
 use super::{events, store};
 use crate::infra::context::ApiContext;
@@ -35,6 +35,9 @@ pub struct TurnRequest {
     /// Optimistic concurrency: the tree version the client last saw.
     pub if_version: Option<u64>,
     pub directory: Option<String>,
+    /// Per-turn override of the session tool allow-list. Empty falls back to
+    /// the session-level list; both empty keeps the plain streaming path.
+    pub allowed_tools: Vec<String>,
 }
 
 /// What the caller gets back: the ids to follow the turn with and the version
@@ -56,6 +59,9 @@ pub(crate) struct GeneratedAnswer {
     /// Prefix digest captured before generation. Convergence must not replace
     /// it with a later base, or a stale answer would look fresh.
     pub base: Option<String>,
+    /// Ordered tool round-trip messages from a read-only tool round, archived
+    /// as `reply.trace`. Empty for the plain streaming path.
+    pub trace: Vec<Message>,
 }
 
 impl GeneratedAnswer {
@@ -66,6 +72,7 @@ impl GeneratedAnswer {
             state: ReplyState::Failed,
             error: Some(error.into()),
             base: None,
+            trace: Vec::new(),
         }
     }
 
@@ -76,6 +83,7 @@ impl GeneratedAnswer {
             state: ReplyState::Interrupted,
             error: None,
             base: None,
+            trace: Vec::new(),
         }
     }
 }
@@ -140,6 +148,17 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             tree.profile_id = Some(profile_id.clone());
         }
 
+        // Effective allow-list: a per-turn override wins, else the session
+        // config. Empty means the narrow driver stays off for this turn.
+        let allowed_tools = if request.allowed_tools.is_empty() {
+            session_allowed_tools(&ctx, &request.session_id).await
+        } else {
+            let mut tools = request.allowed_tools.clone();
+            tools.sort();
+            tools.dedup();
+            tools
+        };
+
         let now = wf_common::now();
         let user_message = build_user_message(&text, &images, now)?;
         // The injected context of this turn: mention payloads plus their
@@ -183,7 +202,7 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             .collect();
         // Record the model-side parameters actually in effect so `model_drift`
         // compares like with like at snapshot time.
-        let params = current_fingerprint(&ctx, &profile_id, &[]);
+        let params = current_fingerprint(&ctx, &profile_id, &allowed_tools);
         node.reply = Some(Reply::pending(user_ref, params, now));
 
         let mut digests = store::digests(&tree);
@@ -215,6 +234,7 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             &request.session_id,
             Some(&profile_id),
             request.directory.clone(),
+            None,
         )
         .await
         {
@@ -236,6 +256,7 @@ pub async fn submit_turn(ctx: Arc<ApiContext>, request: TurnRequest) -> ApiResul
             turn_id,
             node_id,
             profile_id,
+            allowed_tools,
             cancel,
             runtime: runtime.clone(),
         };
@@ -331,6 +352,7 @@ struct Driver {
     turn_id: String,
     node_id: String,
     profile_id: String,
+    allowed_tools: Vec<String>,
     cancel: CancellationToken,
     runtime: Arc<SessionRuntime>,
 }
@@ -343,6 +365,7 @@ impl Driver {
             &self.turn_id,
             &self.node_id,
             &self.profile_id,
+            &self.allowed_tools,
             &self.cancel,
             &self.runtime,
         )
@@ -371,17 +394,29 @@ pub(crate) async fn generate_answer(
     turn_id: &str,
     node_id: &str,
     profile_id: &str,
+    allowed_tools: &[String],
     cancel: &CancellationToken,
     runtime: &Arc<SessionRuntime>,
 ) -> GeneratedAnswer {
     let (request, base) = {
         let runtime = runtime.clone();
         let _guard = runtime.write().await;
-        match prepare_request(ctx, session_id, node_id, profile_id).await {
+        match prepare_request(ctx, session_id, node_id, profile_id, allowed_tools).await {
             Ok(prepared) => prepared,
             Err(error) => return GeneratedAnswer::failed(error.to_string()),
         }
     };
+
+    // A configured tool allow-list opts this turn into the narrow, non-streaming
+    // read-only round. Without one the path is byte-for-byte the streaming path
+    // below, so existing sessions are unaffected.
+    if !allowed_tools.is_empty() {
+        return generate_readonly_answer(
+            ctx, session_id, turn_id, node_id, &request, &base, allowed_tools, cancel,
+        )
+        .await;
+    }
+
     let mut stream = match ctx
         .llm_gateway
         .generate_stream(&request, Some(cancel.clone()))
@@ -435,6 +470,7 @@ pub(crate) async fn generate_answer(
             state: ReplyState::Kept,
             error: None,
             base: Some(base),
+            trace: Vec::new(),
         },
         None => {
             // A stream that ends without a message still produced text in
@@ -450,9 +486,110 @@ pub(crate) async fn generate_answer(
                     state: ReplyState::Interrupted,
                     error: Some(reason),
                     base: Some(base),
+                    trace: Vec::new(),
                 }
             }
         }
+    }
+}
+
+/// Drive one non-streaming read-only tool round.
+///
+/// The narrow driver may answer in plain text or execute a bounded set of
+/// allow-listed tools. Since it is not streaming, the answer text is published
+/// as a single `turn_delta` and each executed tool as a `turn_tool` frame; the
+/// round-trip messages are carried back for `reply.trace` archival.
+async fn generate_readonly_answer(
+    ctx: &ApiContext,
+    session_id: &str,
+    turn_id: &str,
+    node_id: &str,
+    request: &wf_types::llm::LlmRequest,
+    base: &str,
+    allowed_tools: &[String],
+    cancel: &CancellationToken,
+) -> GeneratedAnswer {
+    if cancel.is_cancelled() {
+        let mut interrupted = GeneratedAnswer::interrupted();
+        interrupted.error = Some("cancelled".to_string());
+        return interrupted;
+    }
+
+    let outcome = match wf_execution_shared::generate_readonly_turn(
+        &ctx.llm_gateway,
+        &ctx.tool_registry,
+        request,
+        allowed_tools,
+        None,
+        turn_id,
+        Some(cancel.clone()),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => return GeneratedAnswer::failed(error.to_string()),
+    };
+
+    if cancel.is_cancelled() {
+        let mut interrupted = GeneratedAnswer::interrupted();
+        interrupted.error = Some("cancelled".to_string());
+        return interrupted;
+    }
+
+    // Publish one tool frame per execution so subscribers see what ran.
+    for execution in &outcome.executions {
+        events::turn_tool(
+            ctx,
+            session_id,
+            turn_id,
+            node_id,
+            &execution.tool_name,
+            &execution.tool_call_id,
+            execution.result.success,
+        );
+    }
+
+    let usage = outcome.generation.usage.clone();
+    if let Some(usage) = &usage {
+        events::turn_usage(ctx, session_id, turn_id, node_id, usage);
+    }
+
+    // A tool round returns the assistant tool_calls message as `generation`,
+    // and the full round-trip as `trace` (whose first entry is that same
+    // assistant message). Keeping both as reply body + trace would inject the
+    // tool_calls message twice into projection. Instead: with no tools the
+    // model text is the answer; with tools the answer body is the tool results
+    // folded into one assistant message, while `trace` keeps the ordered
+    // round-trip for digest folding and context replay.
+    let message = if outcome.trace.is_empty() {
+        outcome.generation.message
+    } else {
+        let text = outcome
+            .trace
+            .iter()
+            .filter(|m| m.role == MessageRole::Tool)
+            .map(|m| m.text_content())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        Message::text(MessageRole::Assistant, text)
+    };
+    // Non-streaming: deliver the whole answer in one delta so SSE clients that
+    // only render `turn.delta` still show it.
+    if let wf_types::message::MessageContentValue::Text(text) = &message.content {
+        if !text.is_empty() {
+            events::turn_delta(ctx, session_id, turn_id, node_id, text);
+        }
+    }
+
+    GeneratedAnswer {
+        message: Some(message),
+        usage,
+        state: ReplyState::Kept,
+        error: None,
+        base: Some(base.to_string()),
+        trace: outcome.trace,
     }
 }
 
@@ -467,6 +604,7 @@ async fn prepare_request(
     session_id: &str,
     node_id: &str,
     profile_id: &str,
+    allowed_tools: &[String],
 ) -> ApiResult<(wf_types::llm::LlmRequest, String)> {
     use wf_storage::adapter::base::BaseStorageAdapter;
     let tree = store::load_existing(ctx, session_id)
@@ -511,9 +649,24 @@ async fn prepare_request(
         .base(node_id)
         .map(str::to_string)
         .ok_or_else(|| ApiError::not_found("conversation node", node_id))?;
-    let request = session
+    let mut request = session
         .continue_turn(Some(session_id))
         .map_err(|error| ApiError::Validation(error.to_string()))?;
+
+    // Declare exactly the allow-listed tools to the provider. `ChatSession`
+    // stays tool-free; declarations are attached to this one request only.
+    // The narrow driver re-validates every emitted call against the same list.
+    if !allowed_tools.is_empty() {
+        let mut declarations = Vec::with_capacity(allowed_tools.len());
+        for name in allowed_tools {
+            if let Some(tool) = ctx.tool_registry.get_tool(name) {
+                declarations.push(tool.wire_declaration());
+            }
+        }
+        if !declarations.is_empty() {
+            request.tools = Some(declarations);
+        }
+    }
     Ok((request, base))
 }
 
@@ -585,6 +738,26 @@ pub(crate) async fn converge_answer(
         }
     }
 
+    // Tool round-trip messages are immutable and content-addressed, so each is
+    // stored first and then referenced by the reply trace. A store failure for
+    // one trace message drops that message rather than failing the whole turn:
+    // trace is advisory context, not the answer body.
+    let mut trace_refs: Vec<MessageRef> = Vec::with_capacity(answer.trace.len());
+    for message in std::mem::take(&mut answer.trace) {
+        match persist_message(ctx, session_id, message.clone()).await {
+            Ok(id) => trace_refs.push(MessageRef::new(
+                id,
+                conversation_tree::message_hash(&message),
+            )),
+            Err(error) => tracing::warn!(
+                target: "wf_api::conversation",
+                session_id,
+                error = %error,
+                "failed to persist a reply trace message"
+            ),
+        }
+    }
+
     let now = wf_common::now();
     let mut digests = store::digests(&tree);
     let current_base = digests
@@ -608,11 +781,14 @@ pub(crate) async fn converge_answer(
                     message.id.clone(),
                     conversation_tree::message_hash(&message),
                 );
+                // `None` keeps the params captured at submit time (profile +
+                // effective tool allow-list), so `model_drift` compares like
+                // with like even if config changed mid-generation.
                 editor
                     .finish_reply(
                         node_id,
                         reference,
-                        Vec::new(),
+                        trace_refs,
                         answer.state,
                         None,
                         &based_on,

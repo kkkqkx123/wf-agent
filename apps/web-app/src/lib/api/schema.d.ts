@@ -2375,6 +2375,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/sessions/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_undo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/starters": {
         parameters: {
             query?: never;
@@ -13012,6 +13028,11 @@ export interface components {
             tool_calls?: number | null;
         };
         CreateBody: {
+            /**
+             * @description Tools this session may use in a read-only tool round. Empty/absent keeps
+             *     the plain streaming path.
+             */
+            allowed_tools?: string[] | null;
             profile_id?: string | null;
         };
         CreateCheckpointBody: {
@@ -15026,6 +15047,11 @@ export interface components {
             stopped: boolean;
         };
         TurnBody: {
+            /**
+             * @description Per-turn override of the session tool allow-list. Empty/absent falls
+             *     back to the session-level list configured at creation.
+             */
+            allowed_tools?: string[] | null;
             /** Format: int64 */
             if_version?: number | null;
             images?: unknown[] | null;
@@ -27503,6 +27529,74 @@ export interface operations {
             };
             /** @description Forbidden: API key lacks access */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_undo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionBody"];
+            };
+        };
+        responses: {
+            /** @description Surgery undone */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No surgery to undo */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

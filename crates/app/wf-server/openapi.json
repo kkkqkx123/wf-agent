@@ -12235,6 +12235,67 @@
         ]
       }
     },
+    "/api/v1/chat/sessions/{id}/undo": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "handle_undo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Surgery undone",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "No surgery to undo"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/chat/starters": {
       "get": {
         "tags": [
@@ -62242,6 +62303,16 @@
       "CreateBody": {
         "type": "object",
         "properties": {
+          "allowed_tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Tools this session may use in a read-only tool round. Empty/absent keeps\nthe plain streaming path."
+          },
           "profile_id": {
             "type": [
               "string",
@@ -68245,6 +68316,16 @@
       "TurnBody": {
         "type": "object",
         "properties": {
+          "allowed_tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Per-turn override of the session tool allow-list. Empty/absent falls\nback to the session-level list configured at creation."
+          },
           "if_version": {
             "type": [
               "integer",

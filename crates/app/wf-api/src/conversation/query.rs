@@ -156,9 +156,10 @@ pub async fn snapshot(
     let tree = store::load_or_adopt(ctx, session_id).await?;
     let index = store::digests(&tree);
     let dirty = conversation_tree::evaluate_dirty(&tree, &index, leaf);
+    let allowed_tools = session_allowed_tools(ctx, session_id).await;
     let params = session_profile(ctx, &tree)
         .await
-        .and_then(|profile_id| current_fingerprint(ctx, &profile_id, &[]));
+        .and_then(|profile_id| current_fingerprint(ctx, &profile_id, &allowed_tools));
     let inflight: Option<InflightSnapshot> = runtime::runtime_for(session_id).inflight();
     Ok(SessionSnapshot {
         session_id: session_id.to_string(),
@@ -286,6 +287,28 @@ pub(crate) async fn session_profile(ctx: &ApiContext, tree: &ConversationTree) -
         .flatten()
         .and_then(|record| record.context)
         .and_then(|context| context.profile_id)
+}
+
+/// Tools a session may use in a read-only tool round.
+///
+/// The session-level allow-list lives on the agent execution record's runtime
+/// config (`AgentRuntimeConfig.available_tools`), so it is configured once at
+/// session creation and survives across turns. Empty means the session never
+/// enters the narrow driver and keeps the plain streaming path.
+pub(crate) async fn session_allowed_tools(ctx: &ApiContext, session_id: &str) -> Vec<String> {
+    let mut tools = ctx
+        .storage
+        .agent_execution
+        .load(session_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|record| record.context)
+        .and_then(|context| context.available_tools)
+        .unwrap_or_default();
+    tools.sort();
+    tools.dedup();
+    tools
 }
 
 /// Build the current generation fingerprint for a profile.

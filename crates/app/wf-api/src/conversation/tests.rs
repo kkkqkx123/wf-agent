@@ -33,7 +33,7 @@ fn make_ctx(replies: &[&str]) -> Arc<ApiContext> {
 }
 
 async fn session(ctx: &Arc<ApiContext>) -> String {
-    create_session(ctx, Some("mock".to_string()), None)
+    create_session(ctx, Some("mock".to_string()), None, None)
         .await
         .expect("session created")
         .session_id
@@ -258,6 +258,98 @@ async fn detaching_with_the_prefix_keeps_the_subtree_fresh() {
     .expect("attach");
     let dirty = dirty_list(&ctx, &session_id, None).await.expect("dirty");
     assert!(dirty.is_empty(), "round trip stays clean: {dirty:?}");
+}
+
+/// Build a context whose `mock` profile returns one tool call to `echo_tool`,
+/// backed by a real stateless handler. This exercises the read-only narrow
+/// driver end to end without touching the workspace.
+fn make_echo_ctx() -> Arc<ApiContext> {
+    use wf_types::message::{LlmFunctionCall, LlmToolCall};
+    use wf_types::tool::{Tool as ToolDef, ToolType};
+
+    let call = LlmToolCall {
+        id: "call-echo".to_string(),
+        r#type: "function".to_string(),
+        function: LlmFunctionCall {
+            name: "echo_tool".to_string(),
+            arguments: r#"{"key":"value"}"#.to_string(),
+        },
+        call_id: None,
+        thought_signature: None,
+    };
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![call]));
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock);
+
+    let registry = Arc::new(wf_tools::create_default_tool_registry());
+    registry.register_tool(ToolDef {
+        id: wf_types::Id::from("echo_tool"),
+        name: "echo_tool".to_string(),
+        description: "Echoes its input".to_string(),
+        tool_type: ToolType::Stateless,
+        parameters: None,
+        metadata: None,
+        config: None,
+        enabled: Some(true),
+        strict: Some(true),
+        default_timeout_ms: None,
+    });
+    let handler: wf_tools::executor::stateless::StatelessAsyncHandler =
+        Arc::new(move |args, _ctx| {
+            Box::pin(async move {
+                Ok(serde_json::json!({"echo": args}))
+                    as Result<serde_json::Value, wf_tools::error::ToolError>
+            })
+        });
+    registry.register_stateless_async_handler("echo_tool", handler);
+
+    Arc::new(ApiContext::from_runtime_parts(
+        Arc::new(StorageContext::new_memory()),
+        Arc::new(ResourceRegistries::new()),
+        Arc::new(wf_core::EventBus::new(64)),
+        gateway,
+        registry,
+        None,
+    ))
+}
+
+#[tokio::test]
+async fn a_readonly_tool_round_archives_trace_in_the_reply() {
+    let ctx = make_echo_ctx();
+    let session_id = create_session(
+        &ctx,
+        Some("mock".to_string()),
+        None,
+        Some(vec!["echo_tool".to_string()]),
+    )
+    .await
+    .expect("session created")
+    .session_id;
+    let handle = turn(&ctx, &session_id, "please look this up").await;
+
+    let path = path_messages(&ctx, &session_id, None)
+        .await
+        .expect("path readable");
+    // The tool round-trip is projected as tool_trace and the final answer as
+    // reply, so both roles must be present.
+    assert!(
+        path.iter().any(|m| m.role == "tool_trace"),
+        "tool round-trip archived: {path:?}"
+    );
+    assert!(
+        path.iter().any(|m| m.role == "reply"),
+        "final answer present: {path:?}"
+    );
+    let snapshot = snapshot(&ctx, &session_id, None)
+        .await
+        .expect("snapshot");
+    let node = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.id == handle.node_id)
+        .expect("node");
+    assert_eq!(node.reply.as_ref().map(|r| r.state), Some("kept"));
 }
 
 #[tokio::test]

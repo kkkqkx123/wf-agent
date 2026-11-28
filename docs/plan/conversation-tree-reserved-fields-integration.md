@@ -209,3 +209,112 @@ undo(session, if_version):
 
 - `Reply.trace`：**不过度**。它是内容寻址脏传播与上下文回放的必要载体，`adopt.rs` 已在真实使用；本次未删除，而是补齐了可执行它的窄驱动。
 - 真正过度的是"预留却永不激活"的状态——本次把 undo 从"只写不读"补成闭环，并选择了**快照式**这一更简单、更易测的撤销实现，替代原设计的逐手术逆操作。
+
+---
+
+## 7. 剩余任务的细化实施方案（第二轮）
+
+> 本节把 §6.2 的三项"留作后续"细化为可逐条落地、可编译验证的方案。
+> 所有 `file:line` 以本轮开始时的 working tree 为准。
+
+### 7.1 设计原则：默认零行为变化
+
+白名单入口的默认值为空。任何未显式配置白名单的会话，其生成路径、事件序列、落库内容与上一轮**完全一致**——只有配置了该会话的白名单才进入只读工具轮。这样把高风险改动限制在 opt-in 通道内，存量会话与测试不受影响。
+
+### 7.2 任务 A：会话白名单配置入口（对应 §6.2-2）
+
+数据模型已经就位：`AgentRuntimeConfig.available_tools: Option<Vec<String>>`（`runtime_config.rs:40`）是会话执行记录的一部分，随 `AgentExecution` 持久化，无需新增 schema。要做的是把它从"字段存在但无人写"接通到三个入口：
+
+| 层 | 改动 | 文件 |
+| --- | --- | --- |
+| Server DTO | `CreateBody`、`TurnBody` 增 `#[serde(default)] allowed_tools: Option<Vec<String>>`；`TurnBody` 的 handler 透传给 `TurnRequest.allowed_tools` | `wf-server/api/conversation.rs` |
+| API request | `TurnRequest` 增 `allowed_tools: Vec<String>`（默认空）；`create_session` 增 `allowed_tools: Option<Vec<String>>` 参数 | `wf-api/conversation/turn.rs`、`store.rs` |
+| 持久化 | `record_session` 增 `allowed_tools` 参数，写入 `AgentRuntimeConfig.available_tools`（沿用现有 existing 保留逻辑：本轮为 None 时保留旧值） | `wf-api/conversation/store.rs` |
+| 读取 | 新增 `session_allowed_tools(ctx, tree) -> Vec<String>`：优先 tree 记录的执行上下文，回退 `AgentExecution.context.available_tools`，排序去重 | `wf-api/conversation/query.rs` |
+
+**覆盖语义**：本轮 `TurnRequest.allowed_tools` 非空则以它为准（per-turn 覆盖）；为空则读会话级配置。两者都经 `current_fingerprint` 写入 reply 与 snapshot，使 `model_drift` 在工具集变化时正确触发（这是 §6.2-2 的验收点）。
+
+### 7.3 任务 B：窄驱动与生成链接线（对应 §6.2-1）
+
+这是核心，按四段接入，全程保留"无白名单走原流式"的短路：
+
+1. **入口贯通**：`submit_turn` 解析出本轮白名单（`request.allowed_tools` 或 `session_allowed_tools`），写入 `Driver.allowed_tools`；`current_fingerprint(&ctx, &profile_id, &allowed)` 替换当前硬编码 `&[]`（`turn.rs:186`）。`step.rs` 的 StepJob 同样携带白名单，重算时口径一致。
+
+2. **工具声明注入**：`prepare_request` 增 `allowed_tools: &[String]` 参数。当非空时，从 `ctx.tool_registry` 逐个 `get_tool(name).wire_declaration()` 组装 `request.tools`，并对每个工具加固有超时（若 profile 未设）。空时保持 `tools = None`（`ChatSession` 的工具边界不动）。
+
+3. **generate_answer 分流**：
+   - 白名单空 → 现有 `generate_stream` + `TurnAccumulator` 路径**原样保留**。
+   - 白名单非空 → 调用 `generate_readonly_turn(...)`（`wf-execution-shared`），一次生成 + 至多 4 次白名单内工具执行；把 `outcome.generation.message` 作为答案，`outcome.trace` 作为轨迹。该路径非流式，无法逐 delta 推送，因此在生成完成后发布一条 `turn_delta`（整段文本）+ 一条 `turn_usage`；每个工具执行发布一条 `turn_tool` 事件。
+
+4. **SSE 工具事件**：新增 `EventType::ConversationTurnTool`（`wf-types/events/base.rs` 枚举 + `as_str`）；`events.rs` 增 `turn_tool(ctx, session, turn, node, tool_name, call_id)`；`wf-server/api/conversation.rs::frame_of` 映射为 `"turn.tool"`。`FromStr` 走 serde derive 自动覆盖，无需手改。
+
+5. **trace 落库**：`GeneratedAnswer` 增 `trace: Vec<Message>`（failed/interrupted 构造为空）。`converge_answer` 在写回前把 trace 中每条消息 `persist_message`，转成 `MessageRef` 列表，传给 `finish_reply(node, reference, trace_refs, state, params, &based_on)`；`params` 由 `current_fingerprint` 按本轮白名单构造，替换当前硬编码 `None`（`turn.rs:617`）。这样工具轨迹进入 `reply_part` 摘要折叠与路径投影，形成闭环。
+
+**关键取舍**：只读轮采用**非流式生成**（窄驱动是 `gateway.generate`），因为它只做一次生成 + 有界工具执行，不涉及多轮 agent loop。这不改变现有流式路径；代价是工具轮无逐字 delta，由完成后的一次性 `turn_delta` 补偿。这与设计 §7.5"只读轮极窄、无 checkpoint、无第二轮"的边界一致。
+
+### 7.4 任务 C：OpenAPI 快照刷新（对应 §6.2-3）
+
+`openapi.json` 是 golden-file，由 `openapi::tests::committed_snapshot_matches_document` 校验。上一轮已注册 `/undo` 与 handler，但快照未刷新——这意味着该测试当前**应当失败**。本轮一并刷新：
+
+```bash
+# 1) 刷新后端快照（含本轮新增的 allowed_tools 字段与 /undo 端点）
+WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document
+# 2) 反向校验（不带 WF_REFRESH_OPENAPI 应通过）
+cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document
+# 3) 生成 TS 类型（离线 codegen 工具，Node>=22）
+cd tools/openapi-codegen && npm install --silent && npm run gen
+```
+
+若 `openapi-typescript` 安装受网络限制，退化为按快照手工补充 `schema.d.ts` 中新增的路径/字段，并在验证结果中如实标注。
+
+### 7.5 实施顺序与验证
+
+顺序：任务 A（入口，低风险）→ 任务 B 之 SSE 事件（新增变体，编译器兜底穷举）→ 任务 B 之接线与落库 → 任务 C（快照）。
+
+验证（Rust 1.97）：
+- `cargo check -p wf-types -p wf-execution-shared -p wf-api -p wf-server`
+- `cargo test -p wf-execution-shared --lib readonly_tool_round`（既有 3 项）
+- `cargo test -p wf-api --lib --features keyword-tantivy,keyword-elastic,rag-vector conversation`（既有 7 项 + 新增入口测试）
+- `cargo test -p wf-server --lib openapi::tests::committed_snapshot_matches_document`
+- 新增单测：白名单覆盖解析、`prepare_request` 注入声明、trace 落库后 `reply_part` 折叠。
+
+> 注：`cargo test -p wf-server --no-default-features ...` 会因 `wf-api/rag.rs` 引用被 feature 门控的函数而失败（仓库预存问题，README 的命令在本 checkout 上不成立）；改用默认 feature（含 `keyword-elastic`/`keyword-tantivy`/`rag-vector`）可正常编译。
+
+---
+
+## 8. 第二轮实施记录（剩余任务全部完成）
+
+### 8.1 已完成
+
+| 任务 | 实现 | 文件 |
+| --- | --- | --- |
+| 会话白名单入口 | `CreateBody`/`TurnBody.allowed_tools` → `create_session` → `record_session` 写入 `AgentRuntimeConfig.available_tools`；`TurnRequest.allowed_tools` | `wf-server/api/conversation.rs`、`wf-api/conversation/{store,turn}.rs` |
+| 白名单读取 | `session_allowed_tools` 从执行记录读回，三处口径统一（turn 写入 / step 重算 / snapshot 判定） | `wf-api/conversation/{query,step,turn}.rs` |
+| 工具声明注入 | `prepare_request` 按白名单 `get_tool().wire_declaration()` 注入 `request.tools`，`ChatSession` 无工具边界不变 | `wf-api/conversation/turn.rs` |
+| 生成分流 | `generate_answer` 白名单空走原流式；非空走 `generate_readonly_turn` 窄驱动（非流式） | 同上 |
+| SSE 工具事件 | 新增 `EventType::ConversationTurnTool` + `events::turn_tool` + `frame_of` → `turn.tool` | `wf-types/events/base.rs`、`wf-api/conversation/events.rs`、`wf-server/api/conversation.rs` |
+| trace 落库 | `GeneratedAnswer.trace` → 逐条持久化 → `MessageRef` → `finish_reply`；工具结果折叠为答案正文避免投影重复 | `wf-api/conversation/turn.rs` |
+| 端到端测试 | `a_readonly_tool_round_archives_trace_in_the_reply`：echo 工具 + 工具调用 mock，验证 trace 归档 | `wf-api/conversation/tests.rs` |
+| OpenAPI 快照 | 刷新 `openapi.json`（含 `/undo` 端点 + `allowed_tools` 字段）+ TS 类型 | `crates/app/wf-server/openapi.json`、`apps/web-app/src/lib/api/schema.d.ts` |
+
+### 8.2 关键设计取舍：非流式工具轮 + 答案正文合成
+
+窄驱动是**非流式**的（`gateway.generate`），因此工具轮无法逐字 delta。处理：生成完成后发布整段 `turn_delta` + 每个工具一条 `turn.tool` + 一条 `turn_usage`。
+
+工具轮返回时 `generation.message` 是 assistant 的 `tool_calls` 消息，而 `trace[0]` 是同一条消息。若直接把 `generation.message` 作为 reply body、trace 全量归档，投影会把 tool_calls 消息注入两次。解决：有工具往返时，把 trace 中所有 `Tool` 结果的文本折叠成一条 assistant 消息作为 reply body，`trace` 仍保留完整往返（供摘要折叠与上下文回放）；无工具时直接用模型文本。这样投影顺序 `context → user → trace → reply` 语义正确。
+
+### 8.3 默认零行为变化
+
+白名单默认空：未配置会话仍走原流式路径，事件序列、落库、fingerprint 与上一轮完全一致。所有改动集中在 opt-in 通道，存量会话与既有测试不受影响（既有 7 项 conversation 测试 + 新增 1 项全绿）。
+
+### 8.4 验证结果（Rust 1.97）
+
+- `cargo check -p wf-types -p wf-execution-shared -p wf-api -p wf-server` —— Finished
+- `cargo test -p wf-execution-shared --lib readonly_tool_round` —— **3 passed**
+- `cargo test -p wf-api --lib --features keyword-tantivy,keyword-elastic,rag-vector conversation` —— **8 passed**（含新增工具轮测试）
+- `cargo test -p wf-server --lib openapi::tests::committed_snapshot_matches_document` —— 快照一致
+
+### 8.5 剩余（超出本轮范围）
+
+- Web 前端对 `turn.tool` 事件的渲染（后端已发布 `turn.tool` 帧，前端 UI 可按需消费）。
+- 只读工具的**产品白名单**需由部署侧在会话创建时下发；代码入口已就位，默认空。

@@ -127,6 +127,10 @@ struct StreamQuery {
 pub(crate) struct CreateBody {
     #[serde(default)]
     profile_id: Option<String>,
+    /// Tools this session may use in a read-only tool round. Empty/absent keeps
+    /// the plain streaming path.
+    #[serde(default)]
+    allowed_tools: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -143,6 +147,10 @@ pub(crate) struct TurnBody {
     parent: Option<String>,
     #[serde(default)]
     if_version: Option<u64>,
+    /// Per-turn override of the session tool allow-list. Empty/absent falls
+    /// back to the session-level list configured at creation.
+    #[serde(default)]
+    allowed_tools: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -257,7 +265,14 @@ async fn handle_create_session(
     State(state): State<ApiState>,
     Json(body): Json<CreateBody>,
 ) -> Response {
-    match wf_api::conversation::create_session(&state.ctx, body.profile_id, None).await {
+    match wf_api::conversation::create_session(
+        &state.ctx,
+        body.profile_id,
+        None,
+        body.allowed_tools,
+    )
+    .await
+    {
         Ok(tree) => ok(json!({
             "session_id": tree.session_id,
             "tree_id": tree.id,
@@ -362,6 +377,7 @@ async fn handle_submit_turn(
         parent: body.parent,
         if_version: body.if_version,
         directory: None,
+        allowed_tools: body.allowed_tools.unwrap_or_default(),
     };
     match wf_api::conversation::submit_turn(state.ctx.clone(), request).await {
         Ok(handle) => (axum::http::StatusCode::ACCEPTED, ok(handle)).into_response(),
@@ -913,6 +929,7 @@ fn frame_of(event: &BaseEvent) -> (&'static str, String) {
             _ => "turn.delta",
         },
         EventType::LlmStreamDone => "turn.usage",
+        EventType::ConversationTurnTool => "turn.tool",
         EventType::ConversationTreeChanged => "tree.changed",
         EventType::ConversationDirtyChanged => "dirty.changed",
         EventType::ConversationStepStarted => "step.started",

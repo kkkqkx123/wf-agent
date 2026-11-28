@@ -222,6 +222,10 @@ pub enum EventType {
     /// A stepping run ended. Metadata carries `job_id`, `reason`, the number
     /// of regenerated steps and the final node.
     ConversationStepCompleted,
+    /// A read-only tool round executed one allow-listed tool during a
+    /// conversation-tree turn. Metadata carries `turn_id`, `node_id`,
+    /// `tool_name`, `call_id` and `success`.
+    ConversationTurnTool,
 }
 
 impl EventType {
@@ -382,6 +386,7 @@ impl EventType {
             EventType::ConversationDirtyChanged => "CONVERSATION_DIRTY_CHANGED",
             EventType::ConversationStepStarted => "CONVERSATION_STEP_STARTED",
             EventType::ConversationStepCompleted => "CONVERSATION_STEP_COMPLETED",
+            EventType::ConversationTurnTool => "CONVERSATION_TURN_TOOL",
         }
     }
 }

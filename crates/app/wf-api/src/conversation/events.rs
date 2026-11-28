@@ -119,6 +119,30 @@ pub fn turn_usage(
     );
 }
 
+/// One allow-listed tool executed during a read-only tool round.
+pub fn turn_tool(
+    ctx: &ApiContext,
+    session_id: &str,
+    turn_id: &str,
+    node_id: &str,
+    tool_name: &str,
+    call_id: &str,
+    success: bool,
+) {
+    publish(
+        ctx,
+        EventType::ConversationTurnTool,
+        session_id,
+        metadata(vec![
+            ("turn_id", serde_json::json!(turn_id)),
+            ("node_id", serde_json::json!(node_id)),
+            ("tool_name", serde_json::json!(tool_name)),
+            ("call_id", serde_json::json!(call_id)),
+            ("success", serde_json::json!(success)),
+        ]),
+    );
+}
+
 pub fn turn_completed(
     ctx: &ApiContext,
     session_id: &str,
